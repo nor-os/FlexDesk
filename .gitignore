@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# dist/ IS COMMITTED ON PURPOSE — do not add it here.
+#
+# FlexDesk's packaging decision is "prebuilt dist": this repo owns the esbuild
+# build and commits its output, so a consumer with no bundler — EcoAgent has no
+# package.json, no node_modules and no build step — can load the library through a
+# plain import map. Ignoring dist/ would break exactly the consumer this library
+# was extracted for.
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
+
+# Logs & caches
+npm-debug.log*
+yarn-error.log*
+.npm/
+.eslintcache
+*.tsbuildinfo
+
+# Local env
+.env
+.env.local

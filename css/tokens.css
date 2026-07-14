@@ -1,0 +1,137 @@
+/* ════════════════════════════════════════════════════════════════════
+   tokens.css — single source of truth for design tokens.
+
+   Loaded before every other stylesheet (see index.html). All other
+   stylesheets must reference these variables instead of writing
+   literal values.
+
+   Phase 1 contract: defining these tokens must not change the visible
+   UI. Each value is chosen to match what the existing CSS already
+   resolves to today — either the value of a dominant literal in use,
+   or the fallback that page-prefixed aliases (--config-*, --sm-*, …)
+   already evaluate to via `var(--ghost, #fallback)`.
+
+   See docs/UX_HARMONIZATION.md for the harmonization plan.
+   ──────────────────────────────────────────────────────────────────── */
+
+:root {
+
+    /* ── Spacing scale ─────────────────────────────────────────────
+       8-step scale derived from observed gap/padding usage.
+       Top-of-cluster values: 8 (237), 6 (165), 4 (148), 12 (93). */
+    --space-xxs:  2px;
+    --space-xs:   4px;
+    --space-sm:   6px;
+    --space-md:   8px;
+    --space-lg:  12px;
+    --space-xl:  16px;
+    --space-2xl: 24px;
+    --space-3xl: 32px;
+
+    /* ── Border radius ─────────────────────────────────────────────
+       3-step scale + special tokens for circles and pills. */
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 8px;
+    --radius-pill: 999px;
+    --radius-circle: 50%;
+
+    /* ── Typography ─────────────────────────────────────────────── */
+    --font-family-sans: system-ui, -apple-system, BlinkMacSystemFont,
+                        'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell,
+                        'Open Sans', 'Helvetica Neue', sans-serif;
+    --font-family-mono: ui-monospace, 'SF Mono', 'Consolas', 'Monaco', monospace;
+
+    /* 6-step scale: top-of-cluster sizes only. */
+    --font-size-xs:  11px;
+    --font-size-sm:  12px;   /* body default */
+    --font-size-md:  13px;
+    --font-size-lg:  14px;
+    --font-size-xl:  16px;
+    --font-size-2xl: 18px;
+
+    --font-weight-regular: 400;
+    --font-weight-medium:  500;
+    --font-weight-semibold: 600;  /* dominant in codebase */
+    --font-weight-bold:    700;
+
+    --line-height-tight:   1.2;
+    --line-height-normal:  1.5;
+    --line-height-relaxed: 1.7;
+
+    /* ── Surfaces (background hierarchy) ────────────────────────────
+       Values match the most-frequent gray literals in use today. */
+    --surface-0: #1e1e1e;  /* page / tab background  (103 uses) */
+    --surface-1: #252526;  /* cards, panels          (56 uses)  */
+    --surface-2: #2d2d2d;  /* elevated, hover bg     (107 uses) */
+    --surface-3: #3c3c3c;  /* form-control bg        (240 uses) */
+    --surface-app: #121212; /* application chrome (root) */
+    --surface-well: #0d0d0d; /* recessed wells / sunken areas */
+
+    /* ── Borders ────────────────────────────────────────────────── */
+    --border-subtle:  #2a2a2a;  /* dividers within cards (174 uses) */
+    --border-default: #303030;  /* card / panel borders (ghost-global fallback) */
+    --border-strong:  #383838;  /* emphasized borders (--layout-border-default value) */
+
+    /* ── Text ───────────────────────────────────────────────────── */
+    --text-primary:   #e0e0e0;  /* primary body text */
+    --text-secondary: #cccccc;  /* lighter secondary (e.g. tree-view rows) */
+    --text-body:      #d4d4d4;  /* base.css body default — between primary & secondary */
+    --text-muted:     #888888;  /* de-facto canonical muted gray (268+ literal uses) */
+    --text-dim:       #666666;
+    --text-bright:    #ffffff;
+
+    /* ── Accent / brand ─────────────────────────────────────────────
+       Two accent values exist in the codebase today:
+         #0e639c (used by all --primary-color fallbacks, deep blue)
+         #007acc (used by --layout-accent, brighter VS Code blue)
+       Phase 5 will pick one. For Phase 1 we keep both wired.        */
+    --accent:           #0e639c;
+    --accent-hover:     #1177bb;
+    --accent-bright:    #007acc;  /* --layout-accent value */
+
+    /* ── Semantic colors ───────────────────────────────────────── */
+    --color-success:        #3fb950;
+    --color-warning:        #ff9800;
+    --color-danger:         #c74e4e;
+    --color-danger-hover:   #d85858;
+    --color-info:           #2196f3;
+
+    /* ── Surface state overlays ────────────────────────────────── */
+    --state-hover:    rgba(255, 255, 255, 0.05);
+    --state-active:   rgba(255, 255, 255, 0.08);
+    --state-selected: rgba(0, 122, 204, 0.15);
+
+    /* ── Shadows / elevation ──────────────────────────────────── */
+    --shadow-sm:   0 1px 3px rgba(0, 0, 0, 0.3);
+    --shadow-md:   0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-lg:   0 8px 24px rgba(0, 0, 0, 0.5);
+    --shadow-glow: 0 0 2px rgba(0, 122, 204, 0.3);
+
+    /* ── Z-index layers ───────────────────────────────────────── */
+    --z-base:     0;
+    --z-sticky:   10;
+    --z-dropdown: 100;
+    --z-popover:  200;
+    --z-modal:    1000;
+    --z-toast:    10000;
+
+    /* ── Transitions ──────────────────────────────────────────── */
+    --transition-fast:   120ms ease;
+    --transition-normal: 150ms ease;  /* dominant duration in codebase */
+    --transition-slow:   300ms ease;
+
+
+    /* ── Layout-semantic tokens (page / section / tab-bar) ──────
+       Named for their purpose, not their value. Used by chrome
+       rules in main_new.css and a handful of page-specific files. */
+    --layout-pad-h:            var(--space-2xl);   /* 24px — page horizontal padding */
+    --layout-pad-section:      var(--space-xl);    /* 16px — internal section / card spacing */
+    --layout-tab-bar-pad-left: 22px;               /* aligns first tab icon with title */
+    --layout-radius:           var(--radius-lg);   /* 8px — large container radius */
+
+    /* Ghost-global aliases (--panel-bg, --primary-color, --border-color,
+       --panel-surface, --panel-header-bg, --primary-color-hover) removed
+       in Phase 7 — all page CSS now references canonical tokens
+       directly. */
+}

@@ -1,0 +1,80 @@
+{
+    "name": "flexdesk",
+    "version": "0.1.0",
+    "description": "A tiling window manager and widget set for desktop-class web applications. Zero runtime dependencies.",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "git+ssh://git@github.com/nor-os/FlexDesk.git"
+    },
+    "homepage": "https://github.com/nor-os/FlexDesk",
+    "bugs": {
+        "url": "https://github.com/nor-os/FlexDesk/issues"
+    },
+    "type": "module",
+    "sideEffects": [
+        "*.css"
+    ],
+    "files": [
+        "dist",
+        "src",
+        "css",
+        "README.md",
+        "LICENSE",
+        "THIRD_PARTY_LICENSES.md"
+    ],
+    "exports": {
+        "./core": {
+            "import": "./dist/core.js",
+            "development": "./core.js"
+        },
+        "./host": {
+            "import": "./dist/host.js",
+            "development": "./host.js"
+        },
+        "./wm": {
+            "import": "./dist/wm.js",
+            "development": "./wm.js"
+        },
+        "./widgets": {
+            "import": "./dist/widgets.js",
+            "development": "./widgets.js"
+        },
+        "./css": "./dist/flexdesk.css",
+        "./css/tokens": "./css/tokens.css",
+        "./charts": {
+            "import": "./dist/charts.js",
+            "development": "./charts.js"
+        },
+        "./tiles": {
+            "import": "./dist/tiles.js",
+            "development": "./tiles.js"
+        },
+        "./editor": {
+            "import": "./dist/editor.js",
+            "development": "./editor.js"
+        }
+    },
+    "scripts": {
+        "build": "node build.mjs",
+        "check": "node build.mjs --check"
+    },
+    "devDependencies": {
+        "esbuild": "^0.28.1"
+    },
+    "peerDependenciesMeta": {
+        "plotly.js": {
+            "optional": true
+        },
+        "monaco-editor": {
+            "optional": true
+        }
+    },
+    "keywords": [
+        "tiling",
+        "window-manager",
+        "datatable",
+        "command-palette",
+        "ui"
+    ]
+}

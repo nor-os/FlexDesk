@@ -1,0 +1,46 @@
+/* ════════════════════════════════════════════════════════════════════
+   base.css — reset, body, scrollbars, headings.
+
+   Extracted from the inline block at the top of main_new.css so the
+   reset lives separately from the rest of the main stylesheet. Loaded
+   after tokens.css and before everything else.
+
+   Phase 1 contract: zero visible change. Every rule here is moved
+   verbatim from main_new.css; the only difference is that color/size
+   literals are expressed through tokens where the value already
+   matches a canonical token exactly.
+
+   See docs/UX_HARMONIZATION.md.
+   ──────────────────────────────────────────────────────────────────── */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: var(--font-family-sans);
+    font-size: var(--font-size-sm);          /* 12px */
+    background-color: var(--surface-0);      /* #1e1e1e */
+    color: #d4d4d4;
+    margin: 0;
+    padding: 0;
+    height: 100vh;
+    overflow: hidden;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+}
+
+/* Native <select> defaults — kept dark so unstyled selects don't pop. */
+select {
+    background-color: var(--surface-3);      /* #3c3c3c */
+    color: #cccccc;
+}
+
+select option {
+    background-color: var(--surface-3);
+    color: #cccccc;
+}

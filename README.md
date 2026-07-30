@@ -10,8 +10,9 @@ trees and context menus.
 FlexDesk, you install FlexDesk.
 
 FlexDesk was extracted from [EcoAgent](https://github.com/nor-os/EcoAgent), a
-macroeconomic simulation platform, and it knows nothing about economics. That is
-not a claim — it is a gate. See [Guarantees](#guarantees).
+macroeconomic simulation platform, and it knows nothing about economics: no
+application vocabulary, no import of anything application-specific, in any
+shipped file.
 
 ```bash
 npm install flexdesk
@@ -176,25 +177,6 @@ Three stylesheets, and that is the whole CSS contract:
 Icons are rendered by applying the `material-symbols-outlined` class. FlexDesk does
 not ship the font — supply it from Google Fonts or self-host. Without it, icons fall
 back to their text names and nothing breaks.
-
-## Guarantees
-
-These are gates in CI, not intentions:
-
-- **The library imports nothing from any application.** A lint walks the real import
-  graph — including dynamic `await import()` — and fails on a single edge.
-- **The library contains no application vocabulary.** A second lint counts domain
-  words in shipped code. Zero.
-- **Every entry point imports cleanly without a DOM.** A test imports all seven in
-  Node. This caught three modules doing DOM work at *module scope* — two assigning
-  to `window`, one monkey-patching `HTMLCanvasElement.prototype` — each of which made
-  its entry point throw `ReferenceError` outside a browser.
-- **The public API does not silently shrink.** The same test pins the 126 names its
-  largest consumer imports.
-- **The demo imports zero application modules**, walked transitively through the entry
-  points.
-- **The host application renders identically.** A 60-view pixel gate at exact
-  tolerance (0.0000%) gates every change.
 
 ## Build
 

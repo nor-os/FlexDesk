@@ -320,6 +320,107 @@ export function openTileTabMenu({
 }
 
 
+/** Open a compact menu anchored to the leaf's hamburger button that
+ *  lists the leaf's OPEN TABS for quick switching (a browser-style tab
+ *  overflow list). Clicking a row switches to that tab. Closes on
+ *  Escape, click-outside, or selection.
+ *
+ *  Anchored to the button: the tab strip sits at the bottom of the tile,
+ *  so the menu opens UPWARD, its bottom edge pinned just above the
+ *  hamburger at (x, y) = the button's top-left corner.
+ *
+ *  This is deliberately NOT the same surface as `openTileTabMenu` above
+ *  (which browses a page's content sources to open NEW tabs). The
+ *  hamburger's job is "show me the tabs I already have open here".
+ *
+ * @param {{x:number, y:number,
+ *          tabs: Array<{kind:string, title?:string}>,
+ *          activeIdx?:number,
+ *          onPick:(idx:number)=>void}} opts
+ * @returns {() => void} teardown closure (the menu also self-disposes).
+ */
+export function openTileTabSwitcher({ x, y, tabs, activeIdx = 0, onPick }) {
+    const list = Array.isArray(tabs) ? tabs : [];
+    if (list.length === 0) return () => {};
+
+    const overlay = document.createElement('div');
+    overlay.className = 'twm-tile-tabswitch-overlay';
+    const rows = list.map((t, i) => `
+        <li class="twm-tile-tabswitch__item${i === activeIdx ? ' twm-tile-tabswitch__item--on' : ''}"
+            data-idx="${i}" role="option" aria-selected="${i === activeIdx}">
+            <span class="material-symbols-outlined twm-tile-tabswitch__check">${i === activeIdx ? 'check' : ''}</span>
+            <span class="twm-tile-tabswitch__label">${_esc(t.title || t.kind || 'Tab')}</span>
+        </li>
+    `).join('');
+    overlay.innerHTML = `
+        <div class="twm-tile-tabswitch" role="dialog" aria-label="Open tabs">
+            <header class="twm-tile-tabswitch__head">
+                <span class="material-symbols-outlined">tab</span>
+                <span class="twm-tile-tabswitch__head-label">Open tabs</span>
+            </header>
+            <ul class="twm-tile-tabswitch__list" role="listbox">${rows}</ul>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const panel = overlay.querySelector('.twm-tile-tabswitch');
+    const W = 260;
+    panel.style.position = 'fixed';
+    panel.style.left = `${Math.max(8, Math.min(window.innerWidth - W - 8, x))}px`;
+    // Open upward: pin the panel's bottom just above the hamburger.
+    panel.style.bottom = `${Math.max(8, window.innerHeight - y + 4)}px`;
+    panel.style.maxHeight = `${Math.max(120, y - 16)}px`;
+
+    let alive = true;
+    let cursor = Math.max(0, Math.min(list.length - 1, activeIdx));
+
+    const close = () => {
+        if (!alive) return;
+        alive = false;
+        document.removeEventListener('mousedown', onOutside, true);
+        document.removeEventListener('keydown', onKey, true);
+        overlay.remove();
+    };
+    const onOutside = (ev) => { if (!overlay.contains(ev.target)) close(); };
+    const pick = (idx) => {
+        close();
+        try { onPick?.(idx); }
+        catch (err) { console.warn('[tile-tab-switch] pick failed', err); }
+    };
+    const paint = () => {
+        overlay.querySelectorAll('.twm-tile-tabswitch__item').forEach((li) => {
+            const on = Number(li.dataset.idx) === cursor;
+            li.classList.toggle('twm-tile-tabswitch__item--cursor', on);
+            if (on) li.scrollIntoView({ block: 'nearest' });
+        });
+    };
+    const onKey = (ev) => {
+        if (!alive || ev.isComposing) return;
+        switch (ev.key) {
+            case 'Escape':    ev.preventDefault(); close(); return;
+            case 'ArrowDown': ev.preventDefault();
+                cursor = Math.min(list.length - 1, cursor + 1); paint(); return;
+            case 'ArrowUp':   ev.preventDefault();
+                cursor = Math.max(0, cursor - 1); paint(); return;
+            case 'Home':      ev.preventDefault(); cursor = 0; paint(); return;
+            case 'End':       ev.preventDefault(); cursor = list.length - 1; paint(); return;
+            case 'Enter':     ev.preventDefault(); pick(cursor); return;
+        }
+    };
+    overlay.querySelectorAll('.twm-tile-tabswitch__item').forEach((li) => {
+        const idx = Number(li.dataset.idx);
+        li.addEventListener('mousemove', () => {
+            if (cursor !== idx) { cursor = idx; paint(); }
+        });
+        li.addEventListener('click', () => pick(idx));
+    });
+    document.addEventListener('mousedown', onOutside, true);
+    document.addEventListener('keydown', onKey, true);
+    paint();
+    return close;
+}
+
+
 /** Match a shaped record (`{id, label, hint}`) against `query`.
  *  Case-insensitive substring against any field. Mirrors the command
  *  palette's matching so search semantics are consistent across both

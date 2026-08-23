@@ -1762,14 +1762,20 @@ export class DataTable {
 
         if (sum <= avail) {
             // Grow flexible columns evenly to fill the remaining space so
-            // the table doesn't leave a dead gap on the right.
+            // the table doesn't leave a dead gap on the right. When EVERY
+            // column is pinned (e.g. after the user has dragged a column —
+            // the resize freezes all columns as overrides), fall back to
+            // the last column so the table still spans the full container:
+            // the width invariant — a table never renders narrower than
+            // 100% of its wrap.
             const flex = [];
             for (let i = 0; i < n; i++) if (!pinned[i]) flex.push(i);
             const slack = avail - sum;
-            if (slack > 0 && flex.length) {
-                const per = Math.floor(slack / flex.length);
-                for (const i of flex) widths[i] += per;
-                widths[flex[flex.length - 1]] += slack - per * flex.length;
+            if (slack > 0) {
+                const targets = flex.length ? flex : [n - 1];
+                const per = Math.floor(slack / targets.length);
+                for (const i of targets) widths[i] += per;
+                widths[targets[targets.length - 1]] += slack - per * targets.length;
             }
             return widths;
         }
@@ -1885,7 +1891,6 @@ export class DataTable {
         const headerTable = this._headerTableEl;
         const bodyTable = this._tableEl;
         const headRow = headerTable && headerTable.querySelector('thead > tr');
-        const bodyRow = bodyTable && bodyTable.querySelector('tbody > tr');
         if (!headRow) return;
 
         // Freeze EVERY column at its current width on BOTH tables and
@@ -1897,16 +1902,7 @@ export class DataTable {
             (c) => c.getBoundingClientRect().width);
         headerTable.style.tableLayout = 'fixed';
         if (bodyTable) bodyTable.style.tableLayout = 'fixed';
-        const applyCol = (i, w) => {
-            this._colWidths[i] = w;
-            headerTable.querySelectorAll('thead > tr').forEach((tr) => {
-                if (tr.children[i]) this._setCellWidth(tr.children[i], w);
-            });
-            if (bodyRow && bodyRow.children[i]) {
-                this._setCellWidth(bodyRow.children[i], w);
-            }
-        };
-        startWidths.forEach((w, i) => applyCol(i, w));
+        startWidths.forEach((w, i) => this._pinColumnWidth(i, w));
         this._applyTableWidth();
 
         const startX = ev.clientX;
@@ -1915,8 +1911,11 @@ export class DataTable {
         const onMove = (mv) => {
             const w = Math.max(
                 MIN, Math.round(startWidths[domIdx] + (mv.clientX - startX)));
-            applyCol(domIdx, w);
-            this._applyTableWidth();
+            this._pinColumnWidth(domIdx, w);
+            // Pass the dragged column so the fill invariant reclaims any
+            // freed width into a DIFFERENT (flexible/last) column, never
+            // shrinking the table below the container.
+            this._applyTableWidth(domIdx);
             this._syncHeaderScroll();
         };
         const onUp = () => {
@@ -1930,19 +1929,66 @@ export class DataTable {
         document.addEventListener('mouseup', onUp);
     }
 
-    /** Size both tables to the sum of the header row's explicit column
-     *  widths so a widened column grows the table (→ horizontal scroll)
-     *  rather than stealing from its neighbours. */
-    _applyTableWidth() {
+    /** Pin one column to an explicit width across BOTH tables (every
+     *  header row + the body's first row) and record it as a user
+     *  override so `_syncHeaderWidths` honors it on later renders. The
+     *  single place that writes a column width during a drag / fill. */
+    _pinColumnWidth(i, w) {
+        const headerTable = this._headerTableEl;
+        const bodyTable = this._tableEl;
+        if (!headerTable) return;
+        this._colWidths[i] = w;
+        headerTable.querySelectorAll('thead > tr').forEach((tr) => {
+            if (tr.children[i]) this._setCellWidth(tr.children[i], w);
+        });
+        const bodyRow = bodyTable && bodyTable.querySelector('tbody > tr');
+        if (bodyRow && bodyRow.children[i]) this._setCellWidth(bodyRow.children[i], w);
+    }
+
+    /** Size both tables so a widened column grows the table (→ horizontal
+     *  scroll) rather than stealing from its neighbours — while enforcing
+     *  the TABLE WIDTH INVARIANT: the table is never narrower than its
+     *  container. Any width freed by dragging a column in stretches a
+     *  flexible column (the last one, stepping off the column being
+     *  dragged) so the table always spans ≥100% of the wrap.
+     *
+     * @param {number|null} dragIdx column the user is actively dragging,
+     *        so the fill lands on a DIFFERENT column and doesn't fight the
+     *        drag. Null (non-drag callers) lets the last column flex. */
+    _applyTableWidth(dragIdx = null) {
         const headerTable = this._headerTableEl;
         const bodyTable = this._tableEl;
         const headRow = headerTable && headerTable.querySelector('thead > tr');
         if (!headRow) return;
-        let total = 0;
-        for (const th of headRow.children) {
+        const cells = [...headRow.children];
+        const cols = cells.length;
+        if (cols === 0) return;
+
+        const FLOOR = 40; // matches the drag-resize minimum
+        const widthOf = (th) => {
             const px = parseFloat(th.style.width);
-            total += Number.isFinite(px) ? px : th.getBoundingClientRect().width;
+            return Number.isFinite(px) ? px : th.getBoundingClientRect().width;
+        };
+        const cur = cells.map(widthOf);
+
+        // Fill invariant: pick a flexible column and stretch it to soak up
+        // any freed width so the summed total is never below the container.
+        const wrap = this._tableWrapEl;
+        const avail = wrap ? wrap.clientWidth : 0;
+        let flexIdx = cols - 1;
+        if (dragIdx != null && flexIdx === dragIdx) flexIdx -= 1; // step off the dragged col
+        if (avail > 1 && flexIdx >= 0 && flexIdx !== dragIdx) {
+            let rest = 0;
+            for (let i = 0; i < cols; i++) if (i !== flexIdx) rest += cur[i];
+            const fill = Math.max(FLOOR, Math.round(avail - rest));
+            if (Math.round(fill) !== Math.round(cur[flexIdx])) {
+                this._pinColumnWidth(flexIdx, fill);
+                cur[flexIdx] = fill;
+            }
         }
+
+        let total = 0;
+        for (const w of cur) total += w;
         total = Math.ceil(total);
         headerTable.style.width = `${total}px`;
         if (bodyTable) bodyTable.style.width = `${total}px`;

@@ -286,7 +286,7 @@ export class TileRenderer {
         bar.innerHTML = `
             <button type="button" class="twm-leaf__tab-hamburger"
                     data-action="tab-menu"
-                    title="Open in new tab from this page's content">
+                    title="Show open tabs" aria-label="Show open tabs">
                 <span class="material-symbols-outlined">menu</span>
             </button>
             <ol class="twm-leaf__tabs" role="tablist">

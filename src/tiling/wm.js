@@ -430,10 +430,27 @@ export class WindowManager {
         const tree = this._tree();
         const focused = tree.focusedLeafId;
         if (!focused) return;
-        tree.split(focused, dir);
+        // Chrome split buttons mirror Alt+H / Alt+V. The freshly created
+        // pane is SEEDED with the default HOME content (the taxonomy root)
+        // rather than left empty — the never-empty-tile invariant: a tile
+        // in the grid always holds content the user can act on, and the
+        // main tile is never left blank.
+        const newId = tree.split(focused, dir);
+        if (newId) this._seedHome(tree, newId);
         this.renderer.render();
         this._persist();
         this._notifyChange();
+    }
+
+    /** Seed a leaf with the default HOME content (the taxonomy root kind).
+     *  Used to keep the never-empty-tile invariant: the pane freed by a
+     *  split, or emptied when its last tab floats into a window, is
+     *  re-homed instead of destroyed or left blank. Embedder-agnostic —
+     *  the HOME kind comes from the taxonomy, exactly like a fresh
+     *  desktop's seed leaf. */
+    _seedHome(tree, leafId) {
+        const seed = this._rootLeaf();
+        tree.setLeafContent(leafId, seed.content, seed.title);
     }
 
     /** Split `leafId` along `dir` and mount `kind`/`props` in the freshly
@@ -611,9 +628,13 @@ export class WindowManager {
     }
 
     // ── Tile <-> Managed window ─────────────────────────────────────
-    /** Promote the focused tile into a managed window and CLOSE the
-     *  source tile — promoting means the content leaves the grid, so the
-     *  origin slot is removed rather than left as an empty placeholder.
+    /** Promote the focused tile's ACTIVE TAB into a managed window.
+     *
+     *  Never-empty-tile invariant: only the active tab floats out.
+     *   - A multi-tab leaf keeps its remaining tabs and stays put.
+     *   - A lone tile (its last tab floated) is RE-SEEDED with the default
+     *     HOME content instead of being destroyed, so the grid never ends
+     *     up with a missing or blank main tile.
      *  "Back to tile" re-docks the content into the primary tile. */
     toggleManagedFocused() {
         const tree = this._tree();
@@ -624,6 +645,8 @@ export class WindowManager {
 
         const leafId = focused.id;
         const desktopIdx = this.desktops.activeIdx;
+        const tabCount = Array.isArray(focused.tabs) ? focused.tabs.length : 1;
+        const activeIdx = Math.max(0, Math.min(tabCount - 1, focused.activeTabIdx || 0));
         const original = {
             kind: focused.content.kind,
             props: { ...(focused.content.props || {}) },
@@ -650,9 +673,10 @@ export class WindowManager {
         });
 
         this._windowToLeaf.set(winId, {
-            // Promoting CLOSES the source tile — the content lives in the
-            // window now, not the tree. leafId is null so "back to tile"
-            // re-docks into the primary tile (see _onManagedWindowClosed).
+            // The floated tab now lives in the window, not the tree. leafId
+            // is null so "back to tile" re-docks into the desktop's primary
+            // tile as a new tab (see _onManagedWindowClosed) — the source
+            // tile itself survives (re-seeded with HOME when it was lone).
             leafId: null, desktopIdx, original, mountInfo, window: win,
             contentEl,
             // Set to true by bringBackWindow so the close path knows to
@@ -660,12 +684,17 @@ export class WindowManager {
             _demoting: false,
         });
 
-        // Close the origin tile so it doesn't linger as an empty
-        // "(window)" placeholder. Re-canonicalize so panels reflow; the
-        // desktop is allowed to end up with no content tile (panels can
-        // fill it, and openInPrimary re-spawns one on demand) — same as
-        // closeFocused on the last tile.
-        tree.close(leafId);
+        // Float ONLY the active tab out of the tile. A multi-tab leaf
+        // keeps its siblings; a lone tile is re-seeded with HOME rather
+        // than closed, so the tree never loses its (root/main) content
+        // tile. Re-canonicalize so panels reflow around the surviving
+        // content tile.
+        if (tabCount > 1) {
+            tree.removeLeafTab(leafId, activeIdx);
+        } else {
+            this._seedHome(tree, leafId);
+        }
+        tree.focus(leafId);
         this._canonicalize(tree, this.desktops.active());
 
         this.renderer.render();

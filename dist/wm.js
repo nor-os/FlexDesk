@@ -2771,7 +2771,7 @@ var TileRenderer = class {
     bar.innerHTML = `
             <button type="button" class="twm-leaf__tab-hamburger"
                     data-action="tab-menu"
-                    title="Open in new tab from this page's content">
+                    title="Show open tabs" aria-label="Show open tabs">
                 <span class="material-symbols-outlined">menu</span>
             </button>
             <ol class="twm-leaf__tabs" role="tablist">
@@ -3300,10 +3300,21 @@ var WindowManager = class {
     const tree = this._tree();
     const focused = tree.focusedLeafId;
     if (!focused) return;
-    tree.split(focused, dir);
+    const newId = tree.split(focused, dir);
+    if (newId) this._seedHome(tree, newId);
     this.renderer.render();
     this._persist();
     this._notifyChange();
+  }
+  /** Seed a leaf with the default HOME content (the taxonomy root kind).
+   *  Used to keep the never-empty-tile invariant: the pane freed by a
+   *  split, or emptied when its last tab floats into a window, is
+   *  re-homed instead of destroyed or left blank. Embedder-agnostic —
+   *  the HOME kind comes from the taxonomy, exactly like a fresh
+   *  desktop's seed leaf. */
+  _seedHome(tree, leafId) {
+    const seed = this._rootLeaf();
+    tree.setLeafContent(leafId, seed.content, seed.title);
   }
   /** Split `leafId` along `dir` and mount `kind`/`props` in the freshly
    *  created sibling — the "open this content in a new split" primitive
@@ -3464,9 +3475,13 @@ var WindowManager = class {
     }
   }
   // ── Tile <-> Managed window ─────────────────────────────────────
-  /** Promote the focused tile into a managed window and CLOSE the
-   *  source tile — promoting means the content leaves the grid, so the
-   *  origin slot is removed rather than left as an empty placeholder.
+  /** Promote the focused tile's ACTIVE TAB into a managed window.
+   *
+   *  Never-empty-tile invariant: only the active tab floats out.
+   *   - A multi-tab leaf keeps its remaining tabs and stays put.
+   *   - A lone tile (its last tab floated) is RE-SEEDED with the default
+   *     HOME content instead of being destroyed, so the grid never ends
+   *     up with a missing or blank main tile.
    *  "Back to tile" re-docks the content into the primary tile. */
   toggleManagedFocused() {
     const tree = this._tree();
@@ -3476,6 +3491,8 @@ var WindowManager = class {
     if (focused.content.kind === PLACEHOLDER_KIND) return;
     const leafId = focused.id;
     const desktopIdx = this.desktops.activeIdx;
+    const tabCount = Array.isArray(focused.tabs) ? focused.tabs.length : 1;
+    const activeIdx = Math.max(0, Math.min(tabCount - 1, focused.activeTabIdx || 0));
     const original = {
       kind: focused.content.kind,
       props: { ...focused.content.props || {} },
@@ -3503,9 +3520,10 @@ var WindowManager = class {
       onClose: () => this._onManagedWindowClosed(winId, mountInfo)
     });
     this._windowToLeaf.set(winId, {
-      // Promoting CLOSES the source tile — the content lives in the
-      // window now, not the tree. leafId is null so "back to tile"
-      // re-docks into the primary tile (see _onManagedWindowClosed).
+      // The floated tab now lives in the window, not the tree. leafId
+      // is null so "back to tile" re-docks into the desktop's primary
+      // tile as a new tab (see _onManagedWindowClosed) — the source
+      // tile itself survives (re-seeded with HOME when it was lone).
       leafId: null,
       desktopIdx,
       original,
@@ -3516,7 +3534,12 @@ var WindowManager = class {
       // restore the content instead of destroying it.
       _demoting: false
     });
-    tree.close(leafId);
+    if (tabCount > 1) {
+      tree.removeLeafTab(leafId, activeIdx);
+    } else {
+      this._seedHome(tree, leafId);
+    }
+    tree.focus(leafId);
     this._canonicalize(tree, this.desktops.active());
     this.renderer.render();
     win.show();
@@ -4411,6 +4434,110 @@ function openTileTabMenu({
   searchInput.focus();
   return close;
 }
+function openTileTabSwitcher({ x, y, tabs, activeIdx = 0, onPick }) {
+  const list = Array.isArray(tabs) ? tabs : [];
+  if (list.length === 0) return () => {
+  };
+  const overlay = document.createElement("div");
+  overlay.className = "twm-tile-tabswitch-overlay";
+  const rows = list.map((t, i) => `
+        <li class="twm-tile-tabswitch__item${i === activeIdx ? " twm-tile-tabswitch__item--on" : ""}"
+            data-idx="${i}" role="option" aria-selected="${i === activeIdx}">
+            <span class="material-symbols-outlined twm-tile-tabswitch__check">${i === activeIdx ? "check" : ""}</span>
+            <span class="twm-tile-tabswitch__label">${_esc7(t.title || t.kind || "Tab")}</span>
+        </li>
+    `).join("");
+  overlay.innerHTML = `
+        <div class="twm-tile-tabswitch" role="dialog" aria-label="Open tabs">
+            <header class="twm-tile-tabswitch__head">
+                <span class="material-symbols-outlined">tab</span>
+                <span class="twm-tile-tabswitch__head-label">Open tabs</span>
+            </header>
+            <ul class="twm-tile-tabswitch__list" role="listbox">${rows}</ul>
+        </div>
+    `;
+  document.body.appendChild(overlay);
+  const panel = overlay.querySelector(".twm-tile-tabswitch");
+  const W = 260;
+  panel.style.position = "fixed";
+  panel.style.left = `${Math.max(8, Math.min(window.innerWidth - W - 8, x))}px`;
+  panel.style.bottom = `${Math.max(8, window.innerHeight - y + 4)}px`;
+  panel.style.maxHeight = `${Math.max(120, y - 16)}px`;
+  let alive = true;
+  let cursor = Math.max(0, Math.min(list.length - 1, activeIdx));
+  const close = () => {
+    if (!alive) return;
+    alive = false;
+    document.removeEventListener("mousedown", onOutside, true);
+    document.removeEventListener("keydown", onKey, true);
+    overlay.remove();
+  };
+  const onOutside = (ev) => {
+    if (!overlay.contains(ev.target)) close();
+  };
+  const pick = (idx) => {
+    close();
+    try {
+      onPick?.(idx);
+    } catch (err) {
+      console.warn("[tile-tab-switch] pick failed", err);
+    }
+  };
+  const paint = () => {
+    overlay.querySelectorAll(".twm-tile-tabswitch__item").forEach((li) => {
+      const on = Number(li.dataset.idx) === cursor;
+      li.classList.toggle("twm-tile-tabswitch__item--cursor", on);
+      if (on) li.scrollIntoView({ block: "nearest" });
+    });
+  };
+  const onKey = (ev) => {
+    if (!alive || ev.isComposing) return;
+    switch (ev.key) {
+      case "Escape":
+        ev.preventDefault();
+        close();
+        return;
+      case "ArrowDown":
+        ev.preventDefault();
+        cursor = Math.min(list.length - 1, cursor + 1);
+        paint();
+        return;
+      case "ArrowUp":
+        ev.preventDefault();
+        cursor = Math.max(0, cursor - 1);
+        paint();
+        return;
+      case "Home":
+        ev.preventDefault();
+        cursor = 0;
+        paint();
+        return;
+      case "End":
+        ev.preventDefault();
+        cursor = list.length - 1;
+        paint();
+        return;
+      case "Enter":
+        ev.preventDefault();
+        pick(cursor);
+        return;
+    }
+  };
+  overlay.querySelectorAll(".twm-tile-tabswitch__item").forEach((li) => {
+    const idx = Number(li.dataset.idx);
+    li.addEventListener("mousemove", () => {
+      if (cursor !== idx) {
+        cursor = idx;
+        paint();
+      }
+    });
+    li.addEventListener("click", () => pick(idx));
+  });
+  document.addEventListener("mousedown", onOutside, true);
+  document.addEventListener("keydown", onKey, true);
+  paint();
+  return close;
+}
 function _matchesShaped(shaped, query) {
   if (!shaped) return false;
   const id = String(shaped.id ?? "").toLowerCase();
@@ -4708,24 +4835,20 @@ function syncDesktopBar(el, wm) {
 function _tileTabMenu(wm, leafId, x, y) {
   const tree = wm.desktops.active().tree;
   const leaf = tree.get(leafId);
-  if (!leaf) return;
-  const kind = leaf.content?.kind || wm.taxonomy.root;
-  openTileTabMenu({
+  if (!leaf || leaf.kind !== "leaf") return;
+  const tabs = Array.isArray(leaf.tabs) ? leaf.tabs : [];
+  if (tabs.length === 0) return;
+  openTileTabSwitcher({
     x,
     y,
-    leafKind: kind,
-    api: wm.api,
-    taxonomy: wm.taxonomy,
-    entities: wm.ctx.entities,
-    onPick: (navKind, shaped) => {
-      tree.appendLeafTab(leafId, {
-        kind: navKind,
-        props: { id: shaped.id, label: shaped.label }
-      }, shaped.label || shaped.id);
+    tabs,
+    activeIdx: Math.max(0, Math.min(tabs.length - 1, leaf.activeTabIdx || 0)),
+    onPick: (idx) => {
+      tree.setActiveLeafTab(leafId, idx);
       tree.focus(leafId);
       wm.renderer.render();
       wm._persist?.();
-      wm._notifyChange?.("tab-open-from-menu");
+      wm._notifyChange?.("tab-switch-from-menu");
     }
   });
 }
@@ -4822,6 +4945,7 @@ export {
   mountNavPanel,
   mountTileBreadcrumb,
   openTileTabMenu,
+  openTileTabSwitcher,
   registerPanelKeys,
   saveDesktops,
   uninstallPanelKeyRouter,

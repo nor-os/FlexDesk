@@ -43,7 +43,7 @@ import { WindowManager } from './wm.js';
 import { createContentRegistry } from './content_registry.js';
 import { createCommandPalette } from './command_palette.js';
 import { installKeymap } from './keymap.js';
-import { openTileTabMenu } from './tile_tab_menu.js';
+import { openTileTabSwitcher } from './tile_tab_menu.js';
 import { showContextMenu } from '../ui/components/context_menu.js';
 import { openForm } from '../ui/components/modal.js';
 
@@ -361,27 +361,27 @@ function syncDesktopBar(el, wm) {
 
 // ══ Tile menus ════════════════════════════════════════════════════════
 
-/** Hamburger button in a tile's tab bar. Lists the same content the tile's
- *  home page would, with search + pagination. Clicking a row opens the entity
- *  in a NEW TAB on the ORIGINATING tile (the leaf id is captured at click
- *  time, so a focus change between click and pick doesn't reroute it). */
+/** Hamburger button in a tile's tab bar. Opens a compact menu anchored to
+ *  the button that lists the leaf's OPEN TABS for quick switching (a
+ *  browser-style tab overflow list). Clicking a row activates that tab.
+ *  The leaf id is captured at click time, so a focus change between click
+ *  and pick doesn't reroute it. */
 function _tileTabMenu(wm, leafId, x, y) {
     const tree = wm.desktops.active().tree;
     const leaf = tree.get(leafId);
-    if (!leaf) return;
-    const kind = leaf.content?.kind || wm.taxonomy.root;
-    openTileTabMenu({
-        x, y, leafKind: kind, api: wm.api,
-        taxonomy: wm.taxonomy, entities: wm.ctx.entities,
-        onPick: (navKind, shaped) => {
-            tree.appendLeafTab(leafId, {
-                kind: navKind,
-                props: { id: shaped.id, label: shaped.label },
-            }, shaped.label || shaped.id);
+    if (!leaf || leaf.kind !== 'leaf') return;
+    const tabs = Array.isArray(leaf.tabs) ? leaf.tabs : [];
+    if (tabs.length === 0) return;
+    openTileTabSwitcher({
+        x, y,
+        tabs,
+        activeIdx: Math.max(0, Math.min(tabs.length - 1, leaf.activeTabIdx || 0)),
+        onPick: (idx) => {
+            tree.setActiveLeafTab(leafId, idx);
             tree.focus(leafId);
             wm.renderer.render();
             wm._persist?.();
-            wm._notifyChange?.('tab-open-from-menu');
+            wm._notifyChange?.('tab-switch-from-menu');
         },
     });
 }

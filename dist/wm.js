@@ -2,10 +2,10 @@ import {
   HelpModal,
   openForm,
   showContextMenu
-} from "./chunk-DVU44T77.js";
+} from "./chunk-NBCHDAYC.js";
 import {
   ManagedWindow
-} from "./chunk-UCJ2WD4D.js";
+} from "./chunk-WA3HOXGR.js";
 import "./chunk-FL5KFNQH.js";
 import "./chunk-JYWURG5T.js";
 
@@ -1298,7 +1298,7 @@ function createEntityCatalog({ sources, aliases = {}, aggregate = null } = {}) {
 }
 
 // src/tiling/keymap.js
-function installKeymap({ wm, palette }) {
+function installKeymap({ wm, palette, ...opts } = {}) {
   document.addEventListener("keydown", (e) => {
     const inField = e.target?.closest?.(
       'input, textarea, select, [contenteditable="true"]'
@@ -1327,7 +1327,7 @@ function installKeymap({ wm, palette }) {
     const fMatch = /^F([1-9]|1[0-2])$/.exec(e.key);
     if (fMatch && !inField && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
       const btns = document.querySelectorAll(
-        ".twm-global-top-bar .twm-bar-center.twm-top-nav .twm-top-nav__btn"
+        opts.navSelector || ".twm-global-top-bar .twm-bar-center.twm-top-nav .twm-top-nav__btn"
       );
       const idx = Number(fMatch[1]) - 1;
       if (idx < btns.length) {
@@ -4569,7 +4569,11 @@ async function createShell({
   events = {},
   rootCrumb = null,
   palette: paletteCfg = {},
-  chrome = {}
+  chrome = {},
+  // An embedder that moved its sections out of the top bar — into an icon
+  // rail, say — passes the selector its own buttons match, and F1..F8 keep
+  // working. Omitted, the default top-bar selector applies.
+  navSelector = null
 } = {}) {
   if (!root || typeof root.appendChild !== "function") {
     throw new TypeError("createShell: `root` must be an element");
@@ -4626,7 +4630,7 @@ async function createShell({
     catalog: entities,
     ...paletteCfg
   });
-  installKeymap({ wm, palette });
+  installKeymap({ wm, palette, navSelector });
   const paletteBtn = mountPaletteButton(chrome.paletteButton, palette);
   topNavEl = mountTopNav(chrome.topNav, taxonomy, wm);
   desktopsEl = mountDesktopBar(chrome.desktops, wm);

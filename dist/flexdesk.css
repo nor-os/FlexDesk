@@ -1139,6 +1139,13 @@ body.twm-dt-col-resizing {
 .twm-collapsible-content {
     display: none;
 }
+/* C8. The rule `toggleCategory()` has always assumed and no stylesheet has ever
+ * provided. Without it the collapsible primitive is non-functional as shipped:
+ * the toggle adds `.visible` and nothing acts on the class, so a category that
+ * "opens" stays `display: none`. One rule; it was simply missing. */
+.twm-collapsible-content.visible {
+    display: block;
+}
 /* ============================================
    Autocomplete Field Component (legacy-variable style)
    ============================================ */
@@ -2555,6 +2562,41 @@ body.twm-window-maximized .twm-resize-handle {
     min-height: 100px;
     /* Enable transitions for minimize/maximize animations */
     transition: transform 0.2s ease-out, opacity 0.2s ease-out, box-shadow var(--transition-normal);
+}
+/* C3. Containment. `--contained` swaps `position: fixed` for `absolute` so the
+ * window is placed relative to its container, which must be a containing block
+ * established with `position: relative`/`absolute` and NOTHING ELSE.
+ *
+ * This is the most dangerous rule in the containment work. `transform`,
+ * `filter`, `contain` and `will-change` on the container ALSO create a
+ * containing block — and they additionally capture `position: fixed`
+ * descendants. DataTable's filter dropdown (`position: fixed; z-index: 10001`)
+ * and the autocomplete dropdown (`z-index: 10000000`) deliberately escape their
+ * tile to the viewport; under a transformed ancestor they become
+ * container-relative and are clipped by the container's `overflow: hidden`.
+ * The symptom is "the filter dropdown is cut in half" and the cause is three
+ * files away. */
+.twm-managed-window--contained {
+    position: absolute;
+}
+.twm-managed-window__backdrop--contained {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+}
+/* The layer a contained window is mounted into. `position: relative` and
+ * `overflow: hidden` ONLY — see the warning above. */
+.tbl-window-layer {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+}
+/* C6. An extra titlebar button (the table cogwheel), sized like the built-ins. */
+.twm-managed-window__btn--custom .material-symbols-outlined {
+    font-size: 13px;
+    line-height: 1;
 }
 .twm-managed-window:focus-within {
     border-color: #505050;

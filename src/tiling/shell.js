@@ -83,6 +83,10 @@ export async function createShell({
     rootCrumb = null,
     palette: paletteCfg = {},
     chrome = {},
+    // An embedder that moved its sections out of the top bar — into an icon
+    // rail, say — passes the selector its own buttons match, and F1..F8 keep
+    // working. Omitted, the default top-bar selector applies.
+    navSelector = null,
 } = {}) {
     // A bad shell is a BOOT error, not a runtime surprise. Same doctrine as
     // createHost / createTaxonomy.
@@ -132,7 +136,10 @@ export async function createShell({
     const palette = createCommandPalette({
         wm, api, taxonomy, catalog: entities, ...paletteCfg,
     });
-    installKeymap({ wm, palette });
+    // `navSelector` lets an embedder that moved its sections out of the top
+    // bar keep F1..F8 working. Omitted, the default top-bar selector applies —
+    // the behaviour every existing embedder has today.
+    installKeymap({ wm, palette, navSelector });
 
     // Chrome — painted into the ELEMENTS the embedder handed over. An absent
     // key means absent chrome, not a crash.

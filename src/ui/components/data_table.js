@@ -1536,42 +1536,7 @@ export class DataTable {
                 tr.classList.add('selected');
             }
 
-            if (showRowNumbers) {
-                const td = document.createElement('td');
-                td.className = 'num';
-                td.textContent = String(globalIdx + 1);
-                tr.appendChild(td);
-            }
-
-            for (let colIdx = 0; colIdx < row.length; colIdx++) {
-                const td = document.createElement('td');
-                td.className = this._columnTypes[colIdx] || 'text';
-
-                // Use custom cell renderer if provided
-                const value = row[colIdx];
-                if (this.config.renderCell) {
-                    const handled = this.config.renderCell(td, value, colIdx, globalIdx, row);
-                    if (!handled) {
-                        td.textContent = this._formatValue(value, colIdx);
-                    }
-                } else {
-                    td.textContent = this._formatValue(value, colIdx);
-                }
-
-                // Cell-level right-click hook (P2). Fires before the
-                // row-level hook and the built-in context menu — the
-                // caller can ev.preventDefault() to suppress the
-                // default copy menu on this cell only.
-                if (this.config.onCellContextMenu) {
-                    const cellColIdx = colIdx;
-                    td.addEventListener('contextmenu', (ev) => {
-                        this.config.onCellContextMenu(
-                            cellColIdx, globalIdx, value, td, ev);
-                    });
-                }
-
-                tr.appendChild(td);
-            }
+            this._fillRowCells(tr, row, globalIdx, showRowNumbers);
 
             // Row-level click + right-click hooks (P2). Bound after
             // cells so per-cell handlers run first.
@@ -1593,6 +1558,131 @@ export class DataTable {
         this._tbodyEl = tbody;
 
         return table;
+    }
+
+    /** Build (or rebuild) one row's cells in place.
+     *
+     *  Extracted from the body loop so that `updateRow` and the initial
+     *  render share ONE cell-building path. Two paths would drift, and the
+     *  drift would show as a cell that renders differently after a live
+     *  update than it did on load. */
+    _fillRowCells(tr, row, globalIdx, showRowNumbers) {
+        tr.replaceChildren();
+
+        if (showRowNumbers) {
+            const td = document.createElement('td');
+            td.className = 'num';
+            td.textContent = String(globalIdx + 1);
+            tr.appendChild(td);
+        }
+
+        for (let colIdx = 0; colIdx < row.length; colIdx++) {
+            const td = document.createElement('td');
+            td.className = this._columnTypes[colIdx] || 'text';
+
+            // Use custom cell renderer if provided
+            const value = row[colIdx];
+            if (this.config.renderCell) {
+                const handled = this.config.renderCell(td, value, colIdx, globalIdx, row);
+                if (!handled) {
+                    td.textContent = this._formatValue(value, colIdx);
+                }
+            } else {
+                td.textContent = this._formatValue(value, colIdx);
+            }
+
+            // Cell-level right-click hook (P2). Fires before the row-level
+            // hook and the built-in context menu — the caller can
+            // ev.preventDefault() to suppress the default copy menu on this
+            // cell only.
+            if (this.config.onCellContextMenu) {
+                const cellColIdx = colIdx;
+                td.addEventListener('contextmenu', (ev) => {
+                    this.config.onCellContextMenu(
+                        cellColIdx, globalIdx, value, td, ev);
+                });
+            }
+
+            tr.appendChild(td);
+        }
+    }
+
+    /** Re-render ONE row in place, preserving everything around it.
+     *
+     *  `render()` rebuilds the entire `<tbody>`, which takes the scroll
+     *  position, any open editor, the keyboard focus and the measured column
+     *  widths with it. That is fine for a sort or a page change and wrong for
+     *  a single-cell commit or a live update arriving over a socket — the
+     *  common case in an editable grid, where a full rebuild once per keystroke
+     *  is both visible and destructive.
+     *
+     *  What survives, by construction:
+     *   - scroll position, because the tbody is not replaced;
+     *   - the separately-rendered thead/tbody column widths, because the
+     *     explicit widths live on the header cells and on the FIRST body row,
+     *     and are re-applied here when that first row is the one being replaced;
+     *   - selection, because the `selected` class is recomputed from the
+     *     selection set rather than carried on the old element;
+     *   - keyboard focus, because the focused element's position is recorded
+     *     before the replace and restored after.
+     *
+     *  @param {number} index   row index as tracked by `tr.__rowIndex`
+     *  @param {any[]}  row     the new cell values
+     *  @returns {boolean}      false when the row is not currently rendered
+     *                          (it is on another page, or outside the render
+     *                          window) — which is NOT an error: the caller has
+     *                          nothing to update on screen.
+     */
+    updateRow(index, row) {
+        const tbody = this._tbodyEl;
+        if (!tbody) return false;
+
+        let tr = null;
+        for (const candidate of tbody.children) {
+            if (candidate.__rowIndex === index) { tr = candidate; break; }
+        }
+        if (!tr) return false;
+
+        // Keep the caller's data in step, so a later full render agrees with
+        // what is on screen. Server-side paging means config.rows may hold only
+        // the current page; the index map is what resolves that.
+        if (Array.isArray(this.config.rows) && this.config.rows[index]) {
+            this.config.rows[index] = row;
+        }
+
+        // Record focus BEFORE the replace: `replaceChildren` detaches the
+        // focused cell and the browser moves focus to <body>.
+        const active = document.activeElement;
+        let focusedCol = -1;
+        if (active && tr.contains(active)) {
+            focusedCol = Array.prototype.indexOf.call(tr.children, active.closest('td'));
+        }
+
+        const isFirstRow = tr === tbody.firstElementChild;
+        const widths = isFirstRow
+            ? Array.prototype.map.call(tr.children, (td) => td.style.width)
+            : null;
+
+        const showRowNumbers = this.config.showRowNumbers !== false
+            && tr.firstElementChild?.classList.contains('num');
+        this._fillRowCells(tr, row, index, showRowNumbers);
+
+        // `_syncHeaderWidths` derives column widths from the FIRST body row.
+        // Under a recycling virtualiser that row changes on every scroll — and
+        // here it changes on every update — so the explicit widths have to be
+        // carried across the rebuild or the columns jitter.
+        if (widths) {
+            widths.forEach((width, i) => {
+                if (width && tr.children[i]) tr.children[i].style.width = width;
+            });
+        }
+
+        tr.classList.toggle('selected', this._state?.selected?.has(index) === true);
+
+        if (focusedCol >= 0 && tr.children[focusedCol]) {
+            tr.children[focusedCol].focus?.();
+        }
+        return true;
     }
 
     /** Sync the (separate) header table's column widths to the body

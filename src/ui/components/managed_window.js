@@ -113,6 +113,24 @@ export class ManagedWindow {
      * @param {Function} [options.onClose] - Callback when window is closed
      * @param {Function} [options.beforeClose] - Guard called before close. Return false (or a Promise resolving to false) to prevent closing.
      * @param {Function} [options.onMinimize] - Callback when window is minimized
+     * @param {HTMLElement} [options.container] - Mount point. Defaults to
+     *   `document.body` (every call site that exists today). When given, the
+     *   window is positioned and CLAMPED inside that element instead of the
+     *   viewport, and its taskbar events carry the container so a per-panel
+     *   taskbar can filter on them.
+     *
+     *   The container MUST establish a containing block with
+     *   `position: relative` or `position: absolute` — and with NOTHING else.
+     *   `transform`, `filter`, `contain` and `will-change` also create a
+     *   containing block, and they additionally trap `position: fixed`
+     *   descendants. DataTable's filter dropdown (`position: fixed;
+     *   z-index: 10001`) and the autocomplete dropdown deliberately ESCAPE
+     *   their tile to the viewport; under a transformed ancestor they become
+     *   container-relative and get clipped by `overflow: hidden`. The symptom
+     *   is "the filter dropdown is cut in half" and the cause is three files
+     *   away.
+     * @param {Array} [options.titlebarButtons] - Extra buttons left of
+     *   minimize: `{icon, title, onClick}`.
      */
     constructor(options) {
         this.id = options.id;
@@ -140,6 +158,12 @@ export class ManagedWindow {
         this.onClose = options.onClose;
         this.beforeClose = options.beforeClose || null;
         this.onMinimize = options.onMinimize;
+        // C1. `document.body` is the default and the legacy path; every bounds
+        // computation below reduces to today's expression by substitution when
+        // it is in force. See `_bounds`.
+        this.container = options.container || null;
+        this.titlebarButtons = Array.isArray(options.titlebarButtons)
+            ? options.titlebarButtons : [];
 
         this.element = null;
         this.backdropElement = null;
@@ -149,13 +173,12 @@ export class ManagedWindow {
         this.isMaximized = false;
         this.zIndex = BASE_Z_INDEX;
 
-        // Position/size state - clamp to viewport bounds
+        // Position/size state - clamp to the bounds rectangle
         this.x = 0;
         this.y = 0;
-        const maxWidth = window.innerWidth;
-        const maxHeight = window.innerHeight - TOP_BAR_HEIGHT - BOTTOM_BAR_HEIGHT;
-        this.width = Math.min(this.defaultWidth, maxWidth);
-        this.height = Math.min(this.defaultHeight, maxHeight);
+        const initial = this._bounds();
+        this.width = Math.min(this.defaultWidth, initial.width);
+        this.height = Math.min(this.defaultHeight, initial.height);
 
         // State before maximize (for restore)
         this._preMaximizeState = null;
@@ -191,10 +214,18 @@ export class ManagedWindow {
             this._restore();
         } else {
             this._applyPosition();
-            document.body.appendChild(this.element);
+            const mount = this.container || document.body;
+            // C3. `--contained` switches `position: fixed` to `absolute`; the
+            // backdrop follows the same rule so a modal inside a panel dims the
+            // panel rather than the page.
+            this.element.classList.toggle('twm-managed-window--contained', !!this.container);
+            mount.appendChild(this.element);
             if (this.modal && this.backdropElement) {
-                document.body.appendChild(this.backdropElement);
+                this.backdropElement.classList.toggle(
+                    'twm-managed-window__backdrop--contained', !!this.container);
+                mount.appendChild(this.backdropElement);
             }
+            this._installContainerResizeObserver();
             this.isVisible = true;
         }
 
@@ -245,7 +276,14 @@ export class ManagedWindow {
         document.removeEventListener('keydown', this._boundOnKeyDown);
 
         // Notify taskbar
-        window.dispatchEvent(new CustomEvent('managed-window-closed', { detail: { id: this.id } }));
+        this._teardownContainerResizeObserver();
+        // C5. `container` rides on all three window events so a NON-SINGLETON
+        // taskbar can filter on receipt: an in-panel taskbar shows only the
+        // windows mounted in its own panel, and the viewport taskbar shows only
+        // the ones with no container.
+        window.dispatchEvent(new CustomEvent('managed-window-closed', {
+            detail: { id: this.id, container: this.container }
+        }));
     }
 
     /**
@@ -267,7 +305,10 @@ export class ManagedWindow {
 
         // Dispatch event first so the taskbar button is created synchronously
         window.dispatchEvent(new CustomEvent('managed-window-minimized', {
-            detail: { id: this.id, title: this.title, icon: this.icon }
+            detail: {
+                id: this.id, title: this.title, icon: this.icon,
+                container: this.container,
+            }
         }));
 
         if (!this.element) return;
@@ -322,7 +363,9 @@ export class ManagedWindow {
         this.bringToFront();
 
         // Notify taskbar (removes the taskbar button)
-        window.dispatchEvent(new CustomEvent('managed-window-restored', { detail: { id: this.id } }));
+        window.dispatchEvent(new CustomEvent('managed-window-restored', {
+            detail: { id: this.id, container: this.container }
+        }));
     }
 
     /**
@@ -344,10 +387,11 @@ export class ManagedWindow {
         } else {
             // Maximize - respect top and bottom bars
             this._preMaximizeState = { x: this.x, y: this.y, width: this.width, height: this.height };
-            this.x = 0;
-            this.y = TOP_BAR_HEIGHT;
-            this.width = window.innerWidth;
-            this.height = window.innerHeight - TOP_BAR_HEIGHT - BOTTOM_BAR_HEIGHT;
+            const bounds = this._bounds();
+            this.x = bounds.minX;
+            this.y = bounds.minY;
+            this.width = bounds.width;
+            this.height = bounds.height;
             this.isMaximized = true;
         }
 
@@ -490,6 +534,30 @@ export class ManagedWindow {
         const buttons = document.createElement('div');
         buttons.className = 'twm-managed-window__buttons';
 
+        // C6. Extra titlebar buttons, immediately LEFT of minimize — which is
+        // exactly where the concept asks for the table cogwheel. Added before
+        // the built-in buttons so the ordering is positional rather than
+        // something each caller has to get right.
+        for (const spec of this.titlebarButtons) {
+            const btn = document.createElement('button');
+            btn.className = 'twm-managed-window__btn twm-managed-window__btn--custom';
+            btn.type = 'button';
+            btn.title = spec.title || '';
+            if (spec.icon) {
+                const glyph = document.createElement('span');
+                glyph.className = 'material-symbols-outlined';
+                glyph.textContent = spec.icon;
+                btn.appendChild(glyph);
+            } else {
+                btn.textContent = spec.label || '';
+            }
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                spec.onClick?.(this, e);
+            });
+            buttons.appendChild(btn);
+        }
+
         // Minimize button (optional)
         if (this.canMinimize) {
             const minBtn = document.createElement('button');
@@ -564,22 +632,64 @@ export class ManagedWindow {
         }
     }
 
+    /** C2. The bounds rectangle this window is clamped inside.
+     *
+     *  ONE computation replacing four inline copies. The `document.body` case —
+     *  every call site that exists today — reduces to the previous expression
+     *  BY SUBSTITUTION, not by "should be equivalent":
+     *
+     *      minX   = 0
+     *      minY   = TOP_BAR_HEIGHT
+     *      width  = window.innerWidth
+     *      height = window.innerHeight - TOP_BAR_HEIGHT - BOTTOM_BAR_HEIGHT
+     *
+     *  so, substituting into the clamps below:
+     *
+     *      maxWidth  = width                          = window.innerWidth                      ✓
+     *      maxHeight = height                         = innerHeight - TOP - BOTTOM              ✓
+     *      maxX      = max(minX, minX + width - w)    = max(0, innerWidth - w)                  ✓
+     *      maxY      = max(minY, minY + height - h)   = max(TOP, innerHeight - BOTTOM - h)      ✓
+     *      x         = max(minX, min(x, maxX))        = max(0, min(x, maxX))                    ✓
+     *      y         = max(minY, min(y, maxY))        = max(TOP, min(y, maxY))                  ✓
+     *
+     *  EcoAgent's and EcoSim's modals depend on that arithmetic; prove the
+     *  equivalence in review by substitution rather than by testing.
+     */
+    _bounds() {
+        if (this.container) {
+            // Contained: coordinates are relative to the container, which is a
+            // positioned ancestor, so the bars do not apply.
+            return {
+                minX: 0,
+                minY: 0,
+                width: this.container.clientWidth,
+                height: this.container.clientHeight,
+            };
+        }
+        return {
+            minX: 0,
+            minY: TOP_BAR_HEIGHT,
+            width: window.innerWidth,
+            height: window.innerHeight - TOP_BAR_HEIGHT - BOTTOM_BAR_HEIGHT,
+        };
+    }
+
     _applyPosition() {
         if (!this.element) return;
 
-        // Calculate max available dimensions
-        const maxWidth = window.innerWidth;
-        const maxHeight = window.innerHeight - TOP_BAR_HEIGHT - BOTTOM_BAR_HEIGHT;
+        const bounds = this._bounds();
+        const maxWidth = bounds.width;
+        const maxHeight = bounds.height;
 
-        // Clamp width and height to viewport (but respect minWidth/minHeight)
+        // Clamp width and height to the bounds (but respect minWidth/minHeight)
         this.width = Math.max(this.minWidth, Math.min(this.width, maxWidth));
         this.height = Math.max(this.minHeight, Math.min(this.height, maxHeight));
 
-        // Ensure window is within viewport (respect top and bottom bars)
-        const maxX = Math.max(0, maxWidth - this.width);
-        const maxY = Math.max(TOP_BAR_HEIGHT, window.innerHeight - this.height - BOTTOM_BAR_HEIGHT);
-        this.x = Math.max(0, Math.min(this.x, maxX));
-        this.y = Math.max(TOP_BAR_HEIGHT, Math.min(this.y, maxY));
+        // Ensure the window is within the bounds rectangle
+        const maxX = Math.max(bounds.minX, bounds.minX + maxWidth - this.width);
+        const maxY = Math.max(bounds.minY, bounds.minY + maxHeight - this.height);
+        this.x = Math.max(bounds.minX, Math.min(this.x, maxX));
+        this.y = Math.max(bounds.minY, Math.min(this.y, maxY));
 
         this.element.style.left = `${this.x}px`;
         this.element.style.top = `${this.y}px`;
@@ -587,10 +697,38 @@ export class ManagedWindow {
         this.element.style.height = `${this.height}px`;
     }
 
+    /** C4. Re-clamp when the container resizes.
+     *
+     *  `managed_window.js` has NO resize listener at all today: a viewport
+     *  resize simply leaves windows where they were until the next pointer
+     *  move re-clamps them. That is survivable for the viewport, which resizes
+     *  rarely, and not for a panel, which resizes every time someone drags a
+     *  splitter — a window would end up outside its own panel and unreachable.
+     */
+    _installContainerResizeObserver() {
+        if (!this.container || this._resizeObserver) return;
+        this._resizeObserver = new ResizeObserver(() => {
+            if (this.isMaximized) {
+                const bounds = this._bounds();
+                this.x = bounds.minX;
+                this.y = bounds.minY;
+                this.width = bounds.width;
+                this.height = bounds.height;
+            }
+            this._applyPosition();
+        });
+        this._resizeObserver.observe(this.container);
+    }
+
+    _teardownContainerResizeObserver() {
+        this._resizeObserver?.disconnect();
+        this._resizeObserver = null;
+    }
+
     _restoreState() {
-        // Calculate max available dimensions
-        const maxWidth = window.innerWidth;
-        const maxHeight = window.innerHeight - TOP_BAR_HEIGHT - BOTTOM_BAR_HEIGHT;
+        const bounds = this._bounds();
+        const maxWidth = bounds.width;
+        const maxHeight = bounds.height;
 
         // Modal windows always center on screen - never restore saved position
         const saved = this.modal ? null : _getWindowState(this.id);
@@ -604,8 +742,8 @@ export class ManagedWindow {
 
             if (this.isMaximized && this.canMaximize) {
                 this._preMaximizeState = { x: saved.x, y: saved.y, width: saved.width, height: saved.height };
-                this.x = 0;
-                this.y = TOP_BAR_HEIGHT;
+                this.x = bounds.minX;
+                this.y = bounds.minY;
                 this.width = maxWidth;
                 this.height = maxHeight;
             }

@@ -30,7 +30,7 @@
  * the chord uses the Alt modifier (which is never typed into a field).
  */
 
-export function installKeymap({ wm, palette }) {
+export function installKeymap({ wm, palette, ...opts } = {}) {
     document.addEventListener('keydown', (e) => {
         const inField = e.target?.closest?.(
             'input, textarea, select, [contenteditable="true"]');
@@ -66,8 +66,15 @@ export function installKeymap({ wm, palette }) {
         // flows (query editor, filters) keep keyboard focus.
         const fMatch = /^F([1-9]|1[0-2])$/.exec(e.key);
         if (fMatch && !inField && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+            // The selector is a CONFIG option, not a constant. An embedder that
+            // moves its sections out of the top bar — into an icon rail, say —
+            // would otherwise find F1..F8 silently doing nothing: the query
+            // returns an empty NodeList, `idx < btns.length` is false, and the
+            // handler falls through without a hint that anything is bound.
+            // Passing `navSelector` is how such an embedder keeps the keys.
             const btns = document.querySelectorAll(
-                '.twm-global-top-bar .twm-bar-center.twm-top-nav .twm-top-nav__btn');
+                opts.navSelector
+                || '.twm-global-top-bar .twm-bar-center.twm-top-nav .twm-top-nav__btn');
             const idx = Number(fMatch[1]) - 1;
             if (idx < btns.length) {
                 e.preventDefault();

@@ -8,6 +8,7 @@ var BASE_Z_INDEX = 6e3;
 var MAX_Z_INDEX = 6999;
 var TOP_BAR_HEIGHT = 35;
 var BOTTOM_BAR_HEIGHT = 22;
+var SNAP_EDGE = 12;
 var DEFAULT_ICON = "web_asset";
 var _zIndexCounter = 0;
 var _activeWindows = /* @__PURE__ */ new Map();
@@ -114,6 +115,20 @@ var ManagedWindow = class {
     this.beforeClose = options.beforeClose || null;
     this.onMinimize = options.onMinimize;
     this.container = options.container || null;
+    this.snap = (options.snap ?? false) && this.canDrag && this.canResize;
+    this.snapController = options.snapController || null;
+    this.dragHost = options.dragHost || null;
+    this.dragBounds = options.dragBounds || null;
+    this.onMaximize = options.onMaximize || null;
+    this.maximizeIcon = options.maximizeIcon || null;
+    this.maximizeTitle = options.maximizeTitle || "Maximize";
+    this._snapZone = null;
+    this._snapProbe = null;
+    this._escapeOrigin = null;
+    this._preSnapState = null;
+    this._snapPreviewEl = null;
+    this._minimizeTimer = null;
+    this._restoreTimer = null;
     this.titlebarButtons = Array.isArray(options.titlebarButtons) ? options.titlebarButtons : [];
     this.element = null;
     this.backdropElement = null;
@@ -140,6 +155,9 @@ var ManagedWindow = class {
    */
   show() {
     if (this.isVisible && !this.isMinimized) {
+      if (this.element && this.element.style.display === "none") {
+        this.element.style.display = "";
+      }
       this.bringToFront();
       return;
     }
@@ -150,6 +168,10 @@ var ManagedWindow = class {
     if (this.isMinimized) {
       this._restore();
     } else {
+      this.element?.classList.toggle(
+        "twm-managed-window--maximized",
+        this.isMaximized
+      );
       this._applyPosition();
       const mount = this.container || document.body;
       this.element.classList.toggle("twm-managed-window--contained", !!this.container);
@@ -200,6 +222,9 @@ var ManagedWindow = class {
     }
     this.isVisible = false;
     this.isMinimized = false;
+    this._cancelMinimizeAnimation();
+    this._cancelRestoreAnimation();
+    this._clearTargetProperties();
     document.removeEventListener("keydown", this._boundOnKeyDown);
     this._teardownContainerResizeObserver();
     window.dispatchEvent(new CustomEvent("managed-window-closed", {
@@ -228,13 +253,15 @@ var ManagedWindow = class {
       }
     }));
     if (!this.element) return;
+    this._cancelRestoreAnimation();
     if (!getSetting("window.animateMinimize", true)) {
       this.element.style.display = "none";
       return;
     }
     this._setMinimizeTargetProperties();
     this.element.classList.add("twm-managed-window--minimizing");
-    setTimeout(() => {
+    this._minimizeTimer = setTimeout(() => {
+      this._minimizeTimer = null;
       if (this.element) {
         this.element.style.display = "none";
         this.element.classList.remove("twm-managed-window--minimizing");
@@ -242,24 +269,82 @@ var ManagedWindow = class {
       }
     }, 200);
   }
+  /** C27. Abandon a minimise animation that has not landed yet.
+   *
+   *  The timer is dropped AND the class is removed, because the class is half
+   *  the damage: `--minimizing` is `opacity: 0` plus a transform that parks
+   *  the window over the taskbar plus `pointer-events: none`, so a window
+   *  that keeps it is invisible and unclickable for the rest of the 200ms
+   *  even before the timer hides it outright. */
+  _cancelMinimizeAnimation() {
+    if (this._minimizeTimer !== null) {
+      clearTimeout(this._minimizeTimer);
+      this._minimizeTimer = null;
+    }
+    this.element?.classList.remove("twm-managed-window--minimizing");
+  }
+  /** C27. Abandon a restore animation that has not landed yet. */
+  _cancelRestoreAnimation() {
+    if (this._restoreTimer !== null) {
+      clearTimeout(this._restoreTimer);
+      this._restoreTimer = null;
+    }
+    this.element?.classList.remove("twm-managed-window--restoring");
+  }
   /**
    * Restore from minimized state with animation.
+   *
+   * ══ C27. THE WINDOW THAT COULD NOT BE BROUGHT BACK ══════════════════
+   *
+   * `minimize` hides the element inside a `setTimeout(..., 200)` so the
+   * shrink-toward-the-taskbar animation has time to play, and this method
+   * cleared the `display` IMMEDIATELY. Minimise a window and restore it from
+   * the taskbar inside those 200ms — which is not a stress test, it is what
+   * "I clicked the wrong button" looks like — and the sequence ran:
+   *
+   *     minimize()   isMinimized = true,  timer armed for +200ms
+   *     _restore()   display = '', isMinimized = FALSE, taskbar button gone
+   *     +200ms       the timer fires and writes `display: none`
+   *
+   * leaving a window that is off screen with `isMinimized === false`. Every
+   * route back is closed at once: `static restore` and `show` both funnel
+   * through the `isMinimized` guard above and return without doing anything,
+   * and a taskbar built from `ManagedWindow.all().filter(isMinimized)` —
+   * which is how `syncTaskbars` builds it — has no button for it either. The
+   * window is live, holding its content and its staged edits, and there is no
+   * gesture in the product that can reach it. Reported twice.
+   *
+   * The `--minimizing` CLASS is the same defect one layer up and it bites
+   * even before the timer does: it is `opacity: 0` with a transform parking
+   * the window over the taskbar and `pointer-events: none`, and it was left
+   * on for the remainder of the animation, so the restored window was
+   * invisible and unclickable for up to 200ms before disappearing outright.
+   *
+   * Both are cancelled here rather than worked around in a consumer. A
+   * consumer cannot see either one: nothing throws, no state is inconsistent
+   * at any moment a caller can observe, and the corruption is written by a
+   * timer with no name.
    */
   _restore() {
     if (!this.isMinimized) return;
     const taskbarRect = this._getTaskbarItemRect();
+    this._cancelMinimizeAnimation();
     if (this.element) {
       this.element.style.display = "";
       const animate = getSetting("window.animateMinimize", true);
       if (animate) {
+        this._cancelRestoreAnimation();
         this._setRestoreTargetProperties(taskbarRect);
         this.element.classList.add("twm-managed-window--restoring");
-        setTimeout(() => {
+        this._restoreTimer = setTimeout(() => {
+          this._restoreTimer = null;
           if (this.element) {
             this.element.classList.remove("twm-managed-window--restoring");
             this._clearTargetProperties();
           }
         }, 250);
+      } else {
+        this._clearTargetProperties();
       }
     }
     if (this.modal && this.backdropElement) {
@@ -274,8 +359,41 @@ var ManagedWindow = class {
   /**
    * Toggle maximize state.
    */
-  toggleMaximize() {
+  /**
+   * @param {{claimable?: boolean}} [opts] `claimable: false` performs the
+   *   GEOMETRIC maximise even when a consumer has claimed the gesture. NOTHING
+   *   INSIDE THE LIBRARY PASSES IT — this docstring used to say the topbar's
+   *   double-click did, and the binding at `:890` has never passed anything
+   *   (C26 settled the other way; see the note there). It has had two callers
+   *   outside it and it now has none: the window manager's aero-snap top edge
+   *   used it for R13's maximise-onto-the-layer, and Tables' window menu drew
+   *   a "Maximize" beside "Back to tile" and got its rectangle from here. R14
+   *   collapsed both into the dock — maximise means back to tile, everywhere
+   *   — so the escape hatch is now a LIBRARY API with no caller in this repo
+   *   rather than a shared secret between two.
+   *
+   *   IT IS KEPT, and deliberately. A window that came out of a tile has a
+   *   tile to go back to; a window that never did has only the rectangle, and
+   *   `openModal`'s dialogs are exactly that case (`modal.js`, `maximizable`)
+   *   — they reach the same rectangle through the ordinary claimless path
+   *   because they set no `onMaximize` at all. Removing this would leave a
+   *   consumer that HAS claimed the gesture with no way to ask for the other
+   *   verb, which is the situation the flag was added to fix.
+   *
+   *   A doc that names a caller that does not exist is worse than no doc — it
+   *   is the reason a reader concludes the double-click is already handled.
+   */
+  toggleMaximize({ claimable = true } = {}) {
     if (!this.canMaximize) return;
+    if (claimable && this.onMaximize) {
+      let handled = false;
+      try {
+        handled = this.onMaximize(this) ?? false;
+      } catch (err) {
+        console.error("[managed-window] onMaximize threw", err);
+      }
+      if (handled) return;
+    }
     if (this.isMaximized) {
       if (this._preMaximizeState) {
         this.x = this._preMaximizeState.x;
@@ -294,8 +412,12 @@ var ManagedWindow = class {
       this.height = bounds.height;
       this.isMaximized = true;
     }
+    this.element?.classList.toggle("twm-managed-window--maximized", this.isMaximized);
     this._applyPosition();
     this._saveCurrentState();
+    window.dispatchEvent(new CustomEvent("managed-window-maximized", {
+      detail: { id: this.id, maximized: this.isMaximized, container: this.container }
+    }));
   }
   /**
    * Find the taskbar button for this window.
@@ -425,7 +547,7 @@ var ManagedWindow = class {
     }
     if (this.canMinimize) {
       const minBtn = document.createElement("button");
-      minBtn.className = "twm-managed-window__btn managed-window__btn--minimize";
+      minBtn.className = "twm-managed-window__btn twm-managed-window__btn--minimize managed-window__btn--minimize";
       minBtn.type = "button";
       minBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10"><path d="M1 5h8" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>';
       minBtn.title = "Minimize";
@@ -437,10 +559,17 @@ var ManagedWindow = class {
     }
     if (this.canMaximize) {
       const maxBtn = document.createElement("button");
-      maxBtn.className = "twm-managed-window__btn managed-window__btn--maximize";
+      maxBtn.className = "twm-managed-window__btn twm-managed-window__btn--maximize managed-window__btn--maximize";
       maxBtn.type = "button";
-      maxBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>';
-      maxBtn.title = "Maximize";
+      if (this.maximizeIcon) {
+        const glyph = document.createElement("span");
+        glyph.className = "material-symbols-outlined";
+        glyph.textContent = this.maximizeIcon;
+        maxBtn.appendChild(glyph);
+      } else {
+        maxBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>';
+      }
+      maxBtn.title = this.maximizeTitle;
       maxBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         this.toggleMaximize();
@@ -485,7 +614,7 @@ var ManagedWindow = class {
     const directions = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
     for (const dir of directions) {
       const handle = document.createElement("div");
-      handle.className = `twm-managed-window__resize managed-window__resize--${dir}`;
+      handle.className = `twm-managed-window__resize twm-managed-window__resize--${dir} managed-window__resize--${dir}`;
       handle.addEventListener("pointerdown", (e) => this._onResizePointerDown(e, dir));
       this.element.appendChild(handle);
     }
@@ -514,6 +643,13 @@ var ManagedWindow = class {
    *  equivalence in review by substitution rather than by testing.
    */
   _bounds() {
+    if (this.dragBounds) {
+      const host = typeof this.dragHost === "function" ? this.dragHost(this) : this.dragHost;
+      if (this._escapeOrigin || host && host === this.container) {
+        const b = this.dragBounds(this);
+        if (b && b.width > 0 && b.height > 0) return b;
+      }
+    }
     if (this.container) {
       return {
         minX: 0,
@@ -544,6 +680,168 @@ var ManagedWindow = class {
     this.element.style.top = `${this.y}px`;
     this.element.style.width = `${this.width}px`;
     this.element.style.height = `${this.height}px`;
+  }
+  /** C12. Re-clamp on demand.
+   *
+   *  The ResizeObserver below covers a container that changes size on its
+   *  own. A container that changes size because a SIBLING did — a splitter
+   *  drag moves two panels at once — needs the caller to say so, and a
+   *  private `_applyPosition` is not something a caller may reach for. */
+  reclamp() {
+    this._applyPosition();
+  }
+  /** C12. Move this window into a different container.
+   *
+   *  Re-parents the element and re-clamps against the new bounds, because a
+   *  window carried into a narrower region would otherwise keep coordinates
+   *  that put it outside and out of reach. The ResizeObserver follows the new
+   *  container, or the old one would keep driving the clamp.
+   */
+  moveTo(container) {
+    if (!container || container === this.container) return false;
+    this.container = container;
+    if (this.element) {
+      container.appendChild(this.element);
+      this.element.classList.toggle("twm-managed-window--contained", true);
+      if (this.backdropElement) container.appendChild(this.backdropElement);
+    }
+    this._resizeObserver?.disconnect();
+    this._resizeObserver = null;
+    this._installContainerResizeObserver();
+    this._preSnapState = null;
+    this.element?.classList.remove("twm-managed-window--snapped");
+    if (this.isMaximized) {
+      const bounds = this._bounds();
+      this.x = bounds.minX;
+      this.y = bounds.minY;
+      this.width = bounds.width;
+      this.height = bounds.height;
+    }
+    this._applyPosition();
+    window.dispatchEvent(new CustomEvent("managed-window-moved", {
+      detail: { id: this.id, container }
+    }));
+    return true;
+  }
+  /** R1/R3. The container this drag started in, or null when the drag did
+   *  not have to escape one (an uncontained window, or no `dragHost`).
+   *
+   *  Public because the decision that needs it is not this component's: a snap
+   *  controller has to know which pane is HOME so that moving a window around
+   *  inside the pane it already lives in arms nothing. That was the complaint
+   *  about the old behaviour — in-pane, virtually any movement was a dock. */
+  get dragOrigin() {
+    return this._escapeOrigin;
+  }
+  /** R1. Take the window out of its container for the duration of a drag.
+   *
+   *  A contained window is clipped by its container (`.twm-leaf` is
+   *  `overflow: hidden`), so without this it cannot be dragged one pixel past
+   *  the pane it lives in — the gesture the tiling model is built on is not
+   *  merely awkward, it is invisible. The window is re-parented into the
+   *  wider `dragHost` and its coordinates are converted so the rectangle on
+   *  screen does not move: same viewport pixels, different reference frame.
+   *
+   *  Deliberately NOT `moveTo` (C12), which is the same re-parent for a
+   *  different purpose. `moveTo` re-CLAMPS into the new container without
+   *  converting anything, which is right when a window is carried between
+   *  regions by a menu and wrong here — the window would jump out from under
+   *  the pointer at the first millimetre of every drag. It also drops the snap
+   *  and announces `managed-window-moved`, and an escape is neither a move the
+   *  user asked for nor one anybody should hear about: it is undone on
+   *  release, either by `_endDragEscape` or by the drop taking the window.
+   */
+  _beginDragEscape() {
+    if (this._escapeOrigin || !this.container || !this.dragHost) return false;
+    const host = typeof this.dragHost === "function" ? this.dragHost(this) : this.dragHost;
+    if (!host || host === this.container || !host.contains(this.container)) return false;
+    const origin = this.container;
+    this._escapeOrigin = origin;
+    this._reparentPreservingPosition(host);
+    return true;
+  }
+  /** R1. Put the window back into a container when the drag ends.
+   *
+   *  `taken` means the drop was claimed by the snap controller: the window is
+   *  being docked into a tree and closed, so re-parenting it into a pane it is
+   *  about to leave would be work done for a frame nobody sees.
+   *
+   *  Otherwise it goes back where the drag started — including when the drag
+   *  ended over nothing (the rail, the gap between two panes, off the edge).
+   *  A window that lives in a pane has to end every drag in SOME pane, and the
+   *  one it came from is the only answer that never surprises anyone. The one
+   *  case that cannot be honoured is an origin that stopped being in the
+   *  document mid-drag — a repaint rebuilt the leaf wrap — and there the
+   *  window stays on the host rather than being orphaned into a detached
+   *  node; the WM's own re-home pass adopts it on the next render.
+   */
+  _endDragEscape({ taken = false } = {}) {
+    const origin = this._escapeOrigin;
+    this._escapeOrigin = null;
+    this.element?.classList.remove("twm-managed-window--detached");
+    if (!origin || taken) return false;
+    if (!origin.isConnected) return false;
+    this._reparentPreservingPosition(origin);
+    return true;
+  }
+  /** Move the element into `next` and rewrite `x`/`y` so it occupies the same
+   *  viewport rectangle it did a moment ago.
+   *
+   *  `x`/`y` are written against the containing block, which for an absolutely
+   *  positioned child is the PADDING box — hence `clientLeft`/`clientTop`,
+   *  which are the border widths `getBoundingClientRect` includes and the
+   *  offset does not. `scrollLeft`/`scrollTop` are zero for every box either
+   *  side of this today (panes and the WM root both clip rather than scroll)
+   *  and are in the expression anyway: the day one of them scrolls, this is
+   *  the line that would be silently half a screen out.
+   *
+   *  The container's ResizeObserver is deliberately NOT re-pointed. It exists
+   *  to re-clamp (C4), it re-clamps against whichever container is current
+   *  because `_applyPosition` reads `_bounds()` afresh, and an escape is
+   *  transient by construction — undone on release, or ended by the window
+   *  closing into a tree. `moveTo`, which is a permanent move, does re-point
+   *  it, and that difference is the reason these are two methods.
+   */
+  _reparentPreservingPosition(next) {
+    const prev = this.container;
+    if (!next || next === prev) return false;
+    if (this.element && prev) {
+      const from = prev.getBoundingClientRect();
+      const to = next.getBoundingClientRect();
+      this.x += from.left + prev.clientLeft - prev.scrollLeft - (to.left + next.clientLeft - next.scrollLeft);
+      this.y += from.top + prev.clientTop - prev.scrollTop - (to.top + next.clientTop - next.scrollTop);
+    }
+    this.container = next;
+    if (this.element) {
+      next.appendChild(this.element);
+      this.element.classList.toggle("twm-managed-window--contained", !!next);
+      if (this.backdropElement) next.appendChild(this.backdropElement);
+    }
+    this._applyPosition();
+    return true;
+  }
+  /** R3. HALF TRANSPARENT THE MOMENT IT LEAVES THE TILE IT CAME FROM.
+   *
+   *  The signal that releasing now will dock the window somewhere, and the
+   *  complement of the rule that keeps the origin pane silent: inside it, this
+   *  is just a window being moved and it stays opaque. Only for a window with
+   *  a snap controller — nothing else on the page can be docked, so nothing
+   *  else has anything to promise.
+   *
+   *  A window that never had a pane (opened with Alt+N, floating over the
+   *  whole root) has no "inside" to be in, so it reads as detached for the
+   *  whole drag. That is not a special case being papered over: every pane
+   *  under it genuinely is foreign, and every drop on one genuinely docks.
+   */
+  _syncDragTransparency(e) {
+    if (!this.snapController || !this.element) return;
+    const origin = this._escapeOrigin;
+    let outside = true;
+    if (origin && origin.isConnected) {
+      const r = origin.getBoundingClientRect();
+      outside = e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+    }
+    this.element.classList.toggle("twm-managed-window--detached", outside);
   }
   /** C4. Re-clamp when the container resizes.
    *
@@ -610,6 +908,12 @@ var ManagedWindow = class {
     if (this.isMaximized) return;
     if (!this.canDrag) return;
     e.preventDefault();
+    if (this.snap && this._preSnapState) {
+      const grabRatio = this.width ? (e.clientX - this.x) / this.width : 0.5;
+      this.unsnap();
+      this.x = Math.round(e.clientX - this.width * grabRatio);
+      this._applyPosition();
+    }
     this._dragState = {
       startX: e.clientX,
       startY: e.clientY,
@@ -618,19 +922,46 @@ var ManagedWindow = class {
     };
     document.addEventListener("pointermove", this._boundOnPointerMove);
     document.addEventListener("pointerup", this._boundOnPointerUp);
+    document.addEventListener("pointercancel", this._boundOnPointerUp);
   }
   _onPointerMove(e) {
     if (this._dragState) {
+      if (!this._escapeOrigin) {
+        const fromX = this.x;
+        const fromY = this.y;
+        if (this._beginDragEscape()) {
+          this._dragState.startWinX += this.x - fromX;
+          this._dragState.startWinY += this.y - fromY;
+        }
+      }
       const dx = e.clientX - this._dragState.startX;
       const dy = e.clientY - this._dragState.startY;
       this.x = this._dragState.startWinX + dx;
       this.y = this._dragState.startWinY + dy;
       this._applyPosition();
+      this._syncDragTransparency(e);
+      if (this.snap) this._updateSnapZone(e);
     } else if (this._resizeState) {
       this._handleResize(e);
     }
   }
   _onPointerUp() {
+    let taken = false;
+    if (this._dragState && this.snap && this._snapZone) {
+      if (this.snapController) {
+        try {
+          taken = this.snapController.commit?.(this._snapProbe, this) ?? false;
+        } catch (err) {
+          console.error("[managed-window] snap commit threw", err);
+          taken = false;
+        }
+      } else {
+        this._applySnap(this._snapZone);
+      }
+    }
+    if (!taken) this.clearSnapPreview();
+    this._snapZone = null;
+    if (this._dragState) this._endDragEscape({ taken });
     if (this._dragState || this._resizeState) {
       this._saveCurrentState();
     }
@@ -638,6 +969,150 @@ var ManagedWindow = class {
     this._resizeState = null;
     document.removeEventListener("pointermove", this._boundOnPointerMove);
     document.removeEventListener("pointerup", this._boundOnPointerUp);
+    document.removeEventListener("pointercancel", this._boundOnPointerUp);
+  }
+  // ========== C11. Aero Snap ==========
+  /** The rectangle a zone would give this window, in the SAME coordinate
+   *  space `_applyPosition` writes — container-relative when contained,
+   *  viewport-relative otherwise. One source for the preview and the apply,
+   *  so the preview cannot promise a rectangle the drop does not deliver. */
+  _snapRect(zone) {
+    const b = this._bounds();
+    const half = Math.round(b.width / 2);
+    switch (zone) {
+      case "top":
+        return { x: b.minX, y: b.minY, width: b.width, height: b.height };
+      case "left":
+        return { x: b.minX, y: b.minY, width: half, height: b.height };
+      case "right":
+        return {
+          x: b.minX + b.width - half,
+          y: b.minY,
+          width: half,
+          height: b.height
+        };
+      default:
+        return null;
+    }
+  }
+  /** Which zone the POINTER is in — not the window. Using the window's own
+   *  edge would make a wide window snap the moment it is picked up, because
+   *  it is already touching the edge it did not move towards. */
+  _zoneFor(e) {
+    const host = this.container || document.documentElement;
+    const rect = this.container ? host.getBoundingClientRect() : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    if (x < 0 || y < 0 || x > rect.width || y > rect.height) return null;
+    if (y <= SNAP_EDGE) return "top";
+    if (x <= SNAP_EDGE) return "left";
+    if (x >= rect.width - SNAP_EDGE) return "right";
+    return null;
+  }
+  _updateSnapZone(e) {
+    if (this.snapController) {
+      this._updateControlledSnapZone(e);
+      return;
+    }
+    const zone = this._zoneFor(e);
+    if (zone === this._snapZone) return;
+    this._snapZone = zone;
+    if (!zone) {
+      this.clearSnapPreview();
+      return;
+    }
+    this.showSnapPreview(this._snapRect(zone));
+  }
+  /** C15. The controller's half of `_updateSnapZone`. The probe runs on every
+   *  move because the rectangle can change while the KEY does not — a tile
+   *  resized underneath the pointer, a menu re-previewing the same zone — but
+   *  the DOM is only touched when something actually differs. */
+  _updateControlledSnapZone(e) {
+    let probe = null;
+    try {
+      probe = this.snapController.probe?.(e, this) ?? null;
+    } catch (err) {
+      console.warn("[managed-window] snap probe threw", err);
+    }
+    this._snapProbe = probe;
+    this._snapZone = probe?.key ?? null;
+    if (!probe?.rect) {
+      this.clearSnapPreview();
+      return;
+    }
+    this.showSnapPreview(probe.rect, { viewport: true });
+  }
+  /** Paint the drag affordance. `rect` is container-relative by default —
+   *  the same space `_applyPosition` writes — and viewport-relative for a
+   *  controller, whose rectangles come from hit-testing other people's DOM.
+   *  Public because a controller that survives the pointer-up owns it. */
+  showSnapPreview(rect, { viewport = false } = {}) {
+    if (!rect) {
+      this.clearSnapPreview();
+      return;
+    }
+    const host = viewport ? document.body : this.container || document.body;
+    if (!this._snapPreviewEl) {
+      this._snapPreviewEl = document.createElement("div");
+      this._snapPreviewEl.setAttribute("aria-hidden", "true");
+    }
+    this._snapPreviewEl.className = `twm-snap-preview${viewport ? " twm-snap-preview--viewport" : ""}`;
+    const left = rect.left ?? rect.x;
+    const top = rect.top ?? rect.y;
+    Object.assign(this._snapPreviewEl.style, {
+      left: `${left}px`,
+      top: `${top}px`,
+      width: `${rect.width}px`,
+      height: `${rect.height}px`
+    });
+    if (this._snapPreviewEl.parentNode !== host) host.appendChild(this._snapPreviewEl);
+  }
+  clearSnapPreview() {
+    this._snapPreviewEl?.remove();
+    this._snapProbe = null;
+  }
+  /** @deprecated retained so nothing inside this file has to change spelling
+   *  in the same commit that adds the public one. */
+  _clearSnapPreview() {
+    this.clearSnapPreview();
+  }
+  /** Applied on release. The pre-snap geometry is remembered so dragging the
+   *  window off an edge restores the size it had — a snap that eats the
+   *  original size makes the gesture one-way and people stop using it. */
+  _applySnap(zone) {
+    const rect = this._snapRect(zone);
+    if (!rect) return;
+    if (!this._preSnapState) {
+      this._preSnapState = {
+        x: this._dragState.startWinX,
+        y: this._dragState.startWinY,
+        width: this.width,
+        height: this.height
+      };
+    }
+    this.x = rect.x;
+    this.y = rect.y;
+    this.width = rect.width;
+    this.height = rect.height;
+    this._applyPosition();
+    this.element?.classList.add("twm-managed-window--snapped");
+    window.dispatchEvent(new CustomEvent("managed-window-snapped", {
+      detail: { id: this.id, zone, container: this.container }
+    }));
+  }
+  /** Restore the geometry a snap replaced. Called when a snapped window is
+   *  picked up again, which is the gesture that means "un-snap". */
+  unsnap() {
+    if (!this._preSnapState) return false;
+    const { x, y, width, height } = this._preSnapState;
+    this._preSnapState = null;
+    this.x = x;
+    this.y = y;
+    this.width = width;
+    this.height = height;
+    this._applyPosition();
+    this.element?.classList.remove("twm-managed-window--snapped");
+    return true;
   }
   // ========== Resize Handling ==========
   _onResizePointerDown(e, direction) {
@@ -731,6 +1206,20 @@ var ManagedWindow = class {
     return _activeWindows.get(id) || null;
   }
   /**
+   * Every window this class currently holds, newest last.
+   *
+   * `get`/`restore` answer about a window whose id you already have, which is
+   * enough for a consumer reacting to an EVENT — it carries the id. It is not
+   * enough for one that has to repaint from scratch: a taskbar rebuilt with
+   * its pane has missed every event that came before it existed, and the only
+   * honest source for "which windows are minimised right now" is the registry
+   * itself. Returned as an array rather than the live map, so a consumer
+   * iterating it cannot mutate what it is iterating.
+   */
+  static all() {
+    return [..._activeWindows.values()];
+  }
+  /**
    * Restore a minimized window by ID.
    */
   static restore(id) {
@@ -745,4 +1234,4 @@ var ManagedWindow = class {
 export {
   ManagedWindow
 };
-//# sourceMappingURL=chunk-WA3HOXGR.js.map
+//# sourceMappingURL=chunk-LH5TSOZW.js.map

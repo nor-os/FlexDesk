@@ -1,11 +1,11 @@
 import {
   ActionDropdown
-} from "./chunk-TLZUUFOE.js";
+} from "./chunk-O5OHMWBB.js";
 import {
   openRawTracesWindow
-} from "./chunk-SQZ5F5GY.js";
-import "./chunk-L3RCBU2W.js";
-import "./chunk-WA3HOXGR.js";
+} from "./chunk-XKDTIT4Q.js";
+import "./chunk-QIU5S2RU.js";
+import "./chunk-LH5TSOZW.js";
 import "./chunk-FL5KFNQH.js";
 import {
   TileRegistry,
@@ -708,6 +708,9 @@ var TileBase = class {
    * @param {Object} [options.eventBus] - Event bus for cross-component communication
    * @param {Object} [options.config] - Widget-specific configuration
    * @param {boolean} [options.headless] - If true, mount without tile chrome (header, controls)
+   * @param {{resolve: Function}} [options.dataSource] - Where this tile asks for its
+   *        own rows. Handed down by `TileGrid`; absent for a grid whose data is
+   *        broadcast with `setData()`, and then nothing ever calls `loadData()`.
    */
   constructor({
     id,
@@ -717,9 +720,11 @@ var TileBase = class {
     readonly = false,
     headless = false,
     host = null,
-    stateGuard = null
+    stateGuard = null,
+    dataSource = null
   }) {
     this.host = host;
+    this.dataSource = dataSource;
     this.stateGuard = stateGuard;
     this.id = id;
     this.grid = grid;
@@ -733,6 +738,8 @@ var TileBase = class {
     this.data = null;
     this.fullData = null;
     this._disposed = false;
+    this._lastLoadedAt = null;
+    this._loadSeq = 0;
     this.comparisonData = null;
   }
   /**
@@ -929,6 +936,33 @@ var TileBase = class {
       this.render(this.data);
     }
   }
+  /**
+   * Load this tile's own data from `this.dataSource` and render it.
+   *
+   * A NO-OP HERE ON PURPOSE. The base class knows nothing about what a binding
+   * is or what a dataset looks like — those belong to the consumer, and the
+   * consumer that has them (Tables' `TablesTile`) implements this in ~30 lines
+   * over `showLoading()` / `render()` / `showError()`. What upstream owns is the
+   * CALL SITES: `TileGrid` invokes this after mount, after a resize settles and
+   * after a config save, but only when a `dataSource` was injected. Making it a
+   * hook rather than an implementation is what keeps EcoAgent's broadcast path
+   * (`setData` -> `update`) bit-identical: with no data source nothing here ever
+   * runs.
+   *
+   * @param {{force?: boolean}} [_opts] - `force` bypasses the source's cache.
+   * @returns {Promise<void>}
+   */
+  async loadData(_opts = {}) {
+  }
+  /**
+   * Called once after a drag-resize settles, for widgets whose content does not
+   * reflow on its own — a Plotly figure sizes itself at draw time and stays that
+   * size until something calls `Plotly.Plots.resize`. Deliberately NOT wired to a
+   * ResizeObserver: the grid already knows when a resize ended, and an observer
+   * per tile fires during the drag, which is a relayout per pointer-move.
+   */
+  onResize() {
+  }
   /** Add, update, or remove the info (ⓘ) button in the header to match current docs state. */
   _syncInfoButton() {
     const header = this.element?.querySelector(".tile-header");
@@ -979,6 +1013,65 @@ var TileBase = class {
     this.fullData = null;
   }
   /**
+   * The entries in the tile's ⋯ menu, as `{action, label, icon, hidden}`.
+   *
+   * This existed as a LITERAL inside `_buildChrome`, and the literal was
+   * EcoAgent's: "Add to Documentation" and "Show in Documentation". Both are
+   * meaningful only for a tile whose `config.sourceCellId` names a notebook
+   * cell, and the first one's hide condition is `sourceCellId && already-added` —
+   * so on a tile that has no `sourceCellId` at all it renders VISIBLE, and
+   * choosing it emits `tile:add-to-documentation` at an application that has no
+   * documentation. Every consumer other than EcoAgent therefore shipped a menu
+   * item that did nothing, and could not remove it without editing this file.
+   *
+   * Returning `[]` drops the whole wrapper — button, dropdown and all — because
+   * a ⋯ button that opens an empty menu reads as a broken feature rather than
+   * an absent one. The default is the two entries above, so EcoAgent's chrome
+   * is unchanged.
+   *
+   * Selection is routed through `_onMenuAction()`; override both together.
+   * @returns {Array<{action: string, label: string, icon?: string, hidden?: boolean}>}
+   */
+  menuItems() {
+    const linked = !!(this.config?.sourceCellId && this.grid?.documentationCellIds?.has(this.config.sourceCellId));
+    return [
+      {
+        action: "add-to-documentation",
+        label: "Add to Documentation",
+        icon: "post_add",
+        hidden: linked
+      },
+      {
+        action: "show-in-documentation",
+        label: "Show in Documentation",
+        icon: "description",
+        hidden: !linked
+      }
+    ];
+  }
+  /**
+   * Act on a ⋯ menu selection. One dispatch point for every entry, so an
+   * override of `menuItems()` cannot add a row that has nothing behind it, and
+   * an unrecognised action is silently ignored rather than throwing into a
+   * click handler.
+   * @param {string} action
+   * @protected
+   */
+  _onMenuAction(action) {
+    if (action === "add-to-documentation") {
+      this.eventBus?.emit?.("tile:add-to-documentation", {
+        tileType: this.constructor.TYPE,
+        config: { ...this.config }
+      });
+    } else if (action === "show-in-documentation") {
+      if (this.config?.sourceCellId) {
+        this.eventBus?.emit?.("tile:show-in-documentation", {
+          sourceCellId: this.config.sourceCellId
+        });
+      }
+    }
+  }
+  /**
    * Build the tile chrome (header, content area, resize handles).
    * @private
    */
@@ -996,6 +1089,19 @@ var TileBase = class {
                        style="background:transparent;border:none;padding:2px;color:rgba(255,255,255,0.55);cursor:help;display:inline-flex;align-items:center;justify-content:center;">
                    <span class="material-symbols-outlined" style="font-size:18px;">info</span>
                </button>` : "";
+    const menuEntries = (this.readonly ? [] : this.menuItems()) ?? [];
+    const menuHtml = menuEntries.length ? `<div class="tile-menu-wrapper">
+                        <button class="tile-menu-btn twm-has-tooltip" data-tooltip="More actions">
+                            <span class="material-symbols-outlined">more_vert</span>
+                        </button>
+                        <div class="tile-menu-dropdown" hidden>
+                            ${menuEntries.map((item) => `
+                            <button class="tile-menu-item" data-action="${this.#escapeAttr(item.action)}"${item.hidden ? ' style="display:none"' : ""}>
+                                ${item.icon ? `<span class="material-symbols-outlined">${this.#escapeAttr(item.icon)}</span>` : ""}
+                                <span>${this.#escapeAttr(item.label ?? "")}</span>
+                            </button>`).join("")}
+                        </div>
+                    </div>` : "";
     if (this.readonly) {
       header.innerHTML = `
                 <span class="tile-title">${this.constructor.TITLE}</span>
@@ -1014,21 +1120,7 @@ var TileBase = class {
                     <button class="tile-config-btn twm-has-tooltip" data-tooltip="Configure">
                         <span class="material-symbols-outlined">settings</span>
                     </button>
-                    <div class="tile-menu-wrapper">
-                        <button class="tile-menu-btn twm-has-tooltip" data-tooltip="More actions">
-                            <span class="material-symbols-outlined">more_vert</span>
-                        </button>
-                        <div class="tile-menu-dropdown" hidden>
-                            <button class="tile-menu-item" data-action="add-to-documentation" style="${this.config?.sourceCellId && this.grid?.documentationCellIds?.has(this.config.sourceCellId) ? "display:none" : ""}">
-                                <span class="material-symbols-outlined">post_add</span>
-                                <span>Add to Documentation</span>
-                            </button>
-                            <button class="tile-menu-item" data-action="show-in-documentation" style="${this.config?.sourceCellId && this.grid?.documentationCellIds?.has(this.config.sourceCellId) ? "" : "display:none"}">
-                                <span class="material-symbols-outlined">description</span>
-                                <span>Show in Documentation</span>
-                            </button>
-                        </div>
-                    </div>
+                    ${menuHtml}
                     ${infoBtnHtml}
                     ${expandBtnHtml}
                     <button class="tile-remove-btn twm-has-tooltip" data-tooltip="Remove widget">
@@ -1069,22 +1161,12 @@ var TileBase = class {
             });
           }
         });
-        menuDropdown.querySelector('[data-action="add-to-documentation"]')?.addEventListener("click", (e) => {
-          e.stopPropagation();
-          menuDropdown.hidden = true;
-          this.eventBus?.emit?.("tile:add-to-documentation", {
-            tileType: this.constructor.TYPE,
-            config: { ...this.config }
+        menuDropdown.querySelectorAll(".tile-menu-item").forEach((itemEl) => {
+          itemEl.addEventListener("click", (e) => {
+            e.stopPropagation();
+            menuDropdown.hidden = true;
+            this._onMenuAction(itemEl.dataset.action);
           });
-        });
-        menuDropdown.querySelector('[data-action="show-in-documentation"]')?.addEventListener("click", (e) => {
-          e.stopPropagation();
-          menuDropdown.hidden = true;
-          if (this.config?.sourceCellId) {
-            this.eventBus?.emit?.("tile:show-in-documentation", {
-              sourceCellId: this.config.sourceCellId
-            });
-          }
         });
       }
       const removeBtn = header.querySelector(".tile-remove-btn");
@@ -1179,6 +1261,13 @@ var TileBase = class {
   }
   /**
    * Show empty state in content area.
+   *
+   * The message is ESCAPED. Both this and `showError` interpolated straight
+   * into `innerHTML`, and the string reaching `showError` is the one place a
+   * caller has least control over — a server's error text, echoed back with a
+   * column name or a filter value in it. Callers pass plain text; this decides
+   * what that means in HTML.
+   *
    * @param {string} [message] - Custom message
    */
   showEmpty(message = "No data available") {
@@ -1186,13 +1275,13 @@ var TileBase = class {
       this.contentElement.innerHTML = `
                 <div class="tile-empty">
                     <span class="material-symbols-outlined">inbox</span>
-                    <span>${message}</span>
+                    <span>${this.#escapeAttr(message)}</span>
                 </div>
             `;
     }
   }
   /**
-   * Show error state in content area.
+   * Show error state in content area. The message is escaped — see `showEmpty`.
    * @param {string} [message] - Error message
    */
   showError(message = "Failed to load data") {
@@ -1200,7 +1289,7 @@ var TileBase = class {
       this.contentElement.innerHTML = `
                 <div class="twm-tile-error">
                     <span class="material-symbols-outlined">error</span>
-                    <span>${message}</span>
+                    <span>${this.#escapeAttr(message)}</span>
                 </div>
             `;
     }
@@ -1300,7 +1389,8 @@ var TileBase = class {
     });
   }
   /**
-   * Escape a string for safe insertion into an HTML attribute.
+   * Escape a string for safe insertion into HTML — an attribute value or a text
+   * node, since the five characters that matter are the same five in both.
    * @private
    */
   #escapeAttr(s) {
@@ -1340,6 +1430,9 @@ var TileGrid = class {
    * @param {Function} [options.onAddWidget] - Callback for add widget action
    * @param {Function} [options.onResetLayout] - Callback for reset layout action
    * @param {Function} [options.onExport] - Callback for export action
+   * @param {{resolve: Function}} [options.dataSource] - Per-tile data provider,
+   *        handed to every tile. With none, the grid is the broadcast-only grid
+   *        it has always been and no tile is ever asked to load anything.
    */
   constructor({
     container,
@@ -1359,10 +1452,14 @@ var TileGrid = class {
     // no host simply gets the Blob-download fallback the host contract
     // promises. It is not an error to have none.
     host = null,
-    stateGuard = null
+    stateGuard = null,
+    // Injected, never constructed here: the grid does not know what
+    // a binding is, only that a tile may have somewhere to ask.
+    dataSource = null
   }) {
     this.host = host;
     this.stateGuard = stateGuard;
+    this.dataSource = dataSource;
     this.container = container;
     this.columns = columns;
     this.rowHeight = rowHeight;
@@ -1479,7 +1576,8 @@ var TileGrid = class {
       config,
       readonly: this.readonly,
       host: this.host,
-      stateGuard: this.stateGuard
+      stateGuard: this.stateGuard,
+      dataSource: this.dataSource
     });
     if (!tile) return null;
     const layoutEntry = {
@@ -1499,6 +1597,8 @@ var TileGrid = class {
     if (this.data) {
       tile.fullData = this.fullData;
       tile.update(this.data);
+    } else if (this.dataSource) {
+      tile.loadData?.();
     }
     this._emitLayoutChanged();
     return tile;
@@ -1524,6 +1624,30 @@ var TileGrid = class {
     this.tiles.forEach((tile) => {
       tile.fullData = this.fullData;
       tile.update(data);
+    });
+  }
+  /**
+   * Ask every self-fetching tile to load again, bypassing whatever the data
+   * source has cached.
+   *
+   * The counterpart of `setData` for the pull model: `setData` is how a caller
+   * with one dataset for the whole board pushes it, and this is how a caller
+   * whose tiles each own a query says "that underlying data changed". Passing
+   * `ids` narrows it to the tiles a change actually touched, which is what an
+   * invalidation carrying a table id can work out and a broadcast cannot.
+   *
+   * Not awaited and returns nothing: the tiles render themselves as their own
+   * requests land, and a caller that waited for all of them would be waiting on
+   * the slowest tile to show the fastest one.
+   *
+   * @param {string[]|Set<string>|null} [ids] - Tile ids, or null for all.
+   */
+  reloadAll(ids = null) {
+    if (!this.dataSource) return;
+    const wanted = ids ? new Set(ids) : null;
+    this.tiles.forEach((tile, tileId) => {
+      if (wanted && !wanted.has(tileId)) return;
+      tile.loadData?.({ force: true });
     });
   }
   /**
@@ -1760,6 +1884,8 @@ var TileGrid = class {
         if (this.data) {
           state.tile.fullData = this.fullData;
           state.tile.update(this.data);
+        } else if (this.dataSource) {
+          state.tile.onResize?.();
         }
       }
     }
@@ -1926,6 +2052,7 @@ var TileGrid = class {
         if (tile) {
           tile.fullData = this.fullData;
           tile.update(this.data, newConfig);
+          if (this.dataSource) tile.loadData?.({ force: true });
           const layoutItem = this.layout.find((l) => l.id === tileId);
           if (layoutItem) {
             layoutItem.config = newConfig;

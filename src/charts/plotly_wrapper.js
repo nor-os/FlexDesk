@@ -184,36 +184,204 @@ export async function ensurePlotly() {
             + 'or call setPlotlySource("/path/to/plotly.min.js") before rendering a chart.');
     }
 
-    // Start loading — temporarily hide AMD define so Plotly sets window.Plotly
-    // instead of registering itself as an AMD module (conflicts with Monaco loader).
-    _plotlyLoadPromise = new Promise((resolve, reject) => {
+    // Start loading — make Plotly's UMD header take its browser-global branch
+    // WITHOUT asking any other script on the page to give up AMD, even for a
+    // moment.
+    //
+    // ══ WHY THE SCRIPT TAG IS NOT USED FIRST ═══════════════════════════════
+    //
+    // Plotly's header asks one question — `typeof define === 'function' &&
+    // define.amd` — and takes the AMD branch if the answer is yes, leaving
+    // `window.Plotly` unset because nothing calls the anonymous module back. A
+    // `<script>` tag therefore has to change what that question answers, and a
+    // global is the only place to change it. That is what this function used to
+    // do: it hid `define.amd` for the length of the fetch (see
+    // `loadThroughMaskedDefine` below for the two ways a cruder version of that
+    // breaks).
+    //
+    // MASKING IS STILL WRONG, AND MONACO IS THE PROOF. The window lasts as long
+    // as a 4.4 MB download, and any OTHER script that executes inside it asks
+    // the same question and gets the answer meant for Plotly. Monaco's
+    // `editor.main.js` — 3.7 MB, fetched on demand, so it lands wherever it
+    // lands — asks it twice:
+    //
+    //     typeof define=="function"&&define.amd ? define(ne[447], …)   // marked
+    //     … || typeof define=="function"&&define.amd) && (globalThis.monaco = m)
+    //
+    // The first is the copy of `marked` bundled INSIDE `editor.main.js`. Told
+    // there is no AMD, it registers itself as `globalThis.marked` instead of as
+    // the module `vs/base/common/marked/marked` — so Monaco's loader goes
+    // looking for that module as a FILE, which the `min` distribution does not
+    // ship (it is bundled, precisely here). The 404 fails the whole
+    // `vs/editor/editor.main` require:
+    //
+    //     Loading "vs/base/common/marked/marked" failed
+    //     Here are the modules that depend on it: vs/base/browser/markdownRenderer
+    //
+    // The second means `window.monaco` is never set even if the first is
+    // survived. Monaco's `monacoReady` has no reject path, so neither shows up
+    // as a failure: the editor simply never arrives, for the life of the page,
+    // and every consumer sits in its textarea fallback. Measured on the running
+    // deployment on 2026-09-04: 5 boots in 8 lost Monaco this way, 0 in 8 with
+    // the Plotly warm-up removed.
+    //
+    // ══ SO THE GLOBALS ARE NOT TOUCHED AT ALL ══════════════════════════════
+    //
+    // Fetch the source, then evaluate it in a function whose PARAMETERS are
+    // named `define`, `module` and `exports`. Inside that scope `typeof define`
+    // is "undefined" — the answer Plotly needs — while `window.define` is never
+    // read, written or deleted, so no other script can observe anything. The
+    // window is not a window at all: it is one synchronous evaluation, and
+    // nothing else can run inside it by construction.
+    //
+    // The masked-tag path stays as the FALLBACK for a source this page cannot
+    // fetch — a CDN without CORS is the case that matters, and it is exactly the
+    // case where a `<script>` tag still works.
+    _plotlyLoadPromise = (async () => {
+        let code;
+        try {
+            const response = await fetch(_plotlySrc, { credentials: 'same-origin' });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            code = await response.text();
+        } catch (err) {
+            // The FETCH failed, which a tag may still survive. An evaluation
+            // failure is not caught here: it would fail identically through a
+            // tag, and swallowing it would replace a real message with a
+            // misleading one.
+            return loadThroughMaskedDefine();
+        }
+        return evaluateWithoutAmd(code, _plotlySrc);
+    })();
+
+    return _plotlyLoadPromise;
+}
+
+/**
+ * Run Plotly's bundle with the three UMD globals shadowed as local names.
+ *
+ * `new Function` is not strict, so `this` is the global object inside the body —
+ * which is what Plotly's header is invoked with (`}(self, …)` in 2.x, `this` in
+ * older builds), and is why the browser-global branch still lands `Plotly` on
+ * the window rather than on a scope that disappears.
+ *
+ * @param {string} code the bundle's source
+ * @param {string} src  where it came from, for the debugger's file list
+ * @returns {object} the `Plotly` global
+ */
+function evaluateWithoutAmd(code, src) {
+    // eslint-disable-next-line no-new-func
+    const run = new Function('define', 'module', 'exports',
+                             `${code}\n//# sourceURL=${src}`);
+    run(undefined, undefined, undefined);
+    if (typeof Plotly === 'undefined') {
+        throw new Error(`Plotly.js was evaluated from ${src} but did not define a `
+            + 'Plotly global — the file may not be a Plotly UMD bundle.');
+    }
+    return Plotly;
+}
+
+/**
+ * The `<script>` tag path, for a source this page cannot fetch.
+ *
+ * ══ WHY `define` IS MASKED AND NOT REMOVED ═════════════════════════════════
+ *
+ * Hiding `window.define` outright breaks the page two ways, both observed on a
+ * running deployment on 2026-08-31:
+ *
+ *   1. `window.define = undefined`, restored on load. Monaco's `loader.js`
+ *      installs an AMD loader DURING the window, Plotly's header then sees
+ *      `typeof define === 'function' && define.amd`, registers as an anonymous
+ *      module nothing calls back, and the load "succeeds" with `window.Plotly`
+ *      still undefined:
+ *          This chart could not be drawn: Plotly.js loaded but Plotly global
+ *          not found
+ *      — true, unhelpful, and it sends the reader hunting for a missing file
+ *      that is being served correctly.
+ *
+ *   2. The mirror. Monaco loads in TWO stages: `loader.js` sets `define`, and
+ *      `editor.main.js` arrives later and calls it. If stage two lands while
+ *      `define` is hidden:
+ *          editor.main.js:5 Uncaught TypeError: globalDefine is not a function
+ *      One race costs the chart; the other costs the editor.
+ *
+ * Masking the PROPERTY rather than the function fixes both — `define` stays
+ * callable, `amd` is withheld — and it is still not safe for anybody else who
+ * asks the `define.amd` question inside the window. `ensurePlotly` says what
+ * that costs; this path is taken only when there is no alternative.
+ *
+ * @returns {Promise<object>} the `Plotly` global
+ */
+function loadThroughMaskedDefine() {
+    return new Promise((resolve, reject) => {
+        const hadDefine = 'define' in window;
         const savedDefine = window.define;
-        window.define = undefined;
+        let arrivedDefine;          // what somebody installed mid-window
+        let arrived = false;
+        let guarded = false;
+
+        /** The same function with `amd` withheld. Plotly reads `define.amd` and
+         *  stops; everyone else calls it and it behaves. */
+        const maskAmd = (value) => {
+            if (typeof value !== 'function') return undefined;
+            const masked = function define(...args) { return value.apply(this, args); };
+            for (const key of Object.getOwnPropertyNames(value)) {
+                if (key === 'amd' || key === 'length' || key === 'name') continue;
+                try { masked[key] = value[key]; } catch { /* getters that throw */ }
+            }
+            masked.amd = undefined;
+            return masked;
+        };
+
+        try {
+            Object.defineProperty(window, 'define', {
+                configurable: true,
+                enumerable: true,
+                get: () => maskAmd(arrived ? arrivedDefine : savedDefine),
+                set: (value) => { arrivedDefine = value; arrived = true; },
+            });
+            guarded = true;
+        } catch {
+            // A host that refuses the redefinition still gets the old
+            // behaviour, which is right far more often than it is wrong.
+            window.define = undefined;
+        }
+
+        /** Put the REAL `define` back, exactly once, preferring what arrived. */
+        const release = () => {
+            const value = arrived ? arrivedDefine : savedDefine;
+            if (guarded) {
+                delete window.define;
+                guarded = false;
+            }
+            // `hadDefine` matters: assigning `undefined` leaves an own property
+            // whose value is undefined, and `'define' in window` then answers
+            // true for a global that was never there. Some loaders test that.
+            if (arrived || hadDefine) window.define = value;
+        };
 
         const script = document.createElement('script');
         script.src = _plotlySrc;
         script.async = true;
 
         script.onload = () => {
-            window.define = savedDefine;
+            release();
             if (typeof Plotly !== 'undefined') {
-                console.log('[PlotlyWrapper] Plotly.js loaded successfully');
                 resolve(Plotly);
             } else {
-                reject(new Error('Plotly.js loaded but Plotly global not found'));
+                reject(new Error('Plotly.js loaded but Plotly global not found. '
+                    + 'Something defined an AMD loader while it was loading, so '
+                    + 'Plotly registered as a module instead of a global.'));
             }
         };
 
         script.onerror = () => {
-            window.define = savedDefine;
+            release();
             reject(new Error(`Failed to load Plotly.js from ${_plotlySrc} — `
                 + 'call setPlotlySource() with the path to your copy.'));
         };
 
         document.head.appendChild(script);
     });
-
-    return _plotlyLoadPromise;
 }
 
 /**

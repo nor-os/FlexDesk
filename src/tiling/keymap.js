@@ -28,10 +28,20 @@
  *
  * The handler refuses to act when focus is in an editable field, unless
  * the chord uses the Alt modifier (which is never typed into a field).
+ *
+ * ── It returns a disposer, and that is not decoration ──────────────────
+ * The listener is on `document` and is bound to ONE shell's `wm` and
+ * `palette`. An embedder that can build a second shell in the same page —
+ * Tables rebuilds its whole shell when you switch project, because every open
+ * tab names a table by id — would otherwise leave the first one's handler
+ * attached for ever. Two handlers is not "twice as responsive": `Ctrl+K`
+ * toggles the dead palette open and the live one closed in the same keystroke,
+ * and `Alt+W` closes a tile in a tree nobody can see. `createShell().dispose()`
+ * calls this.
  */
 
 export function installKeymap({ wm, palette, ...opts } = {}) {
-    document.addEventListener('keydown', (e) => {
+    const onKeyDown = (e) => {
         const inField = e.target?.closest?.(
             'input, textarea, select, [contenteditable="true"]');
 
@@ -159,5 +169,8 @@ export function installKeymap({ wm, palette, ...opts } = {}) {
         if (key.length === 1 && /[a-z]/.test(key) && !inField) {
             e.preventDefault();
         }
-    });
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
 }

@@ -1,6 +1,6 @@
 import {
   ManagedWindow
-} from "./chunk-WA3HOXGR.js";
+} from "./chunk-LH5TSOZW.js";
 
 // src/help/help_registry.js
 var EMPTY_PROVIDER = Object.freeze({
@@ -361,74 +361,14 @@ if (typeof document !== "undefined") {
   setupGlobalHelpShortcut();
 }
 
-// src/ui/components/context_menu.js
-var _activeMenu = null;
-function showContextMenu(x, y, items, onAction) {
-  hideContextMenu();
-  const menu = document.createElement("div");
-  menu.className = "twm-context-menu ea-context-menu";
-  for (const it of items) {
-    if (it.separator) {
-      const sep = document.createElement("div");
-      sep.className = "twm-context-menu__separator";
-      menu.appendChild(sep);
-      continue;
-    }
-    const row = document.createElement("div");
-    let cls = "twm-context-menu-item";
-    if (it.danger) cls += " twm-delete-node";
-    if (it.disabled) cls += " disabled";
-    row.className = cls;
-    row.innerHTML = `
-            <span class="material-symbols-outlined">${it.icon || ""}</span>
-            <span>${escapeHtml(it.label)}</span>
-        `;
-    if (!it.disabled) {
-      row.addEventListener("click", (e) => {
-        e.stopPropagation();
-        hideContextMenu();
-        onAction?.(it.action);
-      });
-    }
-    menu.appendChild(row);
-  }
-  document.body.appendChild(menu);
-  menu.style.display = "block";
-  _activeMenu = menu;
-  const rect = menu.getBoundingClientRect();
-  const left = Math.min(x, window.innerWidth - rect.width - 8);
-  const top = Math.min(y, window.innerHeight - rect.height - 8);
-  menu.style.left = `${Math.max(0, left)}px`;
-  menu.style.top = `${Math.max(0, top)}px`;
-  setTimeout(() => {
-    document.addEventListener("mousedown", _outsideHandler, { once: true, capture: true });
-  }, 0);
-  document.addEventListener("keydown", _escHandler);
-  window.addEventListener("scroll", hideContextMenu, { once: true, capture: true });
-}
-function hideContextMenu() {
-  if (!_activeMenu) return;
-  _activeMenu.remove();
-  _activeMenu = null;
-  document.removeEventListener("keydown", _escHandler);
-}
-function _outsideHandler(e) {
-  if (_activeMenu && !_activeMenu.contains(e.target)) hideContextMenu();
-}
-function _escHandler(e) {
-  if (e.key === "Escape") hideContextMenu();
-}
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
-  })[c]);
-}
-
 // src/ui/components/modal.js
+var _modalHost = null;
+function setModalHost(el) {
+  _modalHost = el || null;
+}
+function modalHost() {
+  return _modalHost;
+}
 var _modalSeq = 1;
 function openForm({ title, fields = [], defaults = {}, submitLabel = "OK" } = {}) {
   return new Promise((resolve) => {
@@ -445,6 +385,7 @@ function openForm({ title, fields = [], defaults = {}, submitLabel = "OK" } = {}
             </form>
         `;
     const win = new ManagedWindow({
+      container: _modalHost,
       id: `twm-modal-${_modalSeq++}`,
       title: title || "Dialog",
       icon: "edit_note",
@@ -594,6 +535,7 @@ function openConfirm({
         `;
     let _resolved = false;
     const win = new ManagedWindow({
+      container: _modalHost,
       id: `twm-confirm-${_modalSeq++}`,
       title: title || "Confirm",
       icon: icon || (danger ? "warning" : "help"),
@@ -638,7 +580,9 @@ function openModal({
   height = 480,
   onMount = null,
   backdropBlur = void 0,
-  backdropOpacity = void 0
+  backdropOpacity = void 0,
+  maximizable = false,
+  onMaximizeChange = null
 } = {}) {
   return new Promise((resolve) => {
     const body = document.createElement("div");
@@ -657,13 +601,35 @@ function openModal({
       if (a.primary) cls += " twm-btn--primary";
       if (a.danger) cls += " twm-btn--danger";
       btn.className = cls;
-      btn.textContent = String(a.label || "");
+      if (a.icon) {
+        const glyph = document.createElement("span");
+        glyph.className = "material-symbols-outlined twm-btn__glyph";
+        glyph.textContent = String(a.icon);
+        glyph.setAttribute("aria-hidden", "true");
+        const text = document.createElement("span");
+        text.className = "twm-btn__label";
+        text.textContent = String(a.label || "");
+        btn.append(glyph, text);
+      } else {
+        btn.textContent = String(a.label || "");
+      }
       btn.dataset.actionIdx = String(i);
+      if (a.disabled) btn.disabled = true;
+      if (a.value !== void 0 && a.value !== null) {
+        btn.dataset.actionValue = String(a.value);
+      }
       actionsEl.appendChild(btn);
     });
     body.appendChild(actionsEl);
     let _resolved = false;
+    let _onMax = null;
+    const _dropMaxListener = () => {
+      if (!_onMax) return;
+      window.removeEventListener("managed-window-maximized", _onMax);
+      _onMax = null;
+    };
     const win = new ManagedWindow({
+      container: _modalHost,
       id: `twm-modal-${_modalSeq++}`,
       title,
       icon,
@@ -672,12 +638,24 @@ function openModal({
       backdropBlur,
       backdropOpacity,
       canMinimize: false,
-      canMaximize: false,
+      // C29. OPT-IN, and `false` is still the default — a confirmation
+      // and a two-field form have nothing to do with the extra room, and
+      // a button that grows a dialog nobody wanted grown is noise in the
+      // one place a user looks for the X. `onMaximize` is deliberately
+      // NOT set: see the C29 note in the header — with nothing claiming
+      // the gesture, `toggleMaximize` runs the rectangle, which is the
+      // only thing maximise can mean for a window with no tile.
+      canMaximize: !!maximizable,
       canResize: true,
       canDrag: true,
       defaultWidth: width,
       defaultHeight: height,
+      // Esc, the X and the backdrop all land here without passing through
+      // `close`, so the listener is dropped here as well as there — the
+      // three dismissals a user reaches for most are exactly the ones
+      // that would otherwise leak it.
       onClose: () => {
+        _dropMaxListener();
         if (!_resolved) {
           _resolved = true;
           resolve(null);
@@ -685,9 +663,21 @@ function openModal({
       }
     });
     win.show();
+    if (maximizable && typeof onMaximizeChange === "function") {
+      _onMax = (e) => {
+        if (e.detail?.id !== win.id) return;
+        try {
+          onMaximizeChange(!!e.detail.maximized, bodyInner);
+        } catch (err) {
+          console.warn("[modal] onMaximizeChange threw", err);
+        }
+      };
+      window.addEventListener("managed-window-maximized", _onMax);
+    }
     const close = (value) => {
       if (_resolved) return;
       _resolved = true;
+      _dropMaxListener();
       resolve(value);
       try {
         win.close({ force: true });
@@ -710,16 +700,43 @@ function openModal({
       }
       close(a.value);
     });
+    const controls = {
+      // NOT `CSS.escape`. It is a browser global that jsdom does not
+      // provide, and this file is mounted under jsdom by four render
+      // tests — so reaching for it turns "the dialog is valid" into a
+      // ReferenceError in every one of them, and into nothing at all in a
+      // headless consumer. An attribute selector needs `"` and `\`
+      // escaped and nothing else.
+      actionButton: (value) => actionsEl.querySelector(
+        `[data-action-value="${String(value).replace(/["\\]/g, "\\$&")}"]`
+      ),
+      setActionEnabled(value, enabled) {
+        const btn = controls.actionButton(value);
+        if (btn) btn.disabled = !enabled;
+        return !!btn;
+      }
+    };
     if (typeof onMount === "function") {
       requestAnimationFrame(() => {
         try {
-          onMount(bodyInner);
+          onMount(bodyInner, controls);
         } catch (err) {
           console.warn(err);
         }
       });
     }
     requestAnimationFrame(() => {
+      const field = bodyInner.querySelector(
+        'input:not([type="hidden"]):not([disabled]):not([readonly]), textarea:not([disabled]):not([readonly]), select:not([disabled])'
+      );
+      if (field) {
+        field.focus();
+        try {
+          field.setSelectionRange?.(field.value.length, field.value.length);
+        } catch {
+        }
+        return;
+      }
       const idx = acts.findIndex((a) => a.primary);
       const which = idx >= 0 ? idx : acts.length - 1;
       actionsEl.querySelector(`[data-action-idx="${which}"]`)?.focus();
@@ -840,16 +857,120 @@ function _esc(s) {
   return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+// src/ui/components/context_menu.js
+var _activeMenu = null;
+var _returnFocusTo = null;
+function showContextMenu(x, y, items, onAction) {
+  hideContextMenu();
+  _returnFocusTo = document.activeElement;
+  const menu = document.createElement("div");
+  menu.className = "twm-context-menu ea-context-menu";
+  menu.setAttribute("role", "menu");
+  for (const it of items) {
+    if (it.separator) {
+      const sep = document.createElement("div");
+      sep.className = "twm-context-menu__separator";
+      sep.setAttribute("role", "separator");
+      menu.appendChild(sep);
+      continue;
+    }
+    const row = document.createElement("button");
+    row.type = "button";
+    row.setAttribute("role", "menuitem");
+    let cls = "twm-context-menu-item";
+    if (it.danger) cls += " twm-delete-node";
+    if (it.disabled) cls += " disabled";
+    row.className = cls;
+    if (it.disabled) {
+      row.disabled = true;
+      row.setAttribute("aria-disabled", "true");
+    }
+    if (it.title) row.title = it.title;
+    row.innerHTML = `
+            <span class="material-symbols-outlined">${it.icon || ""}</span>
+            <span>${escapeHtml(it.label)}</span>
+        `;
+    if (!it.disabled) {
+      row.addEventListener("click", (e) => {
+        e.stopPropagation();
+        hideContextMenu();
+        onAction?.(it.action);
+      });
+    }
+    menu.appendChild(row);
+  }
+  (modalHost() || document.body).appendChild(menu);
+  menu.style.display = "block";
+  _activeMenu = menu;
+  const rect = menu.getBoundingClientRect();
+  const left = Math.min(x, window.innerWidth - rect.width - 8);
+  const top = Math.min(y, window.innerHeight - rect.height - 8);
+  menu.style.left = `${Math.max(0, left)}px`;
+  menu.style.top = `${Math.max(0, top)}px`;
+  setTimeout(() => {
+    document.addEventListener("mousedown", _outsideHandler, { once: true, capture: true });
+  }, 0);
+  document.addEventListener("keydown", _keyHandler);
+  window.addEventListener("scroll", hideContextMenu, { once: true, capture: true });
+  _enabledItems(menu)[0]?.focus({ preventScroll: true });
+}
+function hideContextMenu() {
+  if (!_activeMenu) return;
+  const returnTo = _returnFocusTo;
+  const held = _activeMenu.contains(document.activeElement);
+  _activeMenu.remove();
+  _activeMenu = null;
+  _returnFocusTo = null;
+  document.removeEventListener("keydown", _keyHandler);
+  if (held && returnTo?.isConnected) returnTo.focus?.({ preventScroll: true });
+}
+function _enabledItems(menu) {
+  return [...menu.querySelectorAll(".twm-context-menu-item:not(.disabled)")];
+}
+function _keyHandler(e) {
+  if (!_activeMenu) return;
+  if (e.key === "Escape") {
+    e.preventDefault();
+    hideContextMenu();
+    return;
+  }
+  const items = _enabledItems(_activeMenu);
+  if (items.length === 0) return;
+  const at = items.indexOf(document.activeElement);
+  let next = null;
+  if (e.key === "ArrowDown") next = items[(at + 1 + items.length) % items.length];
+  else if (e.key === "ArrowUp") next = items[(at - 1 + items.length) % items.length];
+  else if (e.key === "Home") next = items[0];
+  else if (e.key === "End") next = items[items.length - 1];
+  if (!next) return;
+  e.preventDefault();
+  next.focus({ preventScroll: true });
+}
+function _outsideHandler(e) {
+  if (_activeMenu && !_activeMenu.contains(e.target)) hideContextMenu();
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[c]);
+}
+
 export {
   setHelpProvider,
   helpProvider,
   helpCategories,
   helpCopy,
   HelpModal,
-  showContextMenu,
-  hideContextMenu,
+  setModalHost,
+  modalHost,
   openForm,
   openConfirm,
-  openModal
+  openModal,
+  showContextMenu,
+  hideContextMenu
 };
-//# sourceMappingURL=chunk-NBCHDAYC.js.map
+//# sourceMappingURL=chunk-ELXVW542.js.map

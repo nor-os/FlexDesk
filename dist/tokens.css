@@ -134,4 +134,49 @@
        --panel-surface, --panel-header-bg, --primary-color-hover) removed
        in Phase 7 — all page CSS now references canonical tokens
        directly. */
+
+    /* ── `--ea-*` — density and chrome tokens `flexdesk.css` DEPENDS ON ──
+       These are not EcoAgent's private variables any more. `flexdesk.css`
+       was extracted from EcoAgent's stylesheets and 27 `--ea-*` names came
+       with it — 47 declarations across the framework's own components read
+       them. FIVE have no fallback:
+
+           --ea-pad-snug   (21 uses)   --ea-pad-loose  (9 uses)
+           --ea-font-body  (14 uses)   --ea-pad-tight  (2 uses)
+           --ea-input-pad  (1 use)
+
+       In EcoAgent they resolve, because EcoAgent defines them in
+       `ecoagent_extra_modes.css`. In ANY OTHER consumer they resolve to
+       nothing, and `padding: 0 var(--ea-pad-loose)` with no fallback is not
+       a smaller padding — it is an invalid declaration that is dropped. The
+       symptom is a modal with misplaced titlebar icons, no body padding,
+       wrong proportions and scrollbars where the content would otherwise
+       have fitted.
+
+       Values are EcoAgent's own (`ecoagent_extra_modes.css:32-52`), so this
+       is additive and changes nothing for EcoAgent, which still defines its
+       copies later and wins. The colour tokens alias the canonical ones
+       above rather than repeating literals. */
+    --ea-pad-tight:   2px;
+    --ea-pad-snug:    6px;
+    --ea-pad-loose:   10px;
+    --ea-input-pad:   4px 8px;
+    --ea-row-h:       18px;
+    --ea-font-body:   11px;
+    --ea-font-small:  10px;
+    --ea-font-mono:   10.5px;
+    --ea-font-title:  11px;
+    --ea-mono:        var(--font-family-mono);
+
+    --ea-bg-chrome:   #1a1a1a;
+    --ea-bg-content:  #212121;
+    --ea-bg-well:     #0d0d0d;
+    --ea-bg-strip:    var(--surface-2);
+    --ea-input-bg:    var(--surface-3);
+    --ea-border:      #333;
+    --ea-border-soft: #2a2a2a;
+    --ea-text:        var(--text-body);
+    --ea-text-muted:  var(--text-muted);
+    --ea-text-dim:    var(--text-dim);
+    --ea-accent:      var(--accent-bright);
 }

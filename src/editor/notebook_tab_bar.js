@@ -71,9 +71,25 @@ export class NotebookTabBar {
                 const title = e.target.closest('.tab')?.querySelector('.twm-tab-title');
                 return title?.getAttribute('contenteditable') !== 'true';
             },
-            onDragStart: (e, key) => {
+            onDragStart: (e, key, item) => {
                 // Carry the cross-pane MIME so other panes accept this tab.
                 try { e.dataTransfer.setData(TAB_MIME, key); } catch (_) {}
+                // C33. …AND LET THE HOST ADD ITS OWN, which is the whole of
+                // what a second consumer of this strip needs from it.
+                //
+                // `DragReorder` publishes this hook for exactly this purpose
+                // ("host hook to augment dataTransfer (e.g. add a cross-pane
+                // MIME)", `../ui/components/drag_reorder.js`), and this class
+                // consumed it and stopped there. The tile renderer mounts one
+                // of these per tile and needs to mark the drag as one of ITS
+                // tabs — a different question from "is this an editor tab",
+                // asked of the same gesture.
+                //
+                // ADDITIVE BY CONSTRUCTION: `TAB_MIME` is set first and
+                // unchanged, so `EditorPane`'s existing cross-pane drop cannot
+                // notice that anyone else is listening.
+                try { this.#callbacks.onDragStart?.(e, key, item); }
+                catch (err) { console.error('[tab-bar] onDragStart threw', err); }
             },
             onReorder: (order) => this.#callbacks.onReorder?.(order),
         });
@@ -226,10 +242,30 @@ export class NotebookTabBar {
         this.#container.removeEventListener('dragleave', this.#onStripDragLeave);
     }
 
-    /** Check whether a drag event carries a cross-pane tab (not from this bar). */
+    /** Check whether a drag event carries a cross-pane tab (not from this bar).
+     *
+     *  C33. A HOST MAY NAME A SECOND MIME, at mount, as
+     *  `callbacks.externalTabMimes` — the tile renderer's tabs are not editor
+     *  tabs and do not carry `application/x-ecosim-tab`, so without this the
+     *  strip in tile B would refuse a tab dragged out of tile A's strip. Empty
+     *  by default, so every existing consumer keeps exactly today's admission
+     *  test.
+     *
+     *  THE `isActive()` EARLY RETURN STAYS FIRST AND STAYS UNCHANGED. It is the
+     *  one line that keeps this bar's own reorder from being read as a foreign
+     *  drop, and no widening of the MIME list may be allowed to reach past it.
+     *
+     *  Only `types` is consulted, never `getData` — under the HTML5 protected
+     *  mode `getData` returns the empty string for every event except `drop`,
+     *  so a payload read here would find nothing and arm nothing. */
     #isExternalTabDrag(e) {
         if (this.#dragReorder?.isActive()) return false; // same-pane drag is active
-        try { return e.dataTransfer.types.includes(TAB_MIME); } catch { return false; }
+        const extra = Array.isArray(this.#callbacks.externalTabMimes)
+            ? this.#callbacks.externalTabMimes : [];
+        try {
+            const types = e.dataTransfer.types;
+            return types.includes(TAB_MIME) || extra.some((m) => types.includes(m));
+        } catch { return false; }
     }
 
     // Same-pane reorder is handled by the shared DragReorder module (set

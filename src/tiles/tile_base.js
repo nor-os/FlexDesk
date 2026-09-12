@@ -42,10 +42,25 @@ export class TileBase {
      * @param {Object} [options.eventBus] - Event bus for cross-component communication
      * @param {Object} [options.config] - Widget-specific configuration
      * @param {boolean} [options.headless] - If true, mount without tile chrome (header, controls)
+     * @param {{resolve: Function}} [options.dataSource] - Where this tile asks for its
+     *        own rows. Handed down by `TileGrid`; absent for a grid whose data is
+     *        broadcast with `setData()`, and then nothing ever calls `loadData()`.
      */
     constructor({ id, grid, eventBus = null, config = {}, readonly = false,
-                  headless = false, host = null, stateGuard = null }) {
+                  headless = false, host = null, stateGuard = null,
+                  dataSource = null }) {
         this.host = host;
+        // THE TILE PULLS; THE GRID DOES NOT PUSH.
+        //
+        // `TileGrid.setData()` broadcasts one dataset to every tile, which is the
+        // right shape when every tile reads the same simulation run and the wrong
+        // one when each tile is bound to a different query — the second tile would
+        // then have to find its own rows inside a payload it never asked for. A
+        // data source is anything answering `resolve(tileId, binding)`; the base
+        // class only holds it and hands it to `loadData()`, so a grid constructed
+        // without one behaves exactly as it did before this line existed, and the
+        // broadcast path is untouched.
+        this.dataSource = dataSource;
         // `window.__ECOSIM_JS_NEW__?.stateGuard` — an application's global, reached for
         // by a tile. The StateGuard is a FRAMEWORK service (@flexdesk/core); the INSTANCE is
         // the application's, and it is handed down through the grid. No guard => the
@@ -64,6 +79,12 @@ export class TileBase {
         /** @type {Object|null} Unfiltered analytics data for cross-namespace variable resolution */
         this.fullData = null;
         this._disposed = false;
+        // Written by whatever implements `loadData()`. `_loadSeq` is the guard
+        // against a slow first request landing after a fast second one and
+        // painting stale rows over fresh ones — a tile is re-resolved on every
+        // filter change, so that race is the normal case rather than the edge.
+        this._lastLoadedAt = null;
+        this._loadSeq = 0;
         /** @type {Map<string, {name: string, analytics: Object, color: string}>|null} */
         this.comparisonData = null;
     }
@@ -308,6 +329,33 @@ export class TileBase {
         }
     }
 
+    /**
+     * Load this tile's own data from `this.dataSource` and render it.
+     *
+     * A NO-OP HERE ON PURPOSE. The base class knows nothing about what a binding
+     * is or what a dataset looks like — those belong to the consumer, and the
+     * consumer that has them (Tables' `TablesTile`) implements this in ~30 lines
+     * over `showLoading()` / `render()` / `showError()`. What upstream owns is the
+     * CALL SITES: `TileGrid` invokes this after mount, after a resize settles and
+     * after a config save, but only when a `dataSource` was injected. Making it a
+     * hook rather than an implementation is what keeps EcoAgent's broadcast path
+     * (`setData` -> `update`) bit-identical: with no data source nothing here ever
+     * runs.
+     *
+     * @param {{force?: boolean}} [_opts] - `force` bypasses the source's cache.
+     * @returns {Promise<void>}
+     */
+    async loadData(_opts = {}) {}
+
+    /**
+     * Called once after a drag-resize settles, for widgets whose content does not
+     * reflow on its own — a Plotly figure sizes itself at draw time and stays that
+     * size until something calls `Plotly.Plots.resize`. Deliberately NOT wired to a
+     * ResizeObserver: the grid already knows when a resize ended, and an observer
+     * per tile fires during the drag, which is a relayout per pointer-move.
+     */
+    onResize() {}
+
     /** Add, update, or remove the info (ⓘ) button in the header to match current docs state. */
     _syncInfoButton() {
         const header = this.element?.querySelector('.tile-header');
@@ -368,6 +416,60 @@ export class TileBase {
     }
 
     /**
+     * The entries in the tile's ⋯ menu, as `{action, label, icon, hidden}`.
+     *
+     * This existed as a LITERAL inside `_buildChrome`, and the literal was
+     * EcoAgent's: "Add to Documentation" and "Show in Documentation". Both are
+     * meaningful only for a tile whose `config.sourceCellId` names a notebook
+     * cell, and the first one's hide condition is `sourceCellId && already-added` —
+     * so on a tile that has no `sourceCellId` at all it renders VISIBLE, and
+     * choosing it emits `tile:add-to-documentation` at an application that has no
+     * documentation. Every consumer other than EcoAgent therefore shipped a menu
+     * item that did nothing, and could not remove it without editing this file.
+     *
+     * Returning `[]` drops the whole wrapper — button, dropdown and all — because
+     * a ⋯ button that opens an empty menu reads as a broken feature rather than
+     * an absent one. The default is the two entries above, so EcoAgent's chrome
+     * is unchanged.
+     *
+     * Selection is routed through `_onMenuAction()`; override both together.
+     * @returns {Array<{action: string, label: string, icon?: string, hidden?: boolean}>}
+     */
+    menuItems() {
+        const linked = !!(this.config?.sourceCellId
+                          && this.grid?.documentationCellIds?.has(this.config.sourceCellId));
+        return [
+            { action: 'add-to-documentation',
+              label: 'Add to Documentation',  icon: 'post_add',    hidden: linked },
+            { action: 'show-in-documentation',
+              label: 'Show in Documentation', icon: 'description', hidden: !linked },
+        ];
+    }
+
+    /**
+     * Act on a ⋯ menu selection. One dispatch point for every entry, so an
+     * override of `menuItems()` cannot add a row that has nothing behind it, and
+     * an unrecognised action is silently ignored rather than throwing into a
+     * click handler.
+     * @param {string} action
+     * @protected
+     */
+    _onMenuAction(action) {
+        if (action === 'add-to-documentation') {
+            this.eventBus?.emit?.('tile:add-to-documentation', {
+                tileType: this.constructor.TYPE,
+                config: { ...this.config },
+            });
+        } else if (action === 'show-in-documentation') {
+            if (this.config?.sourceCellId) {
+                this.eventBus?.emit?.('tile:show-in-documentation', {
+                    sourceCellId: this.config.sourceCellId,
+                });
+            }
+        }
+    }
+
+    /**
      * Build the tile chrome (header, content area, resize handles).
      * @private
      */
@@ -397,6 +499,24 @@ export class TileBase {
                </button>`
             : '';
 
+        // The ⋯ menu, from `menuItems()` rather than from a literal. Read-only
+        // chrome never had one, so the hook is not even asked in that mode.
+        const menuEntries = (this.readonly ? [] : this.menuItems()) ?? [];
+        const menuHtml = menuEntries.length
+            ? `<div class="tile-menu-wrapper">
+                        <button class="tile-menu-btn twm-has-tooltip" data-tooltip="More actions">
+                            <span class="material-symbols-outlined">more_vert</span>
+                        </button>
+                        <div class="tile-menu-dropdown" hidden>
+                            ${menuEntries.map((item) => `
+                            <button class="tile-menu-item" data-action="${this.#escapeAttr(item.action)}"${item.hidden ? ' style="display:none"' : ''}>
+                                ${item.icon ? `<span class="material-symbols-outlined">${this.#escapeAttr(item.icon)}</span>` : ''}
+                                <span>${this.#escapeAttr(item.label ?? '')}</span>
+                            </button>`).join('')}
+                        </div>
+                    </div>`
+            : '';
+
         if (this.readonly) {
             // Read-only mode: no drag handle, no menu, no remove button
             header.innerHTML = `
@@ -416,21 +536,7 @@ export class TileBase {
                     <button class="tile-config-btn twm-has-tooltip" data-tooltip="Configure">
                         <span class="material-symbols-outlined">settings</span>
                     </button>
-                    <div class="tile-menu-wrapper">
-                        <button class="tile-menu-btn twm-has-tooltip" data-tooltip="More actions">
-                            <span class="material-symbols-outlined">more_vert</span>
-                        </button>
-                        <div class="tile-menu-dropdown" hidden>
-                            <button class="tile-menu-item" data-action="add-to-documentation" style="${this.config?.sourceCellId && this.grid?.documentationCellIds?.has(this.config.sourceCellId) ? 'display:none' : ''}">
-                                <span class="material-symbols-outlined">post_add</span>
-                                <span>Add to Documentation</span>
-                            </button>
-                            <button class="tile-menu-item" data-action="show-in-documentation" style="${this.config?.sourceCellId && this.grid?.documentationCellIds?.has(this.config.sourceCellId) ? '' : 'display:none'}">
-                                <span class="material-symbols-outlined">description</span>
-                                <span>Show in Documentation</span>
-                            </button>
-                        </div>
-                    </div>
+                    ${menuHtml}
                     ${infoBtnHtml}
                     ${expandBtnHtml}
                     <button class="tile-remove-btn twm-has-tooltip" data-tooltip="Remove widget">
@@ -485,22 +591,16 @@ export class TileBase {
                         });
                     }
                 });
-                menuDropdown.querySelector('[data-action="add-to-documentation"]')?.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    menuDropdown.hidden = true;
-                    this.eventBus?.emit?.('tile:add-to-documentation', {
-                        tileType: this.constructor.TYPE,
-                        config: { ...this.config },
+                // One listener per rendered entry, dispatching by `data-action`
+                // into `_onMenuAction`. Wiring each action by name here is what
+                // made the menu un-overridable: a subclass could add a row and
+                // could not add the handler behind it.
+                menuDropdown.querySelectorAll('.tile-menu-item').forEach((itemEl) => {
+                    itemEl.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        menuDropdown.hidden = true;
+                        this._onMenuAction(itemEl.dataset.action);
                     });
-                });
-                menuDropdown.querySelector('[data-action="show-in-documentation"]')?.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    menuDropdown.hidden = true;
-                    if (this.config?.sourceCellId) {
-                        this.eventBus?.emit?.('tile:show-in-documentation', {
-                            sourceCellId: this.config.sourceCellId,
-                        });
-                    }
                 });
             }
 
@@ -619,6 +719,13 @@ export class TileBase {
 
     /**
      * Show empty state in content area.
+     *
+     * The message is ESCAPED. Both this and `showError` interpolated straight
+     * into `innerHTML`, and the string reaching `showError` is the one place a
+     * caller has least control over — a server's error text, echoed back with a
+     * column name or a filter value in it. Callers pass plain text; this decides
+     * what that means in HTML.
+     *
      * @param {string} [message] - Custom message
      */
     showEmpty(message = 'No data available') {
@@ -626,14 +733,14 @@ export class TileBase {
             this.contentElement.innerHTML = `
                 <div class="tile-empty">
                     <span class="material-symbols-outlined">inbox</span>
-                    <span>${message}</span>
+                    <span>${this.#escapeAttr(message)}</span>
                 </div>
             `;
         }
     }
 
     /**
-     * Show error state in content area.
+     * Show error state in content area. The message is escaped — see `showEmpty`.
      * @param {string} [message] - Error message
      */
     showError(message = 'Failed to load data') {
@@ -641,7 +748,7 @@ export class TileBase {
             this.contentElement.innerHTML = `
                 <div class="twm-tile-error">
                     <span class="material-symbols-outlined">error</span>
-                    <span>${message}</span>
+                    <span>${this.#escapeAttr(message)}</span>
                 </div>
             `;
         }
@@ -760,7 +867,8 @@ export class TileBase {
     }
 
     /**
-     * Escape a string for safe insertion into an HTML attribute.
+     * Escape a string for safe insertion into HTML — an attribute value or a text
+     * node, since the five characters that matter are the same five in both.
      * @private
      */
     #escapeAttr(s) {

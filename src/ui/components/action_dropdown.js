@@ -174,13 +174,27 @@ export class ActionDropdown {
         // Position against trigger
         ActionDropdown.position(this.trigger, this.menuEl);
 
-        // Animate in
+        // Animate in.
+        //
+        // OPTIONAL CHAINING, AND IT IS LOAD-BEARING. This callback runs a frame
+        // after `open()` returned, and `destroy()` sets `this.menuEl = null`
+        // (see below) — so a dropdown that is opened and then destroyed inside
+        // one frame threw an uncaught `TypeError: Cannot read properties of
+        // null` out of an animation-frame callback, where no caller has a stack
+        // to catch it. That is not a hypothetical: it is what a user does every
+        // time they open a picker and then click something that unmounts the
+        // pane around it, and it was reproduced eighteen times in one run of a
+        // consumer's settings suite. Nothing is lost by skipping the class — the
+        // element it would have been added to no longer exists.
         requestAnimationFrame(() => {
-            this.menuEl.classList.add('visible');
+            this.menuEl?.classList.add('visible');
         });
 
         // Update trigger state
         this.trigger?.classList.add('twm-is-open');
+        if (this.trigger?.hasAttribute('aria-expanded')) {
+            this.trigger.setAttribute('aria-expanded', 'true');
+        }
 
         // Add document listeners
         document.addEventListener('click', this._boundHandleDocumentClick, true);
@@ -204,8 +218,16 @@ export class ActionDropdown {
             this.menuEl.hidden = true;
         }
 
-        // Update trigger state
+        // Update trigger state. `aria-expanded` belongs on the TRIGGER and has
+        // to be written on every close, not only on the ones a click caused —
+        // an embedder that synced it from its own click handler was announcing
+        // an expanded menu to a screen reader every time Escape or an outside
+        // click dismissed one. The component knows when it closed; nothing else
+        // reliably does.
         this.trigger?.classList.remove('twm-is-open');
+        if (this.trigger?.hasAttribute('aria-expanded')) {
+            this.trigger.setAttribute('aria-expanded', 'false');
+        }
 
         // Remove document listeners
         document.removeEventListener('click', this._boundHandleDocumentClick, true);
@@ -235,6 +257,15 @@ export class ActionDropdown {
      */
     _handleKeydown(e) {
         if (e.key === 'Escape') {
+            // AND NOBODY ELSE GETS IT. An open dropdown is the innermost thing
+            // on screen, so Escape means "close this" and nothing further —
+            // but the event was left to bubble, and inside a `ManagedWindow`
+            // (which binds its own Escape to dismiss) that meant one keystroke
+            // closed the dropdown AND the dialog around it. The user loses a
+            // form they were filling in because they changed their mind about
+            // one field.
+            e.preventDefault();
+            e.stopPropagation();
             this.close();
             this.trigger?.focus();
             return;

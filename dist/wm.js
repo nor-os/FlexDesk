@@ -2,11 +2,15 @@ import {
   HelpModal,
   openForm,
   showContextMenu
-} from "./chunk-NBCHDAYC.js";
+} from "./chunk-ELXVW542.js";
 import {
   ManagedWindow
-} from "./chunk-WA3HOXGR.js";
+} from "./chunk-LH5TSOZW.js";
 import "./chunk-FL5KFNQH.js";
+import {
+  NotebookTabBar
+} from "./chunk-QNQHQ24V.js";
+import "./chunk-WVFGV5FT.js";
 import "./chunk-JYWURG5T.js";
 
 // src/tiling/command_palette.js
@@ -21,7 +25,14 @@ var STATIC_COMMANDS = [
     action: () => HelpModal.open("keyboard-shortcuts")
   }
 ];
-function createCommandPalette({ wm, api, taxonomy, catalog, placeholder = "Search\u2026" }) {
+function createCommandPalette({
+  wm,
+  api,
+  taxonomy,
+  catalog,
+  placeholder = "Search\u2026",
+  onPick = null
+}) {
   if (!taxonomy) throw new Error("createCommandPalette: a taxonomy is required");
   if (!catalog) throw new Error("createCommandPalette: an entity catalog is required");
   let overlay = null;
@@ -40,7 +51,7 @@ function createCommandPalette({ wm, api, taxonomy, catalog, placeholder = "Searc
     overlay = document.createElement("div");
     overlay.id = ROOT_ID;
     overlay.className = "twm-cmdpal-overlay";
-    overlay.innerHTML = _markup(taxonomy, placeholder);
+    overlay.innerHTML = _markup(taxonomy, placeholder, wm);
     document.body.appendChild(overlay);
     overlay.addEventListener("click", (e) => {
       if (e.target === overlay) close();
@@ -120,6 +131,15 @@ function createCommandPalette({ wm, api, taxonomy, catalog, placeholder = "Searc
         }
         return;
       }
+      if (onPick) {
+        let handled = false;
+        try {
+          handled = onPick(pick) ?? false;
+        } catch (err) {
+          console.error("[cmdpal] onPick threw", err);
+        }
+        if (handled) return;
+      }
       wm.openInPrimary(pick.kind, pick.props || { id: pick.id, label: pick.label });
     };
     const tryConsumePrefix = () => {
@@ -186,7 +206,17 @@ function createCommandPalette({ wm, api, taxonomy, catalog, placeholder = "Searc
   };
   return { open, close, toggle, isOpen };
 }
-function _markup(taxonomy, placeholder) {
+function _markup(taxonomy, placeholder, wm) {
+  const PANEL_CHIPS = [
+    { side: "left", icon: "menu", label: "Left nav" },
+    { side: "right", icon: "dock_to_left", label: "Right panel" },
+    { side: "bottom", icon: "dock_to_bottom", label: "Bottom panel" }
+  ];
+  const panelToggles = PANEL_CHIPS.filter((p) => wm.content?.has?.(`panel:${p.side}`) !== false).map((p) => `
+                <button class="twm-chip" data-toggle="${p.side}">
+                    <span class="material-symbols-outlined">${p.icon}</span>
+                    ${p.label}
+                </button>`).join("");
   const chips = taxonomy.topNavEntries().map((k) => `
         <button class="twm-chip" data-shortcut="${k.kind}">
             <span class="material-symbols-outlined">${k.icon}</span>
@@ -202,20 +232,7 @@ function _markup(taxonomy, placeholder) {
                        autocomplete="off" />
             </div>
             <div class="twm-cmdpal__chips">${chips}</div>
-            <div class="twm-cmdpal__toggles">
-                <button class="twm-chip" data-toggle="left">
-                    <span class="material-symbols-outlined">menu</span>
-                    Left nav
-                </button>
-                <button class="twm-chip" data-toggle="right">
-                    <span class="material-symbols-outlined">dock_to_left</span>
-                    Right panel
-                </button>
-                <button class="twm-chip" data-toggle="bottom">
-                    <span class="material-symbols-outlined">dock_to_bottom</span>
-                    Bottom panel
-                </button>
-            </div>
+            <div class="twm-cmdpal__toggles">${panelToggles}</div>
             <div class="twm-cmdpal__list" data-role="list"></div>
             <div class="twm-cmdpal__footer">
                 <span><kbd>\u2191</kbd><kbd>\u2193</kbd> navigate</span>
@@ -822,6 +839,70 @@ var TileTree = class _TileTree {
     return true;
   }
   /**
+   * C33. MOVE ONE TAB FROM ONE LEAF TO ANOTHER, AS ONE MUTATION.
+   *
+   * Every other tab operation on this class takes ONE `leafId`, and that was
+   * a complete description of the model until a tab could be dragged into a
+   * different tile: `appendLeafTab`, `removeLeafTab`, `moveLeafTab` and the
+   * three bulk closes all begin and end inside a single leaf. The renderer's
+   * refusal to wire `onDropFromOtherPane` named this absence as one of its
+   * two reasons (`tile_renderer.js`, `_topTabCallbacks`); this is that half.
+   *
+   * ONE FUNCTION RATHER THAN A COMPOSE, and that is why it lives here rather
+   * than in the WM. `removeLeafTab` then `appendLeafTab` is two mutations
+   * with a moment between them in which the tab exists nowhere — and the
+   * second can FAIL (a panel destination refuses tabs), which leaves the tree
+   * short one tab and nothing on screen saying where it went. Every guard is
+   * therefore taken before the first splice.
+   *
+   * TWO NODES ARE RE-SYNCED, WHICH IS WHAT MAKES THIS DIFFERENT. `tabs` is
+   * the source of truth and `content`/`title` mirror `tabs[active]`
+   * (`_syncActiveTab`). Every existing mutation touches one leaf, so one
+   * re-sync is right; this one touches two, and skipping the SOURCE's leaves
+   * a pane whose chrome still names — and whose body still mounts — a tab it
+   * no longer holds. That is the mistake this operation invites, and it is
+   * what `web/js/shell/tab_drop.test.mjs` asserts against in the consumer.
+   *
+   * A same-leaf call is a REORDER and delegates, so there is one
+   * implementation of "a tab changed position within its strip" rather than
+   * two that will disagree about the active-index clamp.
+   *
+   * @param {string} fromLeafId
+   * @param {number} fromIdx
+   * @param {string} toLeafId
+   * @param {number} [toIdx=-1]  where to insert; -1 (or past the end) appends
+   * @returns {{ok: boolean, toIdx: number, emptied: boolean}|null} null when
+   *   the move was refused. `emptied` tells the caller the source pane now
+   *   holds nothing, which is its cue to re-seed rather than leave a blank
+   *   tile — the never-empty-tile invariant is the WM's to keep, not this
+   *   class's.
+   */
+  moveTabToLeaf(fromLeafId, fromIdx, toLeafId, toIdx = -1) {
+    const from = this.get(fromLeafId);
+    const to = this.get(toLeafId);
+    if (!from || from.kind !== "leaf") return null;
+    if (!to || to.kind !== "leaf") return null;
+    const tabs = Array.isArray(from.tabs) ? from.tabs : [];
+    if (!Number.isInteger(fromIdx) || fromIdx < 0 || fromIdx >= tabs.length) return null;
+    if (_isPanel(to)) return null;
+    if (fromLeafId === toLeafId) {
+      const dest = !Number.isInteger(toIdx) || toIdx < 0 || toIdx >= tabs.length ? tabs.length - 1 : toIdx;
+      if (!this.moveLeafTab(fromLeafId, fromIdx, dest)) return null;
+      return { ok: true, toIdx: dest, emptied: false };
+    }
+    const [moved] = from.tabs.splice(fromIdx, 1);
+    if (from.tabs.length === 0) from.activeTabIdx = 0;
+    else if (fromIdx < from.activeTabIdx) from.activeTabIdx -= 1;
+    else if (fromIdx === from.activeTabIdx) from.activeTabIdx = Math.max(0, fromIdx - 1);
+    to.tabs = Array.isArray(to.tabs) ? to.tabs : [];
+    const at = !Number.isInteger(toIdx) || toIdx < 0 || toIdx > to.tabs.length ? to.tabs.length : toIdx;
+    to.tabs.splice(at, 0, moved);
+    to.activeTabIdx = at;
+    _syncActiveTab(from);
+    _syncActiveTab(to);
+    return { ok: true, toIdx: at, emptied: from.tabs.length === 0 };
+  }
+  /**
    * Split a leaf in the given direction; existing content stays in the
    * original leaf, a new empty leaf is added next to it. Returns the
    * new leaf id, or null on failure.
@@ -1095,7 +1176,7 @@ var DEFAULT_PANEL_STATE = {
   right: true,
   bottom: true
 };
-function _makeDesktop(label, seed) {
+function _makeDesktop(label, seed, panelDefaults = DEFAULT_PANEL_STATE) {
   const tree = new TileTree();
   tree.setRoot(makeLeaf(seed()));
   return {
@@ -1103,19 +1184,27 @@ function _makeDesktop(label, seed) {
     label,
     tree,
     windows: [],
-    // boot default: left + right + bottom all open. Names are
-    // assigned by wm._canonicalize via PANEL_TITLES.
-    panels: { ...DEFAULT_PANEL_STATE }
+    // Boot default: whatever the embedder asked for, left + right + bottom
+    // when it asked for nothing. Names are assigned by wm._canonicalize via
+    // PANEL_TITLES.
+    panels: { ...panelDefaults }
   };
 }
 var DesktopManager = class _DesktopManager {
-  /** @param {{seed: () => object}} opts  `seed` builds the root leaf. Required. */
-  constructor({ seed } = {}) {
+  /**
+   * @param {object}   opts
+   * @param {function} opts.seed           builds the root leaf. Required.
+   * @param {object}  [opts.panelDefaults] C14. Which panel tiles a fresh
+   *   desktop opens with, merged over `DEFAULT_PANEL_STATE`. Omitted, every
+   *   desktop opens with all three — today's behaviour, unchanged.
+   */
+  constructor({ seed, panelDefaults = null } = {}) {
     if (typeof seed !== "function") {
       throw new Error("DesktopManager: a `seed` function is required (the taxonomy root leaf)");
     }
     this.seed = seed;
-    this.desktops = [_makeDesktop("1", seed)];
+    this.panelDefaults = { ...DEFAULT_PANEL_STATE, ...panelDefaults || {} };
+    this.desktops = [_makeDesktop("1", seed, this.panelDefaults)];
     this.activeIdx = 0;
   }
   active() {
@@ -1129,11 +1218,19 @@ var DesktopManager = class _DesktopManager {
   }
   ensureCount(n) {
     while (this.desktops.length < n) {
-      this.desktops.push(_makeDesktop(String(this.desktops.length + 1), this.seed));
+      this.desktops.push(_makeDesktop(
+        String(this.desktops.length + 1),
+        this.seed,
+        this.panelDefaults
+      ));
     }
   }
   addDesktop(label = null) {
-    const d = _makeDesktop(label || String(this.desktops.length + 1), this.seed);
+    const d = _makeDesktop(
+      label || String(this.desktops.length + 1),
+      this.seed,
+      this.panelDefaults
+    );
     this.desktops.push(d);
     return d;
   }
@@ -1150,15 +1247,19 @@ var DesktopManager = class _DesktopManager {
       }))
     };
   }
-  static deserialize(blob, { seed } = {}) {
-    const m = new _DesktopManager({ seed });
+  static deserialize(blob, { seed, panelDefaults = null } = {}) {
+    const m = new _DesktopManager({ seed, panelDefaults });
     if (!blob || !Array.isArray(blob.desktops) || blob.desktops.length === 0) return m;
     m.desktops = blob.desktops.map((raw) => ({
       id: raw.id || `desk-${Math.random().toString(36).slice(2, 8)}`,
       label: raw.label || "?",
       tree: raw.tree ? TileTree.deserialize(raw.tree) : new TileTree(),
       windows: [],
-      panels: { ...DEFAULT_PANEL_STATE, ...raw.panels || {} }
+      // A RESTORED desktop's own answer wins over the default: the user
+      // closed that panel, and re-opening it on every reload is the bug
+      // this merge order avoids. The default only fills a key the stored
+      // blob predates.
+      panels: { ...m.panelDefaults, ...raw.panels || {} }
     }));
     for (const d of m.desktops) {
       if (!d.tree.rootId) d.tree.setRoot(makeLeaf(seed()));
@@ -1299,7 +1400,7 @@ function createEntityCatalog({ sources, aliases = {}, aggregate = null } = {}) {
 
 // src/tiling/keymap.js
 function installKeymap({ wm, palette, ...opts } = {}) {
-  document.addEventListener("keydown", (e) => {
+  const onKeyDown = (e) => {
     const inField = e.target?.closest?.(
       'input, textarea, select, [contenteditable="true"]'
     );
@@ -1408,7 +1509,9 @@ function installKeymap({ wm, palette, ...opts } = {}) {
     if (key.length === 1 && /[a-z]/.test(key) && !inField) {
       e.preventDefault();
     }
-  });
+  };
+  document.addEventListener("keydown", onKeyDown);
+  return () => document.removeEventListener("keydown", onKeyDown);
 }
 
 // src/tiling/kind_taxonomy.js
@@ -2239,8 +2342,20 @@ function mountTileBreadcrumb(kind, props, ctx) {
     }
   };
   let rootLabel = rootCrumb?.label || "";
+  const trailOf = () => {
+    if (typeof ctx?.trailSegments !== "function") return [];
+    try {
+      return ctx.trailSegments() || [];
+    } catch (err) {
+      console.warn("[breadcrumb] trailSegments threw", err);
+      return [];
+    }
+  };
   const render = () => {
-    _renderInto(root, _segments(kind, props, taxonomy, rootCrumb, rootLabel, navigate));
+    _renderInto(
+      root,
+      _segments(kind, props, taxonomy, rootCrumb, rootLabel, navigate, trailOf())
+    );
   };
   render();
   let unsubscribe = null;
@@ -2256,6 +2371,10 @@ function mountTileBreadcrumb(kind, props, ctx) {
   }
   return {
     el: root,
+    /** Repaint. A trail-driven breadcrumb changes without the tile
+     *  remounting — following a lookup replaces the active tab's content in
+     *  place — so the embedder that grew the trail says when. */
+    refresh: render,
     destroy: () => {
       try {
         unsubscribe?.();
@@ -2265,7 +2384,7 @@ function mountTileBreadcrumb(kind, props, ctx) {
     }
   };
 }
-function _segments(kind, props, taxonomy, rootCrumb, rootLabel, navigate) {
+function _segments(kind, props, taxonomy, rootCrumb, rootLabel, navigate, trail) {
   const segs = [];
   const meta = taxonomy.meta(kind);
   if (meta?.appGlobal) {
@@ -2285,6 +2404,14 @@ function _segments(kind, props, taxonomy, rootCrumb, rootLabel, navigate) {
       icon: topNavMeta.icon,
       label: topNavMeta.label,
       onClick: () => navigate(topNav)
+    });
+  }
+  for (const step of trail || []) {
+    if (!step?.kind) continue;
+    segs.push({
+      icon: taxonomy.meta(step.kind)?.icon || "description",
+      label: step.title || step.props?.label || step.props?.id || step.kind,
+      onClick: () => navigate(step.kind, step.props || {})
     });
   }
   for (const anc of taxonomy.ancestors(kind, props)) {
@@ -2551,8 +2678,47 @@ function createPageFactories({ eventBus = null, events = {}, refreshOn = {} } = 
 
 // src/tiling/tile_renderer.js
 var SPLITTER_PX = 4;
+var TAB_LAYOUTS = ["bottom", "top"];
+var DEFAULT_TAB_LAYOUT = "bottom";
+function _normalizeTabLayout(value) {
+  return TAB_LAYOUTS.includes(value) ? value : DEFAULT_TAB_LAYOUT;
+}
+function _tabKey(idx) {
+  return `builtin://tab/${idx}`;
+}
+function _tabKeyIndex(key) {
+  const n = Number(String(key ?? "").replace("builtin://tab/", ""));
+  return Number.isInteger(n) && n >= 0 ? n : -1;
+}
+var TILE_LIFT_PX = 24;
+var CHROME_NO_FLOAT = "button, .twm-leaf__tab";
+function _isDownwardPull(down, sideways) {
+  return down > 0 && sideways <= down;
+}
+var TILE_TAB_MIME = "application/x-twm-tile-tab";
+function _isTileTabDrag(e) {
+  try {
+    return !!e.dataTransfer?.types?.includes(TILE_TAB_MIME);
+  } catch {
+    return false;
+  }
+}
 var TileRenderer = class {
-  constructor({ root, tree, content, ctx, onFocusChange }) {
+  /** C33. Readable from a consumer that holds only the renderer — the Tables
+   *  drop suite drives real drag events and has to build a `dataTransfer`
+   *  stub that this renderer will admit. */
+  static get TAB_MIME() {
+    return TILE_TAB_MIME;
+  }
+  constructor({
+    root,
+    tree,
+    content,
+    ctx,
+    onFocusChange,
+    onAfterRender,
+    tabLayout = null
+  }) {
     if (!content || typeof content.mount !== "function") {
       throw new Error("TileRenderer: a content registry is required");
     }
@@ -2562,12 +2728,33 @@ var TileRenderer = class {
     this.ctx = ctx || {};
     this.onFocusChange = onFocusChange || (() => {
     });
+    this.onAfterRender = onAfterRender || (() => {
+    });
     this._leafCache = /* @__PURE__ */ new Map();
     this._drag = null;
+    this._tabDrag = null;
+    this._chromePull = null;
+    this._tabDropProbe = null;
+    this._tabDropPreviewEl = null;
+    this.disposed = false;
     this.root.classList.add("twm-root");
+    this.tabLayout = _normalizeTabLayout(
+      this.root.dataset?.twmTabs ?? tabLayout ?? DEFAULT_TAB_LAYOUT
+    );
+    if (this.root.dataset) this.root.dataset.twmTabs = this.tabLayout;
+    this._layoutObserver = typeof MutationObserver === "function" ? new MutationObserver(() => this.setTabLayout(this.root.dataset?.twmTabs)) : null;
+    this._layoutObserver?.observe(
+      this.root,
+      { attributes: true, attributeFilter: ["data-twm-tabs"] }
+    );
     this.root.addEventListener("mousedown", this._onMouseDown.bind(this));
+    this.root.addEventListener("dragover", this._onTabDragOver.bind(this));
+    this.root.addEventListener("drop", this._onTabDrop.bind(this));
+    this.root.addEventListener("dragleave", this._onTabDragLeave.bind(this));
+    this.root.addEventListener("dragend", this._onTabDragEnd.bind(this));
   }
   render() {
+    if (this.disposed) return;
     const savedScrolls = /* @__PURE__ */ new Map();
     for (const [leafId, entry] of this._leafCache.entries()) {
       const snap = [];
@@ -2579,6 +2766,8 @@ var TileRenderer = class {
       savedScrolls.set(leafId, snap);
       entry.wrapEl.remove();
     }
+    const floats = [...this.root.children].filter((el) => el.classList?.contains("twm-managed-window") || el.classList?.contains("twm-managed-window__backdrop"));
+    for (const el of floats) el.remove();
     this.root.innerHTML = "";
     const tree = this.tree;
     if (!tree.rootId) {
@@ -2587,11 +2776,13 @@ var TileRenderer = class {
       empty.textContent = "Empty desktop \u2014 Ctrl+K to open something.";
       this.root.appendChild(empty);
       this._cleanCache(/* @__PURE__ */ new Set());
+      for (const el of floats) this.root.appendChild(el);
       return;
     }
     const liveLeafIds = /* @__PURE__ */ new Set();
     this._mount(tree.rootId, this.root, liveLeafIds);
     this._cleanCache(liveLeafIds);
+    for (const el of floats) this.root.appendChild(el);
     this._updateFocusClasses();
     const restore = () => {
       for (const [leafId, snap] of savedScrolls) {
@@ -2606,6 +2797,24 @@ var TileRenderer = class {
     };
     restore();
     requestAnimationFrame(restore);
+    try {
+      this.onAfterRender();
+    } catch (err) {
+      console.error("[tile-renderer] onAfterRender threw", err);
+    }
+  }
+  /** Unmount everything and stop painting. `dispose()` on the shell calls
+   *  this: `root.innerHTML = ''` detaches DOM without telling a single content
+   *  factory, so a page module that installed a `window` listener or an
+   *  interval keeps both, invisibly, for the life of the tab. */
+  destroy() {
+    this._layoutObserver?.disconnect();
+    this._layoutObserver = null;
+    this._clearTabDropPreview();
+    this._tabDrag = null;
+    this._tabDropProbe = null;
+    this._cleanCache(/* @__PURE__ */ new Set());
+    this.disposed = true;
   }
   _cleanCache(liveSet) {
     for (const [leafId, entry] of [...this._leafCache.entries()]) {
@@ -2614,6 +2823,7 @@ var TileRenderer = class {
           entry.content?.destroy?.();
         } catch (_) {
         }
+        this._disposeTabStrip(entry);
         entry.wrapEl.remove();
         this._leafCache.delete(leafId);
       }
@@ -2651,18 +2861,20 @@ var TileRenderer = class {
   }
   _leafEl(leaf) {
     const activeTab = Array.isArray(leaf.tabs) && leaf.tabs.length > 0 ? leaf.tabs[Math.max(0, Math.min(leaf.tabs.length - 1, leaf.activeTabIdx || 0))] : null;
-    const tabFingerprint = (leaf.tabs || []).map((t) => `${t.kind}::${JSON.stringify(t.props || {})}`).join("|") + `#${leaf.activeTabIdx || 0}`;
-    const kindKey = leaf.content ? `${leaf.content.kind}::${JSON.stringify(leaf.content.props || {})}::tabs:${tabFingerprint}` : "__empty__";
+    const kindKey = this._leafKindKey(leaf);
     let entry = this._leafCache.get(leaf.id);
     if (entry && entry.kindKey === kindKey) {
       entry.titleEl.textContent = leaf.title || (leaf.content ? leaf.content.kind : "empty");
+      _paintLeafIcon(entry.iconEl, leaf, entry.content, this.ctx);
       return entry.wrapEl;
     }
     if (entry) {
+      this._leafCache.delete(leaf.id);
       try {
         entry.content?.destroy?.();
       } catch (_) {
       }
+      this._disposeTabStrip(entry);
       entry.wrapEl.remove();
     }
     const wrap = document.createElement("div");
@@ -2670,11 +2882,15 @@ var TileRenderer = class {
     wrap.dataset.leafId = leaf.id;
     const chrome = document.createElement("div");
     chrome.className = "twm-leaf__chrome";
+    const icon = document.createElement("span");
+    icon.className = "twm-leaf__icon material-symbols-outlined";
     const title = document.createElement("span");
     title.className = "twm-leaf__title";
     title.textContent = leaf.title || (leaf.content ? leaf.content.kind : "empty");
     const actions = document.createElement("span");
     actions.className = "twm-leaf__actions";
+    const contentActions = document.createElement("span");
+    contentActions.className = "twm-leaf__actions twm-leaf__actions--content";
     const isPanel = String(leaf.content?.kind || "").startsWith("panel:");
     actions.innerHTML = `
             ${isPanel ? "" : `
@@ -2684,14 +2900,15 @@ var TileRenderer = class {
                 <button class="twm-leaf__btn" data-action="split-v" title="Split vertically (Alt+V)">
                     <span class="material-symbols-outlined">splitscreen_add</span>
                 </button>
-                <button class="twm-leaf__btn" data-action="promote" title="Promote to window (Alt+F)">
-                    <span class="material-symbols-outlined">open_in_new</span>
+                <button class="twm-leaf__btn" data-action="promote" title="Float this pane as a window (Alt+F)">
+                    <span class="material-symbols-outlined">web_asset</span>
                 </button>`}
             <button class="twm-leaf__btn" data-action="close" title="Close (Alt+W)">
                 <span class="material-symbols-outlined">close</span>
             </button>
         `;
-    chrome.append(title, actions);
+    chrome.append(icon, title, contentActions, actions);
+    _paintLeafIcon(icon, leaf, null, this.ctx);
     const body = document.createElement("div");
     body.className = "twm-leaf__body";
     body.tabIndex = -1;
@@ -2700,7 +2917,7 @@ var TileRenderer = class {
     if (!Array.isArray(leaf.tabs) || leaf.tabs.length <= 1) {
       tabBar.classList.add("twm-leaf__tabbar--hidden");
     }
-    wrap.append(chrome, body, tabBar);
+    wrap.append(chrome, ...this.tabLayout === "top" ? [tabBar, body] : [body, tabBar]);
     wrap.addEventListener("mousedown", (e) => {
       if (e.target.closest(".twm-splitter")) return;
       this.tree.focus(leaf.id);
@@ -2717,6 +2934,38 @@ var TileRenderer = class {
           ps.focus({ preventScroll: true });
         }, 0);
       }
+    });
+    chrome.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      if (e.target.closest(CHROME_NO_FLOAT)) return;
+      const startY = e.clientY;
+      const startX = e.clientX;
+      const pull = { startX, startY, x: startX, y: startY, lifted: false };
+      this._chromePull = pull;
+      const onMove = (move) => {
+        pull.x = move.clientX;
+        pull.y = move.clientY;
+        if (pull.lifted) return;
+        const down = move.clientY - startY;
+        const sideways = Math.abs(move.clientX - startX);
+        if (down < TILE_LIFT_PX || !_isDownwardPull(down, sideways)) return;
+        pull.lifted = true;
+        window.removeEventListener("pointermove", onMove);
+        this.ctx.onLeafAction?.(leaf.id, "promote");
+      };
+      const cleanup = () => {
+        if (this._chromePull === pull) this._chromePull = null;
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", cleanup);
+        window.removeEventListener("pointercancel", cleanup);
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", cleanup);
+      window.addEventListener("pointercancel", cleanup);
+    });
+    chrome.addEventListener("dblclick", (e) => {
+      if (e.target.closest(CHROME_NO_FLOAT)) return;
+      this.ctx.onLeafAction?.(leaf.id, "promote");
     });
     chrome.addEventListener("contextmenu", (e) => {
       e.preventDefault();
@@ -2737,6 +2986,9 @@ var TileRenderer = class {
       const activeProps = activeTab?.props ?? leaf.content.props;
       content = this.content.mount(leaf.content.kind, body, activeProps, leafCtx);
       if (content.title) title.textContent = content.title;
+      _paintLeafIcon(icon, leaf, content, this.ctx);
+      _paintContentActions(contentActions, content.chromeActions);
+      _vetoStructuralActions(actions, content.chrome);
     } else {
       body.innerHTML = `<div class="tile-placeholder"><div class="tile-placeholder__hint">empty tile</div></div>`;
     }
@@ -2745,28 +2997,413 @@ var TileRenderer = class {
       bodyEl: body,
       chromeEl: chrome,
       titleEl: title,
+      iconEl: icon,
       content,
-      kindKey,
-      tabBarEl: tabBar
+      // DERIVED HERE, NOT REUSED FROM ABOVE. `kindKey` was computed
+      // before the mount; content that records its sub-tab or its
+      // scroll offset WHILE mounting has already written to the
+      // tree by now, so the value captured earlier is stale and the
+      // very next repaint would tear down the tile that had just
+      // said where it was.
+      kindKey: this._leafKindKey(leaf),
+      tabBarEl: tabBar,
+      // C22. The `top` layout's NotebookTabBar, and the child it
+      // mounts into. Null under the `bottom` layout, which is plain
+      // markup this file writes itself.
+      tabStrip: null,
+      tabStripHostEl: null
     };
     this._leafCache.set(leaf.id, entry);
     this._renderTabBar(leaf, entry);
     return wrap;
   }
-  /** Paint a leaf's bottom tab strip. The strip is hidden for
-   *  single-tab leaves (the common case) so existing layouts read as
-   *  identical to today. Hamburger button at the start, then one
-   *  trapezoid-shaped tab per stored tab spec. */
+  /**
+   * The cache key for a leaf: everything that must change before its wrap is
+   * torn down and rebuilt. Extracted so `rebaselineLeaf` below computes the
+   * same string this does — two spellings of one key is a cache that misses
+   * on every render or never misses at all, and both look like working code.
+   */
+  _leafKindKey(leaf) {
+    const tabFingerprint = (leaf.tabs || []).map((t) => `${t.kind}::${JSON.stringify(t.props || {})}`).join("|") + `#${leaf.activeTabIdx || 0}`;
+    return leaf.content ? `${leaf.content.kind}::${JSON.stringify(leaf.content.props || {})}::tabs:${tabFingerprint}` : "__empty__";
+  }
+  /**
+   * The cache key a leaf has RIGHT NOW, for a caller that is about to change
+   * the tree and wants to say what it expected to be changing from. See
+   * `rebaselineLeaf`.
+   */
+  leafKey(leafId) {
+    const leaf = this.tree?.get?.(leafId);
+    return leaf && leaf.kind === "leaf" ? this._leafKindKey(leaf) : null;
+  }
+  /**
+   * C34. ACCEPT A PROPS WRITE THE CONTENT MADE ABOUT ITSELF, WITHOUT
+   * REBUILDING THE TILE THAT MADE IT.
+   *
+   * The cache key above includes every tab's props, and that is right for
+   * NAVIGATION: a `table` tab whose `id` changes is different content and the
+   * tile must be re-mounted. It is exactly wrong for VIEW STATE. The
+   * framework hands every tile a `workspaceTabs.updateProps(patch)`
+   * (`page_factory.js`) documented as *"persist editor sub-state into this
+   * tile's WM tab props"* — a scroll offset, an open section, a selected
+   * sub-tab. Writing one changed the fingerprint, so the NEXT repaint (a
+   * focus change, a tab switch, a window promoted three tiles away) missed
+   * the cache, destroyed the content and mounted it again. The tile was torn
+   * down BY the call that existed to let it remember something, and because
+   * the rebuild reads the props back the result looked almost right — the
+   * editor came back at the saved scroll position, with everything uncommitted
+   * in it gone.
+   *
+   * So the key is re-baselined instead: the entry keeps its live DOM and
+   * starts answering to the new props. The next real navigation still misses
+   * and still rebuilds, because that changes the kind or the tab set and this
+   * only ever accepts what is already on screen.
+   *
+   * ══ IT ACCEPTS ONLY THE DELTA IT WAS CALLED FOR ═══════════════════
+   *
+   * The key is re-derived from the tree as it is NOW, so a first version of
+   * this swallowed every difference at once — including a change the tree had
+   * taken and the renderer had not drawn yet. Any mutation that does not
+   * repaint (`updateActiveTabProps` is itself one, and an embedder writing
+   * through `TileTree` directly is another) followed by a props write would
+   * have been accepted onto a wrap still showing the OLD content, and the
+   * tile would never have re-mounted: one thing drawn under another's title,
+   * permanently, with nothing left that knows the two disagree.
+   *
+   * `expected` is the fix and it is the caller's own honesty: the key it read
+   * BEFORE its write. If the cached entry is not still at that key, something
+   * else has changed since the tile was mounted and this is not the caller's
+   * to accept — refuse, and let the ordinary miss rebuild it.
+   *
+   * A structural test was tried first and is not enough. *Same kind, different
+   * props* is a scroll offset AND it is a navigation to another table; nothing
+   * in the leaf can tell them apart, because the difference is which caller
+   * asked. `expected` asks the caller.
+   *
+   * @param {string} leafId
+   * @param {string} [expected] the key the caller read before its own write.
+   *   Omitted means "accept whatever is there", which is what the first
+   *   version did and is kept only so an older caller does not silently
+   *   change behaviour — every caller in this tree passes one.
+   * @returns {boolean} whether a cached wrap was re-baselined
+   */
+  rebaselineLeaf(leafId, expected = void 0) {
+    const entry = this._leafCache.get(leafId);
+    const leaf = this.tree?.get?.(leafId);
+    if (!entry || !leaf || leaf.kind !== "leaf") return false;
+    if (expected !== void 0 && entry.kindKey !== expected) return false;
+    entry.kindKey = this._leafKindKey(leaf);
+    return true;
+  }
+  /**
+   * C22. Change the tab layout of a LIVE renderer.
+   *
+   * Only the strip is rebuilt. The tab bar element is MOVED between its two
+   * positions and the body is never detached, so no content factory is
+   * unmounted — which is the whole reason this is a method rather than
+   * "rebuild the shell with the other option". A grid holding staged edits
+   * must not lose them because someone changed where its tabs are drawn.
+   *
+   * Accepts anything: the value arrives from a DOM attribute and from
+   * persisted user settings, and an unknown one means the default.
+   */
+  setTabLayout(layout) {
+    const next = _normalizeTabLayout(layout);
+    if (next === this.tabLayout) return;
+    this.tabLayout = next;
+    if (this.root.dataset && this.root.dataset.twmTabs !== next) {
+      this.root.dataset.twmTabs = next;
+    }
+    if (this.disposed) return;
+    for (const [leafId, entry] of this._leafCache) {
+      this._placeTabBar(entry);
+      this._disposeTabStrip(entry);
+      entry.tabBarEl.innerHTML = "";
+      const leaf = this.tree.get(leafId);
+      if (leaf) this._renderTabBar(leaf, entry);
+    }
+  }
+  /** Put a leaf's tab bar on the side the current layout says. Moving an
+   *  attached element is a re-parent, not a rebuild — the body keeps its
+   *  DOM, its listeners and its scroll. */
+  _placeTabBar(entry) {
+    const { wrapEl, bodyEl, tabBarEl } = entry;
+    if (!wrapEl || !tabBarEl || !bodyEl) return;
+    if (this.tabLayout === "top") wrapEl.insertBefore(tabBarEl, bodyEl);
+    else wrapEl.appendChild(tabBarEl);
+  }
+  /** Tear down the `top` layout's component, if this leaf has one. Safe to
+   *  call on a leaf that never had one, and on one that already lost it. */
+  _disposeTabStrip(entry) {
+    if (!entry?.tabStrip) return;
+    try {
+      entry.tabStrip.dispose();
+    } catch (err) {
+      console.error("[tile] tab strip dispose threw", err);
+    }
+    entry.tabStrip = null;
+    entry.tabStripHostEl = null;
+  }
+  /** Paint a leaf's tab strip in whichever layout is current. The strip is
+   *  hidden for single-tab leaves in BOTH layouts — the common case, and the
+   *  reason existing single-pane layouts read as identical to today. */
   _renderTabBar(leaf, entry) {
+    this._syncChromeDragSource(leaf, entry);
     const bar = entry.tabBarEl;
     if (!bar) return;
     const tabs = Array.isArray(leaf.tabs) ? leaf.tabs : [];
+    bar.classList.toggle("twm-leaf__tabbar--top", this.tabLayout === "top");
     if (tabs.length <= 1) {
       bar.classList.add("twm-leaf__tabbar--hidden");
+      this._disposeTabStrip(entry);
       bar.innerHTML = "";
       return;
     }
     bar.classList.remove("twm-leaf__tabbar--hidden");
+    if (this.tabLayout === "top") this._renderTopTabBar(leaf, entry, tabs);
+    else this._renderBottomTabBar(leaf, entry, tabs);
+  }
+  /**
+   * C33. THE CHROME IS THE DRAG SOURCE FOR A LEAF THAT HAS ONE TAB.
+   *
+   * Product owner, 2026-08-27. The full argument is in the file header; what
+   * this function owns is the THREE conditions and why each is a condition
+   * rather than a preference:
+   *
+   *   EXACTLY ONE TAB. With two or more, the strip is drawn and names each
+   *   tab; a chrome drag would then have to guess which one was meant, and
+   *   guessing is what the strip exists to avoid. With exactly one, "this
+   *   tab" and "what is in this pane" are the same thing.
+   *
+   *   NOT A PANEL. Panel tiles are chrome, not content — the same exclusion
+   *   `_floatableLeaf` and `_snapProbe` already make, and for the same reason:
+   *   there is nothing in them that belongs anywhere else.
+   *
+   *   THE CONTENT DID NOT VETO `promote` (C20). One rule instead of two: a
+   *   tab you may not lift out of its pane is a tab you may not drag into
+   *   another one. This is what excludes an embedder's master tile — the
+   *   ground its floating windows stand on — whose whole reason for existing
+   *   is that it stays where it is.
+   *
+   * THE LISTENERS ARE BOUND ONCE PER CHROME ELEMENT and the ATTRIBUTE is
+   * re-decided on every pass. That split is deliberate: `draggable` changes
+   * the moment a second tab arrives, while the chrome element itself survives
+   * for as long as its wrap does, and re-adding a listener on every render
+   * would stack one per repaint.
+   */
+  _syncChromeDragSource(leaf, entry) {
+    const chrome = entry?.chromeEl;
+    if (!chrome) return;
+    const tabs = Array.isArray(leaf.tabs) ? leaf.tabs : [];
+    const isPanel = String(leaf.content?.kind || "").startsWith("panel:");
+    const vetoed = this.leafChrome(leaf.id)?.promote === false;
+    const on = tabs.length === 1 && !isPanel && !vetoed;
+    if (on) chrome.setAttribute("draggable", "true");
+    else chrome.removeAttribute("draggable");
+    if (chrome.__twmTabDragBound) return;
+    chrome.__twmTabDragBound = true;
+    chrome.addEventListener("dragstart", (ev) => {
+      if (ev.target?.closest?.(CHROME_NO_FLOAT)) {
+        ev.preventDefault();
+        return;
+      }
+      const pull = this._chromePull;
+      if (pull && _isDownwardPull(
+        pull.y - pull.startY,
+        Math.abs(pull.x - pull.startX)
+      )) {
+        ev.preventDefault();
+        return;
+      }
+      const live = this.tree.get(leaf.id);
+      if ((live?.tabs || []).length !== 1) {
+        ev.preventDefault();
+        return;
+      }
+      this._beginTabDrag(ev, leaf.id, 0, chrome, { seedPlainText: true });
+    });
+    chrome.addEventListener("dragend", () => this._onTabDragEnd());
+  }
+  /**
+   * C22. The `top` layout: `NotebookTabBar`, the editor tab strip.
+   *
+   * The component is mounted into a CHILD of the bar rather than into the bar
+   * itself, because `mount()` assigns `container.className = 'tabs
+   * notebook-tabs'` (`notebook_tab_bar.js:61`) — handing it `.twm-leaf__tabbar`
+   * would take that class, and with it the strip's height, its background and
+   * `--hidden`, off the element this file still controls.
+   *
+   * Every gesture routes through the SAME `ctx.onLeafTabAction` vocabulary the
+   * bottom strip uses, so the WM's tree mutations, its persistence and its
+   * change notifications are reached by one path from both layouts.
+   */
+  _renderTopTabBar(leaf, entry, tabs) {
+    const bar = entry.tabBarEl;
+    if (!entry.tabStrip) {
+      bar.innerHTML = "";
+      const host = document.createElement("div");
+      bar.appendChild(host);
+      const strip = new NotebookTabBar();
+      strip.mount(host, this._topTabCallbacks(leaf.id));
+      entry.tabStrip = strip;
+      entry.tabStripHostEl = host;
+      host.addEventListener("contextmenu", (ev) => {
+        const tabEl = ev.target.closest?.(".tab");
+        if (!tabEl) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        const idx = this._topTabIndex(host, tabEl);
+        if (idx < 0) return;
+        this.ctx.onLeafTabAction?.(
+          leaf.id,
+          "menu",
+          { idx, x: ev.clientX, y: ev.clientY }
+        );
+      }, true);
+    }
+    const activeIdx = Math.max(0, Math.min(tabs.length - 1, leaf.activeTabIdx || 0));
+    entry.tabStrip.update(
+      tabs.map((t, i) => ({
+        filePath: _tabKey(i),
+        label: t.title || t.kind || "",
+        // The component's `fileType` picks a glyph out of a static map
+        // of FILE kinds. A tile's kinds are the embedder's, and the
+        // taxonomy already answers for them — see `_paintTopTabs`.
+        fileType: t.kind || "unknown",
+        // Nothing sets `dirty` on a tab spec today, so the dot is never
+        // drawn. Read anyway, because the day a tile can say it holds
+        // unsaved work this is where it says it, and the alternative is
+        // a second place to remember.
+        isDirty: !!t.dirty
+      })),
+      _tabKey(activeIdx)
+    );
+    this._paintTopTabs(entry.tabStripHostEl, tabs);
+  }
+  /**
+   * The two things `NotebookTabBar` derives from a vocabulary a tile does not
+   * have, corrected in one pass over the DOM it just wrote.
+   *
+   * Its tooltip is the file PATH (`notebook_tab_bar.js:163`) and its glyph
+   * comes from a static fileType map (`:135`). Ours are `builtin://tab/3` and
+   * a content kind, so left alone a tab would advertise its own array index
+   * and wear the generic `description` glyph — while the tile chrome an inch
+   * above it shows the taxonomy's icon for exactly the same kind.
+   *
+   * Reaching into a component's DOM is worth one paragraph of justification.
+   * The alternative for the glyph is `NotebookTabBar.setFileTypeIcons()`,
+   * which is STATIC and REPLACES the whole map — so a page that also uses the
+   * editor would find its own file icons deleted by whichever of the two
+   * rendered last. The class names used here are the component's published
+   * contract, stated in its header comment.
+   */
+  _paintTopTabs(hostEl, tabs) {
+    if (!hostEl) return;
+    const els = hostEl.querySelectorAll(".tab");
+    els.forEach((el, i) => {
+      const spec = tabs[i];
+      if (!spec) return;
+      el.title = spec.title || spec.kind || "";
+      const icon = spec.kind ? this.ctx?.taxonomy?.meta?.(spec.kind)?.icon : null;
+      const glyph = el.querySelector(".tab-icon");
+      if (glyph && icon) glyph.textContent = icon;
+      else if (glyph && !icon) glyph.hidden = true;
+    });
+  }
+  /** Which tab an element in the top strip is, by DOM position. Position
+   *  rather than the `data-path` key because the key is only ever the index
+   *  and reading it back would be a second, parallel answer to the same
+   *  question. */
+  _topTabIndex(hostEl, tabEl) {
+    return Array.prototype.indexOf.call(hostEl.querySelectorAll(".tab"), tabEl);
+  }
+  /** The callbacks `NotebookTabBar` calls. Everything the component offers
+   *  that a tile tab cannot honour is deliberately absent rather than stubbed
+   *  — `onRename` is refused by the `builtin://` key, and the rest
+   *  (`onDuplicate`, `onSplitRight`, `onRevealInExplorer`, `onCloseAll`, …)
+   *  are only ever reached from the context menu this renderer suppresses.
+   *
+   *  `onDropFromOtherPane` IS NOW WIRED, AND THIS IS THE RECORD OF WHY IT WAS
+   *  NOT. The refusal read: *"its payload is the dragged tab's key alone,
+   *  which carries no source-leaf identity, and `TileTree` has no
+   *  move-a-tab-between-leaves operation to receive it. Wiring it would need
+   *  both, and both are tree changes."* Both were true and C33 built both.
+   *  `TileTree.moveTabToLeaf` is the tree operation; `TileRenderer._tabDrag`
+   *  is the source identity — held on the renderer rather than in the payload
+   *  because HTML5's protected mode makes the payload unreadable at the only
+   *  moment it would be needed (see `TILE_TAB_MIME`). The payload handed to
+   *  the callback is therefore still ignored, exactly as the refusal said it
+   *  would have to be.
+   *
+   *  A DROP ON A FOREIGN STRIP APPENDS. `NotebookTabBar` hands the callback a
+   *  key and no event, so there is no pointer position to derive a slot from
+   *  — and inventing one for this strip and not for the bottom one would give
+   *  the two layouts different answers to the same gesture. "Add this tab to
+   *  that tile" is what was asked for; where it sits in the strip is a
+   *  reorder away, in the mechanism that already does reorders. */
+  _topTabCallbacks(leafId) {
+    return {
+      // C33. `DragReorder` calls this through `NotebookTabBar`, which
+      // sets its own `application/x-ecosim-tab` first and unchanged — so
+      // an editor pane sharing the page cannot notice that tiles are
+      // dragging tabs too.
+      onDragStart: (ev, key, item) => {
+        const idx = _tabKeyIndex(key);
+        if (idx < 0) return;
+        this._beginTabDrag(ev, leafId, idx, item || null);
+      },
+      // What lets THIS strip admit a tab dragged out of another tile's
+      // strip: `#isExternalTabDrag` tests `TAB_MIME` plus whatever the
+      // host names here, and defers while its own reorder is running.
+      externalTabMimes: [TILE_TAB_MIME],
+      onDropFromOtherPane: () => {
+        const src = this._tabDrag;
+        this._onTabDragEnd();
+        if (!src || src.leafId === leafId) return;
+        this.ctx.onLeafTabAction?.(src.leafId, "drop-into", {
+          idx: src.idx,
+          target: { leafId, mode: "tab", toIdx: -1 }
+        });
+      },
+      onActivate: (key) => {
+        const idx = _tabKeyIndex(key);
+        if (idx >= 0) this.ctx.onLeafTabAction?.(leafId, "switch", { idx });
+      },
+      onClose: (key) => {
+        const idx = _tabKeyIndex(key);
+        if (idx >= 0) this.ctx.onLeafTabAction?.(leafId, "close", { idx });
+      },
+      // DRAG-TO-REORDER ARRIVES AS A PERMUTATION, and the tree moves ONE
+      // tab at a time (`TileTree.moveLeafTab(leafId, from, to)`). They
+      // reconcile because a drag only ever moves one element: every other
+      // key shifts by exactly one place, so the element that travelled
+      // furthest between the two orders IS the one that was dragged.
+      onReorder: (order) => {
+        const leaf = this.tree.get(leafId);
+        const count = (leaf?.tabs || []).length;
+        if (!Array.isArray(order) || order.length !== count) return;
+        let from = -1;
+        let to = -1;
+        let furthest = 0;
+        order.forEach((key, newIdx) => {
+          const oldIdx = _tabKeyIndex(key);
+          if (oldIdx < 0) return;
+          const travelled = Math.abs(newIdx - oldIdx);
+          if (travelled > furthest) {
+            furthest = travelled;
+            from = oldIdx;
+            to = newIdx;
+          }
+        });
+        if (from < 0 || from === to) return;
+        this.ctx.onLeafTabAction?.(leafId, "move", { from, to });
+      }
+    };
+  }
+  /** The `bottom` layout — the framework's own strip, unchanged. Hamburger
+   *  button at the start, then one trapezoid-shaped tab per stored tab spec. */
+  _renderBottomTabBar(leaf, entry, tabs) {
+    const bar = entry.tabBarEl;
     const activeIdx = Math.max(0, Math.min(tabs.length - 1, leaf.activeTabIdx || 0));
     bar.innerHTML = `
             <button type="button" class="twm-leaf__tab-hamburger"
@@ -2834,6 +3471,11 @@ var TileRenderer = class {
           ev.dataTransfer.setData("text/plain", String(dragFromIdx));
         } catch {
         }
+        this._beginTabDrag(ev, leaf.id, dragFromIdx, li);
+      });
+      li.addEventListener("dragend", () => {
+        dragFromIdx = null;
+        this._onTabDragEnd();
       });
       li.addEventListener("dragover", (ev) => {
         if (dragFromIdx == null) return;
@@ -2854,6 +3496,189 @@ var TileRenderer = class {
         dragFromIdx = null;
       });
     });
+    const foreign = (ev) => !!this._tabDrag && this._tabDrag.leafId !== leaf.id && _isTileTabDrag(ev);
+    if (bar.__twmBarDropBound) return;
+    bar.__twmBarDropBound = true;
+    bar.addEventListener("dragover", (ev) => {
+      if (!foreign(ev)) return;
+      ev.preventDefault();
+      try {
+        ev.dataTransfer.dropEffect = "move";
+      } catch {
+      }
+      this._clearTileDropZone();
+      bar.classList.add("twm-leaf__tabbar--drop-target");
+    });
+    bar.addEventListener("dragleave", (ev) => {
+      if (!bar.contains(ev.relatedTarget)) {
+        bar.classList.remove("twm-leaf__tabbar--drop-target");
+      }
+    });
+    bar.addEventListener("drop", (ev) => {
+      if (!foreign(ev)) return;
+      ev.preventDefault();
+      bar.classList.remove("twm-leaf__tabbar--drop-target");
+      const src = this._tabDrag;
+      this._onTabDragEnd();
+      this.ctx.onLeafTabAction?.(src.leafId, "drop-into", {
+        idx: src.idx,
+        target: { leafId: leaf.id, mode: "tab", toIdx: -1 }
+      });
+    });
+  }
+  // ══ C33. THE TAB DRAG ═══════════════════════════════════════════════
+  /** Take the identity of the tab now being carried, and mark it.
+   *
+   *  `seedPlainText` is for the CHROME source only. The two strips already
+   *  set `text/plain` themselves — `DragReorder._start` writes the reorder
+   *  key, the bottom strip writes the index — and overwriting either would
+   *  hand `NotebookTabBar.#onStripDrop`'s `getData(TAB_MIME) ||
+   *  getData('text/plain')` fallback a number where it expects a key. The
+   *  chrome has no such writer and Firefox refuses to begin a drag with an
+   *  empty `dataTransfer`, so it supplies its own. */
+  _beginTabDrag(ev, leafId, idx, el, { seedPlainText = false } = {}) {
+    this._tabDrag = { leafId, idx, el: el || null };
+    this._tabDropProbe = null;
+    try {
+      ev.dataTransfer.effectAllowed = "move";
+      ev.dataTransfer.setData(TILE_TAB_MIME, "1");
+      if (seedPlainText) ev.dataTransfer.setData("text/plain", String(idx));
+    } catch {
+    }
+    el?.classList?.add("dragging");
+  }
+  /**
+   * Arm — or refuse — the tile under the pointer.
+   *
+   * NOTHING HERE MAY RENDER. `render()` clears the root, which detaches the
+   * element the browser is dragging, and the browser cancels the gesture the
+   * moment that happens. The DOM afterwards reads perfectly correct, which is
+   * what makes this failure so hard to see; it is the drag-and-drop cousin of
+   * the `mousedown`-repaint defect recorded five times against the taskbar.
+   *
+   * `preventDefault()` is not decoration either: without it the browser
+   * refuses the drop outright and `drop` never fires, which reads exactly
+   * like a broken handler.
+   */
+  _onTabDragOver(e) {
+    const src = this._tabDrag;
+    if (!src || !_isTileTabDrag(e)) return;
+    if (e.target?.closest?.(".twm-leaf__tabbar")) {
+      this._clearTileDropZone();
+      return;
+    }
+    const probe = this.ctx.wm?.tabDropProbe?.(e, { sourceLeafId: src.leafId }) || null;
+    this._tabDropProbe = probe;
+    if (!probe) {
+      this._clearTabDropZone();
+      return;
+    }
+    e.preventDefault();
+    try {
+      e.dataTransfer.dropEffect = "move";
+    } catch {
+    }
+    for (const [leafId, entry] of this._leafCache) {
+      entry.wrapEl.classList.toggle("twm-leaf--drop-target", leafId === probe.leafId);
+    }
+    this._showTabDropPreview(probe.rect);
+  }
+  /** Release. The zone that was ARMED is the zone that runs — the stashed
+   *  probe rather than a fresh one — because C15's rule is that the rectangle
+   *  drawn during the drag is the rectangle the drop delivers, and a pointer
+   *  one pixel outside the band at release must not quietly mean something
+   *  else. */
+  _onTabDrop(e) {
+    const src = this._tabDrag;
+    const probe = this._tabDropProbe;
+    if (!src || !_isTileTabDrag(e)) return;
+    if (e.target?.closest?.(".twm-leaf__tabbar")) return;
+    e.preventDefault();
+    this._onTabDragEnd();
+    if (!probe) return;
+    this.ctx.onLeafTabAction?.(src.leafId, "drop-into", {
+      idx: src.idx,
+      target: {
+        leafId: probe.leafId,
+        mode: probe.mode,
+        // The same derivation `_snapCommit` applies to a window drop
+        // (`wm.js`, the `_dock` literal) — one reading of a side, so a
+        // tab and a window cannot land on opposite halves of one edge.
+        dir: probe.side === "left" || probe.side === "right" ? "h" : "v",
+        before: probe.side === "left" || probe.side === "top",
+        toIdx: -1
+      }
+    });
+  }
+  /** Leaving the root entirely disarms, and only that. The drag is still
+   *  live — it may come back — so `_tabDrag` survives and only the painting
+   *  goes. */
+  _onTabDragLeave(e) {
+    if (!this._tabDrag) return;
+    if (this.root.contains(e.relatedTarget)) return;
+    this._clearTabDropZone();
+    this._tabDropProbe = null;
+  }
+  /** The only guaranteed end of a drag. Escape produces this and no `drop`;
+   *  so does a release over a target that refused. Idempotent, because the
+   *  drop path calls it too and `dragend` still arrives afterwards. */
+  _onTabDragEnd() {
+    this._tabDrag?.el?.classList?.remove("dragging");
+    this._tabDrag = null;
+    this._tabDropProbe = null;
+    this._clearTabDropZone();
+  }
+  /** The TILE zone only — the outlined pane and the preview rectangle. Split
+   *  out from the whole because a strip that has just armed itself must not
+   *  be disarmed by the root handler running behind it. */
+  _clearTileDropZone() {
+    for (const [, entry] of this._leafCache) {
+      entry.wrapEl.classList.remove("twm-leaf--drop-target");
+    }
+    this._clearTabDropPreview();
+  }
+  /** Everything: the tile zone and both strips'. The end of a gesture, where
+   *  nothing may be left painted. */
+  _clearTabDropZone() {
+    this._clearTileDropZone();
+    for (const [, entry] of this._leafCache) {
+      entry.tabBarEl?.classList?.remove("twm-leaf__tabbar--drop-target");
+    }
+  }
+  /** The rectangle a release would fill.
+   *
+   *  IT IS THE WINDOW DROP'S OWN PREVIEW ELEMENT — same two classes, same
+   *  stylesheet rules (`css/base.css`, `.twm-snap-preview`) — so a tab drop
+   *  and a window drop cannot come to disagree about what a drop looks like.
+   *  `--viewport` is what makes `position: fixed` apply, and that is required
+   *  rather than cosmetic: the rectangle came from `getBoundingClientRect` on
+   *  a leaf, which speaks viewport pixels.
+   *
+   *  Parented to `document.body` and not to the root, for R13's reason:
+   *  `render()`'s `innerHTML = ''` takes every direct child of the root, and
+   *  a repaint during a drag needs nothing more exotic than the drag itself. */
+  _showTabDropPreview(rect) {
+    if (!rect) {
+      this._clearTabDropPreview();
+      return;
+    }
+    if (!this._tabDropPreviewEl) {
+      const el2 = document.createElement("div");
+      el2.className = "twm-snap-preview twm-snap-preview--viewport";
+      el2.setAttribute("aria-hidden", "true");
+      this._tabDropPreviewEl = el2;
+    }
+    const el = this._tabDropPreviewEl;
+    Object.assign(el.style, {
+      left: `${rect.left ?? rect.x}px`,
+      top: `${rect.top ?? rect.y}px`,
+      width: `${rect.width}px`,
+      height: `${rect.height}px`
+    });
+    if (el.parentNode !== document.body) document.body.appendChild(el);
+  }
+  _clearTabDropPreview() {
+    this._tabDropPreviewEl?.remove();
   }
   _updateFocusClasses() {
     const focused = this.tree.focusedLeafId;
@@ -2866,6 +3691,42 @@ var TileRenderer = class {
    *  DOM subtree owns keyboard input. */
   leafEl(leafId) {
     return this._leafCache.get(leafId)?.wrapEl || null;
+  }
+  /** C20, extended. The `chrome` veto object the mounted content declared —
+   *  `{ promote: false, close: false }` — or null when the leaf is not
+   *  rendered or its content declared nothing.
+   *
+   *  IT EXISTS BECAUSE A VETO PAINTED ON A BUTTON IS NOT A VETO. C20 landed
+   *  as `_vetoStructuralActions`, which removes the button from this strip —
+   *  and a removed button is only the door the CONTENT can see. The verb has
+   *  three other doors: the tile's right-click menu (`shell.js`'s "Float this
+   *  pane as a window"), the chrome pull-down, and the chrome's double-click.
+   *  All three reach `WindowManager.floatPane` without passing this file, so
+   *  a master tile that declared itself unfloatable was floated by any of
+   *  them — reproduced: the ground pane floats, every window standing on it
+   *  is force-closed, and the pane is re-seeded WITHOUT its `canvas` prop.
+   *
+   *  So the WM asks the renderer what the content said, and enforces it in
+   *  `_floatableLeaf` where every door already converges. The renderer stays
+   *  the only place that knows what was mounted; the WM stays the only place
+   *  that decides whether a verb runs. `closeFocused` now reads `close` the
+   *  same way, for the same reason and after the same defect: Alt+W, the tile
+   *  context menu and the tab strip's × all closed a pane whose own button
+   *  was greyed out with a tooltip saying it could not be.
+   *
+   *  ══ THIS RETURNS THE FACTORY'S LIVE OBJECT, AND THAT IS A CONTRACT ══
+   *
+   *  Not a copy and not a snapshot. `chrome` is READ ONCE, at mount — a
+   *  repaint of a cached leaf re-reads only the title and the glyph — so a
+   *  veto whose ANSWER CHANGES over the life of the tile must be kept up to
+   *  date by the content that stated it, by mutating the object it returned.
+   *  Tables' ground pane is exactly that case: its close is refused only
+   *  while it is the last content pane, and it re-syncs on `wm:changed`.
+   *  Repainting the button alone is not enough now that a verb consults this
+   *  — a stale `{disabled: true}` refuses a close every affordance on screen
+   *  says is available, which is the same class of lie as a dead control. */
+  leafChrome(leafId) {
+    return this._leafCache.get(leafId)?.content?.chrome || null;
   }
   // ── Drag-resize ────────────────────────────────────────────────
   _onMouseDown(e) {
@@ -2937,6 +3798,162 @@ function _esc6(s) {
     "'": "&#39;"
   })[c]);
 }
+function _paintLeafIcon(iconEl, leaf, content, ctx) {
+  if (!iconEl) return;
+  const kind = leaf?.content?.kind;
+  const name = content?.icon || (kind ? ctx?.taxonomy?.meta?.(kind)?.icon : null);
+  iconEl.textContent = name || "";
+  iconEl.hidden = !name;
+}
+function _paintContentActions(hostEl, specs) {
+  hostEl.innerHTML = "";
+  if (!Array.isArray(specs) || specs.length === 0) {
+    hostEl.hidden = true;
+    return;
+  }
+  hostEl.hidden = false;
+  for (const spec of specs) {
+    if (!spec || !spec.icon) continue;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "twm-leaf__btn";
+    btn.title = spec.title || "";
+    btn.setAttribute("aria-label", spec.title || "");
+    btn.innerHTML = `<span class="material-symbols-outlined">${spec.icon}</span>`;
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      try {
+        spec.onClick?.();
+      } catch (err) {
+        console.error("[tile] action threw", err);
+      }
+    });
+    hostEl.appendChild(btn);
+  }
+}
+function _vetoStructuralActions(hostEl, chrome) {
+  if (!chrome) return;
+  for (const [action, rule] of Object.entries(chrome)) {
+    const btn = hostEl.querySelector(`[data-action="${action}"]`);
+    if (!btn) continue;
+    if (rule === false) {
+      btn.remove();
+      continue;
+    }
+    if (rule && typeof rule === "object" && rule.disabled) {
+      btn.disabled = true;
+      btn.setAttribute("aria-disabled", "true");
+      btn.classList.add("twm-leaf__btn--disabled");
+      if (rule.title) btn.title = rule.title;
+    }
+  }
+}
+
+// src/tiling/tab_strip.js
+function tabKey(idx) {
+  return `builtin://tab/${idx}`;
+}
+function tabKeyIndex(key) {
+  const n = Number(String(key ?? "").replace("builtin://tab/", ""));
+  return Number.isInteger(n) && n >= 0 ? n : -1;
+}
+function reorderToMove(order, count) {
+  if (!Array.isArray(order) || order.length !== count) return null;
+  let from = -1;
+  let to = -1;
+  let furthest = 0;
+  order.forEach((key, newIdx) => {
+    const oldIdx = tabKeyIndex(key);
+    if (oldIdx < 0) return;
+    const travelled = Math.abs(newIdx - oldIdx);
+    if (travelled > furthest) {
+      furthest = travelled;
+      from = oldIdx;
+      to = newIdx;
+    }
+  });
+  if (from < 0 || from === to) return null;
+  return { from, to };
+}
+function createTabStrip({ hostEl, taxonomy = null, onAction }) {
+  const host = document.createElement("div");
+  hostEl.appendChild(host);
+  const strip = new NotebookTabBar();
+  let tabs = [];
+  strip.mount(host, {
+    onActivate: (key) => {
+      const idx = tabKeyIndex(key);
+      if (idx >= 0) onAction?.("switch", { idx });
+    },
+    onClose: (key) => {
+      const idx = tabKeyIndex(key);
+      if (idx >= 0) onAction?.("close", { idx });
+    },
+    onReorder: (order) => {
+      const move = reorderToMove(order, tabs.length);
+      if (move) onAction?.("move", move);
+    }
+    // Everything else the component offers that a tab here cannot honour is
+    // deliberately absent rather than stubbed — `onRename` is refused by the
+    // `builtin://` key, and the rest (`onDuplicate`, `onSplitRight`,
+    // `onRevealInExplorer`, `onCloseAll`, …) are only ever reached from the
+    // context menu suppressed below.
+  });
+  const onContextMenu = (ev) => {
+    const tabEl = ev.target.closest?.(".tab");
+    if (!tabEl) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const idx = Array.prototype.indexOf.call(host.querySelectorAll(".tab"), tabEl);
+    if (idx < 0) return;
+    onAction?.("menu", { idx, x: ev.clientX, y: ev.clientY });
+  };
+  host.addEventListener("contextmenu", onContextMenu, true);
+  const repaint = () => {
+    host.querySelectorAll(".tab").forEach((el, i) => {
+      const spec = tabs[i];
+      if (!spec) return;
+      el.title = spec.title || spec.kind || "";
+      const icon = spec.kind ? taxonomy?.meta?.(spec.kind)?.icon : null;
+      const glyph = el.querySelector(".tab-icon");
+      if (!glyph) return;
+      if (icon) {
+        glyph.textContent = icon;
+        glyph.hidden = false;
+      } else glyph.hidden = true;
+    });
+  };
+  return {
+    /** @param {Array<{kind: string, props?: object, title?: string, dirty?: boolean}>} next */
+    update(next, activeIdx) {
+      tabs = Array.isArray(next) ? next : [];
+      const active = Math.max(0, Math.min(tabs.length - 1, activeIdx || 0));
+      strip.update(
+        tabs.map((t, i) => ({
+          filePath: tabKey(i),
+          label: t.title || t.kind || "",
+          fileType: t.kind || "unknown",
+          // Nothing sets `dirty` on a tab spec today, so the dot is
+          // never drawn. Read anyway, because the day a tab can say it
+          // holds unsaved work this is where it says it, and the
+          // alternative is a second place to remember.
+          isDirty: !!t.dirty
+        })),
+        tabKey(active)
+      );
+      repaint();
+    },
+    dispose() {
+      host.removeEventListener("contextmenu", onContextMenu, true);
+      try {
+        strip.dispose();
+      } catch (err) {
+        console.error("[tab-strip] dispose threw", err);
+      }
+      host.remove();
+    }
+  };
+}
 
 // src/tiling/wm.js
 var PANEL_KINDS = /* @__PURE__ */ new Set(["panel:left", "panel:right", "panel:bottom"]);
@@ -2945,8 +3962,22 @@ var PANEL_TITLES = {
   right: "Inspector",
   bottom: "Console"
 };
-var WindowManager = class {
-  constructor({ rootEl, api, ctx, onChange, eventBus, host, taxonomy, events, content }) {
+var WindowManager = class _WindowManager {
+  constructor({
+    rootEl,
+    api,
+    ctx,
+    onChange,
+    eventBus,
+    host,
+    taxonomy,
+    events,
+    content,
+    panelDefaults = null,
+    snapPromotion = false,
+    promoteInPlace = false,
+    tabLayout = null
+  }) {
     if (!taxonomy) throw new Error("WindowManager: a taxonomy is required");
     if (!content || typeof content.mount !== "function") {
       throw new Error("WindowManager: a content registry is required (createContentRegistry / createShell owns it)");
@@ -2968,18 +3999,34 @@ var WindowManager = class {
         title: this.taxonomy.meta(kind)?.label || kind
       };
     };
-    this.desktops = new DesktopManager({ seed: this._rootLeaf });
+    this.panelDefaults = panelDefaults || null;
+    this.snapPromotion = !!snapPromotion;
+    this.promoteInPlace = !!promoteInPlace;
+    this._snapCtl = null;
+    this.desktops = new DesktopManager({
+      seed: this._rootLeaf,
+      panelDefaults: this.panelDefaults
+    });
     this.renderer = new TileRenderer({
       root: rootEl,
       tree: this.desktops.active().tree,
       content,
+      /** C22. Where a multi-tab leaf draws its tabs — `'bottom'`
+       *  (the framework's own spreadsheet strip, and the DEFAULT so no
+       *  existing embedder's panes rearrange on upgrade) or `'top'`
+       *  (the editor tab bar, between the chrome and the body).
+       *  The renderer also mirrors this onto the root as
+       *  `data-twm-tabs` and watches it, so an embedder can change it
+       *  live without holding a renderer reference. */
+      tabLayout,
       ctx: {
         ...this.ctx,
         wm: this,
         onLeafAction: (leafId, action) => this._leafAction(leafId, action),
         onLeafTabAction: (leafId, action, data) => this._leafTabAction(leafId, action, data)
       },
-      onFocusChange: () => this._notifyChange()
+      onFocusChange: () => this._notifyChange(),
+      onAfterRender: () => this._rehomeContainedWindows()
     });
     this._persistTimer = null;
     this._windowToLeaf = /* @__PURE__ */ new Map();
@@ -3000,6 +4047,16 @@ var WindowManager = class {
         }
       });
     }
+  }
+  /** C22. Change the tab layout of every tile, live. Delegates to the
+   *  renderer, which moves each strip rather than rebuilding the tiles — so
+   *  nothing mounted in a tile is unmounted and no staged work is lost.
+   *
+   *  Not persisted here: which layout a user prefers is a USER setting, and
+   *  the WM persists LAYOUT (`desktops`). An embedder that stores it does so
+   *  under its own key and passes it back as `createShell({ tabLayout })`. */
+  setTabLayout(layout) {
+    this.renderer.setTabLayout(layout);
   }
   /** Emit on bus + call onChange. Use this instead of the bare callback
    *  so other surfaces (palette, top-bar toggles, page shortcuts) can
@@ -3035,7 +4092,10 @@ var WindowManager = class {
   async load() {
     const blob = await loadDesktops(this.host?.state);
     if (blob) {
-      this.desktops = DesktopManager.deserialize(blob, { seed: this._rootLeaf });
+      this.desktops = DesktopManager.deserialize(blob, {
+        seed: this._rootLeaf,
+        panelDefaults: this.panelDefaults
+      });
       this.renderer.tree = this.desktops.active().tree;
     }
     for (const d of this.desktops.desktops) {
@@ -3160,7 +4220,9 @@ var WindowManager = class {
   updateActiveTabProps(leafId, patch) {
     const tree = this._tree();
     if (!tree?.updateActiveTabProps) return;
+    const expected = this.renderer?.leafKey?.(leafId) ?? void 0;
     tree.updateActiveTabProps(leafId, patch);
+    this.renderer?.rebaselineLeaf?.(leafId, expected);
     this._persist();
   }
   /** Navigate inside the current tab — preserves every other tab in
@@ -3233,7 +4295,7 @@ var WindowManager = class {
     this._notifyChange();
   }
   /** Replace a managed window's content in place. Tears down the
-   *  previous mount, mounts the new kind into the same contentEl,
+   *  previous mount, mounts the new kind into the same body element,
    *  and updates the window's title. */
   openInWindow(winId, kind, props = {}) {
     const rec = this._windowToLeaf.get(winId);
@@ -3245,10 +4307,11 @@ var WindowManager = class {
       rec.mountInfo?.destroy?.();
     } catch {
     }
-    rec.contentEl.innerHTML = "";
+    const host = rec.bodyEl || rec.contentEl;
+    host.innerHTML = "";
     const mountInfo = this.content.mount(
       kind,
-      rec.contentEl,
+      host,
       props,
       { ...this.ctx, wm: this, windowId: winId }
     );
@@ -3258,12 +4321,14 @@ var WindowManager = class {
       props: { ...props || {} },
       title: mountInfo?.title || kind
     };
-    try {
-      const titleEl = rec.window.element?.querySelector(".twm-managed-window__title");
-      if (titleEl) titleEl.textContent = rec.original.title;
-      if (rec.window) rec.window.title = rec.original.title;
-    } catch {
+    const tab = (rec.tabs || [])[rec.activeTabIdx];
+    if (tab) {
+      tab.kind = kind;
+      tab.props = { ...props || {} };
+      tab.title = rec.original.title;
+      rec.strip?.update(rec.tabs, rec.activeTabIdx);
     }
+    this._setWindowTitle(rec, rec.original.title);
     this._persist();
     this._notifyChange("window-content-changed");
   }
@@ -3379,6 +4444,8 @@ var WindowManager = class {
     if (!focusedId) return;
     const leaf = tree.get(focusedId);
     const kind = leaf?.content?.kind;
+    const closeChrome = this.renderer?.leafChrome?.(focusedId)?.close;
+    if (closeChrome === false || closeChrome?.disabled === true) return;
     if (kind === PLACEHOLDER_KIND) {
       const winId = leaf.content?.props?.windowId;
       const rec = winId ? this._windowToLeaf.get(winId) : null;
@@ -3397,6 +4464,10 @@ var WindowManager = class {
       this._canonicalize(tree, d);
     } else {
       tree.close(focusedId);
+    }
+    if (!tree.leaves().some((l) => !String(l.content?.kind || "").startsWith("panel:"))) {
+      const spawned = this._spawnContentLeaf(tree);
+      if (spawned) this._seedHome(tree, spawned);
     }
     this._canonicalize(tree, this.desktops.active());
     this.renderer.render();
@@ -3475,36 +4546,228 @@ var WindowManager = class {
     }
   }
   // ── Tile <-> Managed window ─────────────────────────────────────
-  /** Promote the focused tile's ACTIVE TAB into a managed window.
+  /** Float the focused pane into a managed window.
    *
-   *  Never-empty-tile invariant: only the active tab floats out.
-   *   - A multi-tab leaf keeps its remaining tabs and stays put.
-   *   - A lone tile (its last tab floated) is RE-SEEDED with the default
-   *     HOME content instead of being destroyed, so the grid never ends
-   *     up with a missing or blank main tile.
-   *  "Back to tile" re-docks the content into the primary tile. */
+   *  R8. THE WHOLE PANE, not its active tab. This used to float one tab and
+   *  leave the rest behind, which made "float this pane as a window" a
+   *  different verb from the one its own tooltip named: a pane with three
+   *  tables in it became a window holding one and a pane holding two, and
+   *  nothing on screen said which of the three you were going to get. The
+   *  product owner's words are the whole specification — *"to window includes
+   *  the tab-strip"* — so the tabs travel with the pane and the strip is
+   *  rendered INSIDE the window.
+   *
+   *  Floating ONE tab is still available and is still wanted; it moved to
+   *  where it was always meant to be, which is the right-click menu on the
+   *  tab itself (R9, `floatTabAsWindow`). A verb that acts on one tab belongs
+   *  on that tab, not on the pane's chrome.
+   *
+   *  Never-empty-tile invariant, unchanged: the emptied pane is RE-SEEDED
+   *  with the default HOME content rather than destroyed, so the grid never
+   *  ends up with a missing or blank main tile. */
   toggleManagedFocused() {
     const tree = this._tree();
     const focused = tree.focused();
-    if (!focused || !focused.content) return;
-    if (PANEL_KINDS.has(focused.content.kind)) return;
-    if (focused.content.kind === PLACEHOLDER_KIND) return;
-    const leafId = focused.id;
-    const desktopIdx = this.desktops.activeIdx;
-    const tabCount = Array.isArray(focused.tabs) ? focused.tabs.length : 1;
-    const activeIdx = Math.max(0, Math.min(tabCount - 1, focused.activeTabIdx || 0));
-    const original = {
-      kind: focused.content.kind,
-      props: { ...focused.content.props || {} },
-      title: focused.title
+    if (!focused) return null;
+    return this.floatPane(focused.id);
+  }
+  /** R8. Float a pane — every tab, with the strip — into a managed window.
+   *  Returns the window id, or null when the leaf is not something that can
+   *  be floated. */
+  floatPane(leafId) {
+    const leaf = this._floatableLeaf(leafId);
+    if (!leaf) return null;
+    const tabs = _leafTabSpecs(leaf);
+    const active = Math.max(0, Math.min(tabs.length - 1, leaf.activeTabIdx || 0));
+    return this._promote(leafId, tabs, active, { wholePane: true });
+  }
+  /** R9. Float ONE tab of a pane into a managed window, leaving its siblings
+   *  where they are — which is exactly what `toggleManagedFocused` did before
+   *  R8, so the behaviour survives, it just moved to the gesture that names
+   *  it. The tab's right-click menu is the only caller. */
+  floatTabAsWindow(leafId, idx) {
+    const leaf = this._floatableLeaf(leafId);
+    if (!leaf) return null;
+    const tabs = _leafTabSpecs(leaf);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= tabs.length) return null;
+    return this._promote(leafId, [tabs[idx]], 0, { wholePane: false, tabIdx: idx });
+  }
+  /**
+   * C33. MOVE ONE TAB INTO ANOTHER TILE — the same verb as `floatTabAsWindow`
+   * above with a TILE as the destination instead of a window, which is why it
+   * sits beside it.
+   *
+   * ══ THE ORDER IS LOAD-BEARING ═══════════════════════════════════════
+   *
+   * Four steps, and three of them are in this order for a reason that a
+   * plausible-looking rewrite would destroy:
+   *
+   *   (a) READ THE TAB SPEC FIRST. `fromIdx` is an ARRAY INDEX — the only
+   *       identity a tile tab has (`tile_renderer._tabKey`) — so it is stale
+   *       the instant anything splices a tab list. Everything below works
+   *       from the copy taken here.
+   *
+   *   (b) SPLIT BEFORE REMOVING. When the destination IS the source pane —
+   *       "tear this tab off into a split beside its siblings" — removing
+   *       first can empty that pane and send it through `_seedHome`, so the
+   *       split would then be splitting a freshly seeded ground rather than
+   *       the pane the preview drew. Splitting first cannot go wrong in the
+   *       other direction: `tree.split` never touches tabs.
+   *
+   *   (c) THE MOVE ITSELF IS ONE TREE CALL for `tab` — `moveTabToLeaf`, which
+   *       exists so the tab cannot be in flight between two mutations — and
+   *       remove-then-`setLeafContent` for `fill`/`split`, where the
+   *       destination is ground or brand new and REPLACING is the point.
+   *
+   *   (d) RE-SEED AND MERGE, exactly as `_promote` does when the last tab
+   *       leaves a pane (`_seedHome` then `_mergeStartTiles`). A pane is
+   *       never left blank, and two grounds never end up side by side with a
+   *       splitter between them for no reason.
+   *
+   * ══ `wm:tab-moved` IS EMITTED BEFORE THE REPAINT ════════════════════
+   *
+   * An embedder that keys live content by leaf id — the Tables grid registry
+   * does, on `(leaf, table)`, because a DOM element exists in exactly one
+   * place — has to re-key BEFORE the render mounts the destination, or the
+   * destination misses its entry, builds a second grid, and the source tile's
+   * deferred teardown destroys the first one along with everything typed into
+   * it and not yet committed. Emitting after the render would lose that race
+   * silently, which is the failure this repository keeps recording. The tree
+   * is already correct at this point; only the DOM is stale.
+   *
+   * ══ WHAT THIS DELIBERATELY DOES NOT DO ══════════════════════════════
+   *
+   * A tab is not dragged OUT OF A FLOATING WINDOW's strip, and a tab dropped
+   * on empty space does not become a window. Both are refused by omission
+   * rather than half-built, and both have a reason. A window's tabs live in
+   * `_windowToLeaf`'s record and not in the tree, so their source policy is
+   * `_windowTabAction`'s and not this function's. And "dropped on nothing" in
+   * HTML5 drag-and-drop is `dragend` with no `drop` — which is also exactly
+   * what pressing Escape produces, so floating a window on it would float one
+   * every time a user changed their mind. Crossing DESKTOPS is out for a
+   * third reason: only the active desktop is rendered, so there is no target
+   * to hit.
+   *
+   * @param {string} fromLeafId
+   * @param {number} fromIdx
+   * @param {{leafId: string, mode?: 'tab'|'fill'|'split', dir?: 'h'|'v',
+   *          before?: boolean, toIdx?: number}} target  a `tabDropProbe`
+   *          answer, translated by the renderer
+   * @returns {string|null} the leaf the tab landed in, or null if refused
+   */
+  moveTabInto(fromLeafId, fromIdx, target = {}) {
+    const tree = this._tree();
+    const from = tree.get(fromLeafId);
+    if (!from || from.kind !== "leaf") return null;
+    const tabs = Array.isArray(from.tabs) ? from.tabs : [];
+    if (!Number.isInteger(fromIdx) || fromIdx < 0 || fromIdx >= tabs.length) return null;
+    let destId = target?.leafId || null;
+    const dest = destId ? tree.get(destId) : null;
+    if (!dest || dest.kind !== "leaf") return null;
+    if (String(dest.content?.kind || "").startsWith("panel:")) return null;
+    const mode = target.mode === "fill" || target.mode === "split" ? target.mode : "tab";
+    if (destId === fromLeafId && mode !== "split") return null;
+    if (destId === fromLeafId && tabs.length <= 1) return null;
+    const src = tabs[fromIdx];
+    const spec = {
+      kind: src.kind,
+      props: { ...src.props || {} },
+      title: src.title || src.kind || ""
     };
+    if (mode === "split") {
+      const newId = tree.split(destId, target.dir === "v" ? "v" : "h");
+      if (!newId) return null;
+      _halveInto(tree, destId, newId);
+      if (target.before) _swapSiblings(tree, destId, newId);
+      destId = newId;
+    }
+    if (mode === "tab") {
+      const moved = tree.moveTabToLeaf(
+        fromLeafId,
+        fromIdx,
+        destId,
+        Number.isInteger(target.toIdx) ? target.toIdx : -1
+      );
+      if (!moved?.ok) return null;
+    } else {
+      tree.removeLeafTab(fromLeafId, fromIdx);
+      tree.setLeafContent(destId, { kind: spec.kind, props: spec.props }, spec.title);
+    }
+    if (!(tree.get(fromLeafId)?.tabs || []).length) {
+      this._seedHome(tree, fromLeafId);
+      this._mergeStartTiles(tree, fromLeafId);
+    }
+    this._canonicalize(tree, this.desktops.active());
+    try {
+      this.eventBus?.emit?.(
+        "wm:tab-moved",
+        { fromLeafId, toLeafId: destId, tab: spec, mode }
+      );
+    } catch (err) {
+      console.warn("[wm] tab-moved emit failed", err);
+    }
+    if (tree.get(destId)) tree.focus(destId);
+    this.renderer.render();
+    this._persist();
+    this._notifyChange("tab-moved");
+    return destId;
+  }
+  /** The guards both float verbs share. A panel tile is chrome, not content;
+   *  a window placeholder is already a window; an empty tile has nothing to
+   *  carry — and, since C20 was extended, content that declared itself
+   *  unfloatable is not floated by ANY door.
+   *
+   *  THE LAST ONE IS WHY THIS FUNCTION IS THE RIGHT PLACE. C20 let a content
+   *  factory return `chrome: { promote: false }`, and the renderer honoured
+   *  it by not PAINTING the float button. That is one door of four: the
+   *  tile's right-click menu has offered "Float this pane as a window" all
+   *  along (`shell.js`'s `_tileContextMenu`, whose only guard is
+   *  `isPanel || !leaf.content`), the chrome pull-down asks for `promote`,
+   *  and so now does the chrome's double-click. Each of them arrives here.
+   *
+   *  The case it protects is an embedder's MASTER tile: the ground that
+   *  floating windows stand on. Floating it promotes the ground into a
+   *  window, which force-closes every window standing on it and re-seeds the
+   *  pane WITHOUT the props that made it a ground — reproduced end to end
+   *  before this guard existed. A veto the content states once should hold
+   *  for every gesture, not only the one the renderer draws. */
+  _floatableLeaf(leafId) {
+    const leaf = leafId ? this._tree().get(leafId) : null;
+    if (!leaf || leaf.kind !== "leaf" || !leaf.content) return null;
+    if (PANEL_KINDS.has(leaf.content.kind)) return null;
+    if (leaf.content.kind === PLACEHOLDER_KIND) return null;
+    if (this.renderer?.leafChrome?.(leaf.id)?.promote === false) return null;
+    return leaf;
+  }
+  /**
+   * The promote itself: build the window, mount the active tab in it, and
+   * take the tabs out of the tree.
+   *
+   * @param {string}   leafId        the pane the tabs are coming out of
+   * @param {object[]} tabs          `{kind, props, title}`, in order
+   * @param {number}   activeTabIdx  which of them the window shows first
+   * @param {{wholePane: boolean, tabIdx?: number}} opts
+   */
+  _promote(leafId, tabs, activeTabIdx, { wholePane, tabIdx = -1 }) {
+    const tree = this._tree();
+    const leaf = tree.get(leafId);
+    const desktopIdx = this.desktops.activeIdx;
+    const tabCount = Array.isArray(leaf.tabs) ? leaf.tabs.length : 1;
+    const active = Math.max(0, Math.min(tabs.length - 1, activeTabIdx || 0));
+    const original = { ...tabs[active], props: { ...tabs[active].props || {} } };
     const contentEl = document.createElement("div");
     contentEl.className = "twm-window-content";
     contentEl.style.cssText = "display:flex; flex-direction:column; flex:1; min-width:0; min-height:0; height:100%;";
+    const tabBarEl = document.createElement("div");
+    tabBarEl.className = "twm-window-tabbar";
+    const bodyEl = document.createElement("div");
+    bodyEl.className = "twm-window-body";
+    bodyEl.style.cssText = "display:flex; flex-direction:column; flex:1; min-width:0; min-height:0;";
+    contentEl.append(tabBarEl, bodyEl);
     const winId = `twm-mw-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`;
     const mountInfo = this.content.mount(
       original.kind,
-      contentEl,
+      bodyEl,
       original.props,
       { ...this.ctx, wm: this, windowId: winId }
     );
@@ -3517,72 +4780,1207 @@ var WindowManager = class {
       canMaximize: true,
       canResize: true,
       modal: false,
-      onClose: () => this._onManagedWindowClosed(winId, mountInfo)
+      // C15. Dropping a promoted window on a tile PUTS IT BACK — as that
+      // tile's content, as a split of it, or as one of its tabs. Off
+      // unless the embedder asked, because it changes what a drag to an
+      // edge means.
+      snap: this.snapPromotion,
+      snapController: this.snapPromotion ? this._snapController() : null,
+      // R1. THE PANE IS A BOX WITH `overflow: hidden`. A window contained
+      // to one (C21) cannot be dragged a single pixel outside it, so
+      // "drag a window from one tile to another" — the gesture all three
+      // drop behaviours are built on — was not merely awkward, it was
+      // invisible. For the length of a drag the window is re-parented
+      // here, to the root every tile is inside; on release it goes back
+      // into a pane, either the one it was dropped on or the one it came
+      // from. Resolved per drag: the root outlives any tile, and a tile
+      // grabbed once does not survive its own repaint.
+      dragHost: () => this.rootEl,
+      dragBounds: () => this._tileBounds(),
+      // R7. MAXIMISE MEANS BACK TO TILE. This window came OUT of the
+      // tree; the useful thing to do with it is put it back, and filling
+      // the screen with it is the one gesture that makes putting it back
+      // harder. So the maximize button docks — and the separate demote
+      // button the WM used to inject beside it is gone, because two
+      // buttons for one verb is how you get a chrome nobody reads.
+      onMaximize: () => this.bringBackWindow(winId),
+      maximizeIcon: "close_fullscreen",
+      maximizeTitle: "Back to tile",
+      onClose: () => this._onManagedWindowClosed(winId, null)
     });
     this._windowToLeaf.set(winId, {
-      // The floated tab now lives in the window, not the tree. leafId
+      // The floated tabs now live in the window, not the tree. leafId
       // is null so "back to tile" re-docks into the desktop's primary
-      // tile as a new tab (see _onManagedWindowClosed) — the source
-      // tile itself survives (re-seeded with HOME when it was lone).
+      // tile (see _onManagedWindowClosed) — the source tile itself
+      // survives (re-seeded with HOME when it was emptied).
       leafId: null,
       desktopIdx,
       original,
       mountInfo,
       window: win,
       contentEl,
+      bodyEl,
+      tabBarEl,
+      // R8. THE PANE'S TABS TRAVEL WITH IT, and this is where they live
+      // while the window is open. `original` still mirrors the ACTIVE one
+      // so every existing reader of the record — `openInWindow`, each of
+      // `_onManagedWindowClosed`'s docks — keeps working unchanged; the
+      // list beside it is what makes a dock restore ALL of them.
+      tabs,
+      activeTabIdx: active,
+      strip: null,
+      // ══ C21. WRITTEN HERE, BEFORE THE TREE IS TOUCHED ═══════════
+      //
+      // `homeLeafId` is the pane this window stands on, and it used to be
+      // assigned at the BOTTOM of this function — after `_seedHome`,
+      // after `_mergeStartTiles`, after the repaint. That ordering
+      // destroyed a tile per promotion, and it looked like a window bug
+      // because a window is what the user had just moved.
+      //
+      // `_mergeStartTiles` (below) refuses to merge a start tile that has
+      // a window standing on it, and `_paneHoldsWindows` answers that
+      // question two ways: THIS FIELD, and a DOM probe for a
+      // `.twm-managed-window` inside the leaf. At the old assignment point
+      // neither could be true yet — the field was unwritten and the window
+      // had not been `moveTo`'d into the pane — so the pane that was one
+      // line away from becoming this window's ground answered *nothing
+      // floats here* and was merged into its neighbour.
+      //
+      // Three panes floated one after another ended as ONE pane: the
+      // first promotion left a start tile, the second merged its own
+      // freshly-seeded tile away, and so did the third. Every window
+      // after the first was then left with a `homeLeafId` naming a leaf
+      // the tree no longer had — so the `moveTo` below was skipped and the
+      // window never became contained, `_rehomeContainedWindows` found no
+      // element to re-home it into, and `bringBackWindow` fell through to
+      // the PRIMARY tile and docked as a tab onto the ground ANOTHER
+      // window was standing on. That is the whole of the reported
+      // *"expand one to a tile > influences others or even tiles lost"*.
+      //
+      // Writing it here is the smallest fix that closes all of it: a
+      // guard that already existed starts being able to see the window it
+      // was written to protect. The `moveTo` stays at the bottom, because
+      // it needs the wrap the repaint rebuilds.
+      homeLeafId: this.promoteInPlace ? leafId : null,
       // Set to true by bringBackWindow so the close path knows to
       // restore the content instead of destroying it.
       _demoting: false
     });
-    if (tabCount > 1) {
-      tree.removeLeafTab(leafId, activeIdx);
-    } else {
-      this._seedHome(tree, leafId);
-    }
+    this._syncWindowTabs(winId);
+    if (!wholePane && tabCount > 1) tree.removeLeafTab(leafId, tabIdx);
+    else this._seedHome(tree, leafId);
+    this._mergeStartTiles(tree, leafId);
     tree.focus(leafId);
     this._canonicalize(tree, this.desktops.active());
     this.renderer.render();
+    if (this.promoteInPlace) {
+      const paneEl = this.renderer.leafEl(leafId);
+      if (paneEl) win.moveTo(paneEl);
+    }
     win.show();
     this._decorateManagedWindow(win, winId);
     this._persist();
     this._notifyChange("window-promoted");
+    return winId;
   }
-  /** Dock the window's content back into the desktop's primary tile
-   *  (the source tile was closed on promote), then close the window. */
+  // ══ R8. The tab strip inside a floated pane ═══════════════════════
+  /**
+   * Draw (or hide) a window's tab strip, and keep its title honest.
+   *
+   * Hidden below two tabs, exactly as a pane's strip is
+   * (`tile_renderer._renderTabBar`): the common case is one tab, and a strip
+   * naming the one thing you are already looking at is a line of chrome
+   * saying nothing. Building the strip lazily also means a window promoted
+   * out of a single-tab pane costs no `NotebookTabBar` at all.
+   */
+  _syncWindowTabs(winId) {
+    const rec = this._windowToLeaf.get(winId);
+    if (!rec) return;
+    const tabs = rec.tabs || [];
+    rec.activeTabIdx = Math.max(0, Math.min(tabs.length - 1, rec.activeTabIdx || 0));
+    if (tabs.length <= 1) {
+      try {
+        rec.strip?.dispose();
+      } catch {
+      }
+      rec.strip = null;
+      rec.tabBarEl?.classList.add("twm-window-tabbar--hidden");
+      return;
+    }
+    rec.tabBarEl?.classList.remove("twm-window-tabbar--hidden");
+    if (!rec.strip) {
+      rec.strip = createTabStrip({
+        hostEl: rec.tabBarEl,
+        taxonomy: this.taxonomy,
+        onAction: (action, data) => this._windowTabAction(winId, action, data)
+      });
+    }
+    rec.strip.update(tabs, rec.activeTabIdx);
+  }
+  /** The window strip's half of `_leafTabAction` — the same four verbs
+   *  against the window record instead of against the tree. */
+  _windowTabAction(winId, action, data = {}) {
+    const rec = this._windowToLeaf.get(winId);
+    if (!rec) return;
+    const tabs = rec.tabs || [];
+    if (action === "switch") {
+      this.showWindowTab(winId, data.idx);
+      return;
+    }
+    if (action === "close") {
+      if (data.idx < 0 || data.idx >= tabs.length) return;
+      if (tabs.length <= 1) {
+        try {
+          rec.window.close({ force: true });
+        } catch {
+        }
+        return;
+      }
+      tabs.splice(data.idx, 1);
+      if (data.idx < rec.activeTabIdx) rec.activeTabIdx -= 1;
+      else if (data.idx === rec.activeTabIdx) {
+        rec.activeTabIdx = Math.max(0, data.idx - 1);
+        this._mountWindowTab(winId);
+      }
+      this._syncWindowTabs(winId);
+      this._notifyChange("window-tab-close");
+      return;
+    }
+    if (action === "move") {
+      const { from, to } = data;
+      if (from == null || to == null) return;
+      if (from < 0 || from >= tabs.length || to < 0 || to >= tabs.length) return;
+      const moved = tabs.splice(from, 1)[0];
+      tabs.splice(to, 0, moved);
+      if (rec.activeTabIdx === from) rec.activeTabIdx = to;
+      else if (from < rec.activeTabIdx && to >= rec.activeTabIdx) rec.activeTabIdx -= 1;
+      else if (from > rec.activeTabIdx && to <= rec.activeTabIdx) rec.activeTabIdx += 1;
+      this._syncWindowTabs(winId);
+      return;
+    }
+    if (action === "menu") this._showWindowTabContextMenu(winId, data.idx, data.x, data.y);
+  }
+  /** Show one of a floated pane's tabs. Public because a window is the only
+   *  place this list exists — nothing else can reach it. */
+  showWindowTab(winId, idx) {
+    const rec = this._windowToLeaf.get(winId);
+    if (!rec) return false;
+    const tabs = rec.tabs || [];
+    if (!Number.isInteger(idx) || idx < 0 || idx >= tabs.length) return false;
+    if (idx === rec.activeTabIdx) return true;
+    rec.activeTabIdx = idx;
+    this._mountWindowTab(winId);
+    this._syncWindowTabs(winId);
+    this._persist();
+    this._notifyChange("window-tab-switch");
+    return true;
+  }
+  /** Tear the current mount down and mount the active tab in its place.
+   *  `rec.original` follows, so a later dock puts back what is on screen. */
+  _mountWindowTab(winId) {
+    const rec = this._windowToLeaf.get(winId);
+    if (!rec) return;
+    const tab = (rec.tabs || [])[rec.activeTabIdx];
+    if (!tab) return;
+    try {
+      rec.mountInfo?.destroy?.();
+    } catch {
+    }
+    rec.bodyEl.innerHTML = "";
+    rec.mountInfo = this.content.mount(
+      tab.kind,
+      rec.bodyEl,
+      tab.props || {},
+      { ...this.ctx, wm: this, windowId: winId }
+    );
+    rec.original = {
+      kind: tab.kind,
+      props: { ...tab.props || {} },
+      title: rec.mountInfo?.title || tab.title || tab.kind
+    };
+    this._setWindowTitle(rec, rec.original.title);
+  }
+  /** The window's title, in both places it is kept. */
+  _setWindowTitle(rec, title) {
+    try {
+      const titleEl = rec.window?.element?.querySelector(".twm-managed-window__title");
+      if (titleEl) titleEl.textContent = title;
+      if (rec.window) rec.window.title = title;
+    } catch {
+    }
+  }
+  /** The window strip's context menu. Deliberately the close verbs and
+   *  nothing else: a tab in a window is already out of the tree, so
+   *  "open in a window" — the verb R9 adds to a PANE's tab menu — has
+   *  nowhere further to go. */
+  _showWindowTabContextMenu(winId, idx, x, y) {
+    const rec = this._windowToLeaf.get(winId);
+    const tabs = rec?.tabs || [];
+    if (!tabs.length) return;
+    const items = [{ label: "Close tab", icon: "close", action: "close" }];
+    if (tabs.length > 1) {
+      items.push({ label: "Close other tabs", icon: "tab_close", action: "close-others" });
+    }
+    showContextMenu(x, y, items, (action) => {
+      const live = this._windowToLeaf.get(winId);
+      if (!live) return;
+      if (action === "close") this._windowTabAction(winId, "close", { idx });
+      else if (action === "close-others") {
+        const keep = live.tabs[idx];
+        if (!keep) return;
+        const remount = idx !== live.activeTabIdx;
+        live.tabs = [keep];
+        live.activeTabIdx = 0;
+        if (remount) this._mountWindowTab(winId);
+        this._syncWindowTabs(winId);
+        this._notifyChange("window-tab-close-others");
+      }
+    });
+  }
+  /**
+   * Re-parent every pane-contained window into its pane's CURRENT wrap.
+   *
+   * Called after each repaint. A leaf's wrap is cached per (kind, props, tab
+   * fingerprint) and rebuilt when any of those change, so a window parented
+   * into it is thrown away with the old wrap — silently, because nothing
+   * throws and the window object is still perfectly alive.
+   *
+   * `moveTo` returns false when the container has not changed, so this is a
+   * no-op on every repaint that did not rebuild the pane in question.
+   */
+  _rehomeContainedWindows() {
+    if (!this.promoteInPlace) return;
+    for (const [, rec] of this._windowToLeaf) {
+      if (!rec.homeLeafId || !rec.window) continue;
+      if (rec.window.dragOrigin) continue;
+      if (rec.window.isMaximized && rec.window.container === this.rootEl) continue;
+      if (rec.desktopIdx !== this.desktops.activeIdx) {
+        if (!rec.homeContainer && rec.window.element?.isConnected) {
+          try {
+            rec.window.element.remove();
+          } catch {
+          }
+        }
+        continue;
+      }
+      if (!rec.homeContainer && rec.homeLeafId) {
+        const tree = this.desktops.desktops[rec.desktopIdx]?.tree;
+        if (tree && !tree.get(rec.homeLeafId)) {
+          let survivor = tree.primaryLeafId();
+          if (!survivor) {
+            const spawned = this._spawnContentLeaf(tree);
+            if (spawned) {
+              this._seedHome(tree, spawned);
+              this._canonicalize(tree, this.desktops.desktops[rec.desktopIdx]);
+              survivor = tree.primaryLeafId();
+            }
+          }
+          if (survivor) rec.homeLeafId = survivor;
+        }
+      }
+      const paneEl = rec.homeContainer ? rec.homeContainer() || null : this.renderer.leafEl(rec.homeLeafId);
+      if (!paneEl) continue;
+      if (paneEl === rec.window.container) {
+        const el = rec.window.element;
+        if (el && !el.isConnected) {
+          try {
+            paneEl.appendChild(el);
+          } catch (err) {
+            console.warn("[wm] re-attach failed", err);
+          }
+        }
+        continue;
+      }
+      try {
+        rec.window.moveTo(paneEl);
+      } catch (err) {
+        console.warn("[wm] re-home failed", err);
+      }
+    }
+  }
+  /**
+   * C21, as a verb a consumer can call: put THIS window back where it belongs
+   * and say whether it moved.
+   *
+   * The taskbar needs it. A minimised window's element may be out of the
+   * document — its desktop is not on screen, or its pane was closed — and
+   * un-minimising it in that state clears `isMinimized` (so its button
+   * disappears, the last handle on it) while showing nothing. `restore` has
+   * to be able to repair the window BEFORE it makes it visible, and
+   * `_rehomeContainedWindows` is the thing that knows how; it was simply not
+   * reachable, and `taskbar.js`'s own docstring asserted it ran for these
+   * windows when the guard above meant it did not.
+   *
+   * IT SWITCHES DESKTOPS WHEN IT HAS TO, and that is the half a bare re-home
+   * cannot do. A window belongs to one desktop; if that desktop is not on
+   * screen, the honest answer to *show me this window* is the one every
+   * taskbar in every window manager gives — go to where it lives. Restoring
+   * it onto the page the user happens to be looking at would move a window
+   * between pages as a side effect of asking to see it, and that is a tile
+   * decision being made by a window verb.
+   *
+   * @param {object} win a live ManagedWindow
+   * @returns {boolean} whether this WM owns it (and so has revealed it)
+   */
+  revealWindow(win) {
+    if (!win) return false;
+    let rec = null;
+    for (const [, r] of this._windowToLeaf) {
+      if (r.window === win) {
+        rec = r;
+        break;
+      }
+    }
+    if (!rec) return false;
+    if (!rec.homeLeafId && !rec.homeContainer) return false;
+    if (rec.desktopIdx !== this.desktops.activeIdx && this.desktops.desktops[rec.desktopIdx]) {
+      this.switchDesktop(rec.desktopIdx);
+    } else {
+      this._rehomeContainedWindows();
+    }
+    return true;
+  }
+  /**
+   * R12. The rectangle an ESCAPED window may occupy — the tiles, and not the
+   * panels — in the root's own coordinates.
+   *
+   * R1 let a window leave its pane so it could reach another one, and the
+   * cheapest box to let it leave into is the root every tile shares. But the
+   * root holds the docked panels too, so the bottom edge stopped being an
+   * edge: a window could be dragged down over the bottom panel and dropped
+   * there, half-covering a surface that has its own scroll and its own
+   * chrome, with no way to tell it had happened except that it looked wrong.
+   *
+   * The answer is the UNION OF THE CONTENT LEAVES rather than "the root minus
+   * the panel I know about": panels dock left, right and bottom, an embedder
+   * may show any combination of them, and each one may be collapsed. A union
+   * of the tiles is right for all of those without enumerating any of them,
+   * and it degrades to the root when a desktop is somehow all panel.
+   */
+  _tileBounds() {
+    const root = this.rootEl;
+    if (!root) return null;
+    const layer = this._layerRect();
+    if (!layer) return null;
+    const rootRect = root.getBoundingClientRect();
+    const ox = rootRect.left + root.clientLeft - root.scrollLeft;
+    const oy = rootRect.top + root.clientTop - root.scrollTop;
+    return {
+      minX: layer.left - ox,
+      minY: layer.top - oy,
+      width: layer.width,
+      height: layer.height
+    };
+  }
+  /**
+   * R13. THE LAYER, in the VIEWPORT pixels a hit-test speaks — the union of
+   * the content leaves, before it is converted into anybody's coordinates.
+   *
+   * This is `_tileBounds` with the last step taken off, and it stays a
+   * separate function rather than being folded back into it because the two
+   * frames have different readers: `_tileBounds` answers `dragBounds`, which
+   * `ManagedWindow._bounds()` uses to clamp a window in the ROOT's
+   * coordinates, and this answers anything measuring against the page.
+   *
+   * R14 REMOVED ITS OTHER READER. R13's maximise preview was drawn from here
+   * so that it would be the same measurement `toggleMaximize` would deliver
+   * through `dragBounds` — C15's rule, THE PREVIEW MAY NOT PROMISE A
+   * RECTANGLE THE DROP DOES NOT DELIVER, applied to the one mode that did not
+   * dock. There is no such mode now: the top edge docks like every other
+   * zone, its preview is the TILE (`_homeDockTarget`), and the layer's only
+   * remaining job is the clamp. Kept as its own function because the clamp
+   * still needs the union of the CONTENT leaves rather than the root, which
+   * is a definition, not a call site.
+   *
+   * The union of the CONTENT LEAVES rather than the root, for the reason
+   * `_tileBounds` gives at length: the root holds the docked panels too.
+   *
+   * Null when nothing has a box yet — a layout that has not happened, a
+   * desktop whose tiles are all zero-sized. Every caller treats that as "do
+   * not promise anything", which is the only honest answer available.
+   */
+  _layerRect() {
+    let l = Infinity, tp = Infinity, r = -Infinity, b = -Infinity;
+    for (const leaf of this._tree().leaves()) {
+      if (PANEL_KINDS.has(leaf.content?.kind)) continue;
+      const el = this.renderer.leafEl(leaf.id);
+      if (!el) continue;
+      const box = el.getBoundingClientRect();
+      if (!box.width || !box.height) continue;
+      l = Math.min(l, box.left);
+      tp = Math.min(tp, box.top);
+      r = Math.max(r, box.right);
+      b = Math.max(b, box.bottom);
+    }
+    if (!Number.isFinite(l)) return null;
+    return { left: l, top: tp, width: r - l, height: b - tp };
+  }
+  /** Dock the window's content back into the tile it came from — or, when it
+   *  came from none, into the desktop's primary tile — then close the window.
+   *
+   *  R7. This is what the MAXIMIZE button now does, so it is reached far more
+   *  often than it was as a button of its own, and "somewhere other than where
+   *  the window came from" stopped being a defensible answer. Promoting a pane
+   *  re-seeds it with the root kind — ground for the window to stand on — so
+   *  FILLING that pane is the exact inverse: the content goes back where it
+   *  was lifted from, replacing the ground it has been standing on.
+   *
+   *  A home pane that has since acquired content is a different story. The
+   *  user opened something there, and replacing it would destroy work the
+   *  window knows nothing about, so the content joins it as a tab instead.
+   *  With no home pane at all — an Alt+N window, or any window under an
+   *  embedder that does not confine promotions — this is the primary-tile tab
+   *  it has always been. */
   bringBackWindow(windowId) {
     const rec = this._windowToLeaf.get(windowId);
-    if (!rec) return;
+    if (!rec) return false;
+    const tree = this.desktops.desktops[rec.desktopIdx]?.tree;
+    const home = rec.homeLeafId ? tree?.get(rec.homeLeafId) : null;
+    if (home && home.kind === "leaf") {
+      rec._dock = {
+        leafId: rec.homeLeafId,
+        mode: this._isStartTile(home) ? "fill" : "tab"
+      };
+    }
     rec._demoting = true;
     try {
       rec.window.close({ force: true });
     } catch (err) {
       console.warn("[wm] bringBack: close failed", err);
     }
+    return true;
   }
-  /** Re-home a managed window to another desktop. The window itself
-   *  stays on screen (managed windows are global) and leaves no tile
-   *  behind on either desktop; only its "home" changes, so bringing it
-   *  back will land on the new desktop's primary tile. */
+  /**
+   * R11. ADOPT A WINDOW THE EMBEDDER BUILT ITSELF.
+   *
+   * Everything R1–R10 gave a window — escaping its pane for the length of a
+   * drag, going half-transparent once it is outside, the edge/body/ground
+   * drops, maximise meaning *back to tile* — is wired in `_promote`, and so
+   * belongs only to windows this WM lifted out of the tree. An embedder that
+   * stands its own `ManagedWindow` on a pane (`snap: true` against the pane's
+   * ground) got none of it: `_snapCommit` resolves the window through
+   * `_windowToLeaf` and returns false for one it never built, so every drop
+   * previewed correctly and then quietly did nothing.
+   *
+   * The fix is not to make the WM build those windows — the embedder has its
+   * own reasons for the ones it builds, and taking that over would mean
+   * taking over their content, their identity and their lifetime. It is to
+   * let a window JOIN the tree's world after the fact, which needs exactly
+   * two things: the drag options set on the component, and a record saying
+   * what content to restore when the window is docked.
+   *
+   * CALL THIS BEFORE `show()`. `maximizeIcon` is read when the chrome is
+   * built (`managed_window.js:703`) and the chrome is built lazily by `show`
+   * (`:281`), so a window adopted afterwards would carry the right behaviour
+   * behind a button still drawing a square.
+   *
+   * TEARDOWN STAYS THE EMBEDDER'S. `mountInfo` is optional and normally
+   * omitted: a window that already destroys its own content in its `onClose`
+   * would otherwise destroy it twice, once here and once there. The
+   * embedder's handler is chained, not replaced, and runs after this one — so
+   * a dock has already re-mounted the content into the tile by the time the
+   * window's own teardown disposes of the copy that was floating.
+   *
+   * @param {object} win  a live ManagedWindow, not yet shown
+   * @param {object} spec
+   * @param {string} spec.kind          content kind to restore into a tile
+   * @param {object} [spec.props]       its props
+   * @param {string} [spec.title]       the tab title after a dock
+   * @param {string} [spec.homeLeafId]  the pane it stands on: what "back to
+   *        tile" targets, and what the probe stays silent inside
+   * @param {function} [spec.homeContainer]  `() => HTMLElement` — the box
+   *        WITHIN that pane the window is contained to. A canvas pane's
+   *        ground is not the leaf wrap, and re-homing to the wrap after a
+   *        repaint would lift the window out of the ground it belongs to.
+   * @param {object} [spec.mountInfo]   `{destroy}`, if teardown is ours
+   * @returns {string|null} the window id, or null if it could not be adopted
+   */
+  adoptWindow(win, spec = {}) {
+    const winId = win?.id;
+    if (!winId || !spec.kind) return null;
+    if (this._windowToLeaf.has(winId)) return winId;
+    if (this.snapPromotion) {
+      win.snap = win.snap && win.canDrag && win.canResize;
+      win.snapController = this._snapController();
+    }
+    win.dragHost = () => this.rootEl;
+    win.dragBounds = () => this._tileBounds();
+    win.onMaximize = () => this.bringBackWindow(winId);
+    win.maximizeIcon = "close_fullscreen";
+    win.maximizeTitle = "Back to tile";
+    const original = {
+      kind: spec.kind,
+      props: spec.props || {},
+      title: spec.title || spec.kind
+    };
+    this._windowToLeaf.set(winId, {
+      leafId: null,
+      desktopIdx: this.desktops.activeIdx,
+      original,
+      mountInfo: spec.mountInfo || null,
+      window: win,
+      contentEl: null,
+      bodyEl: null,
+      tabBarEl: null,
+      tabs: [original],
+      activeTabIdx: 0,
+      strip: null,
+      homeLeafId: spec.homeLeafId || null,
+      homeContainer: spec.homeContainer || null,
+      adopted: true,
+      _demoting: false
+    });
+    const prior = win.onClose;
+    win.onClose = () => {
+      this._onManagedWindowClosed(winId, null);
+      prior?.();
+    };
+    return winId;
+  }
+  // ══ C15. Snap-to-promote ══════════════════════════════════════════
+  /**
+   * The snap controller a promoted window is given. It answers the two
+   * questions ManagedWindow's own C11 snap cannot, because both are about a
+   * tree it does not know exists:
+   *
+   *   probe   which TILE is under the pointer, and — since R15 — which edge
+   *           of it THE DRAGGED WINDOW'S OWN BORDERS have reached, and what
+   *           would dropping there actually produce: a half of that tile, a
+   *           quarter of the layer, the tile entire, or (R13, at the top edge
+   *           of the pane the window already stands on) the whole layer,
+   *           which is the one answer that is not a dock at all. The preview
+   *           draws exactly that rectangle, because a preview that promises a
+   *           half and delivers a quarter is worse than no preview.
+   *   commit  put the window in the tree — or, for R13's maximise, leave it
+   *           floating and give it the layer. Over an EMPTY tile the dock is
+   *           unambiguous and happens on release. Over an OCCUPIED tile the
+   *           edges are unambiguous too — the drag chose a side, so the
+   *           side is the split — and only the CENTRE was ever genuinely a
+   *           question, which is why it is the zone that changed most.
+   *
+   * Built once and reused: the probe runs per pointermove and allocating a
+   * closure per window per drag is free, but the memo keeps the identity
+   * stable for anyone comparing controllers.
+   */
+  _snapController() {
+    if (this._snapCtl) return this._snapCtl;
+    this._snapCtl = {
+      probe: (e, win) => this._snapProbe(e, win),
+      commit: (probe, win) => this._snapCommit(probe, win)
+    };
+    return this._snapCtl;
+  }
+  /**
+   * How close to a tile's edge the DRAGGED WINDOW'S matching edge must come
+   * for a dock to arm — in PIXELS, and a narrow band. Since R15 it is also
+   * the minimum distance the drag must have travelled toward that edge
+   * inside the window's own pane; `_snapSide` argues both, and this is the
+   * one constant either of them is measured in.
+   *
+   * This was a third of the tile, measured as a fraction, with the remaining
+   * middle ninth treated as a fourth zone that offered a three-way choice.
+   * Both halves of that were wrong, and together they made docking the
+   * DEFAULT rather than a deliberate gesture:
+   *
+   *   - A fraction means the band grows with the tile. On a maximised layer
+   *     a "third" is several hundred pixels, so a window could not be moved
+   *     anywhere near the left half of the screen without arming a split.
+   *   - The centre zone armed over the whole middle of every tile and
+   *     previewed the ENTIRE tile, so simply picking a window up and moving
+   *     it a few pixels lit the whole pane. Every move looked like a dock
+   *     because every move WAS one.
+   *
+   * Aero snap is an edge gesture: you push THE WINDOW at an edge — which is
+   * what R15 finally made it measure. So the band is a fixed 28px from the
+   * edge, and what lies past it is decided by the
+   * pane rather than by the pointer: in the window's OWN pane the centre
+   * arms nothing at all and the drop is simply a window that moved (R2), and
+   * in any other pane it is the non-destructive tab or fill of R5/R6. The
+   * band itself never grows with the tile, which is the whole of the fix.
+   * Docking a whole tile is also still available without any drag at all —
+   * the "back to tile" button in the window's own chrome, which names the
+   * destination instead of guessing it.
+   */
+  static get SNAP_EDGE_PX() {
+    return 28;
+  }
+  _snapProbe(e, win) {
+    const leafEl = this._leafElAt(e.clientX, e.clientY, win);
+    if (!leafEl) return null;
+    const own = !!(win?.dragOrigin && leafEl.contains(win.dragOrigin));
+    const leafId = leafEl.dataset.leafId;
+    const desktopIdx = this.desktops.activeIdx;
+    const leaf = this._tree().get(leafId);
+    if (!leaf || leaf.kind !== "leaf") return null;
+    if (String(leaf.content?.kind || "").startsWith("panel:")) return null;
+    const r = leafEl.getBoundingClientRect();
+    const side = leaf.content ? this._snapSide(r, e, win, own) : null;
+    if (own && side === "top") {
+      const home = this._homeDockTarget(win);
+      if (!home) return null;
+      return {
+        key: `${home.leafId}:home`,
+        rect: home.rect,
+        leafId: home.leafId,
+        desktopIdx,
+        side,
+        mode: "home",
+        leafRect: r
+      };
+    }
+    return this._dropZoneFor({ leafId, leaf, r, side, own, desktopIdx });
+  }
+  /**
+   * R17 (C33). THE ZONE MATRIX'S TAIL — SPLIT / NOTHING / TAB / FILL — SHARED
+   * BY THE TWO THINGS THAT CAN BE DROPPED ON A TILE.
+   *
+   * A dragged WINDOW and a dragged TAB ask the same question of a pane: given
+   * that the pointer is in this leaf and the edge test answered `side`, what
+   * would releasing here produce? Every answer below was written for the
+   * window drop and every one of them is right for a tab, so this is an
+   * extraction and not a generalisation — `_snapProbe` keeps everything ABOVE
+   * it unchanged, including R14's `own && side === 'top'` home branch, which
+   * is a window's alone (a tab has no window to bring back) and therefore
+   * stays where it was, between the side computation and this call.
+   *
+   * The alternative was a second copy in `tabDropProbe`, and a second copy of
+   * a matrix the product owner has already revised four times (R2, R4, R5/R6,
+   * R14) is a guarantee that the two gestures will one day disagree about
+   * what the centre of a start tile means. `web/js/shell/snap_zones.test.mjs`
+   * in the Tables consumer asserts every cell of the window matrix and is the
+   * regression gate on this extraction: byte-identical window behaviour is
+   * the whole of its back-compatibility claim.
+   */
+  _dropZoneFor({ leafId, leaf, r, side, own, desktopIdx }) {
+    if (side) {
+      return {
+        key: `${leafId}:${side}`,
+        rect: _halfOf(r, side),
+        leafId,
+        desktopIdx,
+        side,
+        mode: "split",
+        leafRect: r
+      };
+    }
+    if (own) return null;
+    const fills = !leaf.content || this._isStartTile(leaf);
+    return {
+      key: `${leafId}:${fills ? "fill" : "tab"}`,
+      rect: _halfOf(r, null),
+      leafId,
+      desktopIdx,
+      side: null,
+      mode: fills ? "fill" : "tab",
+      leafRect: r
+    };
+  }
+  /**
+   * R18 (C33). THE SAME PROBE, FOR A DRAGGED TAB — PUBLIC, because the
+   * renderer is what holds the drag and the renderer is not the WM.
+   *
+   * ══ WHY THIS IS NOT `_snapProbe(e, null)` ═══════════════════════════
+   *
+   * It very nearly is, and the geometry underneath is literally the same
+   * code: `_snapSide(r, e, null, false)` falls to the POINTER-distance branch
+   * by construction — `_draggedRect(null)` is null, so `dist` takes the
+   * `e.clientX/Y` arm and `along` scores every edge zero. A tab has no
+   * rectangle being dragged and no `_dragState`, and that is not a gap to
+   * paper over: the pointer IS the whole gesture for a tab, which is exactly
+   * the pre-R15 model that `_snapSide`'s fallback preserves.
+   *
+   * Two things differ, and neither could be expressed by passing a null
+   * window to `_snapProbe`:
+   *
+   *   R14's HOME BRANCH IS A WINDOW'S. `own && side === 'top'` means "put the
+   *   window back in its tile", and a tab is already in a tile. Reaching that
+   *   branch with `win === null` would ask `_homeDockTarget(null)`, which
+   *   answers null, so the top edge of the source pane would fall silent
+   *   rather than split — a hole in the matrix produced by inheritance.
+   *
+   *   A SINGLE-TAB SOURCE PANE ARMS NOTHING, ANYWHERE. `_dropZoneFor` already
+   *   silences the source pane's CENTRE; its edges are useful for a pane with
+   *   siblings ("tear this tab off into a split beside the others") and are a
+   *   wash for a pane with one tab, where the outcome is the pane's only
+   *   content in one half and a freshly seeded ground in the other. That is a
+   *   preview promising something no one wants, so it is refused BEFORE the
+   *   preview is drawn rather than at the drop — C15's rule is that the
+   *   rectangle drawn is the one released, and the honest way to keep it is
+   *   never to draw one.
+   *
+   * `own: false` is passed to `_snapSide` deliberately. Its `own` parameter
+   * gates R2's direction guard, which measures a WINDOW's travel out of
+   * `_dragState`; a tab drag has none, so `guarded` would be false anyway and
+   * passing `true` would only obscure that. `own` still governs the centre,
+   * which is why it goes to `_dropZoneFor` and not to `_snapSide`.
+   *
+   * @param {{clientX: number, clientY: number}} e   the pointer, mid-drag
+   * @param {{sourceLeafId?: string}} [opts]         the leaf the tab left
+   * @returns {object|null} the same probe shape a window drop produces
+   */
+  tabDropProbe(e, { sourceLeafId = null } = {}) {
+    const leafEl = this._leafElAt(e.clientX, e.clientY, null);
+    if (!leafEl) return null;
+    const leafId = leafEl.dataset.leafId;
+    const tree = this._tree();
+    const leaf = tree.get(leafId);
+    if (!leaf || leaf.kind !== "leaf") return null;
+    if (String(leaf.content?.kind || "").startsWith("panel:")) return null;
+    const own = !!sourceLeafId && leafId === sourceLeafId;
+    if (own) {
+      const src = tree.get(sourceLeafId);
+      const count = Array.isArray(src?.tabs) ? src.tabs.length : 0;
+      if (count <= 1) return null;
+    }
+    const r = leafEl.getBoundingClientRect();
+    const side = leaf.content ? this._snapSide(r, e, null, false) : null;
+    return this._dropZoneFor({
+      leafId,
+      leaf,
+      r,
+      side,
+      own,
+      desktopIdx: this.desktops.activeIdx
+    });
+  }
+  /**
+   * R15. WHICH EDGE OF THE PANE THE *WINDOW* IS BEING PUSHED INTO.
+   *
+   * ══ THE BUG THIS EXISTS TO FIX ═══════════════════════════════════════
+   *
+   * The band was measured from the POINTER, and the pointer is wherever the
+   * hand happened to grab the title bar. Grab a 900px window in the middle
+   * of its bar and shove it right: `dragBounds` clamps it, its right border
+   * sits hard against the layer's right edge, and the pointer is still 450px
+   * away from that edge — outside every band, so nothing arms and the window
+   * simply stops dead against the side of the screen. Reported twice:
+   * *"snapping enables based on mouse position but actually it needs to
+   * enable based on the dragged window bounds (e.g. window right border
+   * distance from right snapping area)"*.
+   *
+   * The bigger the window the worse it got, and the gesture only ever worked
+   * if you happened to grab near the edge you were aiming at — the bottom
+   * edge was effectively unreachable for any tall window, because a title bar
+   * is at the TOP of the thing you are dragging.
+   *
+   * So each of the four distances is now between the window's own border and
+   * the matching border of the pane. `right` arms when the window's right
+   * border comes within the band of the pane's right border, and so on round.
+   *
+   * ══ WHAT DID *NOT* CHANGE ════════════════════════════════════════════
+   *
+   * WHICH PANE is still the pointer's answer (`_leafElAt`), and so is `own`.
+   * The zone matrix is about a pane — the window's own pane means something
+   * different from any other pane — and a window can lie across three of
+   * them at once while the pointer is in exactly one. Only the question
+   * *"which edge of THIS pane"* moved onto the window's rectangle; the
+   * question *"which pane"* was never the one the product owner complained
+   * about. Everything downstream is untouched: the preview is still
+   * `_halfOf(paneRect, side)`, so the rectangle drawn is the rectangle the
+   * drop delivers, and a `side` reaching the branches below means exactly
+   * what it meant before.
+   *
+   * ══ SHORTFALL CLAMPED AT ZERO, BECAUSE A WINDOW OVERHANGS ═════════════
+   *
+   * (R16 corrects R15 here. R15 said *unsigned*, and unsigned was wrong;
+   * the paragraph below is why, and `_snapSide` carries the measurement.)
+   *
+   * The pointer is inside the pane by construction — `_leafElAt` found the
+   * pane by hit-testing it — so a signed distance was always positive. A
+   * WINDOW has no such guarantee: it is clamped to the layer, not to the
+   * pane, so a window wider than the pane under the pointer sticks out of
+   * both sides of it and its border is 20px PAST the pane's border rather
+   * than 20px short of it. Both readings are "hard against that edge".
+   *
+   * R15 spelled that `Math.abs`, and `Math.abs` only holds the reading while
+   * the overhang stays inside the band. Past that it counts UP again, so the
+   * zone armed and then DISARMED as the shove continued, and a window
+   * meaningfully wider than the pane armed nothing at all. The right spelling
+   * is a shortfall clamped at zero: **past the edge IS the edge**, at
+   * distance zero, and it stays there however far the shove carries it.
+   *
+   * ══ THE DIRECTION GUARD, WHICH IS WHAT KEEPS R2 ALIVE ════════════════
+   *
+   * Edge-based testing has a failure the pointer never had: a window that is
+   * ALREADY at an edge is in that band before the drag starts. A window
+   * parked at the left of its pane would arm a left split on the first
+   * millimetre of any drag, and a window that fills its pane would arm on
+   * every drag in every direction — which is precisely the *"every move
+   * looked like a dock because every move WAS one"* failure `SNAP_EDGE_PX`
+   * was written to end, arriving from the other direction.
+   *
+   * So in the window's OWN pane an edge arms only if the drag actually
+   * carried the window at it: the pointer must have travelled more than one
+   * band's width toward that edge since the press. A nudge (R2's complaint,
+   * and the surviving reason the own-pane centre is silent) moves a handful
+   * of pixels and arms nothing; a shove moves hundreds and arms the edge it
+   * was aimed at. The band's own width is the unit, because a movement
+   * smaller than the band cannot be the difference between being in it and
+   * not.
+   *
+   * IN ANY OTHER PANE THE GUARD IS OFF, deliberately. R2 is a rule about the
+   * pane a window already lives on — the only place a "nudge" exists. Drag a
+   * window rightwards out of pane A and into pane B and its LEFT border is
+   * what enters pane B first: with the guard on, aiming at the left half of
+   * the pane to your right would be impossible, since arriving there always
+   * means travelling right. The window is translucent by then (R3) and every
+   * drop on a foreign pane docks, so there is no nudge to protect.
+   *
+   * The displacement is read from `ManagedWindow._dragState.startX/startY`,
+   * the POINTER's position at the press — not from the window's own x/y,
+   * which stop changing the moment the clamp bites while the gesture very
+   * much continues. A caller with no drag state (a synthetic probe, an
+   * embedder driving the controller by hand) yields no displacement at all
+   * and the guard is skipped rather than failing closed: it can only ever
+   * suppress an edge, never invent one.
+   *
+   * ══ CORNERS: THE PRECEDENCE, MADE EXPLICIT ═══════════════════════════
+   *
+   * Two edges can be in range at once, and with window borders that is no
+   * longer the rarity it was with a pointer — shove a window into a corner
+   * and the clamp puts BOTH borders at distance zero, exactly. Under R16 it
+   * is not even a corner case: a window as wide as its pane is at zero on
+   * the left AND the right for every horizontal position it can occupy, and
+   * a floated canvas pane's window is *exactly* that wide. So the order is
+   * stated rather than left to whichever way the loop happens to run:
+   *
+   *   1. NEAREST WINS. Unchanged from R4, and it is what keeps a corner from
+   *      being a dead spot: one of the two is always closer.
+   *   2. ON A TIE, THE EDGE THE DRAG PUSHED TOWARD WINS. (R16: *toward that
+   *      edge*, signed — R15 said "the axis pushed furthest" and spelled it
+   *      `Math.abs`, which gives the two ends of one axis the SAME score, so
+   *      a left/right tie never broke at all and 'left' won every time by
+   *      loop order.) The honest tie-break is the gesture: shove it
+   *      rightwards and you get the right zone, upwards and you get the top
+   *      zone. Every zone stays reachable and which one you get is something
+   *      a hand can aim.
+   *   3. STILL TIED — a perfect diagonal, or a probe with no drag state —
+   *      falls to the fixed order left, right, top, bottom. That is the order
+   *      the R4 loop already resolved ties in (`Object.entries` insertion
+   *      order, with a strict `<`), kept so the pointer fallback below
+   *      answers exactly what it answered before.
+   *
+   * ══ THE FALLBACK ═════════════════════════════════════════════════════
+   *
+   * With no measurable window rectangle — no element, detached, or a box of
+   * zero area because layout has not happened — there is nothing to measure
+   * and the pointer is the only information in the room. That path is the
+   * pre-R15 code, unchanged, signed distances and all. It is what a headless
+   * probe gets (jsdom lays nothing out, so every `getBoundingClientRect` is
+   * zero), and it is why `web/js/shell/snap_zones.test.mjs` in the Tables
+   * consumer still asserts the same matrix against the same coordinates.
+   *
+   * @param {DOMRect} r  the pane, in viewport pixels
+   * @param {{clientX: number, clientY: number}} e  the pointer
+   * @param {object} win  the ManagedWindow being dragged
+   * @param {boolean} own  is `r` the pane this window's drag escaped?
+   * @returns {'left'|'right'|'top'|'bottom'|null}
+   */
+  _snapSide(r, e, win, own) {
+    const edge = _WindowManager.SNAP_EDGE_PX;
+    const w = this._draggedRect(win);
+    const push = w ? this._dragPush(e, win) : null;
+    const guarded = !!(own && push);
+    const dist = w ? {
+      left: Math.max(0, w.left - r.left),
+      right: Math.max(0, r.right - w.right),
+      top: Math.max(0, w.top - r.top),
+      bottom: Math.max(0, r.bottom - w.bottom)
+    } : {
+      left: e.clientX - r.left,
+      right: r.right - e.clientX,
+      top: e.clientY - r.top,
+      bottom: r.bottom - e.clientY
+    };
+    const toward = (name) => {
+      if (!guarded) return true;
+      if (name === "left") return push.x <= -edge;
+      if (name === "right") return push.x >= edge;
+      if (name === "top") return push.y <= -edge;
+      return push.y >= edge;
+    };
+    const along = (name) => {
+      const dx = push?.x ?? 0, dy = push?.y ?? 0;
+      if (name === "left") return -dx;
+      if (name === "right") return dx;
+      if (name === "top") return -dy;
+      return dy;
+    };
+    let best = null;
+    for (const name of ["left", "right", "top", "bottom"]) {
+      const d = dist[name];
+      if (!(d < edge) || !toward(name)) continue;
+      const p = along(name);
+      if (!best || d < best.d || d === best.d && p > best.p) best = { name, d, p };
+    }
+    return best ? best.name : null;
+  }
+  /** R15. The dragged window's rectangle in VIEWPORT pixels — the frame a
+   *  leaf's `getBoundingClientRect` speaks, so the two are directly
+   *  comparable — or null when there is nothing to measure.
+   *
+   *  Read off the element rather than computed from `win.x/y/width/height`,
+   *  because those are in whatever container the window is currently parented
+   *  to and mid-drag that is the drag host, not the pane being probed.
+   *
+   *  A zero-area box is "nothing to measure" rather than a rectangle at the
+   *  origin: it is what an unlaid-out document gives, and treating it as real
+   *  would put every window in the top-left corner of every pane. Same test
+   *  `_homeDockTarget` applies to a leaf, for the same reason. */
+  _draggedRect(win) {
+    const el = win?.element;
+    if (!el || el.isConnected === false) return null;
+    if (typeof el.getBoundingClientRect !== "function") return null;
+    const b = el.getBoundingClientRect();
+    if (!b || !b.width || !b.height) return null;
+    return b;
+  }
+  /** R15. How far the POINTER has travelled since the press that began this
+   *  drag, or null if this window is not in a drag the WM can see.
+   *
+   *  The pointer rather than the window: `_applyPosition` clamps the window
+   *  to `dragBounds`, so a window shoved at the edge of the layer stops
+   *  moving while the gesture continues — and "it stopped because it is
+   *  against the edge" is exactly the situation the guard must not read as
+   *  "it is not being pushed". */
+  _dragPush(e, win) {
+    const ds = win?._dragState;
+    if (!ds || typeof ds.startX !== "number" || typeof ds.startY !== "number") return null;
+    return { x: e.clientX - ds.startX, y: e.clientY - ds.startY };
+  }
+  /** The topmost `.twm-leaf` under the pointer that is not part of the window
+   *  being dragged. `elementsFromPoint` rather than `elementFromPoint`: the
+   *  dragged window IS under the pointer — it is what the pointer is holding
+   *  — and a hit-test that stops at the first element only ever finds it.
+   *
+   *  R15 left this alone on purpose: WHICH pane is still the pointer's
+   *  answer, and only WHICH EDGE of it moved onto the window's borders. See
+   *  `_snapSide`. */
+  _leafElAt(x, y, win) {
+    const stack = document.elementsFromPoint(x, y);
+    for (const el of stack) {
+      if (win?.element && win.element.contains(el)) continue;
+      const leafEl = el.closest?.(".twm-leaf");
+      if (leafEl && this.rootEl.contains(leafEl)) return leafEl;
+    }
+    return null;
+  }
+  /**
+   * R14. THE TILE "BACK TO TILE" WOULD PUT THIS WINDOW IN, and the rectangle
+   * that draws it — in the VIEWPORT pixels a snap preview is positioned in.
+   *
+   * `bringBackWindow` resolves its destination privately and then closes the
+   * window to reach it, which is everything a button press needs and useless
+   * to a PREVIEW. C15's rule is that the rectangle drawn during a drag is the
+   * one the drop delivers, and under R14 the drop delivers A TILE — so the
+   * resolution has to be readable before the gesture is committed. Reading it
+   * out here is what makes the top edge honest: the probe draws what this
+   * returns and `_snapCommit` calls `bringBackWindow`, which resolves the
+   * same way, from the same record, against the same tree.
+   *
+   * It is deliberately NOT a second copy of that resolution reduced to "the
+   * home leaf". `bringBackWindow`'s fall-through — no home leaf, or one the
+   * tree no longer has — is the desktop's PRIMARY tile, which is where
+   * `_onManagedWindowClosed` sends a demotion carrying no `_dock`; a probe
+   * that previewed the home leaf and then landed in the primary tile would be
+   * the bait-and-switch with extra steps.
+   *
+   * `renderer.leafEl` only knows the leaves of the desktop currently on
+   * screen, which is the property that makes the desktop check implicit: a
+   * window whose home is on another desktop resolves to no element, this
+   * answers null, and the top edge arms nothing rather than previewing a
+   * rectangle on a desktop the user cannot see.
+   *
+   * @param {object} win  a live ManagedWindow
+   * @returns {{leafId: string, rect: DOMRect}|null} null when there is
+   *   nothing honest to promise: a window the WM never adopted, a desktop
+   *   that has gone, a tree with no content leaf at all, or a leaf with no
+   *   measurable box (a layout that has not happened yet).
+   */
+  _homeDockTarget(win) {
+    const rec = [...this._windowToLeaf.values()].find((r) => r.window === win);
+    if (!rec) return null;
+    const tree = this.desktops.desktops[rec.desktopIdx]?.tree;
+    if (!tree) return null;
+    const home = rec.homeLeafId ? tree.get(rec.homeLeafId) : null;
+    const leafId = home && home.kind === "leaf" ? rec.homeLeafId : tree.primaryLeafId();
+    if (!leafId) return null;
+    const el = this.renderer.leafEl(leafId);
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    return { leafId, rect };
+  }
+  _snapCommit(probe, win) {
+    if (!probe) return false;
+    const rec = [...this._windowToLeaf.entries()].find(([, r]) => r.window === win);
+    if (!rec) return false;
+    const [winId, record] = rec;
+    const { leafId, desktopIdx, side } = probe;
+    if (probe.mode === "home") {
+      if (!this.bringBackWindow(winId)) return false;
+      win.clearSnapPreview();
+      return true;
+    }
+    if (typeof desktopIdx === "number") record.desktopIdx = desktopIdx;
+    const docked = this.dockWindowInto(winId, {
+      leafId,
+      mode: probe.mode || "split",
+      dir: side === "left" || side === "right" ? "h" : "v",
+      before: side === "left" || side === "top"
+    });
+    if (!docked) return false;
+    win.clearSnapPreview();
+    return true;
+  }
+  /**
+   * Put a floating window's content back into the tree at a NAMED place.
+   *
+   * `bringBackWindow` is this with `{ mode: 'tab' }` against the primary tile
+   * — the answer when the user pressed a button in the window's own chrome
+   * and named no destination. A drop names one.
+   *
+   * The window is CLOSED to do it, exactly as a demote is: the content
+   * factory re-mounts inside the tile, and a factory that must not lose live
+   * state across that boundary is the embedder's problem to solve (it is why
+   * the registry is keyed on (kind, props) rather than on a DOM node).
+   *
+   * @param {string} windowId
+   * @param {{leafId: string, mode: 'fill'|'tab'|'split', dir?: 'h'|'v',
+   *          before?: boolean}} target
+   */
+  dockWindowInto(windowId, target) {
+    const rec = this._windowToLeaf.get(windowId);
+    if (!rec || !target?.leafId) return false;
+    rec._dock = { ...target };
+    rec._demoting = true;
+    try {
+      rec.window.close({ force: true });
+    } catch (err) {
+      console.warn("[wm] dock: close failed", err);
+      return false;
+    }
+    return true;
+  }
+  /**
+   * Move a managed window to another desktop.
+   *
+   * ══ IT USED TO REWRITE ONE INTEGER, AND THAT MOVED NOTHING ═════════
+   *
+   * The sentence that stood here — *"the window itself stays on screen
+   * (managed windows are global)"* — was true of a window floating over the
+   * root and false of every window this WM promotes under `promoteInPlace`,
+   * which is CONTAINED IN A TILE (C21). Rewriting `desktopIdx` left such a
+   * window standing in the pane it was already in, on the page the user was
+   * already looking at: *Move to desktop Views* appeared to do nothing at
+   * all. Then *Back to tile* resolved against the new desktop's tree and
+   * docked the content onto a page nobody was watching, so the window
+   * vanished here and its table turned up over there.
+   *
+   * Three things move it for real. The index, so every later resolution
+   * agrees. The HOME LEAF, re-pointed at a ground that exists in the
+   * destination — without it the record names a leaf of the tree it just
+   * left, and `_rehomeContainedWindows` would either skip it forever or
+   * repair it to a pane on the wrong page. And a render, which is where the
+   * element is taken off the page the window has left (or parented into its
+   * new ground, when the destination is the desktop on screen).
+   *
+   * An ADOPTED window (`homeContainer`) keeps its own resolution: the
+   * embedder owns the box it stands in, and re-pointing a leaf id it does not
+   * read would be a change with no effect wearing the look of one.
+   */
   moveWindowToDesktop(windowId, targetIdx) {
     const rec = this._windowToLeaf.get(windowId);
     if (!rec) return;
     if (rec.desktopIdx === targetIdx) return;
     this.desktops.ensureCount(targetIdx + 1);
     rec.desktopIdx = targetIdx;
+    if (!rec.homeContainer && rec.homeLeafId) {
+      const target = this.desktops.desktops[targetIdx]?.tree;
+      rec.homeLeafId = target?.primaryLeafId() || null;
+    }
+    this.renderer.render();
     this._persist();
     this._notifyChange("window-moved");
+  }
+  /**
+   * R8. Put a floated pane's tabs back into a leaf — ALL of them, in the
+   * order they had, with the one that was showing still showing.
+   *
+   * Every dock goes through here, and that is the point: `bringBackWindow`,
+   * a drop on a tile's body, a drop on an edge and the fall-through when the
+   * named destination vanished are four routes to one question — *where do
+   * these tabs go* — and four copies of the answer would disagree about the
+   * third one within a release. A window promoted before R8 (or by
+   * `_navigateWindow`, which never had tabs) carries no list, so `original`
+   * is the fallback and the single-tab path reduces to exactly what this
+   * replaced.
+   *
+   * `replace` is the difference between filling a leaf and joining one: a
+   * fresh split leaf and a `fill` drop want the first tab to BECOME the
+   * leaf's content, while a `tab` drop and "back to tile" append beside what
+   * is already there.
+   */
+  _restoreTabs(tree, leafId, rec, { replace }) {
+    if (!leafId) return false;
+    const tabs = Array.isArray(rec.tabs) && rec.tabs.length ? rec.tabs : [{
+      kind: rec.original.kind,
+      props: rec.original.props,
+      title: rec.original.title
+    }];
+    const active = Math.max(0, Math.min(tabs.length - 1, rec.activeTabIdx || 0));
+    let firstIdx = -1;
+    tabs.forEach((tab, i) => {
+      const content = { kind: tab.kind, props: tab.props || {} };
+      const title = tab.title || tab.kind || "";
+      if (i === 0 && replace) {
+        tree.setLeafContent(leafId, content, title);
+        firstIdx = 0;
+        return;
+      }
+      const at = tree.appendLeafTab(leafId, content, title);
+      if (at >= 0 && firstIdx < 0) firstIdx = at;
+    });
+    if (firstIdx < 0) return false;
+    tree.setActiveLeafTab(leafId, firstIdx + active);
+    tree.focus(leafId);
+    return true;
   }
   _onManagedWindowClosed(winId, mountInfo) {
     const rec = this._windowToLeaf.get(winId);
     this._windowToLeaf.delete(winId);
     if (!rec) return;
     try {
-      mountInfo?.destroy?.();
+      (rec.mountInfo || mountInfo)?.destroy?.();
+    } catch {
+    }
+    try {
+      rec.strip?.dispose();
     } catch {
     }
     const tree = this.desktops.desktops[rec.desktopIdx]?.tree;
     if (!tree) return;
-    if (rec._demoting) {
+    if (rec._demoting && rec._dock) {
+      const target = tree.get(rec._dock.leafId);
+      if (target && target.kind === "leaf") {
+        const { mode, dir, before } = rec._dock;
+        if (mode === "tab") {
+          this._restoreTabs(tree, rec._dock.leafId, rec, { replace: false });
+        } else if (mode === "split") {
+          const newId = tree.split(rec._dock.leafId, dir);
+          if (newId) {
+            this._restoreTabs(tree, newId, rec, { replace: true });
+            _halveInto(tree, rec._dock.leafId, newId);
+            if (before) _swapSiblings(tree, rec._dock.leafId, newId);
+            tree.focus(newId);
+          }
+        } else {
+          this._restoreTabs(tree, rec._dock.leafId, rec, { replace: true });
+        }
+      } else {
+        this._restoreTabs(tree, tree.primaryLeafId(), rec, { replace: false });
+      }
+    } else if (rec._demoting) {
       let pid = tree.primaryLeafId();
       let spawned = false;
       if (!pid) {
@@ -3590,12 +5988,7 @@ var WindowManager = class {
         spawned = true;
       }
       if (pid) {
-        tree.appendLeafTab(
-          pid,
-          { kind: rec.original.kind, props: rec.original.props },
-          rec.original.title
-        );
-        tree.focus(pid);
+        this._restoreTabs(tree, pid, rec, { replace: false });
         if (spawned) this._canonicalize(tree, this.desktops.desktops[rec.desktopIdx]);
       }
     }
@@ -3603,24 +5996,26 @@ var WindowManager = class {
     this._persist();
     this._notifyChange(rec._demoting ? "window-demoted" : "window-closed");
   }
-  /** Post-show DOM hook: inject a "back to tile" button into the
-   *  window chrome and wire a right-click context menu on the topbar. */
+  /** Post-show DOM hook: wire a right-click context menu on the topbar.
+   *
+   *  R7. IT USED TO INJECT A BUTTON HERE, and that is the whole of what
+   *  changed. "Back to tile" was a fourth button squeezed left of Close,
+   *  built by reaching into four of ManagedWindow's internal class names —
+   *  the coupling C6 exists to avoid — and it sat next to a MAXIMIZE button
+   *  that did the one thing a window lifted out of a tile has no use for.
+   *  Now the maximize button IS "back to tile" (`onMaximize`, passed where
+   *  the window is built), so the verb has one control instead of two and
+   *  this hook has no markup of its own to keep in step.
+   *
+   *  Gone with it: the rule that hid MINIMIZE while the window was maximised.
+   *  It existed because minimising a full-screen window strands it — nothing
+   *  on screen points at it any more — and a window that cannot maximise
+   *  cannot be in that state at all. `managed-window-maximized` (C16) still
+   *  fires for everyone else, and `--suppressed` is still styled for the next
+   *  consumer that needs to hide one of these. */
   _decorateManagedWindow(win, winId) {
     const topbar = win.element?.querySelector?.(".twm-managed-window__topbar");
-    const buttons = topbar?.querySelector?.(".twm-managed-window__buttons");
-    if (!buttons) return;
-    const backBtn = document.createElement("button");
-    backBtn.type = "button";
-    backBtn.className = "twm-managed-window__btn managed-window__btn--demote";
-    backBtn.title = "Back to tile";
-    backBtn.innerHTML = `<span class="material-symbols-outlined" style="font-size:14px">close_fullscreen</span>`;
-    backBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      this.bringBackWindow(winId);
-    });
-    const closeBtn = buttons.querySelector(".twm-managed-window__btn--close");
-    if (closeBtn) buttons.insertBefore(backBtn, closeBtn);
-    else buttons.appendChild(backBtn);
+    if (!topbar) return;
     topbar.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       const rec = this._windowToLeaf.get(winId);
@@ -3658,6 +6053,135 @@ var WindowManager = class {
         }
       });
     });
+  }
+  // ══ R10. Adjacent start tiles are one start tile ═══════════════════
+  /**
+   * Merge every run of side-by-side START TILES into one.
+   *
+   * A start tile is a leaf holding the taxonomy ROOT — the pane a fresh
+   * desktop opens with, and the pane `_seedHome` puts back when a tile is
+   * emptied. It is not a document: it is the ground, the empty canvas, the
+   * "nothing is open here" surface. So two of them side by side are ONE
+   * surface with a splitter drawn through it for no reason, and the splitter
+   * is worse than decoration — it offers to resize a boundary between two
+   * things that are the same thing.
+   *
+   * This is deliberately NOT run on every tree change, and the reason is
+   * `split()`: splitting a start tile seeds the new pane with the root kind
+   * too (the never-empty-tile invariant), so a merge on every mutation would
+   * undo an Alt+H the instant it happened. It runs where the product owner
+   * put it — *"when a maximized (tiled) panel is window-ized, all adjacent
+   * non-panel (start tile) tiles get merged to one"* — and is public so an
+   * embedder that empties a pane its own way can ask for the same tidy-up.
+   *
+   * THREE THINGS ARE NEVER MERGED, and each one is a way to lose work:
+   *
+   *   - `panel:*` leaves. They are chrome, not content; the navigator is not
+   *     a start tile and a panel BETWEEN two start tiles means those two are
+   *     not adjacent.
+   *   - A start tile with WINDOWS STANDING ON IT. The whole point of the
+   *     surface is that things float on it, and closing the leaf takes its
+   *     ground — and every window clamped to it — out of the document. When
+   *     one of a pair is occupied the other merges INTO it; when both are,
+   *     neither moves.
+   *   - A start tile holding tabs, live or archived. `leaf.content.kind`
+   *     names the ACTIVE tab only, and a pane whose other tabs are tables, or
+   *     whose `pageTabs` archive holds the three tables a rail click put
+   *     there, is a pane with work in it wearing a start tile's face.
+   *
+   * @param {TileTree} tree
+   * @param {string|null} preferLeafId  the leaf to keep when a run is
+   *   otherwise a free choice — the pane the caller just emptied, so the
+   *   merged surface is the one the user is looking at.
+   * @returns {number} how many leaves were absorbed.
+   */
+  _mergeStartTiles(tree, preferLeafId = null) {
+    if (!tree) return 0;
+    let absorbed = 0;
+    for (; ; ) {
+      const pair = this._nextMergeablePair(tree, preferLeafId);
+      if (!pair) break;
+      const { split, keepIdx, dropIdx, keepId, dropId } = pair;
+      split.sizes[keepIdx] = (split.sizes[keepIdx] || 1) + (split.sizes[dropIdx] || 1);
+      const hadFocus = tree.focusedLeafId === dropId;
+      tree.close(dropId);
+      if (tree.nodes.has(dropId)) break;
+      if (hadFocus) tree.focus(keepId);
+      absorbed += 1;
+    }
+    return absorbed;
+  }
+  /** The first two adjacent start tiles that may be merged, and which of
+   *  them survives. Null when there are none. */
+  _nextMergeablePair(tree, preferLeafId) {
+    for (const node of [...tree.nodes.values()]) {
+      if (node.kind !== "split") continue;
+      if (!tree.nodes.has(node.id)) continue;
+      for (let i = 0; i < node.children.length - 1; i += 1) {
+        const a = tree.get(node.children[i]);
+        const b = tree.get(node.children[i + 1]);
+        if (!this._isStartTile(a) || !this._isStartTile(b)) continue;
+        const aHolds = this._paneHoldsWindows(a.id);
+        const bHolds = this._paneHoldsWindows(b.id);
+        if (aHolds && bHolds) continue;
+        let keepIdx = i;
+        if (bHolds) keepIdx = i + 1;
+        else if (!aHolds && node.children[i + 1] === preferLeafId) keepIdx = i + 1;
+        const dropIdx = keepIdx === i ? i + 1 : i;
+        return {
+          split: node,
+          keepIdx,
+          dropIdx,
+          keepId: node.children[keepIdx],
+          dropId: node.children[dropIdx]
+        };
+      }
+    }
+    return null;
+  }
+  /** Is this leaf the empty ground and nothing else? See the three
+   *  exclusions in `_mergeStartTiles`. */
+  _isStartTile(leaf) {
+    if (!leaf || leaf.kind !== "leaf") return false;
+    const kind = leaf.content?.kind;
+    if (!kind || kind !== this.taxonomy.root) return false;
+    if (PANEL_KINDS.has(kind) || kind === PLACEHOLDER_KIND) return false;
+    if ((Array.isArray(leaf.tabs) ? leaf.tabs.length : 0) > 1) return false;
+    for (const page of Object.values(leaf.pageTabs || {})) {
+      if (Array.isArray(page?.tabs) && page.tabs.length) return false;
+    }
+    return true;
+  }
+  /**
+   * Does anything float on this pane?
+   *
+   * Two sources, because there are two kinds of window and the WM only knows
+   * about one of them. `homeLeafId` is set for a window this WM contained in
+   * its own pane (C21); an EMBEDDER's windows — a canvas pane that opens its
+   * own `ManagedWindow` against the pane's ground — are not in
+   * `_windowToLeaf` at all, and the only honest way to see them is to look.
+   * The DOM answer covers both, and covers a window whose record has been
+   * dropped but whose element is still standing.
+   */
+  _paneHoldsWindows(leafId) {
+    for (const [, rec] of this._windowToLeaf) {
+      if (rec.homeLeafId === leafId) return true;
+    }
+    const el = this.renderer.leafEl?.(leafId);
+    return !!el?.querySelector?.(".twm-managed-window");
+  }
+  /** R10, as a verb an embedder can use. Merges, then repaints and persists
+   *  — the promote path calls `_mergeStartTiles` directly because it is
+   *  already going to do all three. */
+  mergeStartTiles(preferLeafId = null) {
+    const tree = this._tree();
+    const absorbed = this._mergeStartTiles(tree, preferLeafId);
+    if (!absorbed) return 0;
+    this._canonicalize(tree, this.desktops.active());
+    this.renderer.render();
+    this._persist();
+    this._notifyChange("start-tiles-merged");
+    return absorbed;
   }
   // ── Panel-tiles (left nav / right / bottom) ─────────────────────
   /** Panels are virtual: they live in the active desktop's tree as
@@ -3823,12 +6347,42 @@ var WindowManager = class {
     const next = (cur + (dir < 0 ? -1 : 1) + tabs.length) % tabs.length;
     this._leafTabAction(leafId, "switch", { idx: next });
   }
+  /**
+   * Remove a desktop — AND RE-INDEX THE WINDOWS, which is the half that was
+   * missing.
+   *
+   * `desktopIdx` on a window record is an ARRAY INDEX into `desktops`, so a
+   * splice silently re-points every record above the removed one at its
+   * neighbour. Nothing threw and nothing looked wrong: the window kept
+   * floating, and the next *Back to tile* resolved `rec._dock` against the
+   * WRONG TREE. `_onManagedWindowClosed` reads `desktops[rec.desktopIdx]`,
+   * finds a tree that never held this window, and its `if (!tree) return`
+   * closes the window and drops the content on the floor — staged edits
+   * included, with no error and nothing on screen to say a table was lost.
+   *
+   * Windows homed on the desktop being removed do not die with it. The
+   * ruling is that a tile operation may move a window and never destroy it,
+   * and removing a desktop is the largest tile operation there is: they come
+   * across to the desktop that ends up active, re-homed onto its ground by
+   * `_rehomeContainedWindows` on the render below.
+   */
   removeDesktop(idx) {
     const m = this.desktops;
     if (m.desktops.length <= 1) return false;
     if (idx < 0 || idx >= m.desktops.length) return false;
     m.desktops.splice(idx, 1);
+    if (idx < m.activeIdx) m.activeIdx -= 1;
     if (m.activeIdx >= m.desktops.length) m.activeIdx = m.desktops.length - 1;
+    for (const [, rec] of this._windowToLeaf) {
+      if (rec.desktopIdx === idx) {
+        rec.desktopIdx = m.activeIdx;
+        if (!rec.homeContainer && rec.homeLeafId) {
+          rec.homeLeafId = m.active().tree.primaryLeafId() || null;
+        }
+      } else if (rec.desktopIdx > idx) {
+        rec.desktopIdx -= 1;
+      }
+    }
     this.renderer.tree = m.active().tree;
     this.renderer.render();
     this._persist();
@@ -3839,6 +6393,8 @@ var WindowManager = class {
     const tree = this._tree();
     const focused = tree.focused();
     if (!focused || !focused.content) return;
+    const closeChrome = this.renderer?.leafChrome?.(focused.id)?.close;
+    if (closeChrome === false || closeChrome?.disabled === true) return;
     const payload = { kind: focused.content.kind, props: focused.content.props, title: focused.title };
     this.desktops.ensureCount(idx + 1);
     const target = this.desktops.desktops[idx];
@@ -3847,6 +6403,11 @@ var WindowManager = class {
     if (primary) targetTree.setLeafContent(primary, { kind: payload.kind, props: payload.props }, payload.title);
     tree.close(focused.id);
     if (!tree.rootId) tree.setRoot(makeLeaf(this._rootLeaf()));
+    if (!tree.leaves().some((l) => !String(l.content?.kind || "").startsWith("panel:"))) {
+      const spawned = this._spawnContentLeaf(tree);
+      if (spawned) this._seedHome(tree, spawned);
+    }
+    this._canonicalize(tree, this.desktops.active());
     this.renderer.render();
     this._persist();
     this._notifyChange();
@@ -3901,6 +6462,14 @@ var WindowManager = class {
     }
     if (action === "menu") {
       this._showTabContextMenu(leafId, data.idx, data.x, data.y);
+      return;
+    }
+    if (action === "to-window") {
+      this.floatTabAsWindow(leafId, data.idx);
+      return;
+    }
+    if (action === "drop-into") {
+      this.moveTabInto(leafId, data.idx, data.target);
       return;
     }
     if (action === "close-others") {
@@ -4054,6 +6623,33 @@ var WindowManager = class {
       canMaximize: true,
       canResize: true,
       modal: false,
+      // C15, and this is the SECOND of the two places the WM builds a
+      // window. Alt+N and "Open in new window" produce a window that is
+      // every bit as dockable as a promoted one, and a window that can be
+      // dragged onto a tile in one case and not the other is a rule
+      // nobody can learn.
+      snap: this.snapPromotion,
+      snapController: this.snapPromotion ? this._snapController() : null,
+      // R1. THE PANE IS A BOX WITH `overflow: hidden`. A window contained
+      // to one (C21) cannot be dragged a single pixel outside it, so
+      // "drag a window from one tile to another" — the gesture all three
+      // drop behaviours are built on — was not merely awkward, it was
+      // invisible. For the length of a drag the window is re-parented
+      // here, to the root every tile is inside; on release it goes back
+      // into a pane, either the one it was dropped on or the one it came
+      // from. Resolved per drag: the root outlives any tile, and a tile
+      // grabbed once does not survive its own repaint.
+      dragHost: () => this.rootEl,
+      dragBounds: () => this._tileBounds(),
+      // R7. MAXIMISE MEANS BACK TO TILE. This window came OUT of the
+      // tree; the useful thing to do with it is put it back, and filling
+      // the screen with it is the one gesture that makes putting it back
+      // harder. So the maximize button docks — and the separate demote
+      // button the WM used to inject beside it is gone, because two
+      // buttons for one verb is how you get a chrome nobody reads.
+      onMaximize: () => this.bringBackWindow(winId),
+      maximizeIcon: "close_fullscreen",
+      maximizeTitle: "Back to tile",
       onClose: () => this._onManagedWindowClosed(winId, mountInfo)
     });
     this._windowToLeaf.set(winId, {
@@ -4091,9 +6687,13 @@ var WindowManager = class {
     if (!leaf || leaf.kind !== "leaf") return;
     const tabs = leaf.tabs || [];
     if (tabs.length === 0) return;
-    const items = [
-      { label: "Close tab", icon: "close", action: "close" }
-    ];
+    const items = [];
+    const tab = tabs[idx];
+    if (tab && !String(tab.kind || "").startsWith("panel:") && tab.kind !== PLACEHOLDER_KIND) {
+      items.push({ label: "Open in a window", icon: "web_asset", action: "to-window" });
+      items.push({ separator: true });
+    }
+    items.push({ label: "Close tab", icon: "close", action: "close" });
     if (tabs.length > 1) {
       items.push({ label: "Close other tabs", icon: "tab_close", action: "close-others" });
     }
@@ -4164,6 +6764,66 @@ function _tabTitle(kind, props) {
   if (props && typeof props.label === "string" && props.label) return props.label;
   if (props && (typeof props.id === "string" || typeof props.id === "number") && String(props.id)) return String(props.id);
   return kind || "";
+}
+function _leafTabSpecs(leaf) {
+  const tabs = Array.isArray(leaf.tabs) ? leaf.tabs : [];
+  if (tabs.length) {
+    return tabs.map((t) => ({
+      kind: t.kind,
+      props: { ...t.props || {} },
+      title: t.title || t.kind || ""
+    }));
+  }
+  return [{
+    kind: leaf.content.kind,
+    props: { ...leaf.content.props || {} },
+    title: leaf.title || leaf.content.kind || ""
+  }];
+}
+function _halfOf(r, side) {
+  const w = Math.round(r.width / 2);
+  const h = Math.round(r.height / 2);
+  switch (side) {
+    case "left":
+      return { left: r.left, top: r.top, width: w, height: r.height };
+    case "right":
+      return { left: r.left + r.width - w, top: r.top, width: w, height: r.height };
+    case "top":
+      return { left: r.left, top: r.top, width: r.width, height: h };
+    case "bottom":
+      return { left: r.left, top: r.top + r.height - h, width: r.width, height: h };
+    default:
+      return { left: r.left, top: r.top, width: r.width, height: r.height };
+  }
+}
+function _halveInto(tree, sourceId, newId) {
+  const src = tree.get(sourceId);
+  if (!src) return false;
+  const parent = tree.get(src.parentId);
+  if (!parent || parent.kind !== "split") return false;
+  const i = parent.children.indexOf(sourceId);
+  const j = parent.children.indexOf(newId);
+  if (i < 0 || j < 0) return false;
+  const share = (parent.sizes[i] ?? 1) / 2;
+  parent.sizes[i] = share;
+  parent.sizes[j] = share;
+  return true;
+}
+function _swapSiblings(tree, aId, bId) {
+  const a = tree.get(aId);
+  const b = tree.get(bId);
+  if (!a || !b || a.parentId !== b.parentId) return false;
+  const parent = tree.get(a.parentId);
+  if (!parent || parent.kind !== "split") return false;
+  const i = parent.children.indexOf(aId);
+  const j = parent.children.indexOf(bId);
+  if (i < 0 || j < 0) return false;
+  parent.children[i] = bId;
+  parent.children[j] = aId;
+  const size = parent.sizes[i];
+  parent.sizes[i] = parent.sizes[j];
+  parent.sizes[j] = size;
+  return true;
 }
 
 // src/tiling/tile_tab_menu.js
@@ -4569,6 +7229,10 @@ async function createShell({
   events = {},
   rootCrumb = null,
   palette: paletteCfg = {},
+  panels = null,
+  snapPromotion = false,
+  promoteInPlace = false,
+  tabLayout = null,
   chrome = {},
   // An embedder that moved its sections out of the top bar — into an icon
   // rail, say — passes the selector its own buttons match, and F1..F8 keep
@@ -4604,6 +7268,10 @@ async function createShell({
     host,
     taxonomy,
     events,
+    panelDefaults: panels,
+    snapPromotion,
+    promoteInPlace,
+    tabLayout,
     // `ctx` is the delivery vehicle for leaf-mounted chrome: tile_renderer
     // spreads it into every content factory, which is how the breadcrumb
     // gets `taxonomy` + `rootCrumb` without a content factory knowing they
@@ -4630,7 +7298,7 @@ async function createShell({
     catalog: entities,
     ...paletteCfg
   });
-  installKeymap({ wm, palette, navSelector });
+  const disposeKeymap = installKeymap({ wm, palette, navSelector });
   const paletteBtn = mountPaletteButton(chrome.paletteButton, palette);
   topNavEl = mountTopNav(chrome.topNav, taxonomy, wm);
   desktopsEl = mountDesktopBar(chrome.desktops, wm);
@@ -4652,10 +7320,28 @@ async function createShell({
       desktopsEl,
       panelToggles: toggles
     }),
+    // A shell that can be built can be built TWICE — an embedder that
+    // rebuilds on a context change (a different project, a different
+    // workspace) does exactly that. Everything this function installs
+    // outside `root` has to come off, or the second shell shares the page
+    // with the first one's keyboard.
     dispose: () => {
       try {
         eventBus?.off?.("wm:changed", syncChrome);
       } catch {
+      }
+      try {
+        disposeKeymap?.();
+      } catch {
+      }
+      try {
+        palette?.close?.();
+      } catch {
+      }
+      try {
+        wm.renderer.destroy();
+      } catch (err) {
+        log.warn?.("renderer teardown", err);
       }
     }
   });
@@ -4696,8 +7382,7 @@ function syncTopNav(hostEl, wm) {
 }
 function mountPaletteButton(hostEl, palette) {
   if (!hostEl) return null;
-  const existing = hostEl.querySelector("#twm-palette-btn");
-  if (existing) return existing;
+  hostEl.querySelector("#twm-palette-btn")?.remove();
   const btn = document.createElement("button");
   btn.id = "twm-palette-btn";
   btn.className = "twm-panel-toggle-btn twm-has-tooltip";
@@ -4873,17 +7558,41 @@ function _tileContextMenu(wm, leafId, x, y) {
       action: "open-tab",
       disabled: isPanel || !leaf.content
     },
+    // TWO DIFFERENT GLYPHS FOR TWO DIFFERENT DESTINATIONS. `web_asset` is a
+    // window INSIDE the application — the same glyph `ManagedWindow` uses
+    // for itself — and an embedder that can also send content to a real
+    // browser window keeps `open_in_new`, which is the universal "this
+    // leaves the page". One glyph for both is how a user learns that the
+    // two commands are the same command, and then loses a window looking
+    // for it on the other screen.
     {
-      label: "Open in new window",
-      icon: "open_in_full",
+      label: "Open a copy in a window",
+      icon: "web_asset",
       action: "open-window",
       disabled: isPanel || !leaf.content
     },
+    // C20, THE OTHER HALF — and it was missing while the `close` half
+    // below carried a paragraph explaining why it could not be.
+    //
+    // `_floatableLeaf` (`wm.js`) refuses to float content that declared
+    // `chrome: { promote: false }`, and every door converges there — so
+    // this row offered the verb, enabled, and returned null. The chrome's
+    // own float BUTTON does not have the problem: C20 removes it from the
+    // strip. That asymmetry is what hid this: the affordance the reader
+    // checks is correct, and the menu one layer down is not.
+    //
+    // `=== false` EXACTLY, because that is the test the verb makes
+    // (`wm.js`, `_floatableLeaf`: *"content that says nothing about
+    // `promote` stays floatable"*). A falsy test here would grey the row
+    // on every leaf whose content returned no `chrome` at all, which is
+    // most of them — a menu disagreeing with its verb in the generous
+    // direction is a dead control; in the mean direction it is a missing
+    // feature, and this file has shipped one of each.
     {
-      label: "Promote to window",
-      icon: "open_in_new",
+      label: "Float this pane as a window",
+      icon: "web_asset",
       action: "promote",
-      disabled: isPanel || !leaf.content
+      disabled: isPanel || !leaf.content || wm.renderer?.leafChrome?.(leafId)?.promote === false
     }
   ];
   if (wm.desktops.desktops.length > 1 && !isPanel) {
@@ -4897,12 +7606,15 @@ function _tileContextMenu(wm, leafId, x, y) {
     }
   }
   items.push({ separator: true });
+  const closeVeto = wm.renderer?.leafChrome?.(leafId)?.close;
+  const closeVetoed = closeVeto === false || closeVeto?.disabled === true;
   items.push({
     label: "Close tile",
     icon: "close",
     action: "close",
     danger: true,
-    disabled: isPanel
+    disabled: isPanel || closeVetoed,
+    title: closeVetoed ? closeVeto?.title || void 0 : void 0
   });
   showContextMenu(x, y, items, (action) => {
     if (action === "split-h") wm.split("h");
@@ -4924,6 +7636,7 @@ export {
   DesktopManager,
   PLACEHOLDER_KIND,
   PanelKeyRouter,
+  TILE_TAB_MIME,
   TileRenderer,
   TileTree,
   WindowManager,

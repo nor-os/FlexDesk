@@ -587,6 +587,25 @@ body.twm-dt-col-resizing {
 .twm-preview-table:not(.twm-preview-table--readonly) tr:hover td {
     background: rgba(255, 255, 255, 0.04);
 }
+/* Selected rows. `_updateRowSelection()` (src/ui/components/data_table.js:2226)
+   has always toggled `.selected` on the row, and no stylesheet has ever
+   defined it — so `selectable: true`, the component's headline affordance,
+   has selected INVISIBLY in every consumer since the class was written.
+   Painted on `td` rather than `tr` to match the hover rule above: the zebra
+   stripe sits on `tr`, and a `tr` background would fight it at equal
+   specificity instead of covering it.
+
+   AND IT HAS TO OUT-SPECIFY HOVER, not merely follow it. Source order only
+   decides a TIE, and there is none here: the hover rule above is (0,3,2) —
+   `:not()` contributes the specificity of its argument — against (0,2,3) for
+   the plain form. Written that way, pointing at the row you had chosen
+   un-highlights it, which reads as the selection being lost on mouse-over. The
+   first selector below carries the same `:not()` and lands at (0,3,3); the
+   second keeps the readonly tables, which hover never claimed, working. */
+.twm-preview-table:not(.twm-preview-table--readonly) tbody tr.selected td,
+.twm-preview-table tbody tr.selected td {
+    background: var(--state-selected, rgba(0, 122, 204, 0.15));
+}
 /* Wizard mode: uniform column widths, no selection */
 .twm-preview-table-wrap--wizard .twm-preview-table {
     table-layout: auto;
@@ -882,13 +901,37 @@ body.twm-dt-col-resizing {
     background: transparent;
     border: none;
     color: #7f7f7f;
-    padding: var(--space-xs) 6px;
+    padding: 0;
+    /* A BOX, not "whatever the glyph turned out to be". The rule had padding
+     * and no dimensions, so the button's size was the icon's size — and the
+     * icon's size was nobody's decision at all (see below). In a 35px top bar
+     * that produced a ~32px control that visibly outweighed everything beside
+     * it. */
+    width: 22px;
+    height: 22px;
     border-radius: var(--radius-sm);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     transition: background-color 0.2s ease, color 0.2s ease;
+}
+/* THE GLYPH SIZE CAME ACROSS AS NOTHING.
+ *
+ * EcoAgent sets it — `main_new.css:4700`, `.panel-toggle-btn
+ * .material-symbols-outlined { font-size: var(--font-size-xl) }` — and the
+ * extraction that produced this stylesheet took the button rule and left that
+ * one behind. Material Symbols then falls back to its own default of 24px, so
+ * every consumer of the library has been drawing this control half again as
+ * large as its author intended. Same family as the `--ea-*` variables that
+ * arrived without their definitions, and as `.twm-collapsible-content.visible`:
+ * an extraction that split a rule from the rule it depended on.
+ *
+ * `font-size` IS the glyph size for an icon font. `width`/`height` on the
+ * button does not constrain it — it overflows instead. */
+.twm-panel-toggle-btn .material-symbols-outlined {
+    font-size: var(--font-size-xl);
+    line-height: 1;
 }
 .twm-panel-toggle-btn:hover {
     background-color: #3f4040;
@@ -1266,6 +1309,27 @@ body.twm-dt-col-resizing {
     display: none;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
 }
+/* `#open()` adds `visible` and `#close()` takes it off again
+   (`ui/components/autocomplete_field.js`), and until now NEITHER stylesheet
+   said what the class meant — while the dropdown above is `display: none`. So
+   the suggestion list has never been shown to anybody, in any consumer, for as
+   long as the component has existed: the provider ran, the items rendered, and
+   the element stayed hidden. This is the same shape as
+   `.twm-action-dropdown-menu.visible`, which is the pattern the component was
+   written against. */
+.twm-autocomplete-field__dropdown.visible {
+    display: block;
+}
+/* `#renderDropdown()` marks the keyboard cursor's row `active` and
+   `#moveSelection()` moves it — with no rule to draw it. Arrowing down the list
+   therefore moved something invisible, and Enter picked a row the user had no
+   way to see. `:hover` above is the mouse's answer to the same question; this
+   is the keyboard's, and it is deliberately the stronger of the two so that
+   moving the pointer across the list does not hide where the cursor is. */
+.twm-autocomplete-field__item.active {
+    background-color: var(--state-selected, rgba(0, 122, 204, 0.15));
+    box-shadow: inset 2px 0 0 var(--accent-bright, #007acc);
+}
 .twm-autocomplete-field__item {
     display: flex;
     align-items: center;
@@ -1363,7 +1427,17 @@ body.twm-dt-col-resizing {
     padding: var(--space-sm) 0;
     backdrop-filter: saturate(120%) blur(2px);
 }
+/* A `<button role="menuitem">`, not a div — that is what makes the menu
+ * operable by keyboard without re-implementing Enter, Space and focus. The
+ * first five declarations are the button reset that buys it: without them the
+ * UA paints its own background, border and centred text over everything below. */
 .twm-context-menu-item {
+    appearance: none;
+    background: none;
+    border: 0;
+    width: 100%;
+    text-align: left;
+    color: inherit;
     padding: var(--space-md) 14px;
     cursor: pointer;
     font-family: Segoe UI, Arial, sans-serif;
@@ -1373,9 +1447,25 @@ body.twm-dt-col-resizing {
     align-items: center;
     gap: 10px;
 }
-.twm-context-menu-item:hover {
+.twm-context-menu-item:hover:not(.disabled),
+.twm-context-menu-item:focus-visible {
     background: #2a2a2a;
+    outline: none;
 }
+/* A DISABLED ITEM MUST LOOK DISABLED.
+ *
+ * `showContextMenu` has always added `.disabled` and bound no click listener to
+ * it — the behaviour was right and there was no rule for the class anywhere, so
+ * a disabled item rendered at full opacity, kept `cursor: pointer`, still
+ * highlighted on hover, and did nothing when clicked. That is the exact shape of
+ * the `.twm-collapsible-content.visible` bug: a class the JS sets, a stylesheet
+ * that has never heard of it, and a feature that looks live and is not. */
+.twm-context-menu-item.disabled {
+    opacity: 0.4;
+    cursor: default;
+    color: var(--text-muted);
+}
+.twm-context-menu-item.disabled.twm-delete-node { color: var(--text-muted); }
 .twm-context-menu-item.twm-delete-node {
     color: #ff6b6b;
 }
@@ -2357,8 +2447,524 @@ body.twm-window-maximized .twm-resize-handle {
     cursor: default;
 }
 
-/* ── from results_widgets.css ───────────────────────── */
-/* Error State */
+/* ═══════════════════════════════════════════════════════════════════════
+   @flexdesk/tiles — THE TILE GRID'S CHROME
+
+   THIS STYLESHEET HAD NEVER EXISTED. `src/tiles/` was extracted from
+   EcoAgent's `ui/js/results/` with its JavaScript and without its CSS, so
+   every consumer of `@flexdesk/tiles` got a `TileGrid` that ran, dragged,
+   resized, saved layouts — and drew a column of unstyled `<div>`s.
+   `TileGrid._init()` sets `--grid-columns`, `--grid-row-height` and
+   `--grid-gap` on the grid element (`src/tiles/tile_grid.js`), and until
+   these rules landed NOTHING IN ANY STYLESHEET READ THEM: no
+   `display: grid`, no `grid-template-columns`, no `grid-auto-rows`. That is
+   the CSS-side half of this repository's signature bug — not a class the JS
+   sets and no rule defines, but the reverse, three custom properties written
+   by the JS into a void.
+
+   THE CLASS NAMES ARE UNPREFIXED, deliberately and unusually. Everything
+   else in this file is `twm-`; these are not, because the names are compiled
+   into the JavaScript that was extracted (`className = 'tile-grid'`,
+   `'tile-header'`, `classList.add('dragging')` …) and renaming them upstream
+   would be a breaking change to every consumer for a cosmetic gain. The one
+   place the prefix DOES appear — `.twm-tile-error`, below — is the exception
+   that proves it: `showError()` emits the prefixed spelling, so the donor's
+   `.tile-error` rule is NOT ported here. Porting it would have written a
+   dead rule directly beside a live class, which is the mistake this comment
+   exists to stop the next reader from repeating.
+
+   Values come from `tokens.css`, so swapping the tokens restyles the tiles
+   with everything else. Two colour literals survive the port and each says at
+   its own rule why: a light accent, for which there is no token (the nearest,
+   `--accent-bright`, is a border colour on this background rather than a text
+   one), and the error red already shipped in `.twm-tile-error`.
+   Ported from EcoAgent `ui/css/results_widgets.css` (the donor still owns its
+   own copy — it does not load this file).
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── the grid container ──────────────────────────────────────────────── */
+/* The three custom properties are set by `TileGrid._init()` as inline style
+   on this element; the fallbacks are the constructor's defaults, so a grid
+   element built by hand still lays out. */
+.tile-grid {
+    display: grid;
+    grid-template-columns: repeat(var(--grid-columns, 12), 1fr);
+    grid-auto-rows: var(--grid-row-height, 80px);
+    gap: var(--grid-gap, 16px);
+    padding: var(--grid-gap, 16px) 0 0 0;
+    /* A floor rather than a height: the rows are what size the grid. It
+       matters only when the board is empty, and an empty board that is zero
+       pixels tall is a board you cannot drop the first tile onto. */
+    min-height: 400px;
+    position: relative;
+}
+
+/* ── the built-in toolbar ────────────────────────────────────────────── */
+/* `_buildToolbar()` emits `tile-grid-toolbar tile-grid-toolbar--bottom` and no
+   other variant, so the divider lives on the modifier: a rule that put a
+   `border-bottom` on the base class — as the donor's did, when the toolbar sat
+   above the grid — draws a line along the wrong edge here. A consumer that
+   passes `showToolbar: false` and builds its own toolbar gets none of this. */
+.tile-grid-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-lg) var(--space-xl);
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.tile-grid-toolbar--bottom {
+    border-top: 1px solid var(--border-subtle);
+}
+
+/* `toolbar-group`, `toolbar-btn`, `btn-text` and `dropdown-arrow` are names
+   generic enough that a consumer almost certainly has its own. They are
+   scoped under the toolbar rather than claimed globally — a library that
+   defines a bare `.toolbar-btn` restyles buttons it has never met. */
+.tile-grid-toolbar .toolbar-group {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+}
+
+.tile-grid-toolbar .add-widget-container {
+    position: relative;
+}
+
+.tile-grid-toolbar .toolbar-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-lg);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    color: var(--text-body);
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    transition: background var(--transition-normal), border-color var(--transition-normal);
+}
+
+.tile-grid-toolbar .toolbar-btn:hover {
+    background: var(--state-hover);
+    border-color: var(--border-strong);
+}
+
+.tile-grid-toolbar .toolbar-btn .material-symbols-outlined {
+    font-size: var(--font-size-xl);
+}
+
+.tile-grid-toolbar .btn-text {
+    white-space: nowrap;
+}
+
+.tile-grid-toolbar .dropdown-arrow {
+    opacity: 0.6;
+}
+
+/* `--main` is the ONLY group `_buildToolbar()` emits, and all three buttons
+   sit inside it, so it takes the strip's whole width — `space-between` on the
+   toolbar has nothing to space until a consumer adds a second group. */
+.tile-grid-toolbar .toolbar-group--main {
+    flex: 1;
+}
+
+/* Add Widget is the toolbar's one primary verb, so it is the one that carries
+   the accent. */
+.add-widget-btn {
+    background: rgba(0, 122, 204, 0.15);
+    border-color: rgba(0, 122, 204, 0.3);
+    color: var(--text-bright);
+}
+
+.add-widget-btn:hover {
+    background: rgba(0, 122, 204, 0.25);
+    border-color: rgba(0, 122, 204, 0.5);
+}
+
+/* The other two are secondary — Export is an aside and Reset Layout throws the
+   board away, and neither should read as the thing to press. */
+.export-btn,
+.reset-layout-btn {
+    color: var(--text-muted);
+}
+
+.export-btn:hover,
+.reset-layout-btn:hover {
+    color: var(--text-body);
+}
+
+/* ── the tile ────────────────────────────────────────────────────────── */
+/* Flat, one 1 px border, no radius and no shadow: dense expert-tool chrome,
+   the register of a trading terminal rather than a card wall. The donor also
+   carried `margin: -1px 0 0 -1px` so that adjacent borders collapsed into one
+   line — which is only true at `gap: 0`, and this grid's default gap is 16 px,
+   where the same rule just shifts every tile a pixel up and left. Dropped on
+   purpose; a consumer running gap-0 can add it back in one rule. */
+.tile {
+    background: var(--surface-1);
+    border: 1px solid var(--border-default);
+    border-radius: 0;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+    height: 100%;
+    min-height: 0;
+    transition: border-color var(--transition-normal);
+}
+
+.tile:hover {
+    border-color: var(--border-strong);
+    box-shadow: none;
+}
+
+.tile.dragging {
+    opacity: 0.5;
+    z-index: var(--z-dropdown);
+    box-shadow: var(--shadow-lg);
+}
+
+.tile.resizing {
+    z-index: var(--z-dropdown);
+    border-color: var(--accent-bright);
+    box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.3);
+}
+
+/* Selected — set by `_onConfigClick()` while the config dialog is open, and
+   cleared from every sibling by the same handler. #78b9ff is a literal
+   because there is no light-accent token: `--accent-bright` is #007acc, which
+   is a border colour on this background and not a text one. */
+.tile.tile--selected {
+    border-color: #78b9ff;
+    box-shadow: 0 0 0 2px rgba(120, 185, 255, 0.3), var(--shadow-md);
+}
+
+.tile.tile--selected .tile-header {
+    background: rgba(120, 185, 255, 0.1);
+}
+
+.tile.tile--selected .tile-title {
+    color: #78b9ff;
+}
+
+/* Read-only. `_buildChrome()`'s read-only branch emits no drag handle, no
+   cogwheel, no ⋯ menu, no remove button and no resize handle, so there is
+   nothing here to hide — what is left is to stop the tile advertising the
+   affordances it no longer has. */
+.tile--readonly .tile-header {
+    cursor: default;
+}
+
+.tile--readonly:hover {
+    border-color: var(--border-default);
+}
+
+/* ── the header strip ────────────────────────────────────────────────── */
+.tile-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: 0 var(--space-sm);
+    background: var(--surface-0);
+    border-bottom: 1px solid var(--border-default);
+    min-height: 22px;
+    flex-shrink: 0;
+}
+
+.tile-drag-handle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 18px;
+    color: rgba(255, 255, 255, 0.3);
+    cursor: grab;
+    transition: color var(--transition-normal);
+}
+
+.tile-drag-handle:hover {
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.tile-drag-handle:active {
+    cursor: grabbing;
+}
+
+.tile-drag-handle .material-symbols-outlined {
+    font-size: var(--font-size-lg);
+}
+
+/* `cursor: default`, where the donor said `pointer`. In EcoAgent the title
+   opened the config panel; in this library that moved to the cogwheel alone
+   ("Config opens ONLY via the explicit cogwheel button" — `_buildChrome`), so
+   a pointer cursor here promises a click that does nothing. */
+.tile-title {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-body);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: default;
+    padding: 0;
+    border-radius: 0;
+    line-height: 1;
+}
+
+.tile-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    margin-left: var(--space-md);
+    flex-shrink: 0;
+}
+
+/* One geometry for every icon button in the strip. They differ only in what
+   they turn when you hover them, which is the next block. */
+.tile-config-btn,
+.tile-menu-btn,
+.tile-expand-btn,
+.tile-remove-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: rgba(255, 255, 255, 0.4);
+    cursor: pointer;
+    transition: background var(--transition-normal), color var(--transition-normal);
+}
+
+.tile-config-btn:hover,
+.tile-menu-btn:hover,
+.tile-expand-btn:hover {
+    background: var(--state-hover);
+    color: #78b9ff;
+}
+
+.tile-remove-btn:hover {
+    background: var(--state-hover);
+    color: #ff6b6b;
+}
+
+.tile-config-btn .material-symbols-outlined,
+.tile-menu-btn .material-symbols-outlined,
+.tile-expand-btn .material-symbols-outlined,
+.tile-remove-btn .material-symbols-outlined {
+    font-size: var(--font-size-xl);
+}
+
+/* The ⓘ button carries its own inline `style` from `_buildChrome`, and inline
+   style beats any rule in this file — background, border, padding and colour
+   are already decided there and CANNOT be changed from here. So this rule adds
+   only what the inline style leaves open. A hover background written here
+   would be a rule that never applies: exactly the dead rule the header comment
+   warns about, arrived at from the other direction. */
+.tile-info-btn {
+    width: 20px;
+    height: 20px;
+    border-radius: var(--radius-sm);
+    flex-shrink: 0;
+}
+
+/* ── the ⋯ menu ──────────────────────────────────────────────────────── */
+/* Rendered from `TileBase.menuItems()`; an empty list emits no wrapper at all,
+   so none of this draws for a consumer that overrides the hook to `[]`. */
+.tile-menu-wrapper {
+    position: relative;
+}
+
+.tile-menu-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: var(--z-dropdown);
+    min-width: 180px;
+    padding: var(--space-xs) 0;
+    background: var(--surface-2);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+}
+
+/* `!important`, matching `.twm-action-dropdown-menu[hidden]` below and for the
+   same reason: `hidden` is the JS's only way of closing this menu
+   (`menuDropdown.hidden = !menuDropdown.hidden`), and the UA implements the
+   attribute as the weakest possible rule — any consumer selector that sets a
+   display on the dropdown would leave it open with nothing to close it. */
+.tile-menu-dropdown[hidden] {
+    display: none !important;
+}
+
+.tile-menu-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    width: 100%;
+    padding: var(--space-sm) var(--space-lg);
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background var(--transition-fast);
+}
+
+.tile-menu-item:hover {
+    background: var(--state-active);
+    color: var(--text-bright);
+}
+
+.tile-menu-item .material-symbols-outlined {
+    font-size: var(--font-size-xl);
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.tile-menu-item:hover .material-symbols-outlined {
+    color: #78b9ff;
+}
+
+/* ── the content area ────────────────────────────────────────────────── */
+/* `min-height: 0` is the load-bearing declaration, not the padding: a flex
+   child's default `min-height: auto` refuses to shrink below its content, so
+   without it a tall table or a chart pushes the tile past its grid rows
+   instead of scrolling inside them. */
+.tile-content {
+    flex: 1;
+    padding: var(--space-lg);
+    overflow: hidden;
+    position: relative;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* A chart library that measures its container on draw gets a container with a
+   real size. The `!important` is the only lever there is: Plotly writes width
+   and height INLINE onto `.js-plotly-plot` when it draws, an inline
+   declaration outranks any selector, and `!important` is what outranks it —
+   without which a chart keeps the size it had when the tile was half as wide. */
+.tile-content > [class*="-container"] {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    position: relative;
+}
+
+.tile-content .js-plotly-plot,
+.tile-content .plot-container.plotly,
+.tile-content .svg-container {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+/* ── resize handle and drag ghost ────────────────────────────────────── */
+.tile-resize-handle {
+    position: absolute;
+    background: transparent;
+    z-index: var(--z-sticky);
+}
+
+.tile-resize-handle.se {
+    bottom: 0;
+    right: 0;
+    width: 24px;
+    height: 24px;
+    cursor: se-resize;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.2);
+    transition: color var(--transition-normal);
+}
+
+.tile-resize-handle.se:hover {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.tile-resize-handle .material-symbols-outlined {
+    font-size: var(--font-size-xl);
+    transform: rotate(-45deg);
+}
+
+/* The drop preview, positioned by `_updateGhost()` in grid coordinates. */
+.tile-ghost {
+    position: absolute;
+    background: rgba(0, 122, 204, 0.15);
+    border: 2px dashed rgba(0, 122, 204, 0.5);
+    border-radius: var(--radius-sm);
+    pointer-events: none;
+    z-index: 50;
+    transition: transform 0.1s ease;
+}
+
+/* ── the three content states ────────────────────────────────────────── */
+/* `showLoading()`, `showEmpty()` and `showError()` each replace the whole of
+   `.tile-content`, so all three centre themselves in it. */
+.tile-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    gap: var(--space-md);
+    color: rgba(255, 255, 255, 0.5);
+    font-size: var(--font-size-sm);
+}
+
+.tile-loading .material-symbols-outlined {
+    font-size: 24px;
+}
+
+/* Scoped, because `.spinning` on its own is a name a consumer is entitled to
+   use for its own spinner. `spin` is not scopeable — `@keyframes` names are
+   global — and a consumer that defines its own `spin` later in the cascade
+   simply spins this icon its way, which is harmless. */
+.tile-loading .spinning {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+.tile-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    gap: var(--space-md);
+    color: rgba(255, 255, 255, 0.4);
+    font-size: var(--font-size-sm);
+    text-align: center;
+}
+
+.tile-empty .material-symbols-outlined {
+    font-size: 32px;
+    opacity: 0.5;
+}
+
+/* THE ERROR STATE IS PREFIXED AND THE OTHER TWO ARE NOT. `showError()` emits
+   `.twm-tile-error` where `showEmpty()` emits `.tile-empty` — an asymmetry
+   that is now a fixed fact of the wire, because this rule shipped before the
+   rest of the block did. The donor's unprefixed `.tile-error` is deliberately
+   NOT ported: it would sit here looking correct and matching nothing. */
 .twm-tile-error {
     display: flex;
     flex-direction: column;
@@ -2368,6 +2974,11 @@ body.twm-window-maximized .twm-resize-handle {
     gap: var(--space-md);
     color: #ff6b6b;
     font-size: var(--font-size-sm);
+    text-align: center;
+}
+
+.twm-tile-error .material-symbols-outlined {
+    font-size: 32px;
 }
 /* ===================================================================
    REUSABLE ACTION DROPDOWN COMPONENT
@@ -2390,6 +3001,29 @@ body.twm-window-maximized .twm-resize-handle {
 }
 .twm-action-dropdown-menu[hidden] {
     display: none !important;
+}
+/* THE OPEN STATE. `ActionDropdown.open()` un-hides the menu and then adds
+   `.visible` on the next frame to fade it in (action_dropdown.js:172-180) —
+   and no rule for that class existed, so the menu unhid itself into
+   `opacity: 0; pointer-events: none` and stayed there. Every ActionDropdown in
+   the library, "Add Widget" included, opened invisible and un-clickable.
+   The same defect `.twm-collapsible-content.visible` had, in the same shape:
+   the JS toggles a class the stylesheet never grew. */
+.twm-action-dropdown-menu.visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+/* The option's text column. `_renderOptions` wraps the label and the
+   description in `<span class="option-text">` (action_dropdown.js:125-128) and
+   both children are inline, so a described option rendered as
+   "Add Widget Put a widget on this desktop" on one run-together line. The
+   description is a SECOND LINE by construction; this is what makes it one.
+   `min-width: 0` so the ellipsis on the two children has something to bite on
+   inside the flex row. */
+.twm-action-dropdown-option .option-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
 }
 /* Dropdown options */
 .twm-action-dropdown-option {
@@ -2576,6 +3210,55 @@ body.twm-window-maximized .twm-resize-handle {
  * container-relative and are clipped by the container's `overflow: hidden`.
  * The symptom is "the filter dropdown is cut in half" and the cause is three
  * files away. */
+/* C11. Aero snap — the preview shown while a drag is over an edge zone.
+ * Absolutely positioned in the SAME coordinate space the window uses, so it is
+ * the container when contained and the page otherwise. Below the window's own
+ * z-index and above everything else in the container, so it reads as a target
+ * behind the thing being dragged. */
+.twm-snap-preview {
+    position: absolute;
+    z-index: 5999;
+    pointer-events: none;
+    background: rgba(23, 119, 179, 0.18);
+    border: 1px solid var(--accent-bright);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    transition: left 0.09s ease, top 0.09s ease, width 0.09s ease, height 0.09s ease;
+}
+/* C15. A CONTROLLER'S preview is positioned in VIEWPORT pixels, because its
+ * rectangle came from hit-testing somebody else's DOM (`getBoundingClientRect`)
+ * rather than from `_bounds()`. `position: fixed` is what makes those numbers
+ * mean what they say; leaving it `absolute` under `document.body` would be
+ * right only until the page scrolls. */
+.twm-snap-preview--viewport {
+    position: fixed;
+}
+/* A window whose position came from a snap rather than from a drag. Nothing
+ * depends on it visually; it is there so a consumer can tell the two apart. */
+.twm-managed-window--snapped { }
+/* R3. HALF TRANSPARENT THE MOMENT THE DRAG LEAVES THE TILE IT CAME FROM.
+ *
+ * The one signal that separates "I am moving this window around on its own
+ * pane" from "letting go now will put this window into the tree somewhere".
+ * Inside its origin pane the window is fully opaque and nothing is armed; the
+ * moment the pointer crosses out of it the window goes translucent and the drop
+ * preview starts drawing what a release would produce.
+ *
+ * No transition of its own: `.twm-managed-window` already transitions `opacity`
+ * over 0.2s for the minimize animation, so the fade comes for free — and adding
+ * a second, faster one here would make the same property animate at two speeds
+ * depending on which class won. Translucent, not ghostly: the window is still
+ * the thing being aimed, and at 0.5 the pane underneath reads through it while
+ * its title bar stays legible. */
+.twm-managed-window--detached {
+    opacity: 0.5;
+}
+/* A title-bar button the WM has suppressed for the window's current state — the
+ * minimize button on a maximised window it promoted out of a tile. `!important`
+ * because `button.twm-managed-window__btn` sets `display: flex` and an author
+ * declaration of `display` defeats the `hidden` attribute outright; a class
+ * that loses the specificity tie is a control that stays on screen. */
+.twm-managed-window__btn--suppressed { display: none !important; }
+
 .twm-managed-window--contained {
     position: absolute;
 }
@@ -2593,8 +3276,16 @@ body.twm-window-maximized .twm-resize-handle {
     inset: 0;
     overflow: hidden;
 }
-/* C6. An extra titlebar button (the table cogwheel), sized like the built-ins. */
-.twm-managed-window__btn--custom .material-symbols-outlined {
+/* C6. An extra titlebar button (the table cogwheel), sized like the built-ins.
+ * R7. And the maximize button, when a consumer has given it a glyph instead of
+ * the built-in square — the WM does, because for a window it lifted out of a
+ * tile that button means "back to tile". A Material Symbol renders at its
+ * `font-size` and Google's own sheet says 24px, which is three times the height
+ * of a 20px title-bar button: the rule has to be a DESCENDANT selector like
+ * this one to out-specify it, and a class on the glyph element itself would
+ * quietly lose. */
+.twm-managed-window__btn--custom .material-symbols-outlined,
+.twm-managed-window__btn--maximize .material-symbols-outlined {
     font-size: 13px;
     line-height: 1;
 }
@@ -2610,6 +3301,26 @@ body.twm-window-maximized .twm-resize-handle {
 /* Restore animation class — animates from taskbar item position */
 .twm-managed-window--restoring {
     animation: windowRestore 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+/* C27. THE KEYFRAMES THE RULE ABOVE HAS ALWAYS NAMED AND NOTHING EVER DEFINED.
+   `animation: windowRestore ...` referred to an `@keyframes` block that does
+   not exist anywhere in either stylesheet, which CSS treats as no animation at
+   all — so the restore was an instant pop while its mirror image, the minimise,
+   played for 200ms. The fifth instance of this codebase's signature defect: one
+   side names a thing the other side has never heard of, nothing throws, and no
+   check in any of the three consumers can see it. Deliberately the exact
+   inverse of `--minimizing`, from the same three custom properties, so the two
+   halves of the gesture cannot describe different geometry. */
+@keyframes windowRestore {
+    from {
+        transform: translate(var(--mw-target-x, 0px), var(--mw-target-y, 100vh))
+                   scale(var(--mw-target-scale, 0.1));
+        opacity: 0;
+    }
+    to {
+        transform: none;
+        opacity: 1;
+    }
 }
 /* ========== Backdrop (for modal windows) ========== */
 
@@ -2736,6 +3447,29 @@ button.twm-managed-window__btn svg rect {
     position: absolute;
     z-index: var(--z-sticky);
 }
+/* The eight handles' geometry. Without these the elements exist, are
+ * `position: absolute`, and have NO width, height or offset — so every window
+ * in every consumer is unresizable and nothing says why. Edges are 6px, corners
+ * 12px and sit above the edges, because a corner that loses to an edge makes
+ * diagonal resize a matter of luck. */
+.twm-managed-window__resize--n,
+.twm-managed-window__resize--s { left: 0; right: 0; height: 6px; cursor: ns-resize; }
+.twm-managed-window__resize--n { top: -3px; }
+.twm-managed-window__resize--s { bottom: -3px; }
+.twm-managed-window__resize--e,
+.twm-managed-window__resize--w { top: 0; bottom: 0; width: 6px; cursor: ew-resize; }
+.twm-managed-window__resize--e { right: -3px; }
+.twm-managed-window__resize--w { left: -3px; }
+.twm-managed-window__resize--ne,
+.twm-managed-window__resize--nw,
+.twm-managed-window__resize--se,
+.twm-managed-window__resize--sw { width: 12px; height: 12px; z-index: calc(var(--z-sticky) + 1); }
+.twm-managed-window__resize--ne { top: -3px; right: -3px; cursor: nesw-resize; }
+.twm-managed-window__resize--nw { top: -3px; left: -3px; cursor: nwse-resize; }
+.twm-managed-window__resize--se { bottom: -3px; right: -3px; cursor: nwse-resize; }
+.twm-managed-window__resize--sw { bottom: -3px; left: -3px; cursor: nesw-resize; }
+/* A maximised or snapped window is not resized by dragging its edges. */
+.twm-managed-window--maximized .twm-managed-window__resize { display: none; }
 /* ========== Taskbar in Bottom Bar ========== */
 
 .twm-bar-windows {
@@ -3614,6 +4348,24 @@ button.twm-about-dialog__btn--close:focus {
     opacity: 0.4;
     cursor: not-allowed;
 }
+
+/* C26. A LEADING GLYPH ON AN ACTION BUTTON — `openModal({actions:[{icon}]})`.
+ *
+ * Material Symbols is a FONT. It renders at `font-size`, which defaults to
+ * 24px, and the button's `min-height` does not constrain it — so without this
+ * the glyph overflows a 22px action button and the row reads as ragged. The
+ * declaration is written TWICE, once as a single class and once compounded
+ * with `.material-symbols-outlined`, because a consumer that loads Google's
+ * hosted stylesheet loads it AFTER this one: `.material-symbols-outlined
+ * {font-size:24px}` is a single class too, so it ties on specificity and wins
+ * on source order. The compound selector is what actually holds. */
+.twm-btn__glyph,
+.twm-btn__glyph.material-symbols-outlined {
+    font-size: var(--font-size-xl, 16px);
+    line-height: 1;
+    flex: 0 0 auto;
+}
+.twm-btn__label { line-height: 1; }
 .twm-btn--primary {
     background: var(--ea-accent);
     border-color: var(--ea-accent);
@@ -4408,6 +5160,18 @@ button.twm-about-dialog__btn--close:focus {
     position: relative;
 }
 .twm-root {
+    /* R1. THE CONTAINING BLOCK A DRAGGED WINDOW ESCAPES INTO. A window promoted
+     * in place is contained to its leaf wrap (C21), which clips it; for the
+     * length of a drag the WM re-parents it here instead, so it can be carried
+     * across tile boundaries. Its `left`/`top` then resolve against this box,
+     * and without a `position` they would resolve against whatever positioned
+     * ancestor the embedder happens to have — usually `.twm-shell__main`, which
+     * is the same rectangle, and occasionally the page, which is not.
+     *
+     * `relative` and nothing else, for the reason `.twm-leaf` gives at length:
+     * `transform`, `filter` and `contain` would also capture the
+     * `position: fixed` dropdowns that deliberately escape their tile. */
+    position: relative;
     display: flex;
     height: 100%;
     width: 100%;
@@ -4454,6 +5218,15 @@ body.twm-dragging .twm-splitter { background: var(--accent-bright); opacity: 0.5
 body.twm-dragging * { user-select: none; }
 /* Leaf — chrome + body. */
 .twm-leaf {
+    /* C21. THE CONTAINING BLOCK for a window promoted in place. `overflow:
+     * hidden` below is what actually confines it; this is what makes its
+     * coordinates mean the pane rather than the page.
+     *
+     * `position: relative` and NOTHING ELSE — `transform`, `filter`, `contain`
+     * and `will-change` also create a containing block AND capture
+     * `position: fixed` descendants, which would clip the dropdowns DataTable
+     * opens on purpose. */
+    position: relative;
     display: flex;
     flex-direction: column;
     flex: 1 1 auto;
@@ -4495,15 +5268,67 @@ body.twm-dragging * { user-select: none; }
     background: var(--surface-2);
     color: var(--text-primary);
 }
+/* NO `text-transform` HERE, and the absence is the decision. This element used
+ * to be lower-cased, which reads as a house style until you notice whose text
+ * it is: the embedder's. `tile_renderer` puts a content factory's `title` in
+ * here, and in a data application that is a record's display name — typed by a
+ * user who capitalised "Customer Orders" on purpose. A framework may style its
+ * own chrome however it likes; it may not rewrite its embedder's data on the
+ * way to the screen. `.twm-leaf__tab-label` shows the same strings and lost the
+ * same rule for the same reason. */
 .twm-leaf__title {
     color: var(--text-secondary);
     white-space: nowrap;
     text-overflow: ellipsis;
     overflow: hidden;
-    text-transform: lowercase;
     letter-spacing: 0.02em;
 }
-.twm-leaf__actions { display: inline-flex; gap: 2px; }
+/* C19. The tile's own glyph, left of the title, so a pane and the floating
+ * window it promotes into look like the same thing — `.twm-managed-window__icon`
+ * has always drawn one. Sized to the BUTTONS at the other end of the strip
+ * rather than to the title, because those are the other icons in this bar.
+ *
+ * AND THE GLYPH HAS TO BE TOLD, exactly as on `.twm-leaf__btn` below: Material
+ * Symbols is a font and renders at `font-size`, which defaults to 24px. Leaving
+ * this off does not give a slightly large icon — it gives one half again as
+ * tall as the 22px bar it sits in, which pushes the chrome open. */
+/* THE COMPOUND SELECTOR IS THE POINT.
+ *
+ * The element is `<span class="twm-leaf__icon material-symbols-outlined">`, and
+ * Google's own stylesheet — which every consumer loads, AFTER this one — sets
+ * `.material-symbols-outlined { font-size: 24px }`. Two single-class selectors
+ * tie on specificity, so the LAST one wins, and the last one is theirs. A rule
+ * written `.twm-leaf__icon { font-size: 14px }` therefore exists, is valid,
+ * looks correct in review, and does nothing.
+ *
+ * `.twm-leaf__icon.material-symbols-outlined` is two classes and wins outright.
+ * The same tie is why `.twm-panel-toggle-btn .material-symbols-outlined` works
+ * — a descendant selector is also two — and it is the fourth outing of the same
+ * defect family in this codebase: a rule for a class the other side already
+ * claims. */
+.twm-leaf__icon,
+.twm-leaf__icon.material-symbols-outlined {
+    flex: 0 0 auto;
+    font-size: 14px;
+    line-height: 1;
+    color: var(--text-muted);
+    font-variation-settings: 'opsz' 20, 'wght' 400;
+}
+/* Hidden, not empty, for a kind that has no glyph — the framework's own
+ * `panel:*` tiles are in nobody's taxonomy. The chrome is a flex row with a
+ * gap, and an empty span still takes its gap: the title would sit a glyph's
+ * width off the left margin with nothing in front of it. */
+.twm-leaf__icon[hidden] { display: none; }
+.twm-leaf__actions { display: inline-flex; gap: 2px; align-items: center; }
+/* C18. The embedder's own buttons, to the LEFT of the structural ones and
+ * separated from them — these act on the CONTENT, those act on the TILE. */
+.twm-leaf__actions--content {
+    margin-left: auto;
+    padding-right: var(--space-sm);
+    margin-right: var(--space-sm);
+    border-right: 1px solid var(--border-subtle);
+}
+.twm-leaf__actions--content[hidden] { display: none; }
 .twm-leaf__btn {
     display: inline-flex;
     align-items: center;
@@ -4517,7 +5342,27 @@ body.twm-dragging * { user-select: none; }
     cursor: pointer;
     border-radius: 0;
 }
-.twm-leaf__btn:hover { background: var(--state-hover); color: var(--text-primary); }
+/* THE GLYPH HAS TO BE TOLD. Material Symbols ships at `font-size: 24px`, and
+ * the button is 18px square — so every icon overflowed its own button, the
+ * strip read as oversized next to a 22px chrome bar, and the buttons visually
+ * collided. `font-size` IS the glyph size for an icon font; `width`/`height` on
+ * the button does not constrain it. */
+.twm-leaf__btn .material-symbols-outlined {
+    font-size: 14px;
+    line-height: 1;
+    /* The variable-font axes the family exposes. At 14px the default optical
+     * size (24) draws strokes too heavy to read as a small control. */
+    font-variation-settings: 'opsz' 20, 'wght' 400;
+}
+.twm-leaf__btn:hover:not(:disabled) { background: var(--state-hover); color: var(--text-primary); }
+/* C20. A verb that applies to this kind of pane but not right now — greyed and
+ * explained by its tooltip, rather than removed. `:disabled` alone would still
+ * take the hover highlight above, which reads as clickable. */
+.twm-leaf__btn--disabled,
+.twm-leaf__btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
 .twm-leaf__body {
     flex: 1 1 auto;
     overflow: auto;
@@ -4531,7 +5376,15 @@ body.twm-dragging * { user-select: none; }
  *
  * The hamburger button on the left opens the per-tile "browse this
  * page's content" menu (`wm.ctx.onTileTabMenu`). */
-.twm-leaf__tabbar {
+/* R8. THE SAME STRIP, IN A WINDOW. A pane floated into a managed window takes
+ * its tabs with it — *"to window includes the tab-strip"* — and the strip in
+ * the window is the strip from the pane: same component, same vocabulary, same
+ * height. So it is the same rule, with a second selector, rather than a second
+ * block that would drift from this one the first time either was touched.
+ * `.twm-window-tabbar` is always the `--top` variant (a window's chrome is its
+ * title bar, and the tabs go under it), so it appears in that block too. */
+.twm-leaf__tabbar,
+.twm-window-tabbar {
     flex: 0 0 auto;
     display: flex;
     align-items: stretch;
@@ -4543,7 +5396,51 @@ body.twm-dragging * { user-select: none; }
     user-select: none;
     font-size: var(--font-size-xs);
 }
-.twm-leaf__tabbar--hidden { display: none; }
+.twm-leaf__tabbar--hidden,
+.twm-window-tabbar--hidden { display: none; }
+
+/* ══════════════════════════════════════════════════════════════════════
+ * C33. A TAB DRAGGED INTO A TILE
+ *
+ * Mirrored by hand from `css/overrides.css`, where the source lives with the
+ * rest of the `.twm-leaf*` rules. This sheet is the only one `build.mjs`
+ * copies into `dist/`, and its generator (`scripts/css_extract.py`) is not in
+ * this repository — so a rule written into overrides.css and not repeated
+ * here does not exist for a consumer.
+ *
+ * THE ZONE RECTANGLE IS NOT STYLED HERE. It reuses `.twm-snap-preview
+ * .twm-snap-preview--viewport` above, which is the window drop's own preview
+ * element, so a tab drop and a window drop cannot come to disagree about what
+ * a drop looks like.
+ *
+ * AND THERE IS NO `cursor` RULE, which is not an omission. For the length of a
+ * native drag the browser draws the pointer from `dataTransfer.dropEffect`; a
+ * `cursor` on the drop target is ignored throughout.
+ * ══════════════════════════════════════════════════════════════════════ */
+
+/* THE PANE UNDER THE POINTER. The preview rectangle says what a release would
+ * PRODUCE; this says which pane is being asked. An inset OUTLINE rather than a
+ * border, because a border changes the box and every tile in the row would
+ * reflow by a pixel as the pointer crossed between them. */
+.twm-leaf--drop-target {
+    outline: 2px solid var(--accent-bright, #1683c4);
+    outline-offset: -2px;
+}
+
+/* A STRIP ARMED TO RECEIVE — the drop that adds the tab at the end of this
+ * tile's list rather than into a zone of its body. */
+.twm-leaf__tabbar--drop-target {
+    background: color-mix(in srgb, var(--accent-bright, #1683c4) 18%, transparent);
+    box-shadow: inset 0 0 0 1px var(--accent-bright, #1683c4);
+}
+
+/* THE TAB BEING CARRIED. `DragReorder` has put `.dragging` on the TOP strip's
+ * tab since it was written and `.notebook-tabs > .tab.dragging` below dims it;
+ * the bottom strip's hand-rolled reorder set no class at all, so a drag there
+ * looked exactly like a click that did nothing. One declaration for both
+ * strips. */
+.twm-leaf__tab.dragging { opacity: 0.4; }
+
 .twm-leaf__tab-hamburger {
     flex: 0 0 auto;
     display: inline-flex;
@@ -4618,11 +5515,12 @@ body.twm-dragging * { user-select: none; }
     border-top: 1px solid var(--accent-bright, #1683c4);
     clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
 }
+/* Lower-casing removed here too — a tab label is the same embedder-supplied
+ * title as `.twm-leaf__title`, just in the strip at the bottom of the leaf. */
 .twm-leaf__tab-label {
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 160px;
-    text-transform: lowercase;
     letter-spacing: 0.02em;
 }
 .twm-leaf__tab-close {
@@ -4643,6 +5541,293 @@ body.twm-dragging * { user-select: none; }
 .twm-leaf__tab-close:hover {
     opacity: 1;
     color: var(--text-bright);
+}
+
+/* ══ C22. THE TOP TAB LAYOUT ═════════════════════════════════════════
+ *
+ * `tabLayout: 'top'` puts the strip BETWEEN the chrome and the body and draws
+ * it with `NotebookTabBar` — the editor's tab bar — instead of the spreadsheet
+ * strip above. The bar element is the same `.twm-leaf__tabbar`, so everything
+ * it already carries (the fixed height, `--hidden`, `flex: 0 0 auto`) still
+ * applies; this modifier only turns the strip the right way up.
+ *
+ * The border moves with it. A strip at the bottom of a tile is separated from
+ * the body above it by a top border; a strip at the top is separated from the
+ * body BELOW it by a bottom one, and keeping the top border as well would draw
+ * a second line a pixel under the chrome's own. */
+.twm-leaf__tabbar--top,
+.twm-window-tabbar {
+    border-top: none;
+    border-bottom: 1px solid var(--border-default);
+    /* The editor tabs are a touch taller than a 22px spreadsheet tab: they
+     * carry a glyph, a label and a close button on one line, and 22px leaves
+     * the close button touching the label's descenders. */
+    height: 26px;
+    padding: 0;
+    /* `overflow: hidden` on the bottom strip clips the horizontal scroll the
+     * tab list wants. The list scrolls itself (below); the BAR must not. */
+    overflow: visible;
+}
+/* `NotebookTabBar.mount()` assigns `className = 'tabs notebook-tabs'` to
+ * whatever container it is handed (`notebook_tab_bar.js:61`) — it does not add
+ * to it — which is why the renderer mounts it into a child of the bar rather
+ * than into the bar. The child is that container, and it fills the bar. */
+.twm-leaf__tabbar--top > .notebook-tabs,
+.twm-window-tabbar > .notebook-tabs { flex: 1 1 auto; min-width: 0; }
+/* A window's body is what the content mounts into, below the strip. It is
+ * the box `.twm-managed-window__content` used to be for a window with no
+ * tabs, so it carries the same three declarations — without them a grid
+ * inside a floated pane sizes to its rows rather than to the window and the
+ * strip is pushed off the bottom edge. */
+.twm-window-body { flex: 1 1 auto; min-height: 0; min-width: 0; }
+
+/* ══ NotebookTabBar ══════════════════════════════════════════════════
+ *
+ * A CLASS ONE SIDE KNOWS AND THE OTHER HAD NEVER HEARD OF — the fifth in this
+ * codebase and the first one found before it shipped. `NotebookTabBar` has
+ * rendered `.tabs` / `.tab` / `.tab-icon` / `.twm-tab-title` / `.tab-dirty` /
+ * `.twm-tab-close` / `.nb-context-menu` since it was extracted, and NOT ONE of
+ * those selectors existed in any FlexDesk stylesheet: the component imports
+ * cleanly, mounts without error, is fully interactive, and draws as a row of
+ * unstyled inline text with a `×` after each label. Nothing throws and no test
+ * can see it, which is the signature of the whole family.
+ *
+ * The visual language is the tile chrome's, not an editor's: `--surface-1` bar,
+ * `--surface-0` active tab so it reads as continuous with the body under it,
+ * square corners, `--font-size-xs`. A tab bar drawn in one house style with the
+ * chrome an inch above it in another is how a pane stops looking like one
+ * object. */
+.tabs.notebook-tabs {
+    display: flex;
+    align-items: stretch;
+    height: 100%;
+    min-width: 0;
+    background: var(--surface-1);
+    user-select: none;
+    font-size: var(--font-size-xs);
+    /* SCROLL, DO NOT WRAP OR SHRINK. The tabs keep their width and the strip
+     * scrolls under them — a tab that shrinks to nothing as you open the tenth
+     * one is a tab you cannot read or aim at. The scrollbar itself is hidden:
+     * it is a 26px strip, and a horizontal bar in it would eat a third of the
+     * label. Wheel and drag still scroll it, and DragReorder auto-scrolls the
+     * edges while a tab is being dragged (`drag_reorder.js:_autoScrollEdge`). */
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+}
+.tabs.notebook-tabs::-webkit-scrollbar { display: none; }
+.notebook-tabs > .tab {
+    position: relative;
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    max-width: 200px;
+    padding: 0 var(--space-sm);
+    background: var(--surface-1);
+    color: var(--text-muted);
+    border: none;
+    border-right: 1px solid var(--border-subtle);
+    cursor: pointer;
+    line-height: 1;
+    white-space: nowrap;
+}
+.notebook-tabs > .tab:hover { background: var(--surface-2); color: var(--text-primary); }
+/* The active tab is the body's colour and loses the line under it, so the tab
+ * and the pane it shows read as one surface. The accent sits on TOP — the edge
+ * furthest from the body — for the same reason a browser puts it there: it
+ * marks the tab, not the boundary. */
+.notebook-tabs > .tab.active {
+    background: var(--surface-0);
+    color: var(--text-bright);
+}
+.notebook-tabs > .tab.active::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 2px;
+    pointer-events: none;
+    background: var(--accent-bright, #1683c4);
+}
+/* A PREVIEW tab — opened by a single click and replaced by the next one.
+ * Italic is the convention every editor uses for "this one is not staying". */
+.notebook-tabs > .tab.tab--preview { font-style: italic; }
+/* THE GLYPH HAS TO BE TOLD, and it has to be told in TWO selectors.
+ *
+ * `<span class="material-symbols-outlined tab-icon">` carries two classes, and
+ * Google's stylesheet — loaded by every consumer, AFTER this one — sets
+ * `.material-symbols-outlined { font-size: 24px }`. A single-class rule here
+ * ties on specificity and loses to whichever came last, which is theirs. The
+ * compound selector is two classes and wins outright. Fourth outing of this
+ * exact defect; it is why `.twm-leaf__icon` is written the same way. */
+.notebook-tabs .tab-icon,
+.notebook-tabs .tab-icon.material-symbols-outlined {
+    flex: 0 0 auto;
+    font-size: 14px;
+    line-height: 1;
+    font-variation-settings: 'opsz' 20, 'wght' 400;
+}
+.notebook-tabs .tab-icon[hidden] { display: none; }
+/* The label. NOT lower-cased and not capitalised: it is the embedder's own
+ * string — a record's display name, typed by a user who capitalised it on
+ * purpose — for the same reason `.twm-leaf__title` lost that rule.
+ *
+ * AND IT NEEDS ITS OWN `line-height`, WHICH IS THE FIX FOR CLIPPED DESCENDERS.
+ * `.tab` sets `line-height: 1` so the row's boxes stack predictably in a 26px
+ * strip; this span sets `overflow: hidden` for the ellipsis, which makes it a
+ * scroll container whose content box is exactly `1 × font-size` tall. Anything
+ * drawn below the baseline — the tail of a `g`, a `y`, a `p` — falls outside
+ * that box and is CLIPPED. It reads as a tab label with its bottom shaved off,
+ * which is precisely how it was reported ("fix the cut-off text in the tabs -
+ * cut off at bottom"), and it is invisible on any label that happens to have no
+ * descender in it.
+ *
+ * 1.45 is the smallest value that clears the descender at every size this strip
+ * is used at; the flex row still centres the span, so the tab's own height and
+ * every other box in it are unchanged. */
+.notebook-tabs .twm-tab-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    letter-spacing: 0.02em;
+    line-height: 1.45;
+}
+/* Unsaved work. A dot rather than a `*`, and it takes the close button's slot
+ * rather than adding to the row — in most editors the two swap on hover, but a
+ * dot that MOVES the close button as it appears makes the button a target that
+ * shifts under the pointer. */
+.notebook-tabs .tab-dirty {
+    flex: 0 0 auto;
+    font-size: 9px;
+    line-height: 1;
+    color: var(--accent-bright, #1683c4);
+}
+.notebook-tabs .twm-tab-close {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: inherit;
+    /* A `×` CHARACTER, not a Material Symbol — the component writes the glyph
+     * itself (`notebook_tab_bar.js:168`), so this one is sized by `font-size`
+     * on the button and there is no icon font to out-specify. */
+    font-size: 13px;
+    line-height: 1;
+    opacity: 0.55;
+    cursor: pointer;
+}
+.notebook-tabs .twm-tab-close:hover {
+    opacity: 1;
+    background: var(--state-hover);
+    color: var(--text-bright);
+}
+/* ── Reordering ──────────────────────────────────────────────────────
+ * `DragReorder` puts `.dragging` on the tab under the pointer and inserts a
+ * `.twm-tab-drop-indicator` element at the position it would land
+ * (`drag_reorder.js:_start`, `_ensureIndicator`). Neither had a rule, so a
+ * drag looked exactly like a click that did nothing until the tab arrived
+ * somewhere else. */
+.notebook-tabs > .tab.dragging { opacity: 0.4; }
+.twm-tab-drop-indicator {
+    flex: 0 0 auto;
+    align-self: stretch;
+    width: 2px;
+    background: var(--accent-bright, #1683c4);
+    pointer-events: none;
+}
+
+/* ── C33. TWO MORE OF THE CLASS-ONE-SIDE-KNOWS FAMILY ────────────────
+ *
+ * Mirrored by hand from `css/base.css`. Both have been set by JavaScript
+ * since the day they were written and defined by NO stylesheet in this
+ * repository, so a cross-pane drop has never drawn anything anywhere:
+ *
+ *   `.notebook-tabs--drop-target`              `notebook_tab_bar.js`,
+ *                                              `#onStripDragOver`
+ *   `.notebook-editor-container--drop-target`  `editor/editor_pane.js`,
+ *                                              its own `dragover`
+ *
+ * Fixed alongside C33 rather than left alone, because C33 adds a THIRD
+ * `--drop-target` affordance beside them and shipping a live one next to two
+ * dead ones is how the family keeps growing. Same declarations as
+ * `.twm-leaf__tabbar--drop-target` above, deliberately: three surfaces that
+ * mean "let go here and this list takes it" should look like one thing. */
+.notebook-tabs--drop-target,
+.notebook-editor-container--drop-target {
+    background: color-mix(in srgb, var(--accent-bright, #1683c4) 18%, transparent);
+    box-shadow: inset 0 0 0 1px var(--accent-bright, #1683c4);
+}
+/* ── The tab bar's own context menu ──────────────────────────────────
+ * Reached only by a consumer that lets the component open it — the tile
+ * renderer suppresses it in favour of the WM's single tab menu, so these rules
+ * are for `EditorPane` and anyone else mounting a `NotebookTabBar` directly.
+ * Same geometry and the same tokens as `.twm-context-menu`, because two
+ * context menus in one application that disagree about their own padding is
+ * how a UI stops feeling assembled. */
+.nb-context-menu {
+    position: fixed;
+    z-index: 10050;
+    min-width: 180px;
+    padding: var(--space-xxs) 0;
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+    font-size: var(--font-size-xs);
+    /* Opened hidden and revealed on the next frame (`#showContextMenu` adds
+     * `.visible` in a rAF) so it can fade rather than snap — the same
+     * open-then-reveal the collapsible primitive uses, and the same reason its
+     * `.visible` rule had to exist before anything worked. */
+    opacity: 0;
+    transition: opacity 90ms ease-out;
+}
+.nb-context-menu.visible { opacity: 1; }
+.nb-context-menu__item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    width: 100%;
+    padding: var(--space-xs) var(--space-md);
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.nb-context-menu__item:hover { background: var(--state-hover); }
+.nb-context-menu__item .material-symbols-outlined {
+    font-size: 14px;
+    line-height: 1;
+    color: var(--text-muted);
+    font-variation-settings: 'opsz' 20, 'wght' 400;
+}
+.nb-context-menu__item--danger { color: var(--color-danger, #c74e4e); }
+.nb-context-menu__item--danger .material-symbols-outlined { color: inherit; }
+/* DISABLED MEANS DISABLED. `.twm-context-menu-item.disabled` was the third
+ * instance of this family — the JS had always set the class, no rule existed,
+ * and a disabled item rendered at full opacity with a pointer cursor and did
+ * nothing when clicked. `#showContextMenu` binds no listener on a disabled
+ * item, so `pointer-events: none` is belt to that braces. */
+.nb-context-menu__item--disabled {
+    opacity: 0.4;
+    cursor: default;
+    pointer-events: none;
+}
+.nb-context-menu__shortcut {
+    margin-left: auto;
+    padding-left: var(--space-lg);
+    color: var(--text-dim);
+}
+.nb-context-menu__separator {
+    height: 1px;
+    margin: var(--space-xxs) 0;
+    background: var(--border-subtle);
 }
 /* ── Tile tab menu (hamburger pop-out) ────────────────────────────
  * Anchored above the hamburger button. Lists every entity that the

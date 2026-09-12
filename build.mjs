@@ -19,7 +19,7 @@
  */
 
 import { build } from 'esbuild';
-import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, readdir, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -67,6 +67,52 @@ if (!CHECK) {
     }
 }
 
+// ── prune orphaned chunks ───────────────────────────────────────────────────
+// ESBUILD NAMES CHUNKS BY CONTENT HASH AND NEVER REMOVES THE OLD ONE. A chunk
+// is `chunk-AYV27FQG.js` only for as long as its contents hash to that; edit
+// any module inside it and the next build writes a NEW file and leaves the
+// previous one sitting in dist/ forever. After enough builds dist/ held 58
+// chunks of which 11 were reachable — the other 47 were fossils, and among
+// them were ELEVEN different copies of ManagedWindow.
+//
+// That is not merely bloat, it is a trap with teeth: a consumer debugging the
+// window manager greps dist/ for `minimize()`, finds it in a fossil, and reads
+// code that has not run in weeks. It cost a full diagnosis session downstream
+// — a fix verified present in src/, absent from the chunk being grepped, and
+// live all along in the chunk actually imported. `--check` could not see it
+// either: it asks whether every built file EXISTS, which stays true no matter
+// how many dead ones sit beside them.
+//
+// So the build now owns removal as well as writing.
+//
+// AND IT IS NOT ONLY `chunk-*`. This pattern read `^chunk-` for one release
+// and missed the other half of esbuild's hashed output: a DYNAMIC import is
+// emitted under its own module's name, hashed the same way. `tile_grid.js`
+// does `await import('./tile_registry.js')`, so dist/ carries
+// `tile_registry-<HASH>.js` — matched by neither the pruner nor `--check`,
+// copied faithfully into a consumer's vendor/ by its refresh script, and
+// invisible to the `diff -rq vendor dist` that is supposed to be the alarm,
+// because vendor mirrored dist exactly and dist was the thing carrying the
+// fossils. Every edit to the tile registry would have left another greppable
+// copy behind, in the file a dashboard's whole widget catalogue resolves
+// through — the worst possible place to hand someone last week's code.
+//
+// So the test is the SHAPE of a hashed name, `<name>-<8 base32 chars>.js`,
+// which covers both kinds and nothing else: the entry points are stable names
+// with no hash (`wm.js`, `tiles.js`), the stylesheets are not `.js` at all,
+// and anything currently produced is exempted by `produced` regardless.
+const HASHED_OUTPUT_RE = /^[^/]+-[A-Z0-9]{8}\.js(\.map)?$/;
+if (!CHECK) {
+    const produced = new Set(Object.keys(result.metafile.outputs)
+        .map((f) => f.split('/').pop())
+        .flatMap((f) => [f, `${f}.map`]));
+    for (const f of await readdir(join(HERE, 'dist'))) {
+        if (!HASHED_OUTPUT_RE.test(f) || produced.has(f)) continue;
+        await unlink(join(HERE, 'dist', f));
+        console.log(`  pruned orphan output ${f}`);
+    }
+}
+
 // ── report ──────────────────────────────────────────────────────────────────
 const outputs = Object.entries(result.metafile.outputs)
     .filter(([f]) => f.endsWith('.js'))
@@ -95,6 +141,18 @@ if (CHECK) {
     if (missing.length) {
         console.error(`\nFAIL: dist/ is stale — missing ${missing.join(', ')}.`);
         process.exit(1);
+    }
+    // Orphans are reported rather than failed on: they make dist/ MISLEADING,
+    // not wrong, and a consumer pinned to an older dist/ should not have their
+    // build broken by fossils a previous build left behind. `node build.mjs`
+    // removes them.
+    const orphans = [...onDisk].filter(
+        (f) => HASHED_OUTPUT_RE.test(f) && !built.has(f));
+    if (orphans.length) {
+        console.warn(`\nWARN: ${orphans.length} orphaned output(s) in dist/ —`
+                   + ` ${orphans.join(', ')} — dead output from earlier builds`
+                   + ' that still contains greppable copies of live classes.'
+                   + ' Run `node build.mjs`.');
     }
     console.log('\nOK: dist/ is present and matches the entry points.');
 }

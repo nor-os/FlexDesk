@@ -113,9 +113,12 @@ var ActionDropdown = class _ActionDropdown {
     this.menuEl.hidden = false;
     _ActionDropdown.position(this.trigger, this.menuEl);
     requestAnimationFrame(() => {
-      this.menuEl.classList.add("visible");
+      this.menuEl?.classList.add("visible");
     });
     this.trigger?.classList.add("twm-is-open");
+    if (this.trigger?.hasAttribute("aria-expanded")) {
+      this.trigger.setAttribute("aria-expanded", "true");
+    }
     document.addEventListener("click", this._boundHandleDocumentClick, true);
     document.addEventListener("keydown", this._boundHandleKeydown);
     const firstOption = this.menuEl.querySelector(".twm-action-dropdown-option");
@@ -132,6 +135,9 @@ var ActionDropdown = class _ActionDropdown {
       this.menuEl.hidden = true;
     }
     this.trigger?.classList.remove("twm-is-open");
+    if (this.trigger?.hasAttribute("aria-expanded")) {
+      this.trigger.setAttribute("aria-expanded", "false");
+    }
     document.removeEventListener("click", this._boundHandleDocumentClick, true);
     document.removeEventListener("keydown", this._boundHandleKeydown);
   }
@@ -154,6 +160,8 @@ var ActionDropdown = class _ActionDropdown {
    */
   _handleKeydown(e) {
     if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
       this.close();
       this.trigger?.focus();
       return;
@@ -273,4 +281,4 @@ var ActionDropdown = class _ActionDropdown {
 export {
   ActionDropdown
 };
-//# sourceMappingURL=chunk-TLZUUFOE.js.map
+//# sourceMappingURL=chunk-O5OHMWBB.js.map

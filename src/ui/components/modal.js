@@ -40,6 +40,29 @@
 
 import { ManagedWindow } from '../../ui/components/managed_window.js';
 
+/**
+ * C25. WHERE A DIALOG OPENS, when the application spans more than one window.
+ *
+ * Every modal here is a `ManagedWindow` with no `container`, so it mounts into
+ * `document.body` — and "document" is the document this MODULE was loaded in.
+ * A consumer that opens a second browser window with `window.open` and builds
+ * its DOM from the opener's realm (which is how a pop-out grid works: same
+ * modules, same JS context, a different document) therefore gets its dialogs in
+ * the window it popped OUT of. The user presses "Add column" on their second
+ * monitor and a dialog appears on the first, behind whatever is there.
+ *
+ * Passing a container at each call site was the other option and it is worse:
+ * twenty-one of them across eleven files, every one of which would have to be
+ * given a document it has no other reason to know about, and any one missed is
+ * this bug again with no way to see it from here.
+ *
+ * So the HOST is ambient and the consumer sets it when its focus moves. Null —
+ * every consumer today — means `document.body`, exactly as before.
+ */
+let _modalHost = null;
+export function setModalHost(el) { _modalHost = el || null; }
+export function modalHost() { return _modalHost; }
+
 let _modalSeq = 1;
 
 export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK' } = {}) {
@@ -61,6 +84,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
         `;
 
         const win = new ManagedWindow({
+            container: _modalHost,
             id: `twm-modal-${_modalSeq++}`,
             title: title || 'Dialog',
             icon: 'edit_note',
@@ -201,6 +225,7 @@ export function openConfirm({
 
         let _resolved = false;
         const win = new ManagedWindow({
+            container: _modalHost,
             id: `twm-confirm-${_modalSeq++}`,
             title: title || 'Confirm',
             icon: icon || (danger ? 'warning' : 'help'),
@@ -246,12 +271,17 @@ export function openConfirm({
  *   - `content`   HTMLElement appended into the body. Caller owns
  *                 rendering — `openModal` doesn't size or style the
  *                 internal content beyond making it scrollable.
- *   - `actions`   `[{ label, value, primary?, danger? }, …]`. If
+ *   - `actions`   `[{ label, value, primary?, danger?, icon? }, …]`. If
  *                 omitted, defaults to a single `[Close]` action that
  *                 resolves with `null`. The first action with
  *                 `primary: true` is the rightmost; otherwise the
  *                 last action wins. Esc / X / backdrop resolve with
- *                 `null` regardless of what's in `actions`.
+ *                 `null` regardless of what's in `actions`. `icon` is
+ *                 an optional material-symbols-outlined ligature drawn
+ *                 BEFORE the label; when it is given the label lives in
+ *                 a `.twm-btn__label` span, because an icon font's
+ *                 ligature name is itself text and would otherwise be
+ *                 read back as part of the label.
  *   - `width`,
  *     `height`    initial size in px. Defaults: 640 × 480.
  *   - `onMount`   optional `(contentEl) => void` invoked once after
@@ -264,6 +294,36 @@ export function openConfirm({
  *                 legible — e.g. a live-applied editor where you want to
  *                 watch the content behind update. Omit both to inherit
  *                 the default look (blur 2px over a 50% dim).
+ *   - `maximizable`      C29. Draw a maximise button in the title bar.
+ *                 Default `false`, which is byte-for-byte what every
+ *                 existing caller has always got.
+ *   - `onMaximizeChange` `(maximized, contentEl) => void`, called on each
+ *                 flip. Only useful with `maximizable`.
+ *
+ * ══ C29. WHY A DIALOG'S MAXIMISE IS THE GEOMETRIC ONE ═══════════════════
+ *
+ * Everywhere else in this library maximise means BACK TO TILE: the window
+ * stops being a window and its content returns to the tile it came out of.
+ * That is R14, it is the product owner's ruling — *"maximize here means back
+ * to tile"* — and it holds for the chrome button, the title bar's
+ * double-click, an embedder's window menu and the aero-snap top edge alike.
+ *
+ * A DIALOG HAS NO TILE. It was never lifted out of one; it is modal, it owns
+ * the screen until it resolves, and "back to tile" names a destination that
+ * does not exist for it. So here maximise can only mean the rectangle, and
+ * that is not a contradiction of the ruling but its boundary: THE RULING IS
+ * ABOUT WINDOWS THAT CAME FROM A TILE. Do not "fix" this into a dock — there
+ * is nothing to dock into, and `bringBackWindow` would refuse it anyway.
+ *
+ * Mechanically that means setting no `onMaximize` at all rather than reaching
+ * for `toggleMaximize({claimable: false})`: with nothing claiming the gesture,
+ * the ordinary path IS the rectangle, and the escape hatch is for consumers
+ * who have claimed it.
+ *
+ * The dialog stays a dialog while maximised — `modal: true` is untouched, so
+ * the backdrop, the Esc handler and the Tab focus trap (all of which hang off
+ * `this.element` and the top-most-window test, not off geometry) go on working
+ * exactly as they did.
  *
  * Returns a Promise resolving with the chosen action's `value`, or
  * `null` if the user dismissed the modal.
@@ -278,6 +338,8 @@ export function openModal({
     onMount  = null,
     backdropBlur    = undefined,
     backdropOpacity = undefined,
+    maximizable      = false,
+    onMaximizeChange = null,
 } = {}) {
     return new Promise((resolve) => {
         const body = document.createElement('div');
@@ -302,14 +364,67 @@ export function openModal({
             if (a.primary) cls += ' twm-btn--primary';
             if (a.danger)  cls += ' twm-btn--danger';
             btn.className = cls;
-            btn.textContent = String(a.label || '');
+            // C26. AN ACTION MAY CARRY A GLYPH — additively, and only when it
+            // asks for one. Without `icon` the button is byte-identical to what
+            // every existing caller gets today: one text node, so a consumer
+            // reading `btn.textContent` to find its own button keeps working.
+            //
+            // With one, the label moves into its own span so that reading it
+            // back is still possible: an icon font's ligature name IS text
+            // content ("save" renders as a glyph but reads as the word), so a
+            // bare `textContent` on a button with an icon would answer
+            // "saveSave". `.twm-btn__label` is the answer to "what does this
+            // button say", and `aria-hidden` on the glyph is what keeps a screen
+            // reader from saying the ligature name out loud beside the label.
+            if (a.icon) {
+                const glyph = document.createElement('span');
+                glyph.className = 'material-symbols-outlined twm-btn__glyph';
+                glyph.textContent = String(a.icon);
+                glyph.setAttribute('aria-hidden', 'true');
+                const text = document.createElement('span');
+                text.className = 'twm-btn__label';
+                text.textContent = String(a.label || '');
+                btn.append(glyph, text);
+            } else {
+                btn.textContent = String(a.label || '');
+            }
             btn.dataset.actionIdx = String(i);
+            // C27. AN ACTION MAY START DISABLED, and be enabled later.
+            //
+            // Every action here dismisses the dialog and resolves the promise —
+            // that is the documented contract, and it is why a caller cannot
+            // "refuse" a submit: by the time it sees the value, the form and
+            // everything typed into it are gone. So a dialog whose primary
+            // action is not yet valid has had exactly two options: let the user
+            // press it and lose their work to a toast, or reach into this markup
+            // from outside, which is the coupling C6 exists to remove.
+            //
+            // `disabled` plus the controller handed to `onMount` is the third.
+            // Absent — every existing caller — the button is enabled exactly as
+            // before.
+            if (a.disabled) btn.disabled = true;
+            if (a.value !== undefined && a.value !== null) {
+                btn.dataset.actionValue = String(a.value);
+            }
             actionsEl.appendChild(btn);
         });
         body.appendChild(actionsEl);
 
         let _resolved = false;
+        // DECLARED BEFORE THE WINDOW, INSTALLED AFTER IT. `onClose` below closes
+        // over `_dropMaxListener`, and `show()` runs between the two — so
+        // leaving the declaration down where the listener is installed would
+        // stretch a temporal dead zone across a call that could come back
+        // through `onClose`. The cost of getting that wrong is a ReferenceError
+        // inside a dismissal, which is the least debuggable place in this file.
+        let _onMax = null;
+        const _dropMaxListener = () => {
+            if (!_onMax) return;
+            window.removeEventListener('managed-window-maximized', _onMax);
+            _onMax = null;
+        };
         const win = new ManagedWindow({
+            container: _modalHost,
             id: `twm-modal-${_modalSeq++}`,
             title,
             icon,
@@ -318,18 +433,57 @@ export function openModal({
             backdropBlur,
             backdropOpacity,
             canMinimize: false,
-            canMaximize: false,
+            // C29. OPT-IN, and `false` is still the default — a confirmation
+            // and a two-field form have nothing to do with the extra room, and
+            // a button that grows a dialog nobody wanted grown is noise in the
+            // one place a user looks for the X. `onMaximize` is deliberately
+            // NOT set: see the C29 note in the header — with nothing claiming
+            // the gesture, `toggleMaximize` runs the rectangle, which is the
+            // only thing maximise can mean for a window with no tile.
+            canMaximize: !!maximizable,
             canResize: true,
             canDrag: true,
             defaultWidth:  width,
             defaultHeight: height,
-            onClose: () => { if (!_resolved) { _resolved = true; resolve(null); } },
+            // Esc, the X and the backdrop all land here without passing through
+            // `close`, so the listener is dropped here as well as there — the
+            // three dismissals a user reaches for most are exactly the ones
+            // that would otherwise leak it.
+            onClose: () => {
+                _dropMaxListener();
+                if (!_resolved) { _resolved = true; resolve(null); }
+            },
         });
         win.show();
+
+        // C29. THE STATE, FOR A CALLER WHOSE LAYOUT DEPENDS ON IT.
+        //
+        // `managed-window-maximized` (C16) is the framework's own edge and it
+        // is global, so it is filtered on the id — the alternative, wrapping
+        // `win.toggleMaximize`, would miss `_restoreState`'s replay of a
+        // persisted maximised window and any consumer calling the method
+        // directly. Removed on close: a dialog is short-lived and twenty of
+        // them over a session leaving listeners behind is a leak with no
+        // symptom until the twenty-first.
+        //
+        // The CSS half needs no listener at all — `ManagedWindow` toggles
+        // `.twm-managed-window--maximized` on its own element, which is an
+        // ancestor of everything in here, so a stylesheet can respond without
+        // any of this. The callback is for the layout a stylesheet cannot
+        // reach: content whose height was fixed by the CALLER's own rules.
+        if (maximizable && typeof onMaximizeChange === 'function') {
+            _onMax = (e) => {
+                if (e.detail?.id !== win.id) return;
+                try { onMaximizeChange(!!e.detail.maximized, bodyInner); }
+                catch (err) { console.warn('[modal] onMaximizeChange threw', err); }
+            };
+            window.addEventListener('managed-window-maximized', _onMax);
+        }
 
         const close = (value) => {
             if (_resolved) return;
             _resolved = true;
+            _dropMaxListener();
             resolve(value);
             try { win.close({ force: true }); } catch {}
         };
@@ -355,16 +509,68 @@ export function openModal({
             close(a.value);
         });
 
+        /**
+         * C27. What `onMount` is handed alongside the body, so a form can keep
+         * its own submit honest without knowing this file's markup.
+         *
+         * Addressed by an action's VALUE rather than its index: an index is a
+         * fact about the order the caller happened to list them in, and a caller
+         * that inserted a "Save and add another" in the middle would silently
+         * start disabling Cancel.
+         */
+        const controls = {
+            // NOT `CSS.escape`. It is a browser global that jsdom does not
+            // provide, and this file is mounted under jsdom by four render
+            // tests — so reaching for it turns "the dialog is valid" into a
+            // ReferenceError in every one of them, and into nothing at all in a
+            // headless consumer. An attribute selector needs `"` and `\`
+            // escaped and nothing else.
+            actionButton: (value) => actionsEl.querySelector(
+                `[data-action-value="${String(value).replace(/["\\]/g, '\\$&')}"]`),
+            setActionEnabled(value, enabled) {
+                const btn = controls.actionButton(value);
+                if (btn) btn.disabled = !enabled;
+                return !!btn;
+            },
+        };
+
         // onMount runs after the next frame so layout has settled and
         // the inner content has a real bounding box for sizing.
         if (typeof onMount === 'function') {
             requestAnimationFrame(() => {
-                try { onMount(bodyInner); } catch (err) { console.warn(err); }
+                try { onMount(bodyInner, controls); } catch (err) { console.warn(err); }
             });
         }
-        // Focus the primary button (or the last action) so Enter
-        // resolves the most-likely intended outcome.
+        // C28. THE FIRST FIELD, IF THERE IS ONE. Otherwise the primary button.
+        //
+        // A dialog that asks for a name should let you type it: *"on any 'new'
+        // dialog I would like to have the first input focused by default, so
+        // that I can directly start typing."* Focusing the action button first
+        // means every new table, project and column begins with a click into a
+        // field that was the only place the caret could sensibly have been.
+        //
+        // The button remains the fallback, which is what keeps Enter useful on
+        // a dialog that asks nothing — a confirmation has no field, and there
+        // the primary action IS the answer.
+        //
+        // DISABLED CONTROLS ARE SKIPPED, and so is anything `readonly`: a form
+        // whose first control is a read-only statement panel (C27's disabled
+        // primary is the sibling case) would swallow the caret into a box that
+        // cannot take it.
         requestAnimationFrame(() => {
+            const field = bodyInner.querySelector(
+                'input:not([type="hidden"]):not([disabled]):not([readonly]),'
+              + ' textarea:not([disabled]):not([readonly]),'
+              + ' select:not([disabled])');
+            if (field) {
+                field.focus();
+                // The caret at the END of whatever is already there, not
+                // selecting it: an edit dialog opens on a value the user means
+                // to amend, and a selected value is one keystroke from gone.
+                try { field.setSelectionRange?.(field.value.length, field.value.length); }
+                catch { /* a `select`, or an input type with no selection */ }
+                return;
+            }
             const idx = acts.findIndex((a) => a.primary);
             const which = idx >= 0 ? idx : acts.length - 1;
             actionsEl.querySelector(`[data-action-idx="${which}"]`)?.focus();

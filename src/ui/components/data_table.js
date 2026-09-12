@@ -7,6 +7,7 @@
  * - Keyboard shortcuts (Ctrl+A, Ctrl+C, Shift+Ctrl+C, Esc)
  * - Context menu (copy as TSV/CSV)
  * - Column sorting (internal or external via callback)
+ * - Column drag-to-resize, and double-click-to-auto-size on the same grip
  * - Per-column filtering (numeric operators, text substring)
  * - Column type detection (numeric/text alignment)
  * - Header icons
@@ -20,6 +21,16 @@
 import { createRafResizeObserver } from '../utils/raf_resize_observer.js';
 
 const DEFAULT_PAGE_SIZE = 100;
+
+/** How wide auto-sizing a column is allowed to make it.
+ *
+ *  520px, which is `_fitColumnWidths`' FIRST_CAP — the most generous ceiling
+ *  this file already sanctions for a single column. Auto-size is an explicit
+ *  gesture asking to see a column's content, so it is not held to the tighter
+ *  360px the automatic fit pass applies to the columns it is squeezing; but it
+ *  is held to SOMETHING, because one 4,000-character note in one cell would
+ *  otherwise produce a column nobody can scroll past. */
+const AUTOSIZE_MAX_PX = 520;
 
 /**
  * Configuration options for DataTable
@@ -53,6 +64,7 @@ const DEFAULT_PAGE_SIZE = 100;
  * @property {boolean} [showExportButton=false] - Adds a "CSV" download button to the pagination strip that invokes `downloadCSV()`.
  * @property {Object} [host] - A Host (see ui/js/host/host.js). Its `dialogs` capability backs `downloadCSV()`'s native save dialog; without it CSV export falls back to a Blob download.
  * @property {Object} [stateStore] - `{ ready(), get(key), set(key, state) }` — REQUIRED when `persistKey` is set. Built by `createTableStateStore()`.
+ * @property {'container'|'content'} [columnFit='container'] - How the automatic fit pass sizes a column the user has NOT dragged. 'container' squeezes every column into the wrap: a 360px cap, a more generous one for the first column, and water-fill-shrink toward the 40px floor when they do not fit. 'content' sizes each column to its own content through the same `_autoWidth` a grip double-click uses (520px cap) and lets the body scroll sideways rather than squeezing. A pinned column is honoured verbatim under both.
  */
 
 export class DataTable {
@@ -104,6 +116,12 @@ export class DataTable {
             // ephemeral. WHERE the store persists is the embedder's business.
             persistKey: null,
             stateStore: null,
+            // How the automatic fit pass sizes an undragged column — see the
+            // typedef. 'container' is exactly what every consumer got before
+            // this key existed, so the default is not a preference: it is the
+            // promise that adding the key changed no existing layout by a
+            // pixel. Only a consumer that asks for 'content' sees anything new.
+            columnFit: 'container',
             ...config,
         };
 
@@ -1620,7 +1638,8 @@ export class DataTable {
      *   - scroll position, because the tbody is not replaced;
      *   - the separately-rendered thead/tbody column widths, because the
      *     explicit widths live on the header cells and on the FIRST body row,
-     *     and are re-applied here when that first row is the one being replaced;
+     *     and all three of the properties `_setCellWidth` writes are re-applied
+     *     here when that first row is the one being replaced;
      *   - selection, because the `selected` class is recomputed from the
      *     selection set rather than carried on the old element;
      *   - keyboard focus, because the focused element's position is recorded
@@ -1658,9 +1677,23 @@ export class DataTable {
             focusedCol = Array.prototype.indexOf.call(tr.children, active.closest('td'));
         }
 
+        // ALL THREE PROPERTIES, not just `width`. `_setCellWidth` writes
+        // `width` together with `min-width: 0` and `max-width: none`, precisely
+        // to escape the CSS floors on these cells (base.css pins the first
+        // column at 120px/min 100px and gives every other column a 80px min).
+        // Carrying the width across the rebuild and leaving the other two behind
+        // let those floors back in — so a column measured narrower than its
+        // floor SNAPPED WIDER the moment one of its cells was repainted, and
+        // under `table-layout: fixed` this row is the column track, so the whole
+        // column moved. In an editable grid that is one visible jump per saved
+        // cell, which is what it looked like to the person doing the saving.
         const isFirstRow = tr === tbody.firstElementChild;
         const widths = isFirstRow
-            ? Array.prototype.map.call(tr.children, (td) => td.style.width)
+            ? Array.prototype.map.call(tr.children, (td) => ({
+                width: td.style.width,
+                minWidth: td.style.minWidth,
+                maxWidth: td.style.maxWidth,
+            }))
             : null;
 
         const showRowNumbers = this.config.showRowNumbers !== false
@@ -1672,8 +1705,12 @@ export class DataTable {
         // here it changes on every update — so the explicit widths have to be
         // carried across the rebuild or the columns jitter.
         if (widths) {
-            widths.forEach((width, i) => {
-                if (width && tr.children[i]) tr.children[i].style.width = width;
+            widths.forEach((saved, i) => {
+                const cell = tr.children[i];
+                if (!saved.width || !cell) return;
+                cell.style.width = saved.width;
+                cell.style.minWidth = saved.minWidth;
+                cell.style.maxWidth = saved.maxWidth;
             });
         }
 
@@ -1681,6 +1718,170 @@ export class DataTable {
 
         if (focusedCol >= 0 && tr.children[focusedCol]) {
             tr.children[focusedCol].focus?.();
+        }
+        return true;
+    }
+
+    /** Sync the (separate) header table's column widths to the body
+     *  table's measured widths. Without this, the two tables compute
+     *  widths independently and the columns drift apart. Locks both
+     *  tables to `table-layout: fixed` and writes explicit width onto
+     *  each header cell of every header row (header + filter row). */
+    /**
+     * Measure every column's NATURAL content width, in one transient reflow.
+     *
+     * Extracted from `_syncHeaderWidths` so that auto-size can ask the same
+     * question the fit pass asks, and get the same answer. Two measurement
+     * passes would drift, and the drift would show as a double-click that
+     * sized a column differently from the render that follows it.
+     *
+     * The pass ignores the CSS caps (the 150px-pinned first column, the 80px
+     * min on the rest) and the filter-row inputs: `twm-dt-measuring` flips both
+     * tables to `table-layout:auto; width:max-content` with those caps off (via
+     * `!important`) for a single reflow, then reverts before paint — it is
+     * never visible. Clearing inline widths first stops the last sync's forced
+     * widths from constraining the measure.
+     *
+     * @returns {number[]|null} width per DOM column index, or null when there
+     *   is nothing laid out to measure.
+     */
+    _measureNaturalWidths() {
+        const headerTable = this._headerTableEl;
+        const bodyTable   = this._tableEl;
+        if (!headerTable || !bodyTable) return null;
+        const firstRow = bodyTable.querySelector('tbody > tr');
+        if (!firstRow) return null;
+        const bodyCells = firstRow.children;
+        if (!bodyCells.length) return null;
+
+        headerTable.querySelectorAll('thead > tr').forEach((tr) => {
+            for (const th of tr.children) this._clearCellWidth(th);
+        });
+        for (const td of bodyCells) this._clearCellWidth(td);
+        headerTable.style.width = '';
+        bodyTable.style.width   = '';
+        headerTable.classList.add('twm-dt-measuring');
+        bodyTable.classList.add('twm-dt-measuring');
+        // Force layout flush so measurements are current.
+        // eslint-disable-next-line no-unused-expressions
+        bodyTable.offsetWidth;
+
+        // Natural width per column = the wider of its header label and its
+        // body content. `max-content` already spans every rendered body
+        // row, so the body cell of the first row reports the whole column.
+        const labelRow = headerTable.querySelector('thead > tr');
+        const cols = bodyCells.length;
+        const natural = new Array(cols);
+        // ── AND CSS `zoom` IS DIVIDED BACK OUT ─────────────────────────
+        //
+        // `getBoundingClientRect()` reports CLIENT pixels, so under a `zoom`
+        // anywhere above this table every width read here comes back multiplied
+        // by that zoom — while `_setCellWidth` writes a plain `width` in the
+        // cell's OWN pixels, which the same zoom then multiplies again. The two
+        // halves of one measure-and-apply loop would be in different units:
+        // measured at 200% a column is pinned twice as wide as its text needs,
+        // and at 50% it is pinned half as wide and every value ellipsises. The
+        // fit pass has the same split, because its `avail` is `clientWidth`,
+        // which is NOT zoom-adjusted.
+        //
+        // `currentCSSZoom` is the effective zoom on this element — 1 when
+        // nothing above it zooms, and `undefined` in an engine that predates
+        // the property — so this is exactly a no-op for every consumer that
+        // does not zoom, which is all of them but the Tables grid.
+        const zoom = bodyTable.currentCSSZoom || 1;
+        for (let i = 0; i < cols; i++) {
+            const body = bodyCells[i].getBoundingClientRect().width / zoom;
+            const head = labelRow && labelRow.children[i]
+                ? labelRow.children[i].getBoundingClientRect().width / zoom
+                : 0;
+            natural[i] = Math.max(body, head);
+        }
+
+        headerTable.classList.remove('twm-dt-measuring');
+        bodyTable.classList.remove('twm-dt-measuring');
+        return natural;
+    }
+
+    /**
+     * Fit one column to its widest visible value and pin it there.
+     *
+     * The gesture is a double-click on the column's resize grip, which is where
+     * every spreadsheet has put it — and the grip is this component's, which is
+     * why the behaviour is too. A consumer that wanted this had no hook to hang
+     * it on: `_installColumnResizers` bound `mousedown` and a `click` that only
+     * suppressed the sort, and the measurement, the pin, the table-width
+     * invariant and the write-through to `stateStore` are all private here.
+     *
+     * @param {number} domIdx column index INCLUDING the row-number column when
+     *   `showRowNumbers` is on — the same index space as `_colWidths`.
+     * @param {{maxWidth?: number}} [opts] ceiling; defaults to AUTOSIZE_MAX_PX.
+     * @returns {boolean} whether it had a layout to measure.
+     */
+    autoSizeColumn(domIdx, opts = {}) {
+        const natural = this._measureNaturalWidths();
+        if (!natural || domIdx < 0 || domIdx >= natural.length) return false;
+        this._colWidths[domIdx] = this._autoWidth(natural[domIdx], opts);
+        this._colWidthsSig = this._colSig();
+        this._savePersisted();
+        this._syncHeaderWidths();
+        return true;
+    }
+
+    /**
+     * The same for every column at once.
+     *
+     * It REPLACES existing drag overrides rather than sizing around them: "fit
+     * every column to its content" that quietly excepted the three columns you
+     * had dragged would be a button whose result depends on history nobody can
+     * see.
+     *
+     * The result may well be wider than the container — forty columns of real
+     * content usually are — and that is the intended answer, not a failure:
+     * `_syncHeaderWidths` honours overrides verbatim, sizes both tables to their
+     * total and the body wrap scrolls sideways with the header following it.
+     * Squeezing them to fit is what the automatic fit pass does on every render
+     * already, so a button that did that would be a button that does nothing.
+     */
+    autoSizeColumns(opts = {}) {
+        const natural = this._measureNaturalWidths();
+        if (!natural) return false;
+        this._colWidths = {};
+        for (let i = 0; i < natural.length; i++) {
+            this._colWidths[i] = this._autoWidth(natural[i], opts);
+        }
+        this._colWidthsSig = this._colSig();
+        this._savePersisted();
+        this._syncHeaderWidths();
+        return true;
+    }
+
+    /** One measured width, floored at the drag-resize minimum and capped, with
+     *  the same sub-pixel pad `_fitColumnWidths` adds against ellipsis. */
+    _autoWidth(natural, opts = {}) {
+        const max = opts.maxWidth ?? AUTOSIZE_MAX_PX;
+        return Math.min(max, Math.max(40, Math.ceil((natural || 0) + 2)));
+    }
+
+    /**
+     * Does every one of the `n` DOM columns already carry an override taken
+     * against the column set that is on screen right now?
+     *
+     * The signature half is not belt-and-braces. `render()` drops `_colWidths`
+     * when `_colSig` changes, but `_syncHeaderWidths` is also reached straight
+     * from the ResizeObserver, which never goes through `render()` — so a set
+     * of overrides measured against the PREVIOUS headers can still be sitting
+     * in `_colWidths` when this is asked. Answering "pinned" then would skip
+     * the measure and hand `_fitColumnWidths` widths keyed to columns that are
+     * no longer there, each one landing on its neighbour.
+     *
+     * `== null` rather than a falsy test, to match `_fitColumnWidths`' own
+     * `overrides[i] != null`: a legitimately-stored 0 must be read the same way
+     * in both places or the two disagree about which columns are flexible.
+     */
+    _allColumnsPinned(n) {
+        if (!n || this._colWidthsSig !== this._colSig()) return false;
+        for (let i = 0; i < n; i++) {
+            if (this._colWidths[i] == null) return false;
         }
         return true;
     }
@@ -1700,42 +1901,25 @@ export class DataTable {
         if (!bodyCells.length) return;
 
         const headerRows = headerTable.querySelectorAll('thead > tr');
-
-        // ── Measure pass: let every column expand to its NATURAL content
-        // width, ignoring the CSS caps (the 150px-pinned first column, the
-        // 80px min on the rest) and the filter-row inputs. `dt-measuring`
-        // flips both tables to `table-layout:auto; width:max-content` with
-        // those caps off (via `!important`) for a single reflow; we read
-        // the widths, then revert. Clearing inline widths first stops the
-        // last sync's forced widths from constraining the measure.
-        headerRows.forEach((tr) => {
-            for (const th of tr.children) this._clearCellWidth(th);
-        });
-        for (const td of bodyCells) this._clearCellWidth(td);
-        headerTable.style.width = '';
-        bodyTable.style.width   = '';
-        headerTable.classList.add('twm-dt-measuring');
-        bodyTable.classList.add('twm-dt-measuring');
-        // Force layout flush so measurements are current.
-        // eslint-disable-next-line no-unused-expressions
-        bodyTable.offsetWidth;
-
-        // Natural width per column = the wider of its header label and its
-        // body content. `max-content` already spans every rendered body
-        // row, so the body cell of the first row reports the whole column.
-        const labelRow = headerTable.querySelector('thead > tr');
-        const cols = bodyCells.length;
-        const natural = new Array(cols);
-        for (let i = 0; i < cols; i++) {
-            const body = bodyCells[i].getBoundingClientRect().width;
-            const head = labelRow && labelRow.children[i]
-                ? labelRow.children[i].getBoundingClientRect().width
-                : 0;
-            natural[i] = Math.max(body, head);
-        }
-
-        headerTable.classList.remove('twm-dt-measuring');
-        bodyTable.classList.remove('twm-dt-measuring');
+        // DO NOT MEASURE WHAT NOTHING WILL READ.
+        //
+        // `_measureNaturalWidths` flips BOTH tables to
+        // `table-layout:auto; width:max-content` with the CSS caps lifted, for
+        // a full synchronous reflow (`.twm-dt-measuring`, css/base.css). This
+        // method is the ResizeObserver's callback, so that reflow fires once
+        // per animation frame for the whole of a splitter drag — and an
+        // embedder that pages a thousand rows at a time across twenty columns
+        // re-lays-out ~20,000 cells per frame for it.
+        //
+        // When every column is pinned, `_fitColumnWidths` reads `natural[i]`
+        // for no `i` at all: each column takes its override verbatim, and the
+        // only thing left that the array supplies is `n`, which is its length.
+        // So zeroes of the right length are not an approximation of the
+        // measurement, they are indistinguishable from it.
+        const natural = this._allColumnsPinned(bodyCells.length)
+            ? new Array(bodyCells.length).fill(0)
+            : this._measureNaturalWidths();
+        if (!natural) return;
 
         // ── Fit pass: turn natural widths into final widths that respect
         // the available space, favour the first column, and cap runaways.
@@ -1743,10 +1927,11 @@ export class DataTable {
         const wrap = this._tableWrapEl;
         const headerWrap = this._headerWrapEl;
         const avail = wrap ? wrap.clientWidth : 0;
-        const firstIdx = this.config.showRowNumbers && cols > 1 ? 1 : 0;
+        const firstIdx = this.config.showRowNumbers && bodyCells.length > 1 ? 1 : 0;
         const widths = this._fitColumnWidths(natural, avail, {
             firstIdx,
             overrides: this._colWidths,
+            fit: this.config.columnFit,
         });
         const total = widths.reduce((a, b) => a + b, 0);
 
@@ -1786,9 +1971,23 @@ export class DataTable {
         // Scrollbar gutter: when the body shows a vertical scrollbar, its
         // content is narrower than the wrap by `scrollbarW`. The header
         // wrap has no scrollbar, so pad it on the right to match.
+        //
+        // C29b. AND THE SAME NUMBER IS PUBLISHED AS A CUSTOM PROPERTY, because
+        // padding does not help the one thing C29 was for. A `position: sticky`
+        // cell pins to its scroll container's SCROLLPORT, and the scrollport of
+        // a box with a classic scrollbar excludes that scrollbar while padding
+        // is inside it — so `right: 0` in the body pins `sbw` px to the LEFT of
+        // `right: 0` in the header, and a pinned trailing column would sit
+        // visibly out of line with its own heading. There is nothing a
+        // stylesheet can measure this from: it is the platform's scrollbar
+        // width, known here and nowhere else. Written on the WRAPPER rather
+        // than either box so a consumer's rule can read it from whichever of
+        // the two it is styling, and written on every sync because a scrollbar
+        // appears and disappears with the row count.
         if (wrap && headerWrap) {
             const sbw = Math.max(0, wrap.offsetWidth - wrap.clientWidth);
             headerWrap.style.paddingRight = sbw ? `${sbw}px` : '';
+            this._wrapperEl?.style?.setProperty('--twm-dt-gutter', `${sbw}px`);
         }
 
         // Keep the header aligned with the body's current horizontal
@@ -1814,9 +2013,17 @@ export class DataTable {
      *    the rest (trim the widest first) until it fits; only if even the
      *    floors overflow do we give up and let the body scroll sideways.
      *
+     * Under `fit: 'content'` the first and last of those goals invert: each
+     * unpinned column asks for its own content width through the same
+     * `_autoWidth` the grip double-click uses, and an overflow is the answer
+     * rather than a problem — the caller wanted a table that scrolls sideways,
+     * not one squeezed toward the floor. The grow-to-fill branch is shared by
+     * both, because a table narrower than its container leaves a dead gap on
+     * the right under either reading.
+     *
      * @param {number[]} natural  measured content width per column (px)
      * @param {number}   avail    usable width of the body wrap (px)
-     * @param {{firstIdx?:number, overrides?:Object}} [opts]
+     * @param {{firstIdx?:number, overrides?:Object, fit?:'container'|'content'}} [opts]
      * @returns {number[]} final width per column (px)
      */
     _fitColumnWidths(natural, avail, opts = {}) {
@@ -1828,6 +2035,10 @@ export class DataTable {
         const n = natural.length;
         const firstIdx = opts.firstIdx ?? 0;
         const overrides = opts.overrides || {};
+        // Anything that is not the literal opt-in is the historical behaviour.
+        // Read once, so an embedder that passes a typo gets the old layout
+        // rather than half of each.
+        const toContent = opts.fit === 'content';
 
         // Desired (pre-fit) width per column. Pinned columns take their
         // override verbatim and sit out the grow/shrink redistribution.
@@ -1837,6 +2048,20 @@ export class DataTable {
             if (overrides[i] != null) {
                 desired[i] = Math.max(FLOOR, Math.round(overrides[i]));
                 pinned[i] = true;
+                continue;
+            }
+            if (toContent) {
+                // THE SAME CALL THE GRIP DOUBLE-CLICK MAKES — `autoSizeColumn`
+                // → `_autoWidth` — and deliberately not a second arithmetic
+                // that happens to agree with it today. Two width formulas
+                // drift, and the drift shows up as a column that jumps the
+                // first time anyone double-clicks its grip.
+                //
+                // FIRST_CAP has nothing to say here. It exists to favour one
+                // column while the others are being squeezed; under a content
+                // fit nothing is being squeezed, so there is no column to
+                // favour and every one of them is held to the same ceiling.
+                desired[i] = this._autoWidth(natural[i]);
                 continue;
             }
             const cap = i === firstIdx ? FIRST_CAP : CAP;
@@ -1869,6 +2094,15 @@ export class DataTable {
             }
             return widths;
         }
+
+        // OVERFLOW IS THE ANSWER UNDER A CONTENT FIT, not a case to recover
+        // from. Everything below squeezes the unprotected columns toward the
+        // 40px floor so that forty columns can be made to fit a pane — which is
+        // precisely the outcome `columnFit: 'content'` opted out of. Handing
+        // back the content widths lets the caller's `total > avail + 1` test
+        // size both tables to the total, and the body wrap then scrolls
+        // sideways with the header following it.
+        if (toContent) return widths;
 
         // Overflow: protect the first column + pinned columns, water-fill
         // the rest down toward the floor.
@@ -1930,8 +2164,9 @@ export class DataTable {
 
     /** Wire the body wrap's horizontal scroll to the header. The header
      *  sits in an overflow:hidden wrap, so it can't scroll sideways on
-     *  its own — translate it by the body's scrollLeft. Re-installed each
-     *  render against the freshly-built wrap. */
+     *  its own — `_syncHeaderScroll` scrolls it programmatically to the
+     *  body's `scrollLeft`. Re-installed each render against the freshly-built
+     *  wrap. */
     _installHeaderScrollSync() {
         const wrap = this._tableWrapEl;
         if (!wrap) return;
@@ -1944,14 +2179,58 @@ export class DataTable {
         this._syncHeaderScroll();
     }
 
-    /** Translate the header table to match the body's horizontal scroll
-     *  so the columns stay aligned when the table overflows sideways. */
+    /**
+     * Scroll the header wrap to match the body's horizontal scroll so the
+     * columns stay aligned when the table overflows sideways.
+     *
+     * ══ C29. A TRANSFORM IS WHAT MAKES A STICKY COLUMN IMPOSSIBLE ═══════
+     *
+     * This wrote `headerTable.style.transform = translateX(-scrollLeft)`. It
+     * aligns the two tables perfectly and it forecloses `position: sticky`
+     * entirely, because the two halves of the table then pin against different
+     * things: a sticky cell in the BODY pins to the body wrap's scrollport,
+     * while its header counterpart is moved by a transform inside a box that
+     * never scrolls at all. Scroll sideways and the pinned body column stands
+     * still while its header slides away with everything else — so a table
+     * with a trailing verb column (the row-actions column Tables needs pinned
+     * to the right edge) can have a sticky body or an aligned header, never
+     * both. A transform also establishes a containing block for fixed/sticky
+     * descendants, which breaks the header cell independently of the offset.
+     *
+     * AN `overflow: hidden` BOX IS STILL A SCROLL CONTAINER. It has no
+     * scrollbar and no user affordance, and `scrollLeft` moves it exactly like
+     * any other. Scrolling the wrap rather than transforming its child gives
+     * the header a real scrollport at the same offset as the body's, which is
+     * the one arrangement in which a sticky cell on each side pins to the same
+     * place. Identical for ordinary content: same pixels, no transform, no new
+     * containing block.
+     *
+     * THE CLAMP IS ALREADY PAID FOR. A scroll container clamps `scrollLeft` to
+     * `scrollWidth - clientWidth`, and the body wrap carries a vertical
+     * scrollbar the header wrap does not — so the header would clamp short by
+     * the scrollbar width and desync at the far right. `_syncHeaderWidths`
+     * already pads the header wrap by exactly that gutter (`paddingRight`,
+     * :1905), and end padding counts toward `scrollWidth`, so the two maxima
+     * coincide. The residual below is the honest belt for the day some engine
+     * disagrees about that: it is zero in the ordinary case, so the transform
+     * is not set and sticky keeps working, and it is the difference rather
+     * than the whole offset if it is ever not.
+     */
     _syncHeaderScroll() {
         const wrap = this._tableWrapEl;
         const headerTable = this._headerTableEl;
         if (!wrap || !headerTable) return;
         const x = wrap.scrollLeft;
-        headerTable.style.transform = x ? `translateX(${-x}px)` : '';
+        const headerWrap = this._headerWrapEl;
+        if (!headerWrap) {
+            // No wrap to scroll — a consumer that built the header some other
+            // way still gets the behaviour it always had.
+            headerTable.style.transform = x ? `translateX(${-x}px)` : '';
+            return;
+        }
+        headerWrap.scrollLeft = x;
+        const residual = x - headerWrap.scrollLeft;
+        headerTable.style.transform = residual ? `translateX(${-residual}px)` : '';
     }
 
     /** Drag-to-resize: hang a thin grab handle off the right edge of
@@ -1971,6 +2250,15 @@ export class DataTable {
                 (ev) => this._beginColResize(ev, domIdx));
             // Keep a resize gesture from registering as a sort click.
             grip.addEventListener('click', (ev) => ev.stopPropagation());
+            // Double-click the grip: fit the column to its content. The gesture
+            // every spreadsheet has, on the affordance it has always been on.
+            // Stopped as well as prevented, or a consumer that opens a column
+            // menu from the header (Tables does) opens it on the way past.
+            grip.addEventListener('dblclick', (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                this.autoSizeColumn(domIdx);
+            });
             th.appendChild(grip);
         });
     }

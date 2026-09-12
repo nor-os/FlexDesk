@@ -21,6 +21,9 @@ export class TileGrid {
      * @param {Function} [options.onAddWidget] - Callback for add widget action
      * @param {Function} [options.onResetLayout] - Callback for reset layout action
      * @param {Function} [options.onExport] - Callback for export action
+     * @param {{resolve: Function}} [options.dataSource] - Per-tile data provider,
+     *        handed to every tile. With none, the grid is the broadcast-only grid
+     *        it has always been and no tile is ever asked to load anything.
      */
     constructor({ container, columns = 12, rowHeight = 80, gap = 16, eventBus = null,
                   showToolbar = true, readonly = false, onLayoutChange, onBeforeLayoutChange,
@@ -29,9 +32,13 @@ export class TileGrid {
                   // ui/js/ecoagent/ to back Expand -> Export CSV/PNG; a grid that has
                   // no host simply gets the Blob-download fallback the host contract
                   // promises. It is not an error to have none.
-                  host = null, stateGuard = null }) {
+                  host = null, stateGuard = null,
+                  // Injected, never constructed here: the grid does not know what
+                  // a binding is, only that a tile may have somewhere to ask.
+                  dataSource = null }) {
         this.host = host;
         this.stateGuard = stateGuard;
+        this.dataSource = dataSource;
         this.container = container;
         this.columns = columns;
         this.rowHeight = rowHeight;
@@ -181,6 +188,7 @@ export class TileGrid {
             readonly: this.readonly,
             host: this.host,
             stateGuard: this.stateGuard,
+            dataSource: this.dataSource,
         });
 
         if (!tile) return null;
@@ -211,6 +219,14 @@ export class TileGrid {
         if (this.data) {
             tile.fullData = this.fullData;
             tile.update(this.data);
+        } else if (this.dataSource) {
+            // A tile that fetches its own rows is never handed any, so the branch
+            // above cannot fire for it and it would mount empty and stay empty
+            // until something else happened to it. NOT awaited: `setLayout` calls
+            // `addTile` in a loop, and awaiting here would serialise a board into
+            // one request per tile in sequence — the opposite of what a batching
+            // data source exists to do.
+            tile.loadData?.();
         }
 
         // Emit layout changed
@@ -245,6 +261,31 @@ export class TileGrid {
         this.tiles.forEach(tile => {
             tile.fullData = this.fullData;
             tile.update(data);
+        });
+    }
+
+    /**
+     * Ask every self-fetching tile to load again, bypassing whatever the data
+     * source has cached.
+     *
+     * The counterpart of `setData` for the pull model: `setData` is how a caller
+     * with one dataset for the whole board pushes it, and this is how a caller
+     * whose tiles each own a query says "that underlying data changed". Passing
+     * `ids` narrows it to the tiles a change actually touched, which is what an
+     * invalidation carrying a table id can work out and a broadcast cannot.
+     *
+     * Not awaited and returns nothing: the tiles render themselves as their own
+     * requests land, and a caller that waited for all of them would be waiting on
+     * the slowest tile to show the fastest one.
+     *
+     * @param {string[]|Set<string>|null} [ids] - Tile ids, or null for all.
+     */
+    reloadAll(ids = null) {
+        if (!this.dataSource) return;
+        const wanted = ids ? new Set(ids) : null;
+        this.tiles.forEach((tile, tileId) => {
+            if (wanted && !wanted.has(tileId)) return;
+            tile.loadData?.({ force: true });
         });
     }
 
@@ -560,6 +601,12 @@ export class TileGrid {
                 if (this.data) {
                     state.tile.fullData = this.fullData;
                     state.tile.update(this.data);
+                } else if (this.dataSource) {
+                    // Re-rendering from a dataset already in hand is free; asking
+                    // the server again because a tile got 40 px wider is not. A
+                    // self-fetching tile is told the geometry settled and decides
+                    // what that costs it — for a chart, one `Plotly.Plots.resize`.
+                    state.tile.onResize?.();
                 }
             }
         }
@@ -771,6 +818,10 @@ export class TileGrid {
                 if (tile) {
                     tile.fullData = this.fullData;
                     tile.update(this.data, newConfig);
+                    // A saved config is usually a changed BINDING, and the data
+                    // source's cache is keyed by the old one — so this is the one
+                    // reload that must not be served from it.
+                    if (this.dataSource) tile.loadData?.({ force: true });
                     // Update layout config
                     const layoutItem = this.layout.find(l => l.id === tileId);
                     if (layoutItem) {

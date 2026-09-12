@@ -80,6 +80,10 @@ export class AutocompleteField {
         this._activeIndex = -1;
         this._isOpen = false;
         this._disposers = [];
+        // Every call to the provider is numbered. See `#updateSuggestions`: a
+        // provider that answers over the network answers out of order, and the
+        // reply to "No" must not be allowed to overwrite the reply to "North".
+        this._suggestSeq = 0;
     }
 
     getValue() {
@@ -431,23 +435,67 @@ export class AutocompleteField {
     #updateSuggestions() {
         // Pass the fragment (variable part) for filtering, not the full composed value
         const fragment = this.#getInputFragment();
+
+        // A PROVIDER MAY ANSWER LATER THAN IT WAS ASKED.
+        //
+        // This used to require the answer synchronously — `provider(...) || []`
+        // straight into `Array.isArray`, so a provider that returned a promise
+        // produced an empty list and a dropdown that closed on every keystroke.
+        // That ruled out the entire class of completion source that lives on a
+        // server, which is most of them outside a single-page simulation: a
+        // table's rows, a query's result set, an index's matches.
+        //
+        // A provider that answers synchronously still takes the synchronous
+        // path, unchanged and untouched, so nothing that works today changes.
+        // A provider that hands back a thenable is awaited, and the reply is
+        // used only if it is the reply to the most recent question — typing
+        // "North" fires five requests and the network is free to answer them in
+        // any order, so without the sequence number the list can settle on the
+        // matches for "Nor".
+        const request = ++this._suggestSeq;
+        let produced;
         try {
-            const items = this.provider({ 
-                value: fragment, 
-                scope: this.scope, 
-                namespace: this.selectedNamespace 
-            }) || [];
-            this._items = Array.isArray(items) ? items : [];
-            this._activeIndex = items.length > 0 ? 0 : -1;
-            this.#renderDropdown();
-            if (items.length > 0) {
-                this.#open();
-            } else {
-                this.#close();
-            }
+            produced = this.provider({
+                value: fragment,
+                scope: this.scope,
+                namespace: this.selectedNamespace
+            });
         } catch (err) {
             this.logger?.warn?.('autocomplete', 'Provider error', { err });
             this._items = [];
+            this.#close();
+            return;
+        }
+
+        if (produced && typeof produced.then === 'function') {
+            produced.then(
+                (items) => {
+                    if (request !== this._suggestSeq) return;
+                    this.#applySuggestions(items);
+                },
+                (err) => {
+                    this.logger?.warn?.('autocomplete', 'Provider error', { err });
+                    if (request !== this._suggestSeq) return;
+                    this._items = [];
+                    this.#close();
+                }
+            );
+            return;
+        }
+
+        this.#applySuggestions(produced);
+    }
+
+    /** Draw whatever the provider produced. Split out of `#updateSuggestions`
+     *  so the synchronous and the awaited paths cannot drift apart. */
+    #applySuggestions(produced) {
+        const items = Array.isArray(produced) ? produced : [];
+        this._items = items;
+        this._activeIndex = items.length > 0 ? 0 : -1;
+        this.#renderDropdown();
+        if (items.length > 0) {
+            this.#open();
+        } else {
             this.#close();
         }
     }
@@ -714,6 +762,10 @@ export class AutocompleteField {
     }
 
     dispose() {
+        // Retire the outstanding question first. An awaited provider can answer
+        // after the field is gone, and `#applySuggestions` would then paint into
+        // a dropdown that has been removed and nulled.
+        this._suggestSeq += 1;
         // Close dropdown before cleanup
         this.#close();
         this._disposers.forEach((fn) => {

@@ -64,7 +64,38 @@ import { openForm } from '../ui/components/modal.js';
  * @param {object}     [cfg.tableStore] threaded into ctx for table persistence
  * @param {object}     [cfg.events]     bus-event NAMES the WM listens for
  * @param {object}     [cfg.rootCrumb]  the breadcrumb's leading segment
- * @param {object}     [cfg.palette]    { placeholder }
+ * @param {object}     [cfg.palette]    { placeholder, onPick } — C30. `onPick`
+ *                                      is `(pick) => truthy` and CLAIMS the
+ *                                      open of a picked entity, so an embedder
+ *                                      with a rule about where its own entities
+ *                                      belong applies that rule whichever door
+ *                                      was used. Unclaimed picks still reset
+ *                                      the primary tile: the behaviour every
+ *                                      embedder has today.
+ * @param {object}     [cfg.panels]     C14. Which panel TILES a fresh desktop
+ *                                      opens with — `{left, right, bottom}`,
+ *                                      merged over all-three-open. An embedder
+ *                                      whose navigator is its own chrome passes
+ *                                      `{left: false, right: false}` and gets no
+ *                                      tile it never registered a factory for.
+ * @param {boolean}    [cfg.promoteInPlace] C21. Whether a window promoted out
+ *                                      of a tile stays confined to that pane
+ *                                      rather than floating over the whole root.
+ * @param {boolean}    [cfg.snapPromotion] C15. Whether dragging a promoted
+ *                                      window onto a tile puts it back in the
+ *                                      tree. Default off — it changes what a
+ *                                      drag to an edge does.
+ * @param {'top'|'bottom'} [cfg.tabLayout] C22. Where a multi-tab leaf draws its
+ *                                      tabs. `'bottom'` is the framework's own
+ *                                      spreadsheet strip under the tile body
+ *                                      and is the DEFAULT, so no existing
+ *                                      embedder's panes rearrange on upgrade;
+ *                                      `'top'` mounts the editor tab bar
+ *                                      between the chrome and the body. The
+ *                                      renderer mirrors this onto `root` as
+ *                                      `data-twm-tabs` and watches it, so an
+ *                                      embedder whose settings pane holds only
+ *                                      the root element can change it live.
  * @param {object}     [cfg.chrome]     { topNav?, paletteButton?, desktops?,
  *                                        panelToggles?: { left?, right?, bottom? } }
  * @returns {Promise<object>} the frozen shell
@@ -82,6 +113,10 @@ export async function createShell({
     events = {},
     rootCrumb = null,
     palette: paletteCfg = {},
+    panels = null,
+    snapPromotion = false,
+    promoteInPlace = false,
+    tabLayout = null,
     chrome = {},
     // An embedder that moved its sections out of the top bar — into an icon
     // rail, say — passes the selector its own buttons match, and F1..F8 keep
@@ -119,6 +154,10 @@ export async function createShell({
         host,
         taxonomy,
         events,
+        panelDefaults: panels,
+        snapPromotion,
+        promoteInPlace,
+        tabLayout,
         // `ctx` is the delivery vehicle for leaf-mounted chrome: tile_renderer
         // spreads it into every content factory, which is how the breadcrumb
         // gets `taxonomy` + `rootCrumb` without a content factory knowing they
@@ -139,7 +178,7 @@ export async function createShell({
     // `navSelector` lets an embedder that moved its sections out of the top
     // bar keep F1..F8 working. Omitted, the default top-bar selector applies —
     // the behaviour every existing embedder has today.
-    installKeymap({ wm, palette, navSelector });
+    const disposeKeymap = installKeymap({ wm, palette, navSelector });
 
     // Chrome — painted into the ELEMENTS the embedder handed over. An absent
     // key means absent chrome, not a crash.
@@ -173,8 +212,23 @@ export async function createShell({
             desktopsEl,
             panelToggles: toggles,
         }),
+        // A shell that can be built can be built TWICE — an embedder that
+        // rebuilds on a context change (a different project, a different
+        // workspace) does exactly that. Everything this function installs
+        // outside `root` has to come off, or the second shell shares the page
+        // with the first one's keyboard.
         dispose: () => {
             try { eventBus?.off?.('wm:changed', syncChrome); } catch { /* ignore */ }
+            try { disposeKeymap?.(); } catch { /* ignore */ }
+            try { palette?.close?.(); } catch { /* ignore */ }
+            // Every content factory gets its `destroy()`. Clearing the root
+            // element would detach the DOM and tell none of them, so an ERD's
+            // `window` keydown listener or a pane's interval would outlive the
+            // shell that mounted it. This also stops the renderer painting, so
+            // anything still holding a reference to this wm — a callback
+            // captured before a rebuild, a promise that has not settled —
+            // cannot repaint a dead tree into a root the live shell now owns.
+            try { wm.renderer.destroy(); } catch (err) { log.warn?.('renderer teardown', err); }
         },
     });
 }
@@ -224,10 +278,23 @@ function syncTopNav(hostEl, wm) {
     });
 }
 
+/**
+ * The palette button, REBOUND rather than reused.
+ *
+ * This used to return an existing `#twm-palette-btn` untouched, which is right
+ * only while a page mounts one shell and keeps it. An embedder that rebuilds
+ * its shell — Tables does, on every project switch — got its FIRST shell's
+ * button back, still wired to the FIRST shell's palette. Clicking it opened a
+ * palette over a disposed window manager, and picking a result called
+ * `openInPrimary` on a tree nobody could see, whose renderer then painted it
+ * into the root the live shell now owns.
+ *
+ * So the stale node is replaced, which is exactly what `bindPanelToggles` does
+ * one function below and for the same reason.
+ */
 function mountPaletteButton(hostEl, palette) {
     if (!hostEl) return null;
-    const existing = hostEl.querySelector('#twm-palette-btn');
-    if (existing) return existing;
+    hostEl.querySelector('#twm-palette-btn')?.remove();
     const btn = document.createElement('button');
     btn.id = 'twm-palette-btn';
     btn.className = 'twm-panel-toggle-btn twm-has-tooltip';
@@ -408,10 +475,36 @@ function _tileContextMenu(wm, leafId, x, y) {
         { separator: true },
         { label: 'Open in new tab',    icon: 'tab',
           action: 'open-tab',    disabled: isPanel || !leaf.content },
-        { label: 'Open in new window', icon: 'open_in_full',
+        // TWO DIFFERENT GLYPHS FOR TWO DIFFERENT DESTINATIONS. `web_asset` is a
+        // window INSIDE the application — the same glyph `ManagedWindow` uses
+        // for itself — and an embedder that can also send content to a real
+        // browser window keeps `open_in_new`, which is the universal "this
+        // leaves the page". One glyph for both is how a user learns that the
+        // two commands are the same command, and then loses a window looking
+        // for it on the other screen.
+        { label: 'Open a copy in a window', icon: 'web_asset',
           action: 'open-window', disabled: isPanel || !leaf.content },
-        { label: 'Promote to window', icon: 'open_in_new',
-          action: 'promote', disabled: isPanel || !leaf.content },
+        // C20, THE OTHER HALF — and it was missing while the `close` half
+        // below carried a paragraph explaining why it could not be.
+        //
+        // `_floatableLeaf` (`wm.js`) refuses to float content that declared
+        // `chrome: { promote: false }`, and every door converges there — so
+        // this row offered the verb, enabled, and returned null. The chrome's
+        // own float BUTTON does not have the problem: C20 removes it from the
+        // strip. That asymmetry is what hid this: the affordance the reader
+        // checks is correct, and the menu one layer down is not.
+        //
+        // `=== false` EXACTLY, because that is the test the verb makes
+        // (`wm.js`, `_floatableLeaf`: *"content that says nothing about
+        // `promote` stays floatable"*). A falsy test here would grey the row
+        // on every leaf whose content returned no `chrome` at all, which is
+        // most of them — a menu disagreeing with its verb in the generous
+        // direction is a dead control; in the mean direction it is a missing
+        // feature, and this file has shipped one of each.
+        { label: 'Float this pane as a window', icon: 'web_asset',
+          action: 'promote',
+          disabled: isPanel || !leaf.content
+                    || wm.renderer?.leafChrome?.(leafId)?.promote === false },
     ];
     if (wm.desktops.desktops.length > 1 && !isPanel) {
         for (const [i, d] of wm.desktops.desktops.entries()) {
@@ -421,8 +514,19 @@ function _tileContextMenu(wm, leafId, x, y) {
         }
     }
     items.push({ separator: true });
+    // C20. THE MENU ROW CARRIES THE VETO, AND THE REASON WITH IT.
+    //
+    // `closeFocused` refuses when the content vetoed `close`, which is what
+    // makes the greyed × in the chrome honest — and left this row offering the
+    // same verb, enabled, doing nothing. A control that silently no-ops is the
+    // dead-control failure this file has fixed three times already. The
+    // tooltip is the content's own sentence, so the two doors explain the
+    // refusal identically rather than one explaining it and one not.
+    const closeVeto = wm.renderer?.leafChrome?.(leafId)?.close;
+    const closeVetoed = closeVeto === false || closeVeto?.disabled === true;
     items.push({ label: 'Close tile', icon: 'close', action: 'close',
-                 danger: true, disabled: isPanel });
+                 danger: true, disabled: isPanel || closeVetoed,
+                 title: closeVetoed ? (closeVeto?.title || undefined) : undefined });
 
     showContextMenu(x, y, items, (action) => {
         if (action === 'split-h') wm.split('h');

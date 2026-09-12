@@ -1,10 +1,10 @@
 import {
   DataTable,
   createRafResizeObserver
-} from "./chunk-L3RCBU2W.js";
+} from "./chunk-QIU5S2RU.js";
 import {
   ManagedWindow
-} from "./chunk-WA3HOXGR.js";
+} from "./chunk-LH5TSOZW.js";
 
 // src/charts/plotly_wrapper.js
 var _plotlySrc = null;
@@ -121,28 +121,94 @@ async function ensurePlotly() {
       '[twm/charts] Plotly is not loaded and no source is configured. Either load Plotly yourself (a <script> tag that sets window.Plotly), or call setPlotlySource("/path/to/plotly.min.js") before rendering a chart.'
     );
   }
-  _plotlyLoadPromise = new Promise((resolve, reject) => {
+  _plotlyLoadPromise = (async () => {
+    let code;
+    try {
+      const response = await fetch(_plotlySrc, { credentials: "same-origin" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      code = await response.text();
+    } catch (err) {
+      return loadThroughMaskedDefine();
+    }
+    return evaluateWithoutAmd(code, _plotlySrc);
+  })();
+  return _plotlyLoadPromise;
+}
+function evaluateWithoutAmd(code, src) {
+  const run = new Function(
+    "define",
+    "module",
+    "exports",
+    `${code}
+//# sourceURL=${src}`
+  );
+  run(void 0, void 0, void 0);
+  if (typeof Plotly === "undefined") {
+    throw new Error(`Plotly.js was evaluated from ${src} but did not define a Plotly global \u2014 the file may not be a Plotly UMD bundle.`);
+  }
+  return Plotly;
+}
+function loadThroughMaskedDefine() {
+  return new Promise((resolve, reject) => {
+    const hadDefine = "define" in window;
     const savedDefine = window.define;
-    window.define = void 0;
+    let arrivedDefine;
+    let arrived = false;
+    let guarded = false;
+    const maskAmd = (value) => {
+      if (typeof value !== "function") return void 0;
+      const masked = function define(...args) {
+        return value.apply(this, args);
+      };
+      for (const key of Object.getOwnPropertyNames(value)) {
+        if (key === "amd" || key === "length" || key === "name") continue;
+        try {
+          masked[key] = value[key];
+        } catch {
+        }
+      }
+      masked.amd = void 0;
+      return masked;
+    };
+    try {
+      Object.defineProperty(window, "define", {
+        configurable: true,
+        enumerable: true,
+        get: () => maskAmd(arrived ? arrivedDefine : savedDefine),
+        set: (value) => {
+          arrivedDefine = value;
+          arrived = true;
+        }
+      });
+      guarded = true;
+    } catch {
+      window.define = void 0;
+    }
+    const release = () => {
+      const value = arrived ? arrivedDefine : savedDefine;
+      if (guarded) {
+        delete window.define;
+        guarded = false;
+      }
+      if (arrived || hadDefine) window.define = value;
+    };
     const script = document.createElement("script");
     script.src = _plotlySrc;
     script.async = true;
     script.onload = () => {
-      window.define = savedDefine;
+      release();
       if (typeof Plotly !== "undefined") {
-        console.log("[PlotlyWrapper] Plotly.js loaded successfully");
         resolve(Plotly);
       } else {
-        reject(new Error("Plotly.js loaded but Plotly global not found"));
+        reject(new Error("Plotly.js loaded but Plotly global not found. Something defined an AMD loader while it was loading, so Plotly registered as a module instead of a global."));
       }
     };
     script.onerror = () => {
-      window.define = savedDefine;
+      release();
       reject(new Error(`Failed to load Plotly.js from ${_plotlySrc} \u2014 call setPlotlySource() with the path to your copy.`));
     };
     document.head.appendChild(script);
   });
-  return _plotlyLoadPromise;
 }
 async function createChart(container, data, layout = {}, config = {}) {
   const Plotly2 = await ensurePlotly();
@@ -278,7 +344,16 @@ var CHART_TYPES_2D = Object.freeze([
   { value: "scatter", label: "Scatter" },
   { value: "area", label: "Area" },
   { value: "area-stacked", label: "Area (Stacked %)" },
-  { value: "phase", label: "Phase" }
+  { value: "phase", label: "Phase" },
+  // Categorical part-of-whole. They belong in this list because the list is
+  // what a consumer renders as its chart-type dropdown — but they are NOT
+  // (x[], y[]) charts, and `buildTrace` leaves for them before the switch:
+  // read the early return there before adding a fourth. `indicator` is
+  // deliberately NOT here, because it takes a SCALAR — a dropdown offering it
+  // beside these would offer a rendering of data the chart is not bound to.
+  { value: "pie", label: "Pie" },
+  { value: "donut", label: "Donut" },
+  { value: "funnel", label: "Funnel" }
 ]);
 var CHART_TYPES_3D = Object.freeze([
   { value: "scatter3d", label: "3D Scatter" },
@@ -316,9 +391,39 @@ function buildTrace(options) {
     yAxisId = "y",
     showMarkers = false,
     seriesIndex = 0,
-    stackGroup = null
+    stackGroup = null,
+    colors = null
   } = options;
   const seriesColor = color || getSeriesColor(seriesIndex);
+  if (chartType === "pie" || chartType === "donut" || chartType === "funnel") {
+    const sliceColors = Array.isArray(colors) && colors.length ? colors : y.map((_, i) => getSeriesColor(i));
+    if (chartType === "funnel") {
+      return {
+        type: "funnel",
+        name,
+        y: x,
+        // stages read down the categorical axis
+        x: y,
+        // ...and the measure runs across
+        marker: { color: sliceColors },
+        textinfo: "value+percent initial"
+      };
+    }
+    return {
+      type: "pie",
+      name,
+      labels: x,
+      values: y,
+      marker: { colors: sliceColors },
+      // Plotly sorts slices descending by default. The caller has
+      // already ordered its rows — a dashboard binding carries its own
+      // `sort` — and a second, invisible reordering here makes the chart
+      // disagree with the table beside it and with the config that
+      // produced both.
+      sort: false,
+      ...chartType === "donut" ? { hole: 0.55 } : {}
+    };
+  }
   let plotlyType, mode;
   switch (chartType) {
     case "line":
@@ -748,6 +853,56 @@ function buildHeatmapTrace(options) {
   };
   if (x) trace.x = x;
   if (y) trace.y = y;
+  return trace;
+}
+var DELTA_UP = "#859900";
+var DELTA_DOWN = "#dc322f";
+function buildIndicatorTrace(options) {
+  const {
+    value,
+    min = 0,
+    max = null,
+    title = "",
+    steps = null,
+    threshold = null,
+    color = null,
+    seriesIndex = 0,
+    delta = null
+  } = options;
+  const hasGauge = typeof max === "number" && Number.isFinite(max);
+  const deltaSpec = typeof delta === "number" ? { reference: delta } : delta && typeof delta === "object" ? delta : null;
+  const parts = ["number"];
+  if (hasGauge) parts.unshift("gauge");
+  if (deltaSpec) parts.push("delta");
+  const trace = {
+    type: "indicator",
+    mode: parts.join("+"),
+    value
+  };
+  if (title) trace.title = { text: title };
+  if (deltaSpec) {
+    trace.delta = {
+      reference: deltaSpec.reference,
+      relative: deltaSpec.relative === true,
+      increasing: { color: deltaSpec.increasing || DELTA_UP },
+      decreasing: { color: deltaSpec.decreasing || DELTA_DOWN }
+    };
+  }
+  if (hasGauge) {
+    trace.gauge = {
+      axis: { range: [min, max] },
+      bar: { color: color || getSeriesColor(seriesIndex) }
+    };
+    if (Array.isArray(steps) && steps.length) trace.gauge.steps = steps;
+    if (threshold !== null && threshold !== void 0) {
+      const t = typeof threshold === "number" ? { value: threshold } : threshold;
+      trace.gauge.threshold = {
+        line: { color: t.color || DELTA_DOWN, width: t.width ?? 3 },
+        thickness: t.thickness ?? 0.9,
+        value: t.value
+      };
+    }
+  }
   return trace;
 }
 
@@ -2204,6 +2359,7 @@ export {
   buildHistogramTrace,
   buildBoxTrace,
   buildHeatmapTrace,
+  buildIndicatorTrace,
   uid,
   applyNanHandling,
   PLOT_LAYOUTS,
@@ -2214,4 +2370,4 @@ export {
   openPlotPopoutWindow,
   openRawTracesWindow
 };
-//# sourceMappingURL=chunk-SQZ5F5GY.js.map
+//# sourceMappingURL=chunk-XKDTIT4Q.js.map

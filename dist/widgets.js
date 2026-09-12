@@ -7,22 +7,24 @@ import {
   helpCopy,
   helpProvider,
   hideContextMenu,
+  modalHost,
   openConfirm,
   openForm,
   openModal,
   setHelpProvider,
+  setModalHost,
   showContextMenu
-} from "./chunk-NBCHDAYC.js";
+} from "./chunk-ELXVW542.js";
 import {
   ActionDropdown
-} from "./chunk-TLZUUFOE.js";
+} from "./chunk-O5OHMWBB.js";
 import {
   DataTable,
   createRafResizeObserver
-} from "./chunk-L3RCBU2W.js";
+} from "./chunk-QIU5S2RU.js";
 import {
   ManagedWindow
-} from "./chunk-WA3HOXGR.js";
+} from "./chunk-LH5TSOZW.js";
 import {
   getSetting
 } from "./chunk-FL5KFNQH.js";
@@ -1113,6 +1115,7 @@ var AutocompleteField = class {
     this._activeIndex = -1;
     this._isOpen = false;
     this._disposers = [];
+    this._suggestSeq = 0;
   }
   getValue() {
     return this.#composeValue();
@@ -1402,23 +1405,47 @@ var AutocompleteField = class {
   }
   #updateSuggestions() {
     const fragment = this.#getInputFragment();
+    const request = ++this._suggestSeq;
+    let produced;
     try {
-      const items = this.provider({
+      produced = this.provider({
         value: fragment,
         scope: this.scope,
         namespace: this.selectedNamespace
-      }) || [];
-      this._items = Array.isArray(items) ? items : [];
-      this._activeIndex = items.length > 0 ? 0 : -1;
-      this.#renderDropdown();
-      if (items.length > 0) {
-        this.#open();
-      } else {
-        this.#close();
-      }
+      });
     } catch (err) {
       this.logger?.warn?.("autocomplete", "Provider error", { err });
       this._items = [];
+      this.#close();
+      return;
+    }
+    if (produced && typeof produced.then === "function") {
+      produced.then(
+        (items) => {
+          if (request !== this._suggestSeq) return;
+          this.#applySuggestions(items);
+        },
+        (err) => {
+          this.logger?.warn?.("autocomplete", "Provider error", { err });
+          if (request !== this._suggestSeq) return;
+          this._items = [];
+          this.#close();
+        }
+      );
+      return;
+    }
+    this.#applySuggestions(produced);
+  }
+  /** Draw whatever the provider produced. Split out of `#updateSuggestions`
+   *  so the synchronous and the awaited paths cannot drift apart. */
+  #applySuggestions(produced) {
+    const items = Array.isArray(produced) ? produced : [];
+    this._items = items;
+    this._activeIndex = items.length > 0 ? 0 : -1;
+    this.#renderDropdown();
+    if (items.length > 0) {
+      this.#open();
+    } else {
       this.#close();
     }
   }
@@ -1615,6 +1642,7 @@ var AutocompleteField = class {
     });
   }
   dispose() {
+    this._suggestSeq += 1;
     this.#close();
     this._disposers.forEach((fn) => {
       try {
@@ -5409,6 +5437,7 @@ export {
   installOverlayScrollbar,
   installTabsScrollbars,
   installWorkspaceScrollbars,
+  modalHost,
   mountAttributeListEditor,
   mountGalleryPicker,
   openConfirm,
@@ -5418,6 +5447,7 @@ export {
   reportBridgeError,
   selectItem,
   setHelpProvider,
+  setModalHost,
   showAboutDialog,
   showChoiceDialog,
   showCloseConfirmDialog,

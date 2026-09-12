@@ -17,6 +17,15 @@ export const CHART_TYPES_2D = Object.freeze([
     { value: 'area', label: 'Area' },
     { value: 'area-stacked', label: 'Area (Stacked %)' },
     { value: 'phase', label: 'Phase' },
+    // Categorical part-of-whole. They belong in this list because the list is
+    // what a consumer renders as its chart-type dropdown — but they are NOT
+    // (x[], y[]) charts, and `buildTrace` leaves for them before the switch:
+    // read the early return there before adding a fourth. `indicator` is
+    // deliberately NOT here, because it takes a SCALAR — a dropdown offering it
+    // beside these would offer a rendering of data the chart is not bound to.
+    { value: 'pie', label: 'Pie' },
+    { value: 'donut', label: 'Donut' },
+    { value: 'funnel', label: 'Funnel' },
 ]);
 
 /**
@@ -76,6 +85,7 @@ const INTERPOLATION_MAP = {
  * @param {string} [options.yAxisId] - Y-axis identifier (y, y2, y3, etc.)
  * @param {boolean} [options.showMarkers] - Show data point markers
  * @param {number} [options.seriesIndex] - Index for default color selection
+ * @param {Array<string>} [options.colors] - Per-CATEGORY colors, pie/donut/funnel only
  * @returns {Object} Plotly trace object
  */
 export function buildTrace(options) {
@@ -93,9 +103,61 @@ export function buildTrace(options) {
         showMarkers = false,
         seriesIndex = 0,
         stackGroup = null,
+        colors = null,
     } = options;
 
     const seriesColor = color || getSeriesColor(seriesIndex);
+
+    // ── categorical part-of-whole: pie, donut, funnel ────────────────────
+    // These leave here, ABOVE the switch, and that placement is the whole
+    // point rather than a tidiness. Everything below is written against the
+    // base trace built at the end of the switch — `{type, name, x, y}` — and a
+    // pie has neither an x nor a y: Plotly reads `labels` and `values`, and a
+    // stray `x` rides along ignored right up until someone puts the trace on a
+    // shared axis and it is not ignored any more.
+    //
+    // The marker block further down is the sharper edge. It fires on
+    // `showMarkers` for ANY chart type and assigns `marker = {color, size}` —
+    // which would overwrite `marker.colors`, the per-slice palette, with one
+    // scalar colour and turn a seven-slice pie into a single blue disc. A
+    // `case` in the switch cannot avoid either hazard; leaving before both can.
+    if (chartType === 'pie' || chartType === 'donut' || chartType === 'funnel') {
+        // `seriesIndex` is not consulted: a pie IS the chart, so its slices
+        // start at the top of the palette rather than continuing someone
+        // else's series numbering.
+        const sliceColors = Array.isArray(colors) && colors.length
+            ? colors
+            : y.map((_, i) => getSeriesColor(i));
+
+        if (chartType === 'funnel') {
+            // A funnel is bar-shaped, so it is `marker.color` (singular, and
+            // an array is legal) — NOT the `marker.colors` a pie wants. The
+            // two spellings are not interchangeable and neither errors.
+            return {
+                type: 'funnel',
+                name,
+                y: x,               // stages read down the categorical axis
+                x: y,               // ...and the measure runs across
+                marker: { color: sliceColors },
+                textinfo: 'value+percent initial',
+            };
+        }
+
+        return {
+            type: 'pie',
+            name,
+            labels: x,
+            values: y,
+            marker: { colors: sliceColors },
+            // Plotly sorts slices descending by default. The caller has
+            // already ordered its rows — a dashboard binding carries its own
+            // `sort` — and a second, invisible reordering here makes the chart
+            // disagree with the table beside it and with the config that
+            // produced both.
+            sort: false,
+            ...(chartType === 'donut' ? { hole: 0.55 } : {}),
+        };
+    }
 
     // Determine Plotly trace type and mode
     let plotlyType, mode;
@@ -694,6 +756,111 @@ export function buildHeatmapTrace(options) {
 
     if (x) trace.x = x;
     if (y) trace.y = y;
+
+    return trace;
+}
+
+// Delta sense, in the palette's own idiom (Solarized, per COLOR_PALETTE). A
+// caller whose metric is better when it falls — cost, latency, churn — passes
+// its own two colours rather than expecting a flag here: "up is good" is a
+// property of the measure, and this file has never been told what the measure
+// is.
+const DELTA_UP = '#859900';   // Solarized green
+const DELTA_DOWN = '#dc322f'; // Solarized red
+
+/**
+ * Create a Plotly `indicator` trace — a big number, optionally with a gauge
+ * arc under it and a delta against a reference.
+ *
+ * This is NOT reachable through `buildTrace`, and `indicator` is not in
+ * `CHART_TYPES_2D`: `buildTrace`'s contract is two parallel arrays and an
+ * indicator takes a single scalar, so offering it in the same dropdown would
+ * offer a rendering that cannot consume what the dropdown's chart is bound to.
+ *
+ * The returned object is a plain literal and yours to extend — `domain` for
+ * two indicators in one div, `number.prefix` / `number.valueformat` for
+ * currency. Number formatting is deliberately not a parameter: a consumer that
+ * already owns a value formatter and hands Plotly a second one shows the
+ * currency symbol twice, and neither side knows the other did it.
+ *
+ * @param {Object} options
+ * @param {number} options.value - The number to show
+ * @param {number} [options.min] - Gauge floor (default 0)
+ * @param {number} [options.max] - Gauge ceiling; null draws NO gauge
+ * @param {string} [options.title] - Label above the number
+ * @param {Array<{range: number[], color: string}>} [options.steps] - Banded background
+ * @param {number|{value: number, color: string, width: number, thickness: number}} [options.threshold]
+ * @param {string} [options.color] - The gauge bar colour
+ * @param {number} [options.seriesIndex] - Palette index when `color` is absent
+ * @param {number|{reference: number, relative: boolean, increasing: string, decreasing: string}} [options.delta]
+ * @returns {Object} Plotly indicator trace
+ */
+export function buildIndicatorTrace(options) {
+    const {
+        value,
+        min = 0,
+        max = null,
+        title = '',
+        steps = null,
+        threshold = null,
+        color = null,
+        seriesIndex = 0,
+        delta = null,
+    } = options;
+
+    // A gauge with no ceiling has no arc to draw. Inventing one — twice the
+    // value, the next round number — draws a chart that is quietly wrong about
+    // the only thing a gauge communicates, so an absent `max` degrades to the
+    // bare number instead.
+    const hasGauge = typeof max === 'number' && Number.isFinite(max);
+
+    // `0` is an ordinary reference — last month's total was zero — so the test
+    // is `typeof`, never truthiness. Under a truthiness test `delta: 0` drops
+    // the comparison the tile exists to draw, silently and only sometimes.
+    const deltaSpec = typeof delta === 'number' ? { reference: delta }
+                    : (delta && typeof delta === 'object') ? delta
+                    : null;
+
+    const parts = ['number'];
+    if (hasGauge) parts.unshift('gauge');
+    if (deltaSpec) parts.push('delta');
+
+    const trace = {
+        type: 'indicator',
+        mode: parts.join('+'),
+        value,
+    };
+
+    if (title) trace.title = { text: title };
+
+    if (deltaSpec) {
+        trace.delta = {
+            reference: deltaSpec.reference,
+            relative: deltaSpec.relative === true,
+            increasing: { color: deltaSpec.increasing || DELTA_UP },
+            decreasing: { color: deltaSpec.decreasing || DELTA_DOWN },
+        };
+    }
+
+    if (hasGauge) {
+        trace.gauge = {
+            axis: { range: [min, max] },
+            bar: { color: color || getSeriesColor(seriesIndex) },
+        };
+        // Passed through rather than derived. A band means something to the
+        // consumer — a target, an SLA, a red zone — and this file cannot guess
+        // where it sits.
+        if (Array.isArray(steps) && steps.length) trace.gauge.steps = steps;
+
+        if (threshold !== null && threshold !== undefined) {
+            const t = typeof threshold === 'number' ? { value: threshold } : threshold;
+            trace.gauge.threshold = {
+                line: { color: t.color || DELTA_DOWN, width: t.width ?? 3 },
+                thickness: t.thickness ?? 0.9,
+                value: t.value,
+            };
+        }
+    }
 
     return trace;
 }

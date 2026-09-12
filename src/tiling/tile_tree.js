@@ -579,6 +579,88 @@ export class TileTree {
     }
 
     /**
+     * C33. MOVE ONE TAB FROM ONE LEAF TO ANOTHER, AS ONE MUTATION.
+     *
+     * Every other tab operation on this class takes ONE `leafId`, and that was
+     * a complete description of the model until a tab could be dragged into a
+     * different tile: `appendLeafTab`, `removeLeafTab`, `moveLeafTab` and the
+     * three bulk closes all begin and end inside a single leaf. The renderer's
+     * refusal to wire `onDropFromOtherPane` named this absence as one of its
+     * two reasons (`tile_renderer.js`, `_topTabCallbacks`); this is that half.
+     *
+     * ONE FUNCTION RATHER THAN A COMPOSE, and that is why it lives here rather
+     * than in the WM. `removeLeafTab` then `appendLeafTab` is two mutations
+     * with a moment between them in which the tab exists nowhere — and the
+     * second can FAIL (a panel destination refuses tabs), which leaves the tree
+     * short one tab and nothing on screen saying where it went. Every guard is
+     * therefore taken before the first splice.
+     *
+     * TWO NODES ARE RE-SYNCED, WHICH IS WHAT MAKES THIS DIFFERENT. `tabs` is
+     * the source of truth and `content`/`title` mirror `tabs[active]`
+     * (`_syncActiveTab`). Every existing mutation touches one leaf, so one
+     * re-sync is right; this one touches two, and skipping the SOURCE's leaves
+     * a pane whose chrome still names — and whose body still mounts — a tab it
+     * no longer holds. That is the mistake this operation invites, and it is
+     * what `web/js/shell/tab_drop.test.mjs` asserts against in the consumer.
+     *
+     * A same-leaf call is a REORDER and delegates, so there is one
+     * implementation of "a tab changed position within its strip" rather than
+     * two that will disagree about the active-index clamp.
+     *
+     * @param {string} fromLeafId
+     * @param {number} fromIdx
+     * @param {string} toLeafId
+     * @param {number} [toIdx=-1]  where to insert; -1 (or past the end) appends
+     * @returns {{ok: boolean, toIdx: number, emptied: boolean}|null} null when
+     *   the move was refused. `emptied` tells the caller the source pane now
+     *   holds nothing, which is its cue to re-seed rather than leave a blank
+     *   tile — the never-empty-tile invariant is the WM's to keep, not this
+     *   class's.
+     */
+    moveTabToLeaf(fromLeafId, fromIdx, toLeafId, toIdx = -1) {
+        const from = this.get(fromLeafId);
+        const to = this.get(toLeafId);
+        if (!from || from.kind !== 'leaf') return null;
+        if (!to || to.kind !== 'leaf') return null;
+        const tabs = Array.isArray(from.tabs) ? from.tabs : [];
+        if (!Number.isInteger(fromIdx) || fromIdx < 0 || fromIdx >= tabs.length) return null;
+        // Panel tiles are chrome, not content, and never grow tabs — the same
+        // refusal `appendLeafTab` makes, taken here BEFORE anything is spliced
+        // so a refused destination cannot cost the source its tab.
+        if (_isPanel(to)) return null;
+        if (fromLeafId === toLeafId) {
+            const dest = (!Number.isInteger(toIdx) || toIdx < 0 || toIdx >= tabs.length)
+                ? tabs.length - 1 : toIdx;
+            if (!this.moveLeafTab(fromLeafId, fromIdx, dest)) return null;
+            return { ok: true, toIdx: dest, emptied: false };
+        }
+
+        const [moved] = from.tabs.splice(fromIdx, 1);
+        // THE SOURCE'S ACTIVE INDEX, WITH `removeLeafTab`'S OWN THREE BRANCHES.
+        // Spelled out rather than delegated because `removeLeafTab` re-syncs
+        // and returns, and the splice above has already happened; the
+        // arithmetic is the contract, so it is written where it can be compared
+        // against the original line for line.
+        if (from.tabs.length === 0) from.activeTabIdx = 0;
+        else if (fromIdx < from.activeTabIdx) from.activeTabIdx -= 1;
+        else if (fromIdx === from.activeTabIdx) from.activeTabIdx = Math.max(0, fromIdx - 1);
+
+        to.tabs = Array.isArray(to.tabs) ? to.tabs : [];
+        const at = (!Number.isInteger(toIdx) || toIdx < 0 || toIdx > to.tabs.length)
+            ? to.tabs.length : toIdx;
+        to.tabs.splice(at, 0, moved);
+        // THE ARRIVING TAB IS THE ONE YOU WANTED TO SEE. A drop is a deliberate
+        // act naming one tab and one destination; leaving the destination on
+        // whatever it was already showing would make the gesture look like it
+        // did nothing, which is the failure mode of every silent move.
+        to.activeTabIdx = at;
+
+        _syncActiveTab(from);
+        _syncActiveTab(to);
+        return { ok: true, toIdx: at, emptied: from.tabs.length === 0 };
+    }
+
+    /**
      * Split a leaf in the given direction; existing content stays in the
      * original leaf, a new empty leaf is added next to it. Returns the
      * new leaf id, or null on failure.

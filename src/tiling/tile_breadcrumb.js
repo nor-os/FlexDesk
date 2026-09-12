@@ -73,8 +73,17 @@ export function mountTileBreadcrumb(kind, props, ctx) {
     // the breadcrumb simply starts at the top-nav.
     let rootLabel = rootCrumb?.label || '';
 
+    // Read at RENDER time, not captured: the trail grows with every
+    // click-through, and a breadcrumb that showed the trail as it was when the
+    // tile mounted would be describing a journey the user has since continued.
+    const trailOf = () => {
+        if (typeof ctx?.trailSegments !== 'function') return [];
+        try { return ctx.trailSegments() || []; }
+        catch (err) { console.warn('[breadcrumb] trailSegments threw', err); return []; }
+    };
     const render = () => {
-        _renderInto(root, _segments(kind, props, taxonomy, rootCrumb, rootLabel, navigate));
+        _renderInto(root,
+            _segments(kind, props, taxonomy, rootCrumb, rootLabel, navigate, trailOf()));
     };
     render();
 
@@ -92,6 +101,10 @@ export function mountTileBreadcrumb(kind, props, ctx) {
 
     return {
         el: root,
+        /** Repaint. A trail-driven breadcrumb changes without the tile
+         *  remounting — following a lookup replaces the active tab's content in
+         *  place — so the embedder that grew the trail says when. */
+        refresh: render,
         destroy: () => {
             try { unsubscribe?.(); }
             catch (err) { console.warn('[breadcrumb] rootCrumb teardown threw', err); }
@@ -99,7 +112,7 @@ export function mountTileBreadcrumb(kind, props, ctx) {
     };
 }
 
-function _segments(kind, props, taxonomy, rootCrumb, rootLabel, navigate) {
+function _segments(kind, props, taxonomy, rootCrumb, rootLabel, navigate, trail) {
     const segs = [];
     const meta = taxonomy.meta(kind);
 
@@ -129,6 +142,25 @@ function _segments(kind, props, taxonomy, rootCrumb, rootLabel, navigate) {
             icon:  topNavMeta.icon,
             label: topNavMeta.label,
             onClick: () => navigate(topNav),
+        });
+    }
+
+    // 2b. THE TRAIL. An embedder whose navigation is a walk rather than a
+    //     descent — click a customer, follow a lookup to its region, follow
+    //     that to a country — has a real path that the taxonomy cannot know,
+    //     because none of those is an ANCESTOR of the next. The tree already
+    //     records it: every in-tile navigation pushes the outgoing content
+    //     onto the active tab's `history` stack, which is what Backspace pops.
+    //
+    //     `ctx.trailSegments` hands that stack over, already shaped. Absent, or
+    //     empty, this is a no-op and the breadcrumb is exactly the ancestor
+    //     walk it has always been.
+    for (const step of (trail || [])) {
+        if (!step?.kind) continue;
+        segs.push({
+            icon:  taxonomy.meta(step.kind)?.icon || 'description',
+            label: step.title || step.props?.label || step.props?.id || step.kind,
+            onClick: () => navigate(step.kind, step.props || {}),
         });
     }
 

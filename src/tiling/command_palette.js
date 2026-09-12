@@ -33,8 +33,13 @@ const STATIC_COMMANDS = [
 /** @param taxonomy    injected ontology — supplies the chip strip + row icons
  *  @param catalog     injected entity catalog — supplies the searchable rows
  *  @param placeholder input placeholder. It names the embedder's entity types
- *                     ("try foo:bar"), so the embedder owns the string. */
-export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder = 'Search…' }) {
+ *                     ("try foo:bar"), so the embedder owns the string.
+ *  @param onPick      C30. `(pick) => truthy` CLAIMS the open, exactly the way
+ *                     `ManagedWindow.onMaximize` claims the maximise gesture.
+ *                     See `commit` for what it is for; omitted, the palette
+ *                     behaves as it always has. */
+export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder = 'Search…',
+                                       onPick = null }) {
     if (!taxonomy) throw new Error('createCommandPalette: a taxonomy is required');
     if (!catalog)  throw new Error('createCommandPalette: an entity catalog is required');
     let overlay = null;
@@ -53,7 +58,7 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
         overlay = document.createElement('div');
         overlay.id = ROOT_ID;
         overlay.className = 'twm-cmdpal-overlay';
-        overlay.innerHTML = _markup(taxonomy, placeholder);
+        overlay.innerHTML = _markup(taxonomy, placeholder, wm);
         document.body.appendChild(overlay);
         overlay.addEventListener('click', (e) => {
             if (e.target === overlay) close();
@@ -143,11 +148,50 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
                 el.addEventListener('click', () => commit(Number(el.dataset.idx)));
             });
         };
+        /**
+         * ══ C30. THE PALETTE IS A DOOR, NOT A PLACEMENT POLICY ══════════
+         *
+         * `openInPrimary` is the wrong verb for a picked ENTITY and it was the
+         * only one here. It RESETS the primary leaf to a single fresh tab —
+         * its own doc says so, and says why: navigation from outside the tile
+         * is a page change, and a page change replaces the page. So picking a
+         * table from Ctrl+K threw away every other tab in that leaf, ignored
+         * whatever rule the embedder has about where its entities open (a tab
+         * beside its siblings, a floating window on a canvas pane, a split),
+         * and bypassed any per-mount-site bookkeeping the embedder keeps —
+         * for Tables, the grid registry keyed on `(mount site, table)`, which
+         * is what holds staged edits across a re-render.
+         *
+         * The result was a door that did something different from every other
+         * door onto the same object: the rail opened a table one way, the
+         * palette another, and only the palette destroyed work. Reported as
+         * "open table via Ctrl+K does not work" — which is exactly what it
+         * looks like from the outside when the tab you were in is replaced.
+         *
+         * The library cannot decide this. It does not know what a `table` is,
+         * which is the whole point of the injected taxonomy and catalogue. So
+         * the embedder is offered the pick and may CLAIM it, on the same
+         * contract as `ManagedWindow.onMaximize` (`managed_window.js:230`):
+         * return truthy and nothing else happens. Guarded, because a throwing
+         * embedder must not leave the palette closed over a half-done open —
+         * and unclaimed picks still land in the primary tile, so no existing
+         * embedder changes behaviour by upgrading.
+         *
+         * `pick` is the catalogue row verbatim (`{kind, id, label, hint,
+         * props?}`) rather than a re-shaped argument: the embedder wrote the
+         * `shape` that produced it, so it is the one party that can read it.
+         */
         const commit = (i) => {
             const pick = filtered[i];
             if (!pick) return;
             close();
             if (pick.action) { try { pick.action(); } catch (err) { console.error(err); } return; }
+            if (onPick) {
+                let handled = false;
+                try { handled = onPick(pick) ?? false; }
+                catch (err) { console.error('[cmdpal] onPick threw', err); }
+                if (handled) return;
+            }
             wm.openInPrimary(pick.kind, pick.props || { id: pick.id, label: pick.label });
         };
 
@@ -240,7 +284,29 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
     return { open, close, toggle, isOpen };
 }
 
-function _markup(taxonomy, placeholder) {
+function _markup(taxonomy, placeholder, wm) {
+    // ONLY THE PANELS THIS SHELL CAN ACTUALLY SHOW.
+    //
+    // The three toggles were hardcoded, so the palette offered `panel:left` to
+    // an embedder that has no factory for it — and `togglePanel` then
+    // canonicalized a leaf whose only possible rendering is "no factory
+    // registered yet", permanently, because the renderer caches tile DOM per
+    // (kind, props). C14 closed that path at boot; this closes the other end of
+    // it. A panel with no factory is not a panel this shell can show, and the
+    // registry is the thing that knows.
+    const PANEL_CHIPS = [
+        { side: 'left',   icon: 'menu',            label: 'Left nav' },
+        { side: 'right',  icon: 'dock_to_left',    label: 'Right panel' },
+        { side: 'bottom', icon: 'dock_to_bottom',  label: 'Bottom panel' },
+    ];
+    const panelToggles = PANEL_CHIPS
+        .filter((p) => wm.content?.has?.(`panel:${p.side}`) !== false)
+        .map((p) => `
+                <button class="twm-chip" data-toggle="${p.side}">
+                    <span class="material-symbols-outlined">${p.icon}</span>
+                    ${p.label}
+                </button>`).join('');
+
     const chips = taxonomy.topNavEntries().map((k) => `
         <button class="twm-chip" data-shortcut="${k.kind}">
             <span class="material-symbols-outlined">${k.icon}</span>
@@ -256,20 +322,7 @@ function _markup(taxonomy, placeholder) {
                        autocomplete="off" />
             </div>
             <div class="twm-cmdpal__chips">${chips}</div>
-            <div class="twm-cmdpal__toggles">
-                <button class="twm-chip" data-toggle="left">
-                    <span class="material-symbols-outlined">menu</span>
-                    Left nav
-                </button>
-                <button class="twm-chip" data-toggle="right">
-                    <span class="material-symbols-outlined">dock_to_left</span>
-                    Right panel
-                </button>
-                <button class="twm-chip" data-toggle="bottom">
-                    <span class="material-symbols-outlined">dock_to_bottom</span>
-                    Bottom panel
-                </button>
-            </div>
+            <div class="twm-cmdpal__toggles">${panelToggles}</div>
             <div class="twm-cmdpal__list" data-role="list"></div>
             <div class="twm-cmdpal__footer">
                 <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>

@@ -13,6 +13,7 @@ import {
   buildFanBandTraces,
   buildHeatmapTrace,
   buildHistogramTrace,
+  buildIndicatorTrace,
   buildLegendLayout,
   buildOverlayShapes,
   buildTrace,
@@ -38,13 +39,13 @@ import {
   setPlotlySource,
   uid,
   updateChart
-} from "./chunk-SQZ5F5GY.js";
+} from "./chunk-XKDTIT4Q.js";
 import {
   createRafResizeObserver
-} from "./chunk-L3RCBU2W.js";
+} from "./chunk-QIU5S2RU.js";
 import {
   ManagedWindow
-} from "./chunk-WA3HOXGR.js";
+} from "./chunk-LH5TSOZW.js";
 import "./chunk-FL5KFNQH.js";
 import "./chunk-JYWURG5T.js";
 
@@ -746,6 +747,7 @@ export {
   buildFanBandTraces,
   buildHeatmapTrace,
   buildHistogramTrace,
+  buildIndicatorTrace,
   buildLegendLayout,
   buildOverlayShapes,
   buildTrace,

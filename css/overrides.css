@@ -1054,6 +1054,50 @@ body.twm-dragging * { user-select: none; }
     font-size: var(--font-size-xs);
 }
 .twm-leaf__tabbar--hidden { display: none; }
+
+/* ══════════════════════════════════════════════════════════════════════
+ * C33. A TAB DRAGGED INTO A TILE
+ *
+ * Here and not in `css/base.css`, because every `.twm-leaf*` declaration
+ * originates in this file (`.twm-leaf` and `.twm-leaf__tabbar` above) and
+ * base.css carries none of them. Hand-mirrored into `css/flexdesk.css`,
+ * which is the only sheet `build.mjs` copies into `dist/` and whose
+ * generator (`scripts/css_extract.py`) is not in this repository.
+ *
+ * THE ZONE RECTANGLE IS NOT STYLED HERE. It reuses `.twm-snap-preview
+ * .twm-snap-preview--viewport` — the window drop's own preview element,
+ * already defined in base.css — so a tab drop and a window drop cannot come
+ * to disagree about what a drop looks like.
+ *
+ * AND THERE IS NO `cursor` RULE, which is not an omission. For the length of
+ * a native drag the browser draws the pointer from `dataTransfer.dropEffect`
+ * (the handlers set `'move'`); a `cursor` on the drop target is ignored
+ * throughout and would only mislead the next reader.
+ * ══════════════════════════════════════════════════════════════════════ */
+
+/* THE PANE UNDER THE POINTER. The preview rectangle says what a release
+ * would PRODUCE; this says which pane is being asked. An inset OUTLINE
+ * rather than a border, because a border changes the box and every tile in
+ * the row would reflow by a pixel as the pointer crossed between them. */
+.twm-leaf--drop-target {
+    outline: 2px solid var(--accent-bright, #1683c4);
+    outline-offset: -2px;
+}
+
+/* A STRIP ARMED TO RECEIVE — the drop that adds the tab at the end of this
+ * tile's list rather than into a zone of its body. */
+.twm-leaf__tabbar--drop-target {
+    background: color-mix(in srgb, var(--accent-bright, #1683c4) 18%, transparent);
+    box-shadow: inset 0 0 0 1px var(--accent-bright, #1683c4);
+}
+
+/* THE TAB BEING CARRIED. `DragReorder` has put `.dragging` on the TOP
+ * strip's tab since it was written and base.css dims it; the bottom strip's
+ * hand-rolled reorder set no class at all, so a drag there looked exactly
+ * like a click that did nothing. One declaration for both strips, so the two
+ * layouts cannot drift on what a dragged tab looks like. */
+.twm-leaf__tab.dragging { opacity: 0.4; }
+
 .twm-leaf__tab-hamburger {
     flex: 0 0 auto;
     display: inline-flex;

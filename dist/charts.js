@@ -39,10 +39,10 @@ import {
   setPlotlySource,
   uid,
   updateChart
-} from "./chunk-XKDTIT4Q.js";
+} from "./chunk-4RGQSRMC.js";
 import {
   createRafResizeObserver
-} from "./chunk-QIU5S2RU.js";
+} from "./chunk-P4AALM3A.js";
 import {
   ManagedWindow
 } from "./chunk-LH5TSOZW.js";

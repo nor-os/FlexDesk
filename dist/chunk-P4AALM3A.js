@@ -1133,7 +1133,7 @@ var DataTable = class {
     const isServerSide = typeof onPageChange === "function";
     const processedRows = isServerSide ? rows : this._getProcessedRows();
     const offset = isServerSide ? configOffset || 0 : this._state.offset;
-    const pageRows = isServerSide ? processedRows : processedRows.slice(offset, offset + pageSize);
+    const pageRows = isServerSide || !this.config.pagination ? processedRows : processedRows.slice(offset, offset + pageSize);
     const table = document.createElement("table");
     table.className = readonly ? "twm-preview-table twm-preview-table--readonly" : "twm-preview-table";
     table.tabIndex = 0;
@@ -2065,4 +2065,4 @@ export {
   createRafResizeObserver,
   DataTable
 };
-//# sourceMappingURL=chunk-QIU5S2RU.js.map
+//# sourceMappingURL=chunk-P4AALM3A.js.map

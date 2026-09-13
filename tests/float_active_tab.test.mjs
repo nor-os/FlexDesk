@@ -9,7 +9,7 @@
  *   - Backspace while reading a floating window walked the tile BEHIND it,
  *     because the tree's focus never moves to a window.
  *
- * Pinned against the REAL `toggleManagedFocused`, `_navigateBackInWindow`,
+ * Pinned against the REAL `toggleManagedFocused`, `navigateBack` (`_returnToOpenList`),
  * `_windowTabAction`, `showWindowTab` and `TileTree` on a hand-built `this`.
  * Mounting and window chrome are stubbed: nothing below is about pixels. The
  * pointerdown listener that sets `_backWindowId` needs a DOM and is exercised

@@ -2335,7 +2335,9 @@ function mountTileBreadcrumb(kind, props, ctx) {
       console.error("[breadcrumb] no WM available \u2014 click ignored", k);
       return;
     }
-    if (typeof wm.navigate === "function") {
+    if (typeof wm.navigateUp === "function") {
+      wm.navigateUp(k, p, { ctx });
+    } else if (typeof wm.navigate === "function") {
       wm.navigate(k, p, { ctx, dest: "origin" });
     } else if (typeof wm.openInPrimary === "function") {
       wm.openInPrimary(k, p);
@@ -4158,56 +4160,42 @@ var WindowManager = class _WindowManager {
    *  methods (openFromContext / openInLeaf / navigateActiveTab) —
    *  they all record history by default. */
   navigateBack() {
-    if (this._navigateBackInWindow()) return;
-    const tree = this._tree();
-    const focusedId = tree.focusedLeafId;
-    const primaryId = tree.primaryLeafId();
-    const focusedLeaf = focusedId ? tree.get(focusedId) : null;
-    const focusedKind = focusedLeaf?.content?.kind || "";
-    const id = focusedId && focusedKind && !focusedKind.startsWith("panel:") && focusedKind !== "window-placeholder" ? focusedId : primaryId;
-    if (!id) return;
-    const prior = tree.popActiveTabHistory?.(id);
-    if (prior && prior.kind) {
-      const leafNow = tree.get(id);
-      const curKind = leafNow?.content?.kind;
-      const curTopNav = curKind ? this.taxonomy.topNavFor(curKind) : null;
-      if (prior.topNav && curTopNav && prior.topNav !== curTopNav) {
-        tree.swapToPage?.(
-          id,
-          {
-            kind: prior.kind,
-            props: prior.props || {},
-            title: prior.title || _tabTitle(prior.kind, prior.props)
-          },
-          curTopNav,
-          prior.topNav,
-          { recordHistory: false }
-        );
-      } else {
-        tree.replaceActiveTabContent(
-          id,
-          { kind: prior.kind, props: prior.props || {} },
-          prior.title || _tabTitle(prior.kind, prior.props),
-          { recordHistory: false }
-        );
-      }
-      tree.focus(id);
-      this.renderer.render();
-      this._persist();
-      this._notifyChange("navigate-back");
-      return;
-    }
-    if (this.backToOpenList && this._backToOpenList(id)) return;
-    const leaf = tree.get(id);
-    if (!leaf?.content) return;
-    const { kind, props } = leaf.content;
-    const up = this.taxonomy.parentOf(kind, props);
-    if (up) {
-      this.navigateActiveTab(id, up.kind, up.props);
-      return;
-    }
-    const parent = this.taxonomy.parentKindFor(kind);
-    if (parent) this.navigateActiveTab(id, parent);
+    const scope = this._backScope();
+    if (!scope) return;
+    if (scope.leafId && this._popTabHistory(scope.leafId)) return;
+    if (this._returnToOpenList(scope)) return;
+    const active = this._scopeActiveTab(scope);
+    if (!active) return;
+    const up = this.taxonomy.parentOf(active.kind, active.props || {});
+    const parentKind = up ? up.kind : this.taxonomy.parentKindFor(active.kind);
+    if (parentKind) this._navigateInScope(scope, parentKind, up ? up.props || {} : {});
+  }
+  /**
+   * C35. CLIMB TO A LEVEL: what a breadcrumb crumb means.
+   *
+   * `navigate` goes to exactly the target. A crumb says something different:
+   * "take me up to this level of where I am". From a record, the level it
+   * names is usually a list of the record's own section, and when such a list
+   * is already open that is the SAME request Backspace makes, so it goes
+   * through the same rule, `_returnToOpenList`, and closes the record onto the
+   * open list instead of turning the record into a second copy of it.
+   *
+   * Every crumb calls this, so no crumb needs to know whether it is the
+   * immediate parent. A crumb that names an entity (an epic above a story), a
+   * record with no list of its section open, or content that is not a record
+   * navigates in place, exactly as `navigate(…, { dest: 'origin' })` would.
+   *
+   * @param {string} kind
+   * @param {object} [props]
+   * @param {{ctx?: object}} [opts]  the crumb's tile or window context
+   */
+  navigateUp(kind, props = {}, { ctx = null } = {}) {
+    const scope = this._scopeFromCtx(ctx);
+    if (!scope) return this.navigate(kind, props, { ctx, dest: "origin" });
+    const active = this._scopeActiveTab(scope);
+    const aimsAtOwnList = !_isEntityTab({ props }) && _isEntityTab(active) && this.taxonomy.topNavFor(kind) === this.taxonomy.topNavFor(active.kind);
+    if (aimsAtOwnList && this._returnToOpenList(scope)) return;
+    this._navigateInScope(scope, kind, props);
   }
   /** True when `navigateBack` would do something user-visible — i.e.
    *  the active tab has per-tab history, OR the current kind has a
@@ -4239,135 +4227,178 @@ var WindowManager = class _WindowManager {
     this.renderer?.rebaselineLeaf?.(leafId, expected);
     this._persist();
   }
-  /** Navigate inside the current tab — preserves every other tab in
-   *  the leaf. Used by Backspace + breadcrumb segments + anything
-   *  else that should walk WITHIN the tile rather than reset it. */
-  /**
-   * C32. BACK FROM AN OPENED RECORD RETURNS TO THE LIST, IT DOES NOT MAKE ONE.
-   *
-   * The gesture this is for: a list tab, a record opened from it into a NEW
-   * tab, and Backspace in that record. With nothing left in the record tab's
-   * own history, step (3) of `navigateBack` walks the taxonomy up and REWRITES
-   * the record tab into its parent — so the tile ends up showing the list
-   * twice, once in the tab you started from and once in the tab you just left.
-   * The user's model is a browser's: you came from the list, the list is still
-   * open, so going back means closing this and being on the list again.
-   *
-   * So: when the active tab is an ENTITY — its props carry an `id`, the same
-   * test `swapToPage` uses for "the caller asked for a specific entity" — look
-   * for an open tab of the SAME section that is NOT one. That is the list or
-   * landing page the record belongs to. Close the record and activate it.
-   *
-   * NEAREST TO THE LEFT FIRST. New tabs are appended at the end, so the tab a
-   * record was opened from sits to its left; when several lists of the section
-   * are open, the nearest one on that side is the one it most plausibly came
-   * from. The right side is searched only after the left has nothing.
-   *
-   * DECLINES, and leaves step (3) to walk up in place, whenever there is no
-   * such tab: a record that is the tile's only tab, or one whose section has no
-   * list open. That keeps the one guarantee the whole rule exists for — Back
-   * never leaves two copies of a list — without ever closing a record into a
-   * tile that has nothing of its own to show.
-   *
-   * Matching is by SECTION (`topNavFor`) and not by kind, because the list a
-   * record was opened from is often not the record's taxonomy parent: a root
-   * landing page that renders the section, or a list that a flattened taxonomy
-   * files beside the record rather than above it.
-   *
-   * @returns {boolean} whether it closed a tab
-   */
-  _backToOpenList(leafId) {
+  // ── Back and up: one scope model, one rule ─────────────────────
+  //
+  // A SCOPE is where a navigation happens: `{ leafId }` for a tile or
+  // `{ windowId }` for a floating window. Backspace and `navigateUp` both
+  // resolve one, and everything below works on a scope, so tiles and windows
+  // cannot drift into two versions of the same behaviour.
+  /** The scope Backspace acts on. C34: a floating window the user last
+   *  clicked in, because the tree's focus never moves to a window; else the
+   *  focused content tile; else the primary tile. Panels are never a scope:
+   *  Backspace from the nav panel walks the content area. */
+  _backScope() {
+    if (this._backWindowId && this._windowToLeaf.has(this._backWindowId)) {
+      return { windowId: this._backWindowId };
+    }
+    this._backWindowId = null;
     const tree = this._tree();
-    const leaf = tree.get(leafId);
-    if (!leaf || leaf.kind !== "leaf") return false;
-    const tabs = Array.isArray(leaf.tabs) ? leaf.tabs : [];
-    if (tabs.length < 2) return false;
-    const activeIdx = Math.max(0, Math.min(tabs.length - 1, leaf.activeTabIdx || 0));
+    const focusedId = tree.focusedLeafId;
+    const focusedKind = focusedId ? tree.get(focusedId)?.content?.kind || "" : "";
+    const id = focusedId && focusedKind && !focusedKind.startsWith("panel:") && focusedKind !== "window-placeholder" ? focusedId : tree.primaryLeafId();
+    return id ? { leafId: id } : null;
+  }
+  /** The scope a content context names: its window, or its tile. Null for a
+   *  panel or a context the WM does not know. */
+  _scopeFromCtx(ctx) {
+    if (ctx?.windowId && this._windowToLeaf.has(ctx.windowId)) return { windowId: ctx.windowId };
+    const leaf = ctx?.leafId ? this._tree().get(ctx.leafId) : null;
+    const k = leaf?.content?.kind || "";
+    if (leaf && leaf.kind === "leaf" && k && !k.startsWith("panel:")) return { leafId: leaf.id };
+    return null;
+  }
+  /** A scope's tab list and active index. A window promoted with no strip, or
+   *  a tile with no tab array, reads as a single tab. */
+  _scopeTabs(scope) {
+    if (scope?.windowId) {
+      const rec = this._windowToLeaf.get(scope.windowId);
+      if (!rec) return null;
+      const tabs2 = Array.isArray(rec.tabs) && rec.tabs.length ? rec.tabs : [rec.original].filter(Boolean);
+      return { tabs: tabs2, activeIdx: Math.max(0, Math.min(tabs2.length - 1, rec.activeTabIdx || 0)) };
+    }
+    const leaf = scope?.leafId ? this._tree().get(scope.leafId) : null;
+    if (!leaf || leaf.kind !== "leaf") return null;
+    const tabs = Array.isArray(leaf.tabs) && leaf.tabs.length ? leaf.tabs : [leaf.content].filter(Boolean);
+    return { tabs, activeIdx: Math.max(0, Math.min(tabs.length - 1, leaf.activeTabIdx || 0)) };
+  }
+  _scopeActiveTab(scope) {
+    const src = this._scopeTabs(scope);
+    return src ? src.tabs[src.activeIdx] || null : null;
+  }
+  /** Replace what a scope shows, in place: the tile's active tab (recording
+   *  history) or the window's content. */
+  _navigateInScope(scope, kind, props = {}) {
+    if (scope.windowId) return this.openInWindow(scope.windowId, kind, props);
+    return this.navigateActiveTab(scope.leafId, kind, props);
+  }
+  /** Pop the active tab's history, if it has any. */
+  _popTabHistory(id) {
+    const tree = this._tree();
+    const prior = tree.popActiveTabHistory?.(id);
+    if (!prior || !prior.kind) return false;
+    const curKind = tree.get(id)?.content?.kind;
+    const curTopNav = curKind ? this.taxonomy.topNavFor(curKind) : null;
+    const title = prior.title || _tabTitle(prior.kind, prior.props);
+    if (prior.topNav && curTopNav && prior.topNav !== curTopNav) {
+      tree.swapToPage?.(
+        id,
+        { kind: prior.kind, props: prior.props || {}, title },
+        curTopNav,
+        prior.topNav,
+        { recordHistory: false }
+      );
+    } else {
+      tree.replaceActiveTabContent(
+        id,
+        { kind: prior.kind, props: prior.props || {} },
+        title,
+        { recordHistory: false }
+      );
+    }
+    tree.focus(id);
+    this.renderer.render();
+    this._persist();
+    this._notifyChange("navigate-back");
+    return true;
+  }
+  /**
+   * C32 / C34 / C35. BACK FROM A RECORD RETURNS TO THE LIST; IT DOES NOT MAKE ONE.
+   *
+   * The gesture this is for: a list, a record opened from it into a new tab,
+   * then Backspace or the list's crumb in that record. Rewriting the record
+   * into its parent would leave the list open twice. The user's model is a
+   * browser's: the list is still open, so going back closes the record and
+   * shows the list again. This function is the ONLY place that rule lives.
+   *
+   * Applies when `backToOpenList` is on and the scope's active tab is a RECORD
+   * (its props carry an `id`). The list is an open tab that is not a record
+   * and belongs to the same SECTION (`topNavFor`), matched by section and not
+   * by kind because a record's list is often not its taxonomy parent: a root
+   * landing that renders the section, or a list filed beside the record.
+   *
+   * Where it looks, in order:
+   *   - the scope's own tabs, nearest to the LEFT first (new tabs are appended,
+   *     so the tab a record came from sits to its left), then to the right;
+   *   - for a WINDOW only, then any tile of the window's desktop, primary tile
+   *     first, activating a list tab there. Closing a window's last tab closes
+   *     the window, which discards it; a plain close never docks back.
+   *
+   * Declines, leaving the caller to navigate in place, when there is no such
+   * list, so Back never closes a record into a tile with nothing to show.
+   *
+   * @returns {boolean} whether it closed the record
+   */
+  _returnToOpenList(scope) {
+    if (!this.backToOpenList) return false;
+    const src = this._scopeTabs(scope);
+    if (!src) return false;
+    const { tabs, activeIdx } = src;
     const active = tabs[activeIdx];
     if (!_isEntityTab(active)) return false;
     const section = this.taxonomy.topNavFor(active.kind);
     if (!section) return false;
-    const isList = (t) => t && !_isEntityTab(t) && this.taxonomy.topNavFor(t.kind) === section;
-    let target = -1;
-    for (let i = activeIdx - 1; i >= 0 && target < 0; i--) if (isList(tabs[i])) target = i;
-    for (let i = activeIdx + 1; i < tabs.length && target < 0; i++) if (isList(tabs[i])) target = i;
-    if (target < 0) return false;
-    tree.removeLeafTab(leafId, activeIdx);
-    tree.setActiveLeafTab(leafId, target > activeIdx ? target - 1 : target);
-    tree.focus(leafId);
-    this.renderer.render();
-    this._persist();
-    this._notifyChange("navigate-back-close");
-    return true;
-  }
-  /**
-   * C34. Back while a floating window is the thing being read. Returns true
-   * when it handled the press, false to let the tile path run.
-   *
-   * Only the window's ACTIVE tab is considered, in this order:
-   *   (1) with `backToOpenList`, a record closes onto an open list of its
-   *       section: first among the window's own tabs, then any tile of the
-   *       window's desktop, primary tile first. Closing the last tab closes
-   *       the window, which discards it (a plain close never docks back).
-   *   (2) otherwise it walks up IN the window, exactly as a tile does.
-   * A window whose content has nowhere to go still counts as handled: the
-   * press was aimed at it, and moving the tile behind it would be the bug.
-   */
-  _navigateBackInWindow() {
-    const winId = this._backWindowId;
-    const rec = winId ? this._windowToLeaf.get(winId) : null;
-    if (!rec) {
-      this._backWindowId = null;
-      return false;
-    }
-    const tabs = Array.isArray(rec.tabs) && rec.tabs.length ? rec.tabs : [rec.original].filter(Boolean);
-    const activeIdx = Math.max(0, Math.min(tabs.length - 1, rec.activeTabIdx || 0));
-    const active = tabs[activeIdx];
-    if (!active) return true;
-    const section = this.backToOpenList && _isEntityTab(active) ? this.taxonomy.topNavFor(active.kind) : null;
     const isList = (t) => !!t && !_isEntityTab(t) && this.taxonomy.topNavFor(t.kind) === section;
-    if (section) {
-      let own = -1;
-      for (let i = activeIdx - 1; i >= 0 && own < 0; i--) if (isList(tabs[i])) own = i;
-      for (let i = activeIdx + 1; i < tabs.length && own < 0; i++) if (isList(tabs[i])) own = i;
-      if (own >= 0 && Array.isArray(rec.tabs) && rec.tabs.length > 1) {
-        this._windowTabAction(winId, "close", { idx: activeIdx });
-        this.showWindowTab(winId, own > activeIdx ? own - 1 : own);
+    const own = _nearestIndex(tabs, activeIdx, isList);
+    if (own >= 0 && tabs.length > 1) {
+      const landing = own > activeIdx ? own - 1 : own;
+      if (scope.windowId) {
+        this._windowTabAction(scope.windowId, "close", { idx: activeIdx });
+        this.showWindowTab(scope.windowId, landing);
         return true;
       }
-      const desk = this.desktops.desktops[rec.desktopIdx] || this.desktops.active();
-      const tree = desk.tree;
-      const leaves = tree.leaves?.() || [];
-      const primaryId = tree.primaryLeafId();
-      const ordered = [...leaves.filter((l) => l.id === primaryId), ...leaves.filter((l) => l.id !== primaryId)];
-      for (const leaf of ordered) {
-        const ltabs = Array.isArray(leaf.tabs) ? leaf.tabs : [];
-        const cur = Math.max(0, Math.min(ltabs.length - 1, leaf.activeTabIdx || 0));
-        const hit = isList(ltabs[cur]) ? cur : ltabs.findIndex(isList);
-        if (hit < 0) continue;
-        this._backWindowId = null;
-        if (Array.isArray(rec.tabs) && rec.tabs.length > 1) this._windowTabAction(winId, "close", { idx: activeIdx });
-        else {
-          try {
-            rec.window.close({ force: true });
-          } catch {
-          }
-        }
-        if (this.desktops.active().tree === tree) {
-          tree.setActiveLeafTab(leaf.id, hit);
-          tree.focus(leaf.id);
-          this.renderer.render();
-        }
-        this._persist();
-        this._notifyChange("navigate-back-close");
-        return true;
-      }
+      const tree2 = this._tree();
+      tree2.removeLeafTab(scope.leafId, activeIdx);
+      tree2.setActiveLeafTab(scope.leafId, landing);
+      tree2.focus(scope.leafId);
+      this.renderer.render();
+      this._persist();
+      this._notifyChange("navigate-back-close");
+      return true;
     }
-    const up = this.taxonomy.parentOf?.(active.kind, active.props || {});
-    const parentKind = up ? up.kind : this.taxonomy.parentKindFor(active.kind);
-    if (parentKind) this.openInWindow(winId, parentKind, up ? up.props || {} : {});
-    return true;
+    if (!scope.windowId) return false;
+    const rec = this._windowToLeaf.get(scope.windowId);
+    const tree = (this.desktops.desktops[rec.desktopIdx] || this.desktops.active()).tree;
+    const primaryId = tree.primaryLeafId();
+    const leaves = tree.leaves?.() || [];
+    const ordered = [...leaves.filter((l) => l.id === primaryId), ...leaves.filter((l) => l.id !== primaryId)];
+    for (const leaf of ordered) {
+      const ltabs = Array.isArray(leaf.tabs) ? leaf.tabs : [];
+      const cur = Math.max(0, Math.min(ltabs.length - 1, leaf.activeTabIdx || 0));
+      const hit = isList(ltabs[cur]) ? cur : ltabs.findIndex(isList);
+      if (hit < 0) continue;
+      if (this._backWindowId === scope.windowId) this._backWindowId = null;
+      if (Array.isArray(rec.tabs) && rec.tabs.length > 1) {
+        this._windowTabAction(scope.windowId, "close", { idx: activeIdx });
+      } else {
+        try {
+          rec.window.close({ force: true });
+        } catch {
+        }
+      }
+      if (this.desktops.active().tree === tree) {
+        tree.setActiveLeafTab(leaf.id, hit);
+        tree.focus(leaf.id);
+        this.renderer.render();
+      }
+      this._persist();
+      this._notifyChange("navigate-back-close");
+      return true;
+    }
+    return false;
   }
+  /** Navigate inside the current tab — preserves every other tab in
+   *  the leaf. Used by Backspace + breadcrumb segments + anything
+   *  else that should walk WITHIN the tile rather than reset it. */
   navigateActiveTab(leafId, kind, props = {}) {
     const tree = this._tree();
     const leaf = tree.get(leafId);
@@ -4494,6 +4525,11 @@ var WindowManager = class _WindowManager {
       currentTopNav,
       targetTopNav
     );
+    const _leaf = tree.get(leafId);
+    const _active = _leaf?.tabs?.[_leaf.activeTabIdx];
+    if (_active && _active.kind === kind && Object.keys(props || {}).length > 0 && JSON.stringify(_active.props || {}) !== JSON.stringify(props || {})) {
+      tree.replaceActiveTabContent(leafId, { kind, props }, title, { recordHistory: false });
+    }
     tree.focus(leafId);
     if (spawned) this._canonicalize(tree, this.desktops.active());
     this.renderer.render();
@@ -6985,6 +7021,11 @@ function _swapSiblings(tree, aId, bId) {
   parent.sizes[i] = parent.sizes[j];
   parent.sizes[j] = size;
   return true;
+}
+function _nearestIndex(tabs, from, test) {
+  for (let i = from - 1; i >= 0; i--) if (test(tabs[i])) return i;
+  for (let i = from + 1; i < tabs.length; i++) if (test(tabs[i])) return i;
+  return -1;
 }
 function _isEntityTab(tab) {
   return !!tab && tab.props != null && tab.props.id != null && tab.props.id !== "";

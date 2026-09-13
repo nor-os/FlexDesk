@@ -145,6 +145,18 @@ views of one pane. The float button, Alt+F and the tile menu take only the tab
 on screen and leave its siblings in the tile, so the window holds one tab and
 draws no strip. Without it the whole pane floats, strip and all.
 
+**Back and the breadcrumb are one rule.** `wm.navigateBack()` (Backspace) and
+`wm.navigateUp(kind, props, { ctx })` (every breadcrumb crumb) share it. With
+`backToOpenList`, a record whose section has a list open closes onto that list;
+otherwise Back walks the taxonomy up and a crumb navigates to its level, in
+place. A crumb naming an entity, such as an epic above a story, opens that
+entity. `navigate` stays the verb for going to exactly a target; use
+`navigateUp` for anything that means "up to this level".
+
+A filter or other props passed to `openInPrimary` for a list that is already
+showing are applied to it. A bare open, such as a top-nav click, keeps the tab
+as you left it.
+
 **Back in a floating window** always acts on that window, whichever option is
 set. The last click decides: inside a window, Backspace walks that window up;
 anywhere else, it walks the focused tile as before. With `backToOpenList`, a

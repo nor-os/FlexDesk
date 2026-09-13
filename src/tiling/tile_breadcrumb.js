@@ -44,20 +44,21 @@ export function mountTileBreadcrumb(kind, props, ctx) {
     // before the renderer threaded wm through — still navigates.
     const getWm = () => ctx?.wm || window.__twm?.wm || null;
 
-    // Breadcrumb segments route through the canonical `wm.navigate`
-    // helper so the same three-axis routing (window → replace window,
-    // tile → replace active tab, panel/none → primary) lives in one
-    // place. Critically, this is what makes the breadcrumb work in
-    // WINDOWED mode — passing `ctx` keeps windowId in scope so the
-    // segment click stays inside the floating window instead of
-    // jumping back to the primary tile.
+    // Every crumb CLIMBS: `wm.navigateUp` (C35), not `wm.navigate`. A crumb
+    // means "up to this level of where I am", and from a record whose list is
+    // already open that is what Backspace means too, so the WM answers both
+    // with one rule and the breadcrumb never works out which crumb is the
+    // parent. Passing `ctx` keeps the click inside its own tile or floating
+    // window.
     const navigate = (k, p = {}) => {
         const wm = getWm();
         if (!wm) {
             console.error('[breadcrumb] no WM available — click ignored', k);
             return;
         }
-        if (typeof wm.navigate === 'function') {
+        if (typeof wm.navigateUp === 'function') {
+            wm.navigateUp(k, p, { ctx });
+        } else if (typeof wm.navigate === 'function') {
             wm.navigate(k, p, { ctx, dest: 'origin' });
         } else if (typeof wm.openInPrimary === 'function') {
             // Fallback for older WM revisions.

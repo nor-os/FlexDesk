@@ -142,7 +142,7 @@ console.log('\n§2 the edges of the rule');
     // A list is never closed by Back, even with another list beside it.
     const { wm, state } = makeWm({ tabs: [list('home'), list('queues')], active: 1 });
     const before = state();
-    wm._backToOpenList(wm._tree().primaryLeafId());
+    wm._returnToOpenList({ leafId: wm._tree().primaryLeafId() });
     check('a tab that is itself a list is not closed', state(), before);
 }
 {

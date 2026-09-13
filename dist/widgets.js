@@ -21,7 +21,7 @@ import {
 import {
   DataTable,
   createRafResizeObserver
-} from "./chunk-QIU5S2RU.js";
+} from "./chunk-P4AALM3A.js";
 import {
   ManagedWindow
 } from "./chunk-LH5TSOZW.js";

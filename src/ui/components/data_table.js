@@ -1467,7 +1467,11 @@ export class DataTable {
         const isServerSide = typeof onPageChange === 'function';
         const processedRows = isServerSide ? rows : this._getProcessedRows();
         const offset = isServerSide ? (configOffset || 0) : this._state.offset;
-        const pageRows = isServerSide ? processedRows : processedRows.slice(offset, offset + pageSize);
+        // NO PAGINATION MEANS NO PAGES. This used to slice to `pageSize` either
+        // way, so a table built with `pagination: false` silently showed its
+        // first hundred rows and offered no control to reach the rest.
+        const pageRows = isServerSide || !this.config.pagination
+            ? processedRows : processedRows.slice(offset, offset + pageSize);
 
         const table = document.createElement('table');
         table.className = readonly ? 'twm-preview-table twm-preview-table--readonly' : 'twm-preview-table';

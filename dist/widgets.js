@@ -1661,6 +1661,103 @@ var AutocompleteField = class {
   }
 };
 
+// src/ui/components/column_fit.js
+var COLUMN_FIT = Object.freeze({
+  /** Absolute floor, and the drag-resize minimum. */
+  FLOOR: 40,
+  /** Sub-pixel safety against an ellipsis on content that exactly fits. */
+  PAD: 2,
+  /** A column whose full width reaches this is free text. */
+  TEXT_AT: 240,
+  /** A text column's starting share when room allows it. */
+  TEXT_MIN: 200,
+  /** How far a text column shrinks before short columns go below `typical`. */
+  TEXT_FLOOR: 120,
+  /** How far a short column shrinks before the table scrolls. */
+  SHORT_FLOOR: 56
+});
+function fitColumns(columns, avail) {
+  const { FLOOR, PAD, TEXT_AT, TEXT_MIN, TEXT_FLOOR, SHORT_FLOOR } = COLUMN_FIT;
+  const n = columns.length;
+  const cols = columns.map((c) => {
+    const header = Math.max(0, Number(c.header) || 0);
+    const natural = Math.max(0, Number(c.natural) || 0);
+    const full = Math.max(FLOOR, Math.ceil(Math.max(natural, header) + PAD));
+    const typical = Math.min(full, Math.max(FLOOR, Math.ceil(Math.max(
+      Number.isFinite(c.typical) ? c.typical : natural,
+      header
+    ) + PAD)));
+    const pinned = Number.isFinite(c.pinned) ? Math.max(FLOOR, Math.round(c.pinned)) : null;
+    const text2 = pinned == null && (typeof c.text === "boolean" ? c.text : full >= TEXT_AT);
+    return { full, typical, pinned, text: text2 };
+  });
+  const text = [];
+  const short = [];
+  cols.forEach((c, i) => {
+    if (c.pinned == null) (c.text ? text : short).push(i);
+  });
+  if (!(avail > 1)) return cols.map((c) => c.pinned != null ? c.pinned : c.full);
+  const widths = cols.map((c) => {
+    if (c.pinned != null) return c.pinned;
+    return c.text ? Math.min(c.full, TEXT_MIN) : c.full;
+  });
+  const total = () => widths.reduce((a, b) => a + b, 0);
+  let slack = avail - total();
+  if (slack >= 0) {
+    slack = raise(widths, text, (i) => cols[i].full, slack);
+    if (slack > 0) {
+      if (text.length) text.forEach((i) => {
+        widths[i] += slack / text.length;
+      });
+      else widths[short.length ? short[short.length - 1] : n - 1] += slack;
+    }
+    return widths;
+  }
+  const steps = [
+    [short, (i) => cols[i].typical],
+    [text, () => TEXT_FLOOR],
+    [short, (i) => Math.min(cols[i].typical, SHORT_FLOOR)],
+    [text, () => FLOOR * 2]
+  ];
+  for (const [idxs, low] of steps) {
+    const over = total() - avail;
+    if (over <= 1e-6) break;
+    lowerTo(widths, idxs, low, over);
+  }
+  return widths;
+}
+function raise(widths, idxs, target, slack) {
+  if (!(slack > 0)) return slack;
+  const wants = idxs.map((i) => Math.max(0, target(i) - widths[i]));
+  const need = wants.reduce((a, b) => a + b, 0);
+  if (!(need > 0)) return slack;
+  const give = Math.min(slack, need);
+  idxs.forEach((i, k) => {
+    widths[i] += give * wants[k] / need;
+  });
+  return slack - give;
+}
+function lowerTo(widths, idxs, low, over) {
+  const floorOf = (i) => Math.min(widths[i], Math.max(0, low(i)));
+  const cand = idxs.filter((i) => widths[i] > floorOf(i));
+  if (!cand.length || over <= 0) return;
+  const floors = new Map(cand.map((i) => [i, floorOf(i)]));
+  const capacity = cand.reduce((a, i) => a + widths[i] - floors.get(i), 0);
+  if (capacity <= over) {
+    for (const i of cand) widths[i] = floors.get(i);
+    return;
+  }
+  const cutAt = (level) => cand.reduce((a, i) => a + Math.max(0, widths[i] - Math.max(floors.get(i), level)), 0);
+  let lo = 0;
+  let hi = Math.max(...cand.map((i) => widths[i]));
+  for (let k = 0; k < 64; k++) {
+    const mid = (lo + hi) / 2;
+    if (cutAt(mid) > over) lo = mid;
+    else hi = mid;
+  }
+  for (const i of cand) widths[i] = Math.min(widths[i], Math.max(floors.get(i), hi));
+}
+
 // src/ui/components/computing_status_window.js
 var _activeWindow = null;
 function showComputingWindow({ title = "Computing...", message = "", icon = "hourglass_top", onCancel } = {}) {
@@ -5400,6 +5497,7 @@ if (typeof window !== "undefined") {
 export {
   ActionDropdown,
   AutocompleteField,
+  COLUMN_FIT,
   ComponentBase,
   ControllerBase,
   DEFAULT_TYPES,
@@ -5429,6 +5527,7 @@ export {
   createTreeItem,
   createTreeNode,
   filterTree,
+  fitColumns,
   helpCategories,
   helpCopy,
   helpProvider,

@@ -163,6 +163,18 @@ anywhere else, it walks the focused tile as before. With `backToOpenList`, a
 record in a window closes onto an open list of its section, first among the
 window's own tabs and then in any tile of its desktop.
 
+### Column sizing
+
+`fitColumns(columns, avail)` (from `@flexdesk/widgets`) turns per-column
+measurements into widths. Pass each column's widest cell (`natural`), the width
+most cells fit (`typical`), the header label (`header`) and any user-dragged
+width (`pinned`). Short columns such as ids, dates and statuses keep their full
+values, and free-text columns (`text`, or anything 240px and wider) take the
+rest. When space runs short, short columns lose their rare outliers first,
+then text shrinks to a floor. The widths are fractional and add up to `avail`
+exactly whenever the floors fit. `DataTable` does not use it yet; an embedder
+that measures its own columns can.
+
 ## The host port
 
 FlexDesk never touches `pywebview`, `fetch`, `localStorage` or the filesystem. It

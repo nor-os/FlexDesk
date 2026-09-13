@@ -7088,3 +7088,71 @@ tr:hover .twm-row-action { opacity: 1; }
 .twm-top-nav__label {
     /* hidden on narrow viewports; icon alone is enough */
 }
+
+/* ── C31. Content zoom ─────────────────────────────────────────────
+   Applied by zoom.js as `--twm-zoom` plus `.twm-zoomed` on the shell
+   ROOT. The class is only set away from 100%, so an unzoomed shell has
+   no `zoom` declaration anywhere: `zoom: 1` is not a no-op, it still
+   establishes a scaled coordinate space.
+
+   CONTENT SURFACES ONLY. A tile's body and a promoted window's content
+   sit below every piece of geometry the window drag, resize and C15
+   snap probe read. The root, a leaf wrap, tile chrome, tab bars and a
+   window frame are deliberately absent: a contained window lives in a
+   leaf wrap and is re-parented to the root while it is dragged, so
+   zooming either would drift every drag by the zoom factor. See zoom.js. */
+.twm-zoomed .twm-leaf__body,
+.twm-zoomed .twm-window-content { zoom: var(--twm-zoom, 1); }
+
+/* The control. Sized against the bar it sits in, not the zoom — it is
+   chrome, and it is the one thing that must stay reachable at 200%. */
+.twm-zoom {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    height: 100%;
+    padding: 0 8px;
+    border-left: 1px solid var(--surface-3);
+    user-select: none;
+}
+.twm-zoom__step {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 15px;
+    height: 15px;
+    padding: 0;
+    border: none;
+    border-radius: 2px;
+    background: none;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: var(--font-size-sm);
+    line-height: 1;
+    cursor: pointer;
+}
+.twm-zoom__step:hover { background: var(--surface-3); color: var(--text-primary); }
+/* A short track on purpose: it sits between two buttons in a thin bar,
+   and the readout — not the thumb position — answers "where am I". */
+.twm-zoom__slider {
+    width: 78px;
+    height: 12px;
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--accent-bright);
+}
+/* Tabular numerals, so the readout does not jiggle between 95% and 100%
+   while the thumb moves. */
+.twm-zoom__value {
+    min-width: 34px;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--text-muted);
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-xs);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    cursor: pointer;
+}
+.twm-zoom__value:hover { color: var(--text-primary); }

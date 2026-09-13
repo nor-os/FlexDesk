@@ -588,7 +588,7 @@ var TileTree = class _TileTree {
         0,
         Math.min(n.tabs.length - 1, saved.activeTabIdx || 0)
       );
-      const wantsTarget = target.props?.id != null || target.kind !== targetTopNav;
+      const wantsTarget = target.props?.id != null || target.kind !== targetTopNav || Object.keys(target.props || {}).length > 0;
       if (wantsTarget) {
         const wantId = target.props?.id != null;
         const matchIdx = n.tabs.findIndex((t) => t.kind === target.kind && (!wantId || String(t.props?.id ?? "") === String(target.props.id)));
@@ -757,9 +757,11 @@ var TileTree = class _TileTree {
     };
     n.tabs = Array.isArray(n.tabs) ? n.tabs : [];
     n.tabs.push(tab);
-    n.activeTabIdx = n.tabs.length - 1;
-    _syncActiveTab(n);
-    return n.activeTabIdx;
+    if (!opts.background) {
+      n.activeTabIdx = n.tabs.length - 1;
+      _syncActiveTab(n);
+    }
+    return n.tabs.length - 1;
   }
   /** Switch the active tab on a leaf. No-op if `idx` is out of range. */
   setActiveLeafTab(leafId, idx) {
@@ -2900,7 +2902,7 @@ var TileRenderer = class {
                 <button class="twm-leaf__btn" data-action="split-v" title="Split vertically (Alt+V)">
                     <span class="material-symbols-outlined">splitscreen_add</span>
                 </button>
-                <button class="twm-leaf__btn" data-action="promote" title="Float this pane as a window (Alt+F)">
+                <button class="twm-leaf__btn" data-action="promote" title="Float this ${this.ctx.wm?.floatActiveTab ? "tab" : "pane"} as a window (Alt+F)">
                     <span class="material-symbols-outlined">web_asset</span>
                 </button>`}
             <button class="twm-leaf__btn" data-action="close" title="Close (Alt+W)">
@@ -3976,7 +3978,9 @@ var WindowManager = class _WindowManager {
     panelDefaults = null,
     snapPromotion = false,
     promoteInPlace = false,
-    tabLayout = null
+    tabLayout = null,
+    backToOpenList = false,
+    floatActiveTab = false
   }) {
     if (!taxonomy) throw new Error("WindowManager: a taxonomy is required");
     if (!content || typeof content.mount !== "function") {
@@ -3992,6 +3996,7 @@ var WindowManager = class _WindowManager {
     this.eventBus = eventBus || null;
     this.onChange = onChange || (() => {
     });
+    this.floatActiveTab = !!floatActiveTab;
     this._rootLeaf = () => {
       const kind = this.taxonomy.root;
       return {
@@ -4002,6 +4007,13 @@ var WindowManager = class _WindowManager {
     this.panelDefaults = panelDefaults || null;
     this.snapPromotion = !!snapPromotion;
     this.promoteInPlace = !!promoteInPlace;
+    this.backToOpenList = !!backToOpenList;
+    this._backWindowId = null;
+    const doc = rootEl?.ownerDocument || globalThis.document;
+    doc?.addEventListener?.("pointerdown", (e) => {
+      const el = e.target?.closest?.("[data-window-id]");
+      this._backWindowId = el && this._windowToLeaf.has(el.getAttribute("data-window-id")) ? el.getAttribute("data-window-id") : null;
+    }, true);
     this._snapCtl = null;
     this.desktops = new DesktopManager({
       seed: this._rootLeaf,
@@ -4146,6 +4158,7 @@ var WindowManager = class _WindowManager {
    *  methods (openFromContext / openInLeaf / navigateActiveTab) —
    *  they all record history by default. */
   navigateBack() {
+    if (this._navigateBackInWindow()) return;
     const tree = this._tree();
     const focusedId = tree.focusedLeafId;
     const primaryId = tree.primaryLeafId();
@@ -4184,6 +4197,7 @@ var WindowManager = class _WindowManager {
       this._notifyChange("navigate-back");
       return;
     }
+    if (this.backToOpenList && this._backToOpenList(id)) return;
     const leaf = tree.get(id);
     if (!leaf?.content) return;
     const { kind, props } = leaf.content;
@@ -4228,6 +4242,132 @@ var WindowManager = class _WindowManager {
   /** Navigate inside the current tab — preserves every other tab in
    *  the leaf. Used by Backspace + breadcrumb segments + anything
    *  else that should walk WITHIN the tile rather than reset it. */
+  /**
+   * C32. BACK FROM AN OPENED RECORD RETURNS TO THE LIST, IT DOES NOT MAKE ONE.
+   *
+   * The gesture this is for: a list tab, a record opened from it into a NEW
+   * tab, and Backspace in that record. With nothing left in the record tab's
+   * own history, step (3) of `navigateBack` walks the taxonomy up and REWRITES
+   * the record tab into its parent — so the tile ends up showing the list
+   * twice, once in the tab you started from and once in the tab you just left.
+   * The user's model is a browser's: you came from the list, the list is still
+   * open, so going back means closing this and being on the list again.
+   *
+   * So: when the active tab is an ENTITY — its props carry an `id`, the same
+   * test `swapToPage` uses for "the caller asked for a specific entity" — look
+   * for an open tab of the SAME section that is NOT one. That is the list or
+   * landing page the record belongs to. Close the record and activate it.
+   *
+   * NEAREST TO THE LEFT FIRST. New tabs are appended at the end, so the tab a
+   * record was opened from sits to its left; when several lists of the section
+   * are open, the nearest one on that side is the one it most plausibly came
+   * from. The right side is searched only after the left has nothing.
+   *
+   * DECLINES, and leaves step (3) to walk up in place, whenever there is no
+   * such tab: a record that is the tile's only tab, or one whose section has no
+   * list open. That keeps the one guarantee the whole rule exists for — Back
+   * never leaves two copies of a list — without ever closing a record into a
+   * tile that has nothing of its own to show.
+   *
+   * Matching is by SECTION (`topNavFor`) and not by kind, because the list a
+   * record was opened from is often not the record's taxonomy parent: a root
+   * landing page that renders the section, or a list that a flattened taxonomy
+   * files beside the record rather than above it.
+   *
+   * @returns {boolean} whether it closed a tab
+   */
+  _backToOpenList(leafId) {
+    const tree = this._tree();
+    const leaf = tree.get(leafId);
+    if (!leaf || leaf.kind !== "leaf") return false;
+    const tabs = Array.isArray(leaf.tabs) ? leaf.tabs : [];
+    if (tabs.length < 2) return false;
+    const activeIdx = Math.max(0, Math.min(tabs.length - 1, leaf.activeTabIdx || 0));
+    const active = tabs[activeIdx];
+    if (!_isEntityTab(active)) return false;
+    const section = this.taxonomy.topNavFor(active.kind);
+    if (!section) return false;
+    const isList = (t) => t && !_isEntityTab(t) && this.taxonomy.topNavFor(t.kind) === section;
+    let target = -1;
+    for (let i = activeIdx - 1; i >= 0 && target < 0; i--) if (isList(tabs[i])) target = i;
+    for (let i = activeIdx + 1; i < tabs.length && target < 0; i++) if (isList(tabs[i])) target = i;
+    if (target < 0) return false;
+    tree.removeLeafTab(leafId, activeIdx);
+    tree.setActiveLeafTab(leafId, target > activeIdx ? target - 1 : target);
+    tree.focus(leafId);
+    this.renderer.render();
+    this._persist();
+    this._notifyChange("navigate-back-close");
+    return true;
+  }
+  /**
+   * C34. Back while a floating window is the thing being read. Returns true
+   * when it handled the press, false to let the tile path run.
+   *
+   * Only the window's ACTIVE tab is considered, in this order:
+   *   (1) with `backToOpenList`, a record closes onto an open list of its
+   *       section: first among the window's own tabs, then any tile of the
+   *       window's desktop, primary tile first. Closing the last tab closes
+   *       the window, which discards it (a plain close never docks back).
+   *   (2) otherwise it walks up IN the window, exactly as a tile does.
+   * A window whose content has nowhere to go still counts as handled: the
+   * press was aimed at it, and moving the tile behind it would be the bug.
+   */
+  _navigateBackInWindow() {
+    const winId = this._backWindowId;
+    const rec = winId ? this._windowToLeaf.get(winId) : null;
+    if (!rec) {
+      this._backWindowId = null;
+      return false;
+    }
+    const tabs = Array.isArray(rec.tabs) && rec.tabs.length ? rec.tabs : [rec.original].filter(Boolean);
+    const activeIdx = Math.max(0, Math.min(tabs.length - 1, rec.activeTabIdx || 0));
+    const active = tabs[activeIdx];
+    if (!active) return true;
+    const section = this.backToOpenList && _isEntityTab(active) ? this.taxonomy.topNavFor(active.kind) : null;
+    const isList = (t) => !!t && !_isEntityTab(t) && this.taxonomy.topNavFor(t.kind) === section;
+    if (section) {
+      let own = -1;
+      for (let i = activeIdx - 1; i >= 0 && own < 0; i--) if (isList(tabs[i])) own = i;
+      for (let i = activeIdx + 1; i < tabs.length && own < 0; i++) if (isList(tabs[i])) own = i;
+      if (own >= 0 && Array.isArray(rec.tabs) && rec.tabs.length > 1) {
+        this._windowTabAction(winId, "close", { idx: activeIdx });
+        this.showWindowTab(winId, own > activeIdx ? own - 1 : own);
+        return true;
+      }
+      const desk = this.desktops.desktops[rec.desktopIdx] || this.desktops.active();
+      const tree = desk.tree;
+      const leaves = tree.leaves?.() || [];
+      const primaryId = tree.primaryLeafId();
+      const ordered = [...leaves.filter((l) => l.id === primaryId), ...leaves.filter((l) => l.id !== primaryId)];
+      for (const leaf of ordered) {
+        const ltabs = Array.isArray(leaf.tabs) ? leaf.tabs : [];
+        const cur = Math.max(0, Math.min(ltabs.length - 1, leaf.activeTabIdx || 0));
+        const hit = isList(ltabs[cur]) ? cur : ltabs.findIndex(isList);
+        if (hit < 0) continue;
+        this._backWindowId = null;
+        if (Array.isArray(rec.tabs) && rec.tabs.length > 1) this._windowTabAction(winId, "close", { idx: activeIdx });
+        else {
+          try {
+            rec.window.close({ force: true });
+          } catch {
+          }
+        }
+        if (this.desktops.active().tree === tree) {
+          tree.setActiveLeafTab(leaf.id, hit);
+          tree.focus(leaf.id);
+          this.renderer.render();
+        }
+        this._persist();
+        this._notifyChange("navigate-back-close");
+        return true;
+      }
+    }
+    const up = this.taxonomy.parentOf?.(active.kind, active.props || {});
+    const parentKind = up ? up.kind : this.taxonomy.parentKindFor(active.kind);
+    if (parentKind) this.openInWindow(winId, parentKind, up ? up.props || {} : {});
+    return true;
+  }
   navigateActiveTab(leafId, kind, props = {}) {
     const tree = this._tree();
     const leaf = tree.get(leafId);
@@ -4569,6 +4709,11 @@ var WindowManager = class _WindowManager {
     const tree = this._tree();
     const focused = tree.focused();
     if (!focused) return null;
+    const tabs = Array.isArray(focused.tabs) ? focused.tabs : [];
+    if (this.floatActiveTab && tabs.length > 1) {
+      const idx = Math.max(0, Math.min(tabs.length - 1, focused.activeTabIdx || 0));
+      return this.floatTabAsWindow(focused.id, idx);
+    }
     return this.floatPane(focused.id);
   }
   /** R8. Float a pane — every tab, with the strip — into a managed window.
@@ -6528,6 +6673,11 @@ var WindowManager = class _WindowManager {
    *  `opts.transient` — the appended tab is not persisted/restored
    *                     (e.g. an add-row form). Only meaningful with
    *                     `newTab:true`.
+   *  `opts.background` — with `newTab`, append the tab WITHOUT switching to
+   *                     it or focusing its tile. "Open in a background tab"
+   *                     means the page you are reading stays in front;
+   *                     without it the tab arrives and takes the screen,
+   *                     which is what an ordinary click already does.
    *
    *  Back-compat: the legacy `opts.target` enum still works and maps
    *  onto the axes — 'auto'→origin, 'tab'→origin+newTab,
@@ -6538,6 +6688,7 @@ var WindowManager = class _WindowManager {
    *  `openInWindow`) stay internal; callers prefer `wm.navigate(...)`. */
   navigate(kind, props = {}, opts = {}) {
     const { ctx = null, transient = false } = opts;
+    const background = !!opts.background;
     let { dest = "main", newTab = false } = opts;
     if (opts.target != null) {
       switch (opts.target) {
@@ -6573,9 +6724,9 @@ var WindowManager = class _WindowManager {
     }
     if (dest === "window") return this._navigateWindow(kind, props);
     if (dest === "main") {
-      return newTab ? this.openInTabInPrimary(kind, props, transient) : this.openInPrimary(kind, props);
+      return newTab ? this.openInTabInPrimary(kind, props, transient, background) : this.openInPrimary(kind, props);
     }
-    return newTab ? this._navigateTab(ctx, kind, props, transient) : this._navigateAuto(ctx, kind, props);
+    return newTab ? this._navigateTab(ctx, kind, props, transient, background) : this._navigateAuto(ctx, kind, props);
   }
   _navigateAuto(ctx, kind, props) {
     if (ctx?.windowId && this._windowToLeaf.has(ctx.windowId)) {
@@ -6593,12 +6744,12 @@ var WindowManager = class _WindowManager {
     }
     this.openInPrimary(kind, props);
   }
-  _navigateTab(ctx, kind, props, transient = false) {
+  _navigateTab(ctx, kind, props, transient = false, background = false) {
     if (ctx?.windowId && this._windowToLeaf.has(ctx.windowId)) {
       this.openInWindow(ctx.windowId, kind, props);
       return;
     }
-    this.openInTabFromContext(ctx || {}, kind, props, transient);
+    this.openInTabFromContext(ctx || {}, kind, props, transient, background);
   }
   /** Spawn a fresh ManagedWindow with the requested content. No
    *  source leaf — closing the window just disposes the content. */
@@ -6719,7 +6870,7 @@ var WindowManager = class _WindowManager {
    *  Mirrors `openFromContext` (windowed / split-leaf / primary
    *  routing) but uses `appendLeafTab` so the existing content
    *  stays in place as a tab. */
-  openInTabFromContext(ctx, kind, props = {}, transient = false) {
+  openInTabFromContext(ctx, kind, props = {}, transient = false, background = false) {
     if (ctx?.windowId && this._windowToLeaf.has(ctx.windowId)) {
       this.openInWindow(ctx.windowId, kind, props);
       return;
@@ -6733,8 +6884,13 @@ var WindowManager = class _WindowManager {
       this.openInPrimary(kind, props);
       return;
     }
-    tree.appendLeafTab(leafId, { kind, props }, _tabTitle(kind, props), { transient });
-    tree.focus(leafId);
+    tree.appendLeafTab(
+      leafId,
+      { kind, props },
+      _tabTitle(kind, props),
+      { transient, background }
+    );
+    if (!background) tree.focus(leafId);
     this.renderer.render();
     this._persist();
     this._notifyChange("tab-open");
@@ -6746,15 +6902,20 @@ var WindowManager = class _WindowManager {
    *  click from outside the tile system (e.g. the bottom-panel
    *  "Add row" button, which passes no ctx) reliably lands as a sibling
    *  tab in the main tile rather than swapping its content. */
-  openInTabInPrimary(kind, props = {}, transient = false) {
+  openInTabInPrimary(kind, props = {}, transient = false, background = false) {
     const tree = this._tree();
     const leafId = tree.primaryLeafId();
     if (!leafId) {
       this._navigateWindow(kind, props);
       return;
     }
-    tree.appendLeafTab(leafId, { kind, props }, _tabTitle(kind, props), { transient });
-    tree.focus(leafId);
+    tree.appendLeafTab(
+      leafId,
+      { kind, props },
+      _tabTitle(kind, props),
+      { transient, background }
+    );
+    if (!background) tree.focus(leafId);
     this.renderer.render();
     this._persist();
     this._notifyChange("tab-open");
@@ -6824,6 +6985,9 @@ function _swapSiblings(tree, aId, bId) {
   parent.sizes[i] = parent.sizes[j];
   parent.sizes[j] = size;
   return true;
+}
+function _isEntityTab(tab) {
+  return !!tab && tab.props != null && tab.props.id != null && tab.props.id !== "";
 }
 
 // src/tiling/tile_tab_menu.js
@@ -7215,6 +7379,112 @@ function _esc7(s) {
   })[c]);
 }
 
+// src/tiling/zoom.js
+var ZOOM_MIN = 50;
+var ZOOM_MAX = 200;
+var ZOOM_STEP = 5;
+var ZOOM_NUDGE = 10;
+var ZOOM_DEFAULT = 100;
+var ZOOM_STATE_KEY = "zoom";
+function clampZoom(value) {
+  if (value == null || value === "") return ZOOM_DEFAULT;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return ZOOM_DEFAULT;
+  const stepped = Math.round(n / ZOOM_STEP) * ZOOM_STEP;
+  return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, stepped));
+}
+function applyZoom(root, percent) {
+  if (!root?.style) return;
+  root.style.setProperty("--twm-zoom", String(percent / 100));
+  root.classList.toggle("twm-zoomed", percent !== ZOOM_DEFAULT);
+}
+function mountZoomControl(hostEl, { root, host = null, stateKey = ZOOM_STATE_KEY, onChange } = {}) {
+  if (!hostEl || !root) return null;
+  const doc = hostEl.ownerDocument;
+  let current = ZOOM_DEFAULT;
+  let disposed = false;
+  const el = doc.createElement("div");
+  el.className = "twm-zoom";
+  const stepButton = (label, title, delta) => {
+    const b = doc.createElement("button");
+    b.type = "button";
+    b.className = "twm-zoom__step";
+    b.textContent = label;
+    b.title = title;
+    b.setAttribute("aria-label", title);
+    b.addEventListener("click", () => commit(clampZoom(current + delta)));
+    return b;
+  };
+  const slider = doc.createElement("input");
+  slider.type = "range";
+  slider.className = "twm-zoom__slider";
+  slider.min = String(ZOOM_MIN);
+  slider.max = String(ZOOM_MAX);
+  slider.step = String(ZOOM_STEP);
+  slider.value = String(ZOOM_DEFAULT);
+  slider.title = `Zoom the workspace, ${ZOOM_MIN}\u2013${ZOOM_MAX}% \u2014 double-click to reset.`;
+  slider.setAttribute("aria-label", "Zoom the workspace");
+  slider.addEventListener("input", () => commit(clampZoom(slider.value)));
+  slider.addEventListener("dblclick", () => commit(ZOOM_DEFAULT));
+  const readout = doc.createElement("button");
+  readout.type = "button";
+  readout.className = "twm-zoom__value";
+  readout.title = `Back to ${ZOOM_DEFAULT}%`;
+  readout.addEventListener("click", () => commit(ZOOM_DEFAULT));
+  el.append(
+    stepButton("\u2212", `Zoom out ${ZOOM_NUDGE}%`, -ZOOM_NUDGE),
+    slider,
+    stepButton("+", `Zoom in ${ZOOM_NUDGE}%`, ZOOM_NUDGE),
+    readout
+  );
+  hostEl.appendChild(el);
+  const paint = (percent) => {
+    current = percent;
+    slider.value = String(percent);
+    readout.textContent = `${percent}%`;
+    applyZoom(root, percent);
+  };
+  let saveTimer = 0;
+  const persist = (percent) => {
+    const state = host?.state;
+    if (!state) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      Promise.resolve().then(() => state.write(stateKey, percent)).catch((err) => console.warn("[zoom] save failed", err));
+    }, 400);
+  };
+  const commit = (percent) => {
+    if (disposed || percent === current) return;
+    paint(percent);
+    persist(percent);
+    try {
+      onChange?.(percent);
+    } catch (err) {
+      console.warn("[zoom] onChange threw", err);
+    }
+  };
+  paint(ZOOM_DEFAULT);
+  const ready = Promise.resolve().then(() => host?.state?.read?.(stateKey)).then((saved) => {
+    if (!disposed && saved != null) paint(clampZoom(saved));
+    return current;
+  }).catch((err) => {
+    console.warn("[zoom] load failed", err);
+    return current;
+  });
+  return {
+    el,
+    get: () => current,
+    set: (percent) => commit(clampZoom(percent)),
+    ready,
+    dispose: () => {
+      disposed = true;
+      clearTimeout(saveTimer);
+      el.remove();
+      applyZoom(root, ZOOM_DEFAULT);
+    }
+  };
+}
+
 // src/tiling/shell.js
 async function createShell({
   root,
@@ -7232,6 +7502,8 @@ async function createShell({
   panels = null,
   snapPromotion = false,
   promoteInPlace = false,
+  backToOpenList = false,
+  floatActiveTab = false,
   tabLayout = null,
   chrome = {},
   // An embedder that moved its sections out of the top bar — into an icon
@@ -7271,6 +7543,8 @@ async function createShell({
     panelDefaults: panels,
     snapPromotion,
     promoteInPlace,
+    backToOpenList,
+    floatActiveTab,
     tabLayout,
     // `ctx` is the delivery vehicle for leaf-mounted chrome: tile_renderer
     // spreads it into every content factory, which is how the breadcrumb
@@ -7302,6 +7576,8 @@ async function createShell({
   const paletteBtn = mountPaletteButton(chrome.paletteButton, palette);
   topNavEl = mountTopNav(chrome.topNav, taxonomy, wm);
   desktopsEl = mountDesktopBar(chrome.desktops, wm);
+  const zoom = mountZoomControl(chrome.zoom, { root, host });
+  if (zoom) await zoom.ready;
   toggles = bindPanelToggles(chrome.panelToggles, wm);
   eventBus?.on?.("wm:changed", syncChrome);
   await wm.load();
@@ -7318,7 +7594,10 @@ async function createShell({
       paletteButtonEl: paletteBtn,
       topNavEl,
       desktopsEl,
-      panelToggles: toggles
+      panelToggles: toggles,
+      // `get`/`set` so an embedder can drive the zoom from its own settings
+      // pane, or read it, without reaching into the control's DOM.
+      zoom
     }),
     // A shell that can be built can be built TWICE — an embedder that
     // rebuilds on a context change (a different project, a different
@@ -7342,6 +7621,10 @@ async function createShell({
         wm.renderer.destroy();
       } catch (err) {
         log.warn?.("renderer teardown", err);
+      }
+      try {
+        zoom?.dispose();
+      } catch {
       }
     }
   });
@@ -7589,7 +7872,7 @@ function _tileContextMenu(wm, leafId, x, y) {
     // direction is a dead control; in the mean direction it is a missing
     // feature, and this file has shipped one of each.
     {
-      label: "Float this pane as a window",
+      label: wm.floatActiveTab ? "Float this tab as a window" : "Float this pane as a window",
       icon: "web_asset",
       action: "promote",
       disabled: isPanel || !leaf.content || wm.renderer?.leafChrome?.(leafId)?.promote === false
@@ -7640,10 +7923,18 @@ export {
   TileRenderer,
   TileTree,
   WindowManager,
+  ZOOM_DEFAULT,
+  ZOOM_MAX,
+  ZOOM_MIN,
+  ZOOM_NUDGE,
+  ZOOM_STATE_KEY,
+  ZOOM_STEP,
   actionsCellRenderer,
+  applyZoom,
   attachLandingKeyboardNav,
   attachLandingShell,
   attachLandingTableBehavior,
+  clampZoom,
   createCommandPalette,
   createContentRegistry,
   createEntityCatalog,
@@ -7661,6 +7952,7 @@ export {
   mountLandingShell,
   mountNavPanel,
   mountTileBreadcrumb,
+  mountZoomControl,
   openTileTabMenu,
   openTileTabSwitcher,
   registerPanelKeys,

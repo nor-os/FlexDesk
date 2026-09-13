@@ -561,7 +561,7 @@ export class TileRenderer {
                 <button class="twm-leaf__btn" data-action="split-v" title="Split vertically (Alt+V)">
                     <span class="material-symbols-outlined">splitscreen_add</span>
                 </button>
-                <button class="twm-leaf__btn" data-action="promote" title="Float this pane as a window (Alt+F)">
+                <button class="twm-leaf__btn" data-action="promote" title="Float this ${this.ctx.wm?.floatActiveTab ? 'tab' : 'pane'} as a window (Alt+F)">
                     <span class="material-symbols-outlined">web_asset</span>
                 </button>`}
             <button class="twm-leaf__btn" data-action="close" title="Close (Alt+W)">

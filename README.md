@@ -104,6 +104,53 @@ const shell = await createShell({
 A working version of exactly this — planets and moons, a mock host, no backend —
 lives in `demo/`.
 
+### Opt-in shell features
+
+These change what the user sees, so all of them are off until you ask:
+
+```js
+await createShell({
+    // …everything above…
+    snapPromotion: true,     // drag a floating window onto a tile: it snaps, and docks back in
+    promoteInPlace: true,    // a window floated out of a tile stays inside that tile's pane
+    backToOpenList: true,    // Back in a record opened beside its list closes onto that list
+    floatActiveTab: true,    // floating a tile takes the tab on screen, not the whole pane
+    chrome: {
+        topNav: document.getElementById('nav'),
+        zoom:   document.getElementById('status-bar'),   // content zoom, 50–200%
+    },
+});
+```
+
+**`chrome.zoom`** paints a − / track / + / readout control into the element you
+pass, restores the saved zoom through the host's `state` capability, and scales
+the content of tiles and floating windows. It deliberately scales *content only*
+— never the root, a tile's frame or a window's frame — because CSS `zoom`
+establishes a scaled coordinate space and every window drag, resize and snap
+measures in real pixels. `shell.chrome.zoom` exposes `get()` and `set(percent)`
+for a settings pane. An embedder that builds its own `WindowManager` instead of
+calling `createShell` mounts the same control with `mountZoomControl(el, { root,
+host })`.
+
+**`backToOpenList`** is for apps that open a record from a list in a new tab.
+Without it, Back in that record has no history to pop, so it walks the taxonomy
+up and rewrites the record into its parent, and the tile now shows the list
+twice. With it, Back closes the record tab and activates the list it came from:
+the nearest tab to the left, else to the right, that is not a record (no
+`props.id`) and belongs to the same top-nav section. Per-tab history still comes
+first, and a record with no such list beside it still walks up in place.
+
+**`floatActiveTab`** is for apps whose tabs are separate records rather than
+views of one pane. The float button, Alt+F and the tile menu take only the tab
+on screen and leave its siblings in the tile, so the window holds one tab and
+draws no strip. Without it the whole pane floats, strip and all.
+
+**Back in a floating window** always acts on that window, whichever option is
+set. The last click decides: inside a window, Backspace walks that window up;
+anywhere else, it walks the focused tile as before. With `backToOpenList`, a
+record in a window closes onto an open list of its section, first among the
+window's own tabs and then in any tile of its desktop.
+
 ## The host port
 
 FlexDesk never touches `pywebview`, `fetch`, `localStorage` or the filesystem. It

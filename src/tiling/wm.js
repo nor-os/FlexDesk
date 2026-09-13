@@ -34,7 +34,8 @@ const PANEL_TITLES = {
 export class WindowManager {
     constructor({ rootEl, api, ctx, onChange, eventBus, host, taxonomy, events, content,
                   panelDefaults = null, snapPromotion = false,
-                  promoteInPlace = false, tabLayout = null }) {
+                  promoteInPlace = false, tabLayout = null, backToOpenList = false,
+                  floatActiveTab = false }) {
         if (!taxonomy) throw new Error('WindowManager: a taxonomy is required');
         if (!content || typeof content.mount !== 'function') {
             throw new Error('WindowManager: a content registry is required '
@@ -57,6 +58,8 @@ export class WindowManager {
         this.ctx = ctx || {};
         this.eventBus = eventBus || null;
         this.onChange = onChange || (() => {});
+        // C34. Whether the tile's float gesture takes only the tab on screen.
+        this.floatActiveTab = !!floatActiveTab;
 
         // The leaf a fresh or emptied desktop starts with. Comes from the
         // taxonomy's root kind — NOT a hardcoded 'home'. An embedder with a
@@ -83,6 +86,26 @@ export class WindowManager {
          *  changes where a promoted window can be dragged, and an existing
          *  embedder upgrading must not find its windows suddenly clipped. */
         this.promoteInPlace = !!promoteInPlace;
+        /** C32. Whether Backspace on an ENTITY tab closes it and returns to a list
+         *  that is already open, instead of turning the tab into a second copy of
+         *  that list. See `_backToOpenList`. Default off: it changes what the key
+         *  does, and an existing embedder upgrading must not find tabs closing
+         *  where they used to navigate. */
+        this.backToOpenList = !!backToOpenList;
+
+        // C34. BACK BELONGS TO WHAT YOU ARE LOOKING AT. A floating window is not a
+        // tile, so the tree's focus never moves to it, and Backspace pressed while
+        // reading a window used to walk the tile BEHIND it. The last pointerdown
+        // says which one the user is in: inside a window it names that window,
+        // anywhere else it clears. Capture phase, so content that stops the event
+        // cannot hide it.
+        this._backWindowId = null;
+        const doc = rootEl?.ownerDocument || globalThis.document;
+        doc?.addEventListener?.('pointerdown', (e) => {
+            const el = e.target?.closest?.('[data-window-id]');
+            this._backWindowId = el && this._windowToLeaf.has(el.getAttribute('data-window-id'))
+                ? el.getAttribute('data-window-id') : null;
+        }, true);
         this._snapCtl = null;
         this.desktops = new DesktopManager({
             seed: this._rootLeaf, panelDefaults: this.panelDefaults });
@@ -238,6 +261,8 @@ export class WindowManager {
      *  methods (openFromContext / openInLeaf / navigateActiveTab) —
      *  they all record history by default. */
     navigateBack() {
+        // C34. A window the user is reading gets the Back, not the tile under it.
+        if (this._navigateBackInWindow()) return;
         const tree = this._tree();
         // Prefer the FOCUSED leaf — that's where the user was just
         // interacting (Open click, breadcrumb step, etc.). Falls back
@@ -285,7 +310,10 @@ export class WindowManager {
             this._notifyChange('navigate-back');
             return;
         }
-        // (2) Taxonomy fallback — the user's path is gone, so walk the
+        // (2) C32. An entity tab with nowhere left to go back to, beside a list
+        // of its own section that is already open: close it and land there.
+        if (this.backToOpenList && this._backToOpenList(id)) return;
+        // (3) Taxonomy fallback — the user's path is gone, so walk the
         // canonical parent instead. An ENTITY-level parent wins (the
         // instance one level up, e.g. the parent an id names); failing
         // that, the KIND-level parent (this page's section).
@@ -347,6 +375,134 @@ export class WindowManager {
     /** Navigate inside the current tab — preserves every other tab in
      *  the leaf. Used by Backspace + breadcrumb segments + anything
      *  else that should walk WITHIN the tile rather than reset it. */
+    /**
+     * C32. BACK FROM AN OPENED RECORD RETURNS TO THE LIST, IT DOES NOT MAKE ONE.
+     *
+     * The gesture this is for: a list tab, a record opened from it into a NEW
+     * tab, and Backspace in that record. With nothing left in the record tab's
+     * own history, step (3) of `navigateBack` walks the taxonomy up and REWRITES
+     * the record tab into its parent — so the tile ends up showing the list
+     * twice, once in the tab you started from and once in the tab you just left.
+     * The user's model is a browser's: you came from the list, the list is still
+     * open, so going back means closing this and being on the list again.
+     *
+     * So: when the active tab is an ENTITY — its props carry an `id`, the same
+     * test `swapToPage` uses for "the caller asked for a specific entity" — look
+     * for an open tab of the SAME section that is NOT one. That is the list or
+     * landing page the record belongs to. Close the record and activate it.
+     *
+     * NEAREST TO THE LEFT FIRST. New tabs are appended at the end, so the tab a
+     * record was opened from sits to its left; when several lists of the section
+     * are open, the nearest one on that side is the one it most plausibly came
+     * from. The right side is searched only after the left has nothing.
+     *
+     * DECLINES, and leaves step (3) to walk up in place, whenever there is no
+     * such tab: a record that is the tile's only tab, or one whose section has no
+     * list open. That keeps the one guarantee the whole rule exists for — Back
+     * never leaves two copies of a list — without ever closing a record into a
+     * tile that has nothing of its own to show.
+     *
+     * Matching is by SECTION (`topNavFor`) and not by kind, because the list a
+     * record was opened from is often not the record's taxonomy parent: a root
+     * landing page that renders the section, or a list that a flattened taxonomy
+     * files beside the record rather than above it.
+     *
+     * @returns {boolean} whether it closed a tab
+     */
+    _backToOpenList(leafId) {
+        const tree = this._tree();
+        const leaf = tree.get(leafId);
+        if (!leaf || leaf.kind !== 'leaf') return false;
+        const tabs = Array.isArray(leaf.tabs) ? leaf.tabs : [];
+        if (tabs.length < 2) return false;
+        const activeIdx = Math.max(0, Math.min(tabs.length - 1, leaf.activeTabIdx || 0));
+        const active = tabs[activeIdx];
+        if (!_isEntityTab(active)) return false;
+        const section = this.taxonomy.topNavFor(active.kind);
+        if (!section) return false;
+
+        const isList = (t) => t && !_isEntityTab(t) && this.taxonomy.topNavFor(t.kind) === section;
+        let target = -1;
+        for (let i = activeIdx - 1; i >= 0 && target < 0; i--) if (isList(tabs[i])) target = i;
+        for (let i = activeIdx + 1; i < tabs.length && target < 0; i++) if (isList(tabs[i])) target = i;
+        if (target < 0) return false;
+
+        tree.removeLeafTab(leafId, activeIdx);
+        // Removing the active tab shifts everything after it one to the left.
+        tree.setActiveLeafTab(leafId, target > activeIdx ? target - 1 : target);
+        tree.focus(leafId);
+        this.renderer.render();
+        this._persist();
+        this._notifyChange('navigate-back-close');
+        return true;
+    }
+
+    /**
+     * C34. Back while a floating window is the thing being read. Returns true
+     * when it handled the press, false to let the tile path run.
+     *
+     * Only the window's ACTIVE tab is considered, in this order:
+     *   (1) with `backToOpenList`, a record closes onto an open list of its
+     *       section: first among the window's own tabs, then any tile of the
+     *       window's desktop, primary tile first. Closing the last tab closes
+     *       the window, which discards it (a plain close never docks back).
+     *   (2) otherwise it walks up IN the window, exactly as a tile does.
+     * A window whose content has nowhere to go still counts as handled: the
+     * press was aimed at it, and moving the tile behind it would be the bug.
+     */
+    _navigateBackInWindow() {
+        const winId = this._backWindowId;
+        const rec = winId ? this._windowToLeaf.get(winId) : null;
+        if (!rec) { this._backWindowId = null; return false; }
+        const tabs = Array.isArray(rec.tabs) && rec.tabs.length ? rec.tabs : [rec.original].filter(Boolean);
+        const activeIdx = Math.max(0, Math.min(tabs.length - 1, rec.activeTabIdx || 0));
+        const active = tabs[activeIdx];
+        if (!active) return true;
+        const section = this.backToOpenList && _isEntityTab(active)
+            ? this.taxonomy.topNavFor(active.kind) : null;
+        const isList = (t) => !!t && !_isEntityTab(t) && this.taxonomy.topNavFor(t.kind) === section;
+
+        if (section) {
+            // (1a) a list among the window's own tabs, nearest to the left first.
+            let own = -1;
+            for (let i = activeIdx - 1; i >= 0 && own < 0; i--) if (isList(tabs[i])) own = i;
+            for (let i = activeIdx + 1; i < tabs.length && own < 0; i++) if (isList(tabs[i])) own = i;
+            if (own >= 0 && Array.isArray(rec.tabs) && rec.tabs.length > 1) {
+                this._windowTabAction(winId, 'close', { idx: activeIdx });
+                this.showWindowTab(winId, own > activeIdx ? own - 1 : own);
+                return true;
+            }
+            // (1b) a list in a tile of the window's desktop.
+            const desk = this.desktops.desktops[rec.desktopIdx] || this.desktops.active();
+            const tree = desk.tree;
+            const leaves = tree.leaves?.() || [];
+            const primaryId = tree.primaryLeafId();
+            const ordered = [...leaves.filter((l) => l.id === primaryId), ...leaves.filter((l) => l.id !== primaryId)];
+            for (const leaf of ordered) {
+                const ltabs = Array.isArray(leaf.tabs) ? leaf.tabs : [];
+                const cur = Math.max(0, Math.min(ltabs.length - 1, leaf.activeTabIdx || 0));
+                const hit = isList(ltabs[cur]) ? cur : ltabs.findIndex(isList);
+                if (hit < 0) continue;
+                this._backWindowId = null;
+                if (Array.isArray(rec.tabs) && rec.tabs.length > 1) this._windowTabAction(winId, 'close', { idx: activeIdx });
+                else { try { rec.window.close({ force: true }); } catch { /* already gone */ } }
+                if (this.desktops.active().tree === tree) {
+                    tree.setActiveLeafTab(leaf.id, hit);
+                    tree.focus(leaf.id);
+                    this.renderer.render();
+                }
+                this._persist();
+                this._notifyChange('navigate-back-close');
+                return true;
+            }
+        }
+        // (2) walk up inside the window.
+        const up = this.taxonomy.parentOf?.(active.kind, active.props || {});
+        const parentKind = up ? up.kind : this.taxonomy.parentKindFor(active.kind);
+        if (parentKind) this.openInWindow(winId, parentKind, up ? (up.props || {}) : {});
+        return true;
+    }
+
     navigateActiveTab(leafId, kind, props = {}) {
         const tree = this._tree();
         const leaf = tree.get(leafId);
@@ -757,6 +913,14 @@ export class WindowManager {
         const tree = this._tree();
         const focused = tree.focused();
         if (!focused) return null;
+        // C34. An embedder whose tabs are separate records, not one pane's
+        // views, floats the record on screen and leaves its siblings in place.
+        // A window then holds one tab, so it draws no strip at all.
+        const tabs = Array.isArray(focused.tabs) ? focused.tabs : [];
+        if (this.floatActiveTab && tabs.length > 1) {
+            const idx = Math.max(0, Math.min(tabs.length - 1, focused.activeTabIdx || 0));
+            return this.floatTabAsWindow(focused.id, idx);
+        }
         return this.floatPane(focused.id);
     }
 
@@ -3279,6 +3443,11 @@ export class WindowManager {
      *  `opts.transient` — the appended tab is not persisted/restored
      *                     (e.g. an add-row form). Only meaningful with
      *                     `newTab:true`.
+     *  `opts.background` — with `newTab`, append the tab WITHOUT switching to
+     *                     it or focusing its tile. "Open in a background tab"
+     *                     means the page you are reading stays in front;
+     *                     without it the tab arrives and takes the screen,
+     *                     which is what an ordinary click already does.
      *
      *  Back-compat: the legacy `opts.target` enum still works and maps
      *  onto the axes — 'auto'→origin, 'tab'→origin+newTab,
@@ -3289,6 +3458,8 @@ export class WindowManager {
      *  `openInWindow`) stay internal; callers prefer `wm.navigate(...)`. */
     navigate(kind, props = {}, opts = {}) {
         const { ctx = null, transient = false } = opts;
+        // Append the tab but stay where you are. Only meaningful with `newTab`.
+        const background = !!opts.background;
         // Resolve the two axes, honoring the legacy `target` alias.
         let { dest = 'main', newTab = false } = opts;
         if (opts.target != null) {
@@ -3314,12 +3485,12 @@ export class WindowManager {
         if (dest === 'window') return this._navigateWindow(kind, props);
         if (dest === 'main') {
             return newTab
-                ? this.openInTabInPrimary(kind, props, transient)
+                ? this.openInTabInPrimary(kind, props, transient, background)
                 : this.openInPrimary(kind, props);
         }
         // dest === 'origin'
         return newTab
-            ? this._navigateTab(ctx, kind, props, transient)
+            ? this._navigateTab(ctx, kind, props, transient, background)
             : this._navigateAuto(ctx, kind, props);
     }
 
@@ -3346,14 +3517,14 @@ export class WindowManager {
         this.openInPrimary(kind, props);
     }
 
-    _navigateTab(ctx, kind, props, transient = false) {
+    _navigateTab(ctx, kind, props, transient = false, background = false) {
         // Windows aren't tabbed — "open in tab" inside a window just
         // replaces the window's content.
         if (ctx?.windowId && this._windowToLeaf.has(ctx.windowId)) {
             this.openInWindow(ctx.windowId, kind, props);
             return;
         }
-        this.openInTabFromContext(ctx || {}, kind, props, transient);
+        this.openInTabFromContext(ctx || {}, kind, props, transient, background);
     }
 
     /** Spawn a fresh ManagedWindow with the requested content. No
@@ -3486,7 +3657,7 @@ export class WindowManager {
      *  Mirrors `openFromContext` (windowed / split-leaf / primary
      *  routing) but uses `appendLeafTab` so the existing content
      *  stays in place as a tab. */
-    openInTabFromContext(ctx, kind, props = {}, transient = false) {
+    openInTabFromContext(ctx, kind, props = {}, transient = false, background = false) {
         // Managed-window content: just open in the window — managed
         // windows aren't tabbed (one window = one content).
         if (ctx?.windowId && this._windowToLeaf.has(ctx.windowId)) {
@@ -3504,8 +3675,11 @@ export class WindowManager {
             this.openInPrimary(kind, props);
             return;
         }
-        tree.appendLeafTab(leafId, { kind, props }, _tabTitle(kind, props), { transient });
-        tree.focus(leafId);
+        tree.appendLeafTab(leafId, { kind, props }, _tabTitle(kind, props),
+            { transient, background });
+        // A BACKGROUND tab must not steal the tile's focus either — the point
+        // is that the user stays exactly where they were.
+        if (!background) tree.focus(leafId);
         this.renderer.render();
         this._persist();
         this._notifyChange('tab-open');
@@ -3518,7 +3692,7 @@ export class WindowManager {
      *  click from outside the tile system (e.g. the bottom-panel
      *  "Add row" button, which passes no ctx) reliably lands as a sibling
      *  tab in the main tile rather than swapping its content. */
-    openInTabInPrimary(kind, props = {}, transient = false) {
+    openInTabInPrimary(kind, props = {}, transient = false, background = false) {
         const tree = this._tree();
         const leafId = tree.primaryLeafId();
         // No content tile on this desktop (e.g. a panels-only layout) —
@@ -3526,8 +3700,11 @@ export class WindowManager {
         // caller asked for "a tab in the main tile"; with no main tile to
         // tab into, a floating window is the least-surprising fallback.
         if (!leafId) { this._navigateWindow(kind, props); return; }
-        tree.appendLeafTab(leafId, { kind, props }, _tabTitle(kind, props), { transient });
-        tree.focus(leafId);
+        tree.appendLeafTab(leafId, { kind, props }, _tabTitle(kind, props),
+            { transient, background });
+        // A BACKGROUND tab must not steal the tile's focus either — the point
+        // is that the user stays exactly where they were.
+        if (!background) tree.focus(leafId);
         this.renderer.render();
         this._persist();
         this._notifyChange('tab-open');
@@ -3628,3 +3805,8 @@ function _swapSiblings(tree, aId, bId) {
     return true;
 }
 
+/** A tab showing ONE record rather than a list: its props name an `id`. The same
+ *  test `swapToPage` applies to "the caller asked for a specific entity". */
+function _isEntityTab(tab) {
+    return !!tab && tab.props != null && tab.props.id != null && tab.props.id !== '';
+}

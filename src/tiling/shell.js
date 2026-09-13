@@ -44,6 +44,7 @@ import { createContentRegistry } from './content_registry.js';
 import { createCommandPalette } from './command_palette.js';
 import { installKeymap } from './keymap.js';
 import { openTileTabSwitcher } from './tile_tab_menu.js';
+import { mountZoomControl } from './zoom.js';
 import { showContextMenu } from '../ui/components/context_menu.js';
 import { openForm } from '../ui/components/modal.js';
 
@@ -85,6 +86,15 @@ import { openForm } from '../ui/components/modal.js';
  *                                      window onto a tile puts it back in the
  *                                      tree. Default off — it changes what a
  *                                      drag to an edge does.
+ * @param {boolean}    [cfg.backToOpenList] C32. Whether Backspace on a record
+ *                                      tab closes it and returns to a list of
+ *                                      its section that is already open, rather
+ *                                      than rewriting it into a second copy of
+ *                                      that list. Default off.
+ * @param {boolean}    [cfg.floatActiveTab] C34. Whether floating a tile takes
+ *                                      only the tab on screen, leaving its
+ *                                      siblings in the tile. Default off: the
+ *                                      whole pane floats, strip and all (R8).
  * @param {'top'|'bottom'} [cfg.tabLayout] C22. Where a multi-tab leaf draws its
  *                                      tabs. `'bottom'` is the framework's own
  *                                      spreadsheet strip under the tile body
@@ -97,7 +107,12 @@ import { openForm } from '../ui/components/modal.js';
  *                                      embedder whose settings pane holds only
  *                                      the root element can change it live.
  * @param {object}     [cfg.chrome]     { topNav?, paletteButton?, desktops?,
- *                                        panelToggles?: { left?, right?, bottom? } }
+ *                                        panelToggles?: { left?, right?, bottom? },
+ *                                        zoom? }
+ *                                      `zoom` is C31: the element the content
+ *                                      zoom control is painted into — see
+ *                                      zoom.js. Absent, there is no control and
+ *                                      nothing is ever scaled.
  * @returns {Promise<object>} the frozen shell
  */
 export async function createShell({
@@ -116,6 +131,8 @@ export async function createShell({
     panels = null,
     snapPromotion = false,
     promoteInPlace = false,
+    backToOpenList = false,
+    floatActiveTab = false,
     tabLayout = null,
     chrome = {},
     // An embedder that moved its sections out of the top bar — into an icon
@@ -157,6 +174,8 @@ export async function createShell({
         panelDefaults: panels,
         snapPromotion,
         promoteInPlace,
+        backToOpenList,
+        floatActiveTab,
         tabLayout,
         // `ctx` is the delivery vehicle for leaf-mounted chrome: tile_renderer
         // spreads it into every content factory, which is how the breadcrumb
@@ -185,6 +204,13 @@ export async function createShell({
     const paletteBtn = mountPaletteButton(chrome.paletteButton, palette);
     topNavEl = mountTopNav(chrome.topNav, taxonomy, wm);
     desktopsEl = mountDesktopBar(chrome.desktops, wm);
+    // C31. The content zoom. Painted with the rest of the chrome and, unlike the
+    // rest, AWAITED before the first mount: its saved value is applied to `root`
+    // as a CSS variable, and a shell that mounted first would paint every tile at
+    // 100% and then visibly jump to the user's zoom a moment later. A host with no
+    // saved zoom — or no `state` at all — resolves immediately to the default.
+    const zoom = mountZoomControl(chrome.zoom, { root, host });
+    if (zoom) await zoom.ready;
     // NOTE: bindPanelToggles CLONES the buttons (to strip whatever state the
     // embedder's own machinery left on them) and returns the FRESH nodes. The
     // originals are detached from here on — sync against the returned map, not
@@ -211,6 +237,9 @@ export async function createShell({
             topNavEl,
             desktopsEl,
             panelToggles: toggles,
+            // `get`/`set` so an embedder can drive the zoom from its own settings
+            // pane, or read it, without reaching into the control's DOM.
+            zoom,
         }),
         // A shell that can be built can be built TWICE — an embedder that
         // rebuilds on a context change (a different project, a different
@@ -229,6 +258,10 @@ export async function createShell({
             // captured before a rebuild, a promise that has not settled —
             // cannot repaint a dead tree into a root the live shell now owns.
             try { wm.renderer.destroy(); } catch (err) { log.warn?.('renderer teardown', err); }
+            // The zoom lives on `root` as a variable and a class. A rebuilt shell on
+            // the same root must not inherit the old one's scale with no control on
+            // screen to change it, so dispose puts the root back to 100%.
+            try { zoom?.dispose(); } catch { /* ignore */ }
         },
     });
 }
@@ -501,7 +534,8 @@ function _tileContextMenu(wm, leafId, x, y) {
         // most of them — a menu disagreeing with its verb in the generous
         // direction is a dead control; in the mean direction it is a missing
         // feature, and this file has shipped one of each.
-        { label: 'Float this pane as a window', icon: 'web_asset',
+        { label: wm.floatActiveTab ? 'Float this tab as a window' : 'Float this pane as a window',
+          icon: 'web_asset',
           action: 'promote',
           disabled: isPanel || !leaf.content
                     || wm.renderer?.leafChrome?.(leafId)?.promote === false },

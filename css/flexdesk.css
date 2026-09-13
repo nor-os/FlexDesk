@@ -7156,3 +7156,48 @@ tr:hover .twm-row-action { opacity: 1; }
     cursor: pointer;
 }
 .twm-zoom__value:hover { color: var(--text-primary); }
+
+/* ══ AUTO SCROLLBARS ═════════════════════════════════════════════════
+ *
+ * `installAutoScrollbars(root)` (src/ui/utils/auto_scrollbars.js): no native
+ * scrollbar under `root`, so nothing reserves layout width for one, and a thin
+ * overlay bar in one fixed layer over every element that scrolls, shown while
+ * it is hovered or scrolling and faded out after. */
+.twm-autoscroll,
+.twm-autoscroll * {
+    scrollbar-width: none;
+}
+.twm-autoscroll::-webkit-scrollbar,
+.twm-autoscroll *::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
+.twm-autoscroll-layer {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 2147483000;
+}
+.twm-autoscroll-bar {
+    position: fixed;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.06);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 160ms ease;
+}
+.twm-autoscroll-bar--on {
+    opacity: 1;
+    pointer-events: auto;
+}
+.twm-autoscroll-thumb {
+    position: absolute;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.28);
+    cursor: pointer;
+    transition: background 80ms ease;
+}
+.twm-autoscroll-bar--on:hover .twm-autoscroll-thumb,
+.twm-autoscroll-bar--active .twm-autoscroll-thumb {
+    background: rgba(255, 255, 255, 0.45);
+}

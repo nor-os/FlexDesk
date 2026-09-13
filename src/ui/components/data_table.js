@@ -411,6 +411,13 @@ export class DataTable {
     render() {
         // Capture active filter input before re-render
         const activeFilterColIdx = this._getActiveFilterColIdx();
+        // KEYBOARD FOCUS SURVIVES A RE-RENDER. Rendering replaces the table
+        // element, and a focused element that is removed hands focus to the
+        // page body, where the arrow keys reach nobody. A data refresh does
+        // exactly that (a record changed on disk, a live reload), so keyboard
+        // navigation silently died the first time the store moved.
+        const doc = this.container.ownerDocument;
+        const hadTableFocus = !!this._tableEl && doc?.activeElement === this._tableEl;
 
         this._cleanup();
         this.container.innerHTML = '';
@@ -580,6 +587,9 @@ export class DataTable {
         // Restore focus to filter input if it was active
         if (activeFilterColIdx !== null) {
             this._restoreFilterFocus(activeFilterColIdx);
+        }
+        else if (hadTableFocus && this._tableEl) {
+            try { this._tableEl.focus({ preventScroll: true }); } catch (_) { /* detached */ }
         }
     }
 
@@ -2267,7 +2277,20 @@ export class DataTable {
         });
     }
 
+    /**
+     * CSS px per screen px. Content inside a zoomed tile reports rects and
+     * pointer coordinates in screen pixels, while `style.width` is CSS pixels;
+     * mixing them widened every column by the zoom factor on a mere click.
+     */
+    _zoomFactor() {
+        const el = this._tableWrapEl || this._tableEl;
+        const css = el?.offsetWidth || 0;
+        const screen = el?.getBoundingClientRect?.().width || 0;
+        return css > 0 && screen > 0 ? screen / css : 1;
+    }
+
     _beginColResize(ev, domIdx) {
+        if (ev.button != null && ev.button !== 0) return;
         ev.preventDefault();
         ev.stopPropagation();
         const headerTable = this._headerTableEl;
@@ -2275,24 +2298,38 @@ export class DataTable {
         const headRow = headerTable && headerTable.querySelector('thead > tr');
         if (!headRow) return;
 
-        // Freeze EVERY column at its current width on BOTH tables and
-        // lock fixed layout up front, so the drag moves only the grabbed
-        // column and a neighbour can never absorb it. Widths come from
-        // the header row (the column source of truth); the body's first
-        // row is pinned to match so the two tables stay in lock-step.
-        const startWidths = [...headRow.children].map(
-            (c) => c.getBoundingClientRect().width);
-        headerTable.style.tableLayout = 'fixed';
-        if (bodyTable) bodyTable.style.tableLayout = 'fixed';
-        startWidths.forEach((w, i) => this._pinColumnWidth(i, w));
-        this._applyTableWidth();
-
+        // NOTHING HAPPENS UNTIL THE POINTER MOVES. Freezing on mousedown pinned
+        // every column on a plain click, and the first click of a double-click,
+        // so a click on a grip was already a resize and switched auto-fit off
+        // for every column for good.
+        //
+        // Once the drag is real: freeze EVERY column at its current width on
+        // BOTH tables and lock fixed layout, so the drag moves only the grabbed
+        // column and a neighbour can never absorb it. Widths come from the
+        // header row (the column source of truth), in CSS pixels.
         const startX = ev.clientX;
+        const THRESHOLD = 3;
         const MIN = 40;
-        document.body.classList.add('twm-dt-col-resizing');
+        let startWidths = null;
+        const begin = () => {
+            const z = this._zoomFactor();
+            startWidths = [...headRow.children].map((c) => {
+                const set = parseFloat(c.style.width);
+                return Number.isFinite(set) ? set : c.getBoundingClientRect().width / z;
+            });
+            headerTable.style.tableLayout = 'fixed';
+            if (bodyTable) bodyTable.style.tableLayout = 'fixed';
+            startWidths.forEach((w, i) => this._pinColumnWidth(i, w));
+            this._applyTableWidth();
+            document.body.classList.add('twm-dt-col-resizing');
+        };
         const onMove = (mv) => {
-            const w = Math.max(
-                MIN, Math.round(startWidths[domIdx] + (mv.clientX - startX)));
+            const dx = mv.clientX - startX;
+            if (!startWidths) {
+                if (Math.abs(dx) < THRESHOLD) return;
+                begin();
+            }
+            const w = Math.max(MIN, Math.round(startWidths[domIdx] + dx / this._zoomFactor()));
             this._pinColumnWidth(domIdx, w);
             // Pass the dragged column so the fill invariant reclaims any
             // freed width into a DIFFERENT (flexible/last) column, never
@@ -2303,6 +2340,7 @@ export class DataTable {
         const onUp = () => {
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);
+            if (!startWidths) return;               // a click: nothing changed
             document.body.classList.remove('twm-dt-col-resizing');
             this._updateCellTooltips();
             this._savePersisted();

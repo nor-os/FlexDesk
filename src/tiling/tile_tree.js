@@ -690,6 +690,11 @@ export class TileTree {
     split(leafId, dir /* 'h' | 'v' */) {
         const leaf = this.get(leafId);
         if (!leaf || leaf.kind !== 'leaf') return null;
+        // A PANEL IS NEVER SPLIT. The left, right and bottom panels are fixed
+        // chrome around the content area, and a split of one put a second
+        // pane inside the navigator. Refused here, where every split path
+        // meets, so no chord, menu or drop can do it by another route.
+        if (_isPanel(leaf)) return null;
 
         const newLeaf = makeLeaf();
         // Case 1: root split. Wrap root in a new Split.

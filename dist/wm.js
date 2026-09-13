@@ -912,6 +912,7 @@ var TileTree = class _TileTree {
   split(leafId, dir) {
     const leaf = this.get(leafId);
     if (!leaf || leaf.kind !== "leaf") return null;
+    if (_isPanel(leaf)) return null;
     const newLeaf = makeLeaf();
     if (!leaf.parentId) {
       const wrap2 = makeSplit({ dir, children: [leaf.id, newLeaf.id] });
@@ -4539,7 +4540,7 @@ var WindowManager = class _WindowManager {
   // ── Split / close / focus / move ────────────────────────────────
   split(dir) {
     const tree = this._tree();
-    const focused = tree.focusedLeafId;
+    const focused = this._contentLeafId(tree.focusedLeafId);
     if (!focused) return;
     const newId = tree.split(focused, dir);
     if (newId) this._seedHome(tree, newId);
@@ -4566,6 +4567,7 @@ var WindowManager = class _WindowManager {
    *  leaf id, or null if the leaf can't be split. */
   splitLeafWith(leafId, dir, kind, props = {}, title = "") {
     const tree = this._tree();
+    leafId = this._contentLeafId(leafId);
     const src = leafId ? tree.get(leafId) : null;
     if (!src || src.kind !== "leaf") return null;
     const newId = tree.split(leafId, dir);
@@ -4576,6 +4578,15 @@ var WindowManager = class _WindowManager {
     this._persist();
     this._notifyChange("split-with");
     return newId;
+  }
+  /** A leaf that can hold content: `leafId` itself, or the primary tile when
+   *  `leafId` is a panel, a window placeholder or gone. */
+  _contentLeafId(leafId) {
+    const tree = this._tree();
+    const leaf = leafId ? tree.get(leafId) : null;
+    const kind = String(leaf?.content?.kind || "");
+    if (leaf && leaf.kind === "leaf" && !kind.startsWith("panel:") && kind !== PLACEHOLDER_KIND) return leafId;
+    return tree.primaryLeafId();
   }
   /** Resolve the focused tile's active content for the keyboard-driven
    *  "open focused tile elsewhere" chords (Alt+T / Alt+N / Alt+Shift+H /

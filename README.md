@@ -175,6 +175,16 @@ then text shrinks to a floor. The widths are fractional and add up to `avail`
 exactly whenever the floors fit. `DataTable` does not use it yet; an embedder
 that measures its own columns can.
 
+### Scrollbars
+
+`installAutoScrollbars(root)` (from `@flexdesk/widgets`) replaces the browser's
+scrollbars under `root` with thin overlay bars that show while an element is
+hovered or scrolling and fade out afterwards. Native bars are hidden, so no
+element reserves layout width for one. The overlay bars live in one fixed
+layer, so a container that redraws its contents cannot lose its bar, and
+textareas get one too. Containers that already use `installOverlayScrollbar`
+keep their own.
+
 ## The host port
 
 FlexDesk never touches `pywebview`, `fetch`, `localStorage` or the filesystem. It

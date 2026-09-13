@@ -21,7 +21,7 @@ import {
 import {
   DataTable,
   createRafResizeObserver
-} from "./chunk-P4AALM3A.js";
+} from "./chunk-BIAOGX6K.js";
 import {
   ManagedWindow
 } from "./chunk-LH5TSOZW.js";
@@ -4847,6 +4847,233 @@ var NotificationCenter = class _NotificationCenter extends ComponentBase {
 };
 NotificationCenter.SEVERITIES = SEVERITIES;
 
+// src/ui/utils/auto_scrollbars.js
+var LAYER_ID = "twm-autoscroll-layer";
+var ROOT_CLASS = "twm-autoscroll";
+var HIDE_AFTER_MS = 900;
+var MIN_THUMB = 30;
+var BAR = 6;
+function thumbGeometry(scrollSize, clientSize, scrollPos, trackLen) {
+  const max = scrollSize - clientSize;
+  if (!(max > 1) || !(trackLen > 0)) return null;
+  const size = Math.min(trackLen, Math.max(MIN_THUMB, trackLen * clientSize / scrollSize));
+  const pos = (trackLen - size) * Math.min(1, Math.max(0, scrollPos / max));
+  return { size, pos };
+}
+function scrollsOn(el, axis) {
+  if (!(el instanceof Element)) return false;
+  const cs = getComputedStyle(el);
+  const overflow = axis === "y" ? cs.overflowY : cs.overflowX;
+  if (overflow !== "auto" && overflow !== "scroll" && !(el.tagName === "TEXTAREA" && overflow !== "hidden")) return false;
+  return axis === "y" ? el.scrollHeight - el.clientHeight > 1 : el.scrollWidth - el.clientWidth > 1;
+}
+function installAutoScrollbars(root = document.body, { exclude = null } = {}) {
+  const doc = root.ownerDocument || document;
+  const win = doc.defaultView || window;
+  root.classList.add(ROOT_CLASS);
+  let layer = doc.getElementById(LAYER_ID);
+  if (!layer) {
+    layer = doc.createElement("div");
+    layer.id = LAYER_ID;
+    layer.className = "twm-autoscroll-layer";
+    doc.body.appendChild(layer);
+  }
+  const managed = /* @__PURE__ */ new Map();
+  let hoverChain = /* @__PURE__ */ new Set();
+  const eligible = (el) => el instanceof Element && root.contains(el) && !el.__overlayScrollbarInstalled && !el.closest?.(".twm-autoscroll-layer") && !(exclude && exclude(el));
+  const makeBar = (el, axis) => {
+    const bar = doc.createElement("div");
+    bar.className = `twm-autoscroll-bar twm-autoscroll-bar--${axis}`;
+    const thumb = doc.createElement("div");
+    thumb.className = "twm-autoscroll-thumb";
+    bar.appendChild(thumb);
+    layer.appendChild(bar);
+    bar.addEventListener("mousedown", (e) => {
+      if (e.target !== bar) return;
+      e.preventDefault();
+      const r = thumb.getBoundingClientRect();
+      const before = axis === "y" ? e.clientY < r.top : e.clientX < r.left;
+      const page = (axis === "y" ? el.clientHeight : el.clientWidth) * 0.9;
+      if (axis === "y") el.scrollTop += before ? -page : page;
+      else el.scrollLeft += before ? -page : page;
+    });
+    thumb.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const rec = managed.get(el);
+      if (rec) rec.dragging = true;
+      const start = axis === "y" ? e.clientY : e.clientX;
+      const startScroll = axis === "y" ? el.scrollTop : el.scrollLeft;
+      const trackLen = axis === "y" ? bar.getBoundingClientRect().height : bar.getBoundingClientRect().width;
+      const thumbLen = axis === "y" ? thumb.getBoundingClientRect().height : thumb.getBoundingClientRect().width;
+      const max = axis === "y" ? el.scrollHeight - el.clientHeight : el.scrollWidth - el.clientWidth;
+      const perPx = trackLen > thumbLen ? max / (trackLen - thumbLen) : 0;
+      bar.classList.add("twm-autoscroll-bar--active");
+      const move = (mv) => {
+        const d = (axis === "y" ? mv.clientY : mv.clientX) - start;
+        if (axis === "y") el.scrollTop = startScroll + d * perPx;
+        else el.scrollLeft = startScroll + d * perPx;
+      };
+      const up = () => {
+        doc.removeEventListener("mousemove", move);
+        doc.removeEventListener("mouseup", up);
+        bar.classList.remove("twm-autoscroll-bar--active");
+        if (rec) rec.dragging = false;
+        hideLater(el);
+      };
+      doc.addEventListener("mousemove", move);
+      doc.addEventListener("mouseup", up);
+    });
+    bar.addEventListener("mouseenter", () => {
+      const rec = managed.get(el);
+      if (rec) {
+        rec.onBar = true;
+        show(el);
+      }
+    });
+    bar.addEventListener("mouseleave", () => {
+      const rec = managed.get(el);
+      if (rec) {
+        rec.onBar = false;
+        hideLater(el);
+      }
+    });
+    return { bar, thumb };
+  };
+  const record = (el) => {
+    let rec = managed.get(el);
+    if (!rec) {
+      rec = { v: null, h: null, timer: 0, dragging: false, onBar: false };
+      managed.set(el, rec);
+    }
+    return rec;
+  };
+  const place = (el) => {
+    const rec = managed.get(el);
+    if (!rec) return;
+    if (!el.isConnected) {
+      drop(el);
+      return;
+    }
+    const r = el.getBoundingClientRect();
+    const vw = win.innerWidth;
+    const vh = win.innerHeight;
+    const top = Math.max(0, r.top);
+    const left = Math.max(0, r.left);
+    const bottom = Math.min(vh, r.bottom);
+    const right = Math.min(vw, r.right);
+    const z = el.offsetHeight ? r.height / el.offsetHeight : 1;
+    for (const axis of ["y", "x"]) {
+      const key = axis === "y" ? "v" : "h";
+      const overflows = scrollsOn(el, axis);
+      if (!overflows) {
+        if (rec[key]) rec[key].bar.style.display = "none";
+        continue;
+      }
+      if (!rec[key]) rec[key] = makeBar(el, axis);
+      const { bar, thumb } = rec[key];
+      bar.style.display = "";
+      if (axis === "y") {
+        const len = bottom - top;
+        Object.assign(bar.style, { top: `${top}px`, left: `${right - BAR - 1}px`, height: `${len}px`, width: `${BAR}px` });
+        const g = thumbGeometry(el.scrollHeight * z, el.clientHeight * z, el.scrollTop * z, len);
+        if (!g) {
+          bar.style.display = "none";
+          continue;
+        }
+        Object.assign(thumb.style, { top: `${g.pos}px`, height: `${g.size}px`, left: "0", width: "100%" });
+      } else {
+        const len = right - left;
+        Object.assign(bar.style, { left: `${left}px`, top: `${bottom - BAR - 1}px`, width: `${len}px`, height: `${BAR}px` });
+        const g = thumbGeometry(el.scrollWidth * z, el.clientWidth * z, el.scrollLeft * z, len);
+        if (!g) {
+          bar.style.display = "none";
+          continue;
+        }
+        Object.assign(thumb.style, { left: `${g.pos}px`, width: `${g.size}px`, top: "0", height: "100%" });
+      }
+    }
+  };
+  const setVisible = (el, on) => {
+    const rec = managed.get(el);
+    if (!rec) return;
+    for (const b of [rec.v, rec.h]) if (b) b.bar.classList.toggle("twm-autoscroll-bar--on", on);
+  };
+  const show = (el) => {
+    const rec = record(el);
+    clearTimeout(rec.timer);
+    place(el);
+    setVisible(el, true);
+  };
+  const hideLater = (el) => {
+    const rec = managed.get(el);
+    if (!rec) return;
+    clearTimeout(rec.timer);
+    rec.timer = setTimeout(() => {
+      if (rec.dragging || rec.onBar || hoverChain.has(el)) return;
+      setVisible(el, false);
+    }, HIDE_AFTER_MS);
+  };
+  const drop = (el) => {
+    const rec = managed.get(el);
+    if (!rec) return;
+    clearTimeout(rec.timer);
+    rec.v?.bar.remove();
+    rec.h?.bar.remove();
+    managed.delete(el);
+  };
+  const scrollChain = (target) => {
+    const out = /* @__PURE__ */ new Set();
+    for (let el = target instanceof Element ? target : target?.parentElement; el && el !== doc.documentElement; el = el.parentElement) {
+      if (el.closest?.(".twm-autoscroll-layer")) return out;
+      if (eligible(el) && (scrollsOn(el, "y") || scrollsOn(el, "x"))) out.add(el);
+      if (el === root) break;
+    }
+    return out;
+  };
+  const onOver = (e) => {
+    if (e.target?.closest?.(".twm-autoscroll-layer")) return;
+    const next = scrollChain(e.target);
+    for (const el of hoverChain) if (!next.has(el)) hideLater(el);
+    for (const el of next) show(el);
+    hoverChain = next;
+  };
+  const onLeaveWindow = (e) => {
+    if (e.relatedTarget) return;
+    for (const el of hoverChain) hideLater(el);
+    hoverChain = /* @__PURE__ */ new Set();
+  };
+  const onScroll = (e) => {
+    const el = e.target === doc ? null : e.target;
+    if (el && eligible(el)) {
+      show(el);
+      hideLater(el);
+    }
+    for (const other of managed.keys()) if (other !== el) place(other);
+  };
+  let raf = 0;
+  const onResize = () => {
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(() => {
+      for (const el of managed.keys()) place(el);
+    });
+  };
+  doc.addEventListener("mouseover", onOver, true);
+  doc.addEventListener("mouseout", onLeaveWindow, true);
+  doc.addEventListener("scroll", onScroll, true);
+  win.addEventListener("resize", onResize);
+  return {
+    dispose() {
+      doc.removeEventListener("mouseover", onOver, true);
+      doc.removeEventListener("mouseout", onLeaveWindow, true);
+      doc.removeEventListener("scroll", onScroll, true);
+      win.removeEventListener("resize", onResize);
+      for (const el of [...managed.keys()]) drop(el);
+      root.classList.remove(ROOT_CLASS);
+    }
+  };
+}
+
 // src/ui/utils/overlay_scrollbar.js
 function normalizeOrientation(value) {
   return String(value || "horizontal").toLowerCase() === "vertical" ? "vertical" : "horizontal";
@@ -5532,6 +5759,7 @@ export {
   helpCopy,
   helpProvider,
   hideContextMenu,
+  installAutoScrollbars,
   installCollapsibleScrollbars,
   installOverlayScrollbar,
   installTabsScrollbars,
@@ -5556,6 +5784,7 @@ export {
   showDeleteConfirmDialog,
   showRunProgressDialog,
   showSelectDialog,
+  thumbGeometry,
   toastError,
   toastInfo,
   toastSuccess,

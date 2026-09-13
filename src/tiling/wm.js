@@ -689,7 +689,9 @@ export class WindowManager {
     // ── Split / close / focus / move ────────────────────────────────
     split(dir) {
         const tree = this._tree();
-        const focused = tree.focusedLeafId;
+        // From a panel, the chord means the content area: the same reading
+        // Backspace gives it. A panel itself is never split (TileTree.split).
+        const focused = this._contentLeafId(tree.focusedLeafId);
         if (!focused) return;
         // Chrome split buttons mirror Alt+H / Alt+V. The freshly created
         // pane is SEEDED with the default HOME content (the taxonomy root)
@@ -723,6 +725,7 @@ export class WindowManager {
      *  leaf id, or null if the leaf can't be split. */
     splitLeafWith(leafId, dir, kind, props = {}, title = '') {
         const tree = this._tree();
+        leafId = this._contentLeafId(leafId);
         const src = leafId ? tree.get(leafId) : null;
         if (!src || src.kind !== 'leaf') return null;
         const newId = tree.split(leafId, dir);
@@ -733,6 +736,16 @@ export class WindowManager {
         this._persist();
         this._notifyChange('split-with');
         return newId;
+    }
+
+    /** A leaf that can hold content: `leafId` itself, or the primary tile when
+     *  `leafId` is a panel, a window placeholder or gone. */
+    _contentLeafId(leafId) {
+        const tree = this._tree();
+        const leaf = leafId ? tree.get(leafId) : null;
+        const kind = String(leaf?.content?.kind || '');
+        if (leaf && leaf.kind === 'leaf' && !kind.startsWith('panel:') && kind !== PLACEHOLDER_KIND) return leafId;
+        return tree.primaryLeafId();
     }
 
     /** Resolve the focused tile's active content for the keyboard-driven

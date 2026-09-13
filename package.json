@@ -1,6 +1,6 @@
 {
     "name": "flexdesk",
-    "version": "0.4.4",
+    "version": "0.4.5",
     "description": "A tiling window manager and widget set for desktop-class web applications. Zero runtime dependencies.",
     "license": "MIT",
     "repository": {

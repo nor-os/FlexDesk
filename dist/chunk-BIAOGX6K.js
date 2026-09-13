@@ -302,6 +302,8 @@ var DataTable = class {
    */
   render() {
     const activeFilterColIdx = this._getActiveFilterColIdx();
+    const doc = this.container.ownerDocument;
+    const hadTableFocus = !!this._tableEl && doc?.activeElement === this._tableEl;
     this._cleanup();
     this.container.innerHTML = "";
     const { rows, pagination, emptyMessage } = this.config;
@@ -412,6 +414,11 @@ var DataTable = class {
     }
     if (activeFilterColIdx !== null) {
       this._restoreFilterFocus(activeFilterColIdx);
+    } else if (hadTableFocus && this._tableEl) {
+      try {
+        this._tableEl.focus({ preventScroll: true });
+      } catch (_) {
+      }
     }
   }
   /**
@@ -1717,28 +1724,48 @@ var DataTable = class {
       th.appendChild(grip);
     });
   }
+  /**
+   * CSS px per screen px. Content inside a zoomed tile reports rects and
+   * pointer coordinates in screen pixels, while `style.width` is CSS pixels;
+   * mixing them widened every column by the zoom factor on a mere click.
+   */
+  _zoomFactor() {
+    const el = this._tableWrapEl || this._tableEl;
+    const css = el?.offsetWidth || 0;
+    const screen = el?.getBoundingClientRect?.().width || 0;
+    return css > 0 && screen > 0 ? screen / css : 1;
+  }
   _beginColResize(ev, domIdx) {
+    if (ev.button != null && ev.button !== 0) return;
     ev.preventDefault();
     ev.stopPropagation();
     const headerTable = this._headerTableEl;
     const bodyTable = this._tableEl;
     const headRow = headerTable && headerTable.querySelector("thead > tr");
     if (!headRow) return;
-    const startWidths = [...headRow.children].map(
-      (c) => c.getBoundingClientRect().width
-    );
-    headerTable.style.tableLayout = "fixed";
-    if (bodyTable) bodyTable.style.tableLayout = "fixed";
-    startWidths.forEach((w, i) => this._pinColumnWidth(i, w));
-    this._applyTableWidth();
     const startX = ev.clientX;
+    const THRESHOLD = 3;
     const MIN = 40;
-    document.body.classList.add("twm-dt-col-resizing");
+    let startWidths = null;
+    const begin = () => {
+      const z = this._zoomFactor();
+      startWidths = [...headRow.children].map((c) => {
+        const set = parseFloat(c.style.width);
+        return Number.isFinite(set) ? set : c.getBoundingClientRect().width / z;
+      });
+      headerTable.style.tableLayout = "fixed";
+      if (bodyTable) bodyTable.style.tableLayout = "fixed";
+      startWidths.forEach((w, i) => this._pinColumnWidth(i, w));
+      this._applyTableWidth();
+      document.body.classList.add("twm-dt-col-resizing");
+    };
     const onMove = (mv) => {
-      const w = Math.max(
-        MIN,
-        Math.round(startWidths[domIdx] + (mv.clientX - startX))
-      );
+      const dx = mv.clientX - startX;
+      if (!startWidths) {
+        if (Math.abs(dx) < THRESHOLD) return;
+        begin();
+      }
+      const w = Math.max(MIN, Math.round(startWidths[domIdx] + dx / this._zoomFactor()));
       this._pinColumnWidth(domIdx, w);
       this._applyTableWidth(domIdx);
       this._syncHeaderScroll();
@@ -1746,6 +1773,7 @@ var DataTable = class {
     const onUp = () => {
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
+      if (!startWidths) return;
       document.body.classList.remove("twm-dt-col-resizing");
       this._updateCellTooltips();
       this._savePersisted();
@@ -2065,4 +2093,4 @@ export {
   createRafResizeObserver,
   DataTable
 };
-//# sourceMappingURL=chunk-P4AALM3A.js.map
+//# sourceMappingURL=chunk-BIAOGX6K.js.map

@@ -1231,7 +1231,9 @@ body.twm-dragging * { user-select: none; }
     letter-spacing: 0.04em;
     color: var(--text-secondary);
 }
-.twm-tile-tabmenu__head-icon { font-size: 14px; }
+/* Compounded for the Material Symbols tie — see `.twm-leaf__icon`. */
+.twm-tile-tabmenu__head-icon,
+.twm-tile-tabmenu__head-icon.material-symbols-outlined { font-size: 14px; }
 .twm-tile-tabmenu__head-label { flex: 1 1 auto; }
 .twm-tile-tabmenu__close {
     background: transparent;
@@ -1401,7 +1403,9 @@ body.twm-dragging * { user-select: none; }
     white-space: nowrap;
     user-select: none;
 }
-.twm-cmdpal__type-chip-icon {
+/* Compounded for the Material Symbols tie — see `.twm-leaf__icon`. */
+.twm-cmdpal__type-chip-icon,
+.twm-cmdpal__type-chip-icon.material-symbols-outlined {
     font-size: 14px;
 }
 .twm-cmdpal__type-chip-label {
@@ -1484,7 +1488,9 @@ body.twm-dragging * { user-select: none; }
     background: var(--state-selected);
     color: var(--text-bright);
 }
-.twm-cmdpal__icon { color: var(--text-muted); font-size: 16px; }
+/* Compounded for the Material Symbols tie — see `.twm-leaf__icon`. */
+.twm-cmdpal__icon,
+.twm-cmdpal__icon.material-symbols-outlined { color: var(--text-muted); font-size: 16px; }
 .twm-cmdpal__label { font-weight: var(--font-weight-medium); }
 .twm-cmdpal__kind,
 .twm-cmdpal__hint {
@@ -2305,7 +2311,9 @@ tr:hover .twm-row-action { opacity: 1; }
     color: var(--text-muted);
     text-align: center;
 }
-.twm-window-placeholder__icon {
+/* Compounded for the Material Symbols tie — see `.twm-leaf__icon`. */
+.twm-window-placeholder__icon,
+.twm-window-placeholder__icon.material-symbols-outlined {
     font-size: 32px;
     opacity: 0.5;
 }
@@ -2384,7 +2392,9 @@ tr:hover .twm-row-action { opacity: 1; }
     background: #000;
     color: var(--text-bright);
 }
-.twm-top-nav__icon {
+/* Compounded for the Material Symbols tie — see `.twm-leaf__icon`. */
+.twm-top-nav__icon,
+.twm-top-nav__icon.material-symbols-outlined {
     font-size: 16px;
     font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
 }

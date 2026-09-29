@@ -65,7 +65,15 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {Object} [host] - A Host (see ui/js/host/host.js). Its `dialogs` capability backs `downloadCSV()`'s native save dialog; without it CSV export falls back to a Blob download.
  * @property {Object} [stateStore] - `{ ready(), get(key), set(key, state) }` — REQUIRED when `persistKey` is set. Built by `createTableStateStore()`.
  * @property {'container'|'content'} [columnFit='container'] - How the automatic fit pass sizes a column the user has NOT dragged. 'container' squeezes every column into the wrap: a 360px cap, a more generous one for the first column, and water-fill-shrink toward the 40px floor when they do not fit. 'content' sizes each column to its own content through the same `_autoWidth` a grip double-click uses (520px cap) and lets the body scroll sideways rather than squeezing. A pinned column is honoured verbatim under both.
+ * @property {boolean|{overscan?: number, rowHeight?: number}} [virtualize=false] - C10. Draw only the rows near the viewport, between a top and a bottom spacer row, and give the body table a `<colgroup>` so its column widths no longer come from whichever row happens to be first. OFF by default: nothing about a table that does not ask changes. `overscan` (rows drawn beyond each edge, default 20) and `rowHeight` (the estimate used until a real row has been measured, default 24) tune it. See `_virtUpdate` for the whole contract.
+ * @property {Function} [virtualRowHeight] - `(rowIndex, baseHeight) => number`. Under `virtualize`, the height a row occupies, including anything the embedder injects in front of it (a group header) — and 0 for a row the embedder hides, which is then not drawn at all. Absent: every row is `baseHeight`, which is measured from a real row.
+ * @property {Function} [onRowsRendered] - `({ rows, removed }) => void`. Under `virtualize`, called whenever the window changes after `render()` returned: `rows` are the `<tr>`s the virtualiser ADDED — the rows an embedder that decorates rows after a render would otherwise never see — and `removed` the ones it took OUT, already detached (an embedder that injected rows of its own beside them, or holds an editor in one, has to hear that they went). The rows present when `render()` returns are not reported: they are the render's, exactly as without `virtualize`.
  */
+
+/** C10. When the scroll box has no layout — mounted hidden, or a DOM with no
+ *  layout engine — there is no viewport to measure, so the window is sized as if
+ *  it were this tall. A ResizeObserver corrects it the moment a real size exists. */
+const VIRTUAL_FALLBACK_VIEWPORT_PX = 1000;
 
 export class DataTable {
     /**
@@ -122,8 +130,18 @@ export class DataTable {
             // promise that adding the key changed no existing layout by a
             // pixel. Only a consumer that asks for 'content' sees anything new.
             columnFit: 'container',
+            // C10. Off unless asked for — see the typedef.
+            virtualize: false,
+            virtualRowHeight: null,
+            onRowsRendered: null,
             ...config,
         };
+
+        // C10. The render window, or null when this table draws every row.
+        this._virt = null;
+        // The measured row height outlives a render, so a re-render does not
+        // start again from the estimate and jump once it has re-measured.
+        this._virtBase = null;
 
         // A persistKey with nowhere to persist is a wiring bug, not a
         // degraded mode. Fail loud at construction: a silent no-op here
@@ -418,9 +436,18 @@ export class DataTable {
         // navigation silently died the first time the store moved.
         const doc = this.container.ownerDocument;
         const hadTableFocus = !!this._tableEl && doc?.activeElement === this._tableEl;
+        // SCROLL POSITION SURVIVES A RE-RENDER, for the same reason: the scroll
+        // box is rebuilt too, and a new one starts at the top. Folding a tree
+        // row, or any refresh, threw a reader scrolled halfway down back to row
+        // one. Only on the SAME page — turning the page should start at its top.
+        const prevWrap = this._tableWrapEl;
+        const prevScroll = prevWrap?.isConnected && this._renderedOffset === this._state.offset
+            ? { top: prevWrap.scrollTop, left: prevWrap.scrollLeft } : null;
 
         this._cleanup();
         this.container.innerHTML = '';
+        // C10. A window belongs to one tbody; `_createTable` builds a new one.
+        this._virt = null;
 
         const { rows, pagination, emptyMessage } = this.config;
 
@@ -552,6 +579,24 @@ export class DataTable {
 
         this._tableWrapEl = tableWrap;
         this.container.appendChild(this._wrapperEl);
+        if (prevScroll && this._state.offset === this._renderedOffset) {
+            tableWrap.scrollTop = prevScroll.top;
+            tableWrap.scrollLeft = prevScroll.left;
+        }
+        this._renderedOffset = this._state.offset;
+
+        // C10. NOW THERE IS A VIEWPORT. `_createTable` drew a window sized from
+        // an estimate, before the scroll box existed; measure a real row, and
+        // redraw the window for the real height and the restored scroll offset.
+        // Synchronously, and not reported through `onRowsRendered`: a row present
+        // when `render()` returns is the render's, as it is without `virtualize`.
+        if (this._virt) {
+            const onScroll = () => this._virtUpdate();
+            tableWrap.addEventListener('scroll', onScroll, { passive: true });
+            this._disposers.push(() => tableWrap.removeEventListener('scroll', onScroll));
+            this._virtMeasure();
+            this._virtUpdate({ force: true, notify: false });
+        }
 
         // Sync header column widths to body after layout. Two-pass: the
         // first frame lets the browser settle natural widths from the
@@ -566,8 +611,11 @@ export class DataTable {
                 try { this._resizeObserver.disconnect(); } catch (_) {}
             }
             if (typeof ResizeObserver !== 'undefined') {
-                this._resizeObserver = createRafResizeObserver(
-                    () => this._syncHeaderWidths());
+                // C10: a new height is a new window, as well as new widths.
+                this._resizeObserver = createRafResizeObserver(() => {
+                    this._syncHeaderWidths();
+                    this._virtUpdate();
+                });
                 this._resizeObserver.observe(this._wrapperEl);
             }
             // The header lives in its own non-scrolling wrap (so it can't
@@ -725,6 +773,8 @@ export class DataTable {
         this._tableWrapEl = null;
         this._processedRows = null;
         this._processedIndexMap = null;
+        this._virt = null;
+        this._colgroupEl = null;
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -1470,7 +1520,7 @@ export class DataTable {
 
     _createTable() {
         const { headers, rows, pageSize, sortable, filterable, showRowNumbers, readonly, getHeaderIcon, onPageChange, offset: configOffset } = this.config;
-        const { selected, sortColumn, sortAscending } = this._state;
+        const { sortColumn, sortAscending } = this._state;
 
         // Server-side pagination: rows already represent current page, use config offset for row numbering
         // Client-side pagination: use processed (filtered+sorted) rows, then slice for current page
@@ -1550,46 +1600,486 @@ export class DataTable {
             thead.appendChild(filterRow);
         }
 
+        // C10. THE COLUMN TRACK IS A `<colgroup>`, NOT THE FIRST ROW. Under
+        // `table-layout: fixed` a `<col>` with a width decides its column, and a
+        // first-row cell only decides one whose `<col>` is `auto` — so once the
+        // widths live here, it stops mattering which row is first. A recycling
+        // window changes that row on every scroll; without this the columns
+        // would jitter each time it did. Before the `thead`, where the content
+        // model puts it; the `thead` leaves for the header table in `render()`
+        // and the colgroup stays with the body.
+        const virtual = this._isVirtual();
+        if (virtual) {
+            table.classList.add('twm-dt--virtual');
+            table.appendChild(this._createColgroup());
+        }
+
         table.appendChild(thead);
+
+        // Map back to original config.rows index for selection tracking
+        const globalOf = (localIdx) => {
+            const processedIdx = offset + localIdx;
+            return isServerSide
+                ? (configOffset || 0) + localIdx
+                : (this._processedIndexMap?.[processedIdx] ?? processedIdx);
+        };
 
         // Body
         const tbody = document.createElement('tbody');
-        pageRows.forEach((row, localIdx) => {
-            const processedIdx = offset + localIdx;
-            // Map back to original config.rows index for selection tracking
-            const globalIdx = isServerSide
-                ? (configOffset || 0) + localIdx
-                : (this._processedIndexMap?.[processedIdx] ?? processedIdx);
-            const tr = document.createElement('tr');
-            tr.__rowIndex = globalIdx;
-            tr.className = 'data-preview-row';
-
-            if (selected.has(globalIdx)) {
-                tr.classList.add('selected');
-            }
-
-            this._fillRowCells(tr, row, globalIdx, showRowNumbers);
-
-            // Row-level click + right-click hooks (P2). Bound after
-            // cells so per-cell handlers run first.
-            if (this.config.onRowClick) {
-                tr.addEventListener('click', (ev) => {
-                    this.config.onRowClick(globalIdx, row, ev);
-                });
-            }
-            if (this.config.onRowContextMenu) {
-                tr.addEventListener('contextmenu', (ev) => {
-                    this.config.onRowContextMenu(globalIdx, row, ev);
-                });
-            }
-
-            tbody.appendChild(tr);
-        });
-
         table.appendChild(tbody);
         this._tbodyEl = tbody;
 
+        if (virtual) {
+            this._virtInit(tbody, pageRows, globalOf, {
+                serverSide: isServerSide, offset, configOffset: configOffset || 0,
+            });
+        } else {
+            pageRows.forEach((row, localIdx) => {
+                tbody.appendChild(this._buildBodyRow(row, globalOf(localIdx), localIdx));
+            });
+        }
+
         return table;
+    }
+
+    /** One body row, fully built. The ONE place a `<tr>` for a row is made, so
+     *  the full render and the virtual window cannot drift apart: a row drawn
+     *  on scroll is the same row a render would have drawn. */
+    _buildBodyRow(row, globalIdx, localIdx) {
+        const { showRowNumbers } = this.config;
+        const tr = document.createElement('tr');
+        tr.__rowIndex = globalIdx;
+        tr.className = 'data-preview-row';
+
+        if (this._state.selected.has(globalIdx)) {
+            tr.classList.add('selected');
+        }
+        // C10. The stripe is `tr:nth-child(even)`, which is a question about a
+        // row's POSITION among its siblings — and a window that drops rows off
+        // its top changes every answer. `_virtSpacers` keeps the position's
+        // parity equal to the row's own, so the stripe needs nothing here; the
+        // class is for an embedder that wants to ask about the row itself.
+        if (this._virt) tr.classList.toggle('twm-dt-row--alt', localIdx % 2 === 1);
+
+        this._fillRowCells(tr, row, globalIdx, showRowNumbers);
+
+        // Row-level click + right-click hooks (P2). Bound after
+        // cells so per-cell handlers run first.
+        if (this.config.onRowClick) {
+            tr.addEventListener('click', (ev) => {
+                this.config.onRowClick(globalIdx, row, ev);
+            });
+        }
+        if (this.config.onRowContextMenu) {
+            tr.addEventListener('contextmenu', (ev) => {
+                this.config.onRowContextMenu(globalIdx, row, ev);
+            });
+        }
+        return tr;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // C10 — the virtual window
+    // ─────────────────────────────────────────────────────────────────
+    //
+    // ══ WHAT IT IS ═══════════════════════════════════════════════════
+    //
+    // Only the rows near the viewport are in the DOM: a TOP SPACER row whose
+    // height is every row above the window, the window's rows, and a BOTTOM
+    // SPACER for everything below it. The scrollbar is therefore sized to the
+    // whole table and every row is reachable, while the DOM stays bounded by
+    // the viewport — a thousand-row page (or fifty of them) costs the same
+    // few dozen `<tr>`s as one screenful.
+    //
+    // ══ WHAT IT PROMISES ═════════════════════════════════════════════
+    //
+    //  - A row that stays in the window is NEVER MOVED OR REBUILT when the
+    //    window slides. Rows leave from the edges and arrive at the edges; the
+    //    ones in the middle are the same nodes. An open editor, a focused
+    //    cell, a hover — anything living in a row that is still on screen —
+    //    survives a scroll. (Moving a node that holds focus blurs it, which in
+    //    an editable grid is a commit nobody asked for.)
+    //  - Column widths come from a `<colgroup>`, so the first row changing
+    //    moves nothing (see `_createTable`).
+    //  - A spacer is in the DOM only while it has a height. A table that fits
+    //    in its window has exactly the DOM it had without `virtualize`.
+    //  - `onRowsRendered` hears about every row added after `render()`, and
+    //    every row taken out.
+    //
+    // ══ WHAT IT ASSUMES ══════════════════════════════════════════════
+    //
+    // That a row's height is knowable without drawing it: `baseHeight`,
+    // measured from a real row, or what `virtualRowHeight` says. A row that
+    // wraps to two lines is drawn correctly and is simply mis-counted in the
+    // spacer arithmetic by the difference — the overscan absorbs that.
+
+    _isVirtual() {
+        return !!this.config.virtualize;
+    }
+
+    _virtOptions() {
+        const v = this.config.virtualize;
+        const o = v && typeof v === 'object' ? v : {};
+        return {
+            overscan: Number.isFinite(o.overscan) && o.overscan >= 0 ? Math.floor(o.overscan) : 20,
+            rowHeight: Number.isFinite(o.rowHeight) && o.rowHeight > 0 ? o.rowHeight : 24,
+        };
+    }
+
+    /** One `<col>` per DOM column (the row-number column included), carrying
+     *  any width already pinned for it, so a re-render starts at the widths it
+     *  had rather than at a content-sized frame that then snaps. */
+    _createColgroup() {
+        const n = (this.config.headers?.length || 0) + (this.config.showRowNumbers ? 1 : 0);
+        const colgroup = document.createElement('colgroup');
+        for (let i = 0; i < n; i++) {
+            const col = document.createElement('col');
+            const w = this._colWidths?.[i];
+            if (w != null && this._colWidthsSig === this._colSig()) col.style.width = `${w}px`;
+            colgroup.appendChild(col);
+        }
+        this._colgroupEl = colgroup;
+        return colgroup;
+    }
+
+    /** The `<col>`s, when this table has them. */
+    _cols() {
+        return this._virt && this._colgroupEl ? this._colgroupEl.children : null;
+    }
+
+    _virtInit(tbody, rows, globalOf, { serverSide, offset, configOffset }) {
+        const { overscan, rowHeight } = this._virtOptions();
+        const spacer = (edge) => {
+            const tr = document.createElement('tr');
+            tr.className = `twm-dt-spacer twm-dt-spacer--${edge}`;
+            tr.setAttribute('aria-hidden', 'true');
+            const td = document.createElement('td');
+            td.colSpan = Math.max(1, (this.config.headers?.length || 0)
+                + (this.config.showRowNumbers ? 1 : 0));
+            // INLINE, because it must beat every consumer's cell padding and
+            // border at any specificity: a spacer that is 1px taller than its
+            // arithmetic moves every row below it by that pixel.
+            td.style.cssText = 'padding:0;border:0;height:0;min-width:0;max-width:none;';
+            tr.appendChild(td);
+            return tr;
+        };
+        // The parity filler: see `_virtSpacers`.
+        const filler = document.createElement('tr');
+        filler.className = 'twm-dt-spacer twm-dt-spacer--parity';
+        filler.setAttribute('aria-hidden', 'true');
+        filler.hidden = true;
+        this._virt = {
+            tbody, rows, globalOf, serverSide, offset, configOffset,
+            overscan,
+            base: this._virtBase || rowHeight,
+            heights: null, offsets: null,
+            start: 0, end: 0,
+            map: new Map(),
+            top: spacer('top'), bottom: spacer('bottom'), filler,
+        };
+        this._virtComputeOffsets();
+        // A first window from an ESTIMATED viewport: the scroll box does not
+        // exist yet. `render()` redraws it for the real one once it does.
+        const guess = this.container?.clientHeight || 0;
+        this._virtUpdate({ force: true, notify: false, viewport: guess || undefined, top: 0 });
+    }
+
+    /** Heights and their running sum. `offsets[i]` is where row `i` starts;
+     *  `offsets[n]` is the whole table. O(n), and rerun only when a height can
+     *  have changed — a new measurement, or `refreshVirtualLayout()`. */
+    _virtComputeOffsets() {
+        const v = this._virt;
+        if (!v) return;
+        const n = v.rows.length;
+        const heights = new Float64Array(n);
+        const offsets = new Float64Array(n + 1);
+        const fn = typeof this.config.virtualRowHeight === 'function'
+            ? this.config.virtualRowHeight : null;
+        let y = 0;
+        for (let i = 0; i < n; i++) {
+            let h = v.base;
+            if (fn) {
+                const asked = fn(v.globalOf(i), v.base);
+                h = Number.isFinite(asked) && asked > 0 ? asked : 0;
+            }
+            heights[i] = h;
+            offsets[i] = y;
+            y += h;
+        }
+        offsets[n] = y;
+        v.heights = heights;
+        v.offsets = offsets;
+    }
+
+    /** The row whose span contains `y`: the LAST `i` with `offsets[i] <= y`,
+     *  which steps over rows of zero height at the same offset. */
+    _virtIndexAt(y) {
+        const v = this._virt;
+        const n = v.rows.length;
+        if (n === 0) return 0;
+        let lo = 0;
+        let hi = n - 1;
+        while (lo < hi) {
+            const mid = (lo + hi + 1) >> 1;
+            if (v.offsets[mid] <= y) lo = mid; else hi = mid - 1;
+        }
+        return lo;
+    }
+
+    /** Measure one real row. Client pixels, so the zoom is divided back out —
+     *  `_measureNaturalWidths` explains why — and NOT `offsetHeight`, which is
+     *  rounded: 21 for a 21.19px row is a 1,100px error over 6,000 rows. */
+    _virtMeasure() {
+        const v = this._virt;
+        if (!v) return false;
+        for (const tr of v.map.values()) {
+            if (!tr.isConnected || tr.hidden) continue;
+            const zoom = this._tableEl?.currentCSSZoom || 1;
+            const h = tr.getBoundingClientRect().height / zoom;
+            if (!(h > 0)) return false;
+            if (Math.abs(h - v.base) > 0.01) {
+                v.base = h;
+                this._virtBase = h;
+                this._virtComputeOffsets();
+                return true;
+            }
+            return false;
+        }
+        return false;
+    }
+
+    /**
+     * Slide the window to wherever the scroll box now is.
+     *
+     * HYSTERESIS, so a scroll of one pixel does not rebuild anything: the
+     * window is redrawn only when the visible rows come within a quarter of the
+     * overscan of either end of what is drawn, and it is then redrawn with the
+     * full overscan on both sides.
+     *
+     * @param {object}  [o]
+     * @param {boolean} [o.force]    redraw even inside the hysteresis band.
+     * @param {boolean} [o.notify]   report added and removed rows to `onRowsRendered`.
+     * @param {number}  [o.top]      the scroll offset to draw for, instead of
+     *   reading one back — `scrollToRow` passes the offset it has just set,
+     *   which a DOM with no layout would read back as 0.
+     * @param {number}  [o.viewport] the viewport height, likewise.
+     * @returns {HTMLElement[]} the rows added.
+     */
+    _virtUpdate({ force = false, notify = true, top = null, viewport = null } = {}) {
+        const v = this._virt;
+        if (!v || !v.offsets) return [];
+        const n = v.rows.length;
+        const wrap = this._tableWrapEl;
+        const view = viewport || wrap?.clientHeight || VIRTUAL_FALLBACK_VIEWPORT_PX;
+        const scrollTop = top ?? (wrap?.scrollTop || 0);
+        const vs = this._virtIndexAt(scrollTop);
+        const ve = Math.min(n, this._virtIndexAt(scrollTop + view) + 1);
+        if (!force && v.end > v.start) {
+            const margin = Math.max(1, Math.floor(v.overscan / 4));
+            const lowOk = v.start === 0 || vs >= v.start + margin;
+            const highOk = v.end === n || ve <= v.end - margin;
+            if (lowOk && highOk) return [];
+        }
+        const start = Math.max(0, vs - v.overscan);
+        const end = Math.min(n, ve + v.overscan);
+        const removed = [];
+        const added = this._virtRender(start, end, removed);
+        if (added.length || removed.length) {
+            // Only once the columns are fixed: before that the first sync has
+            // not run, and it tooltips every cell itself.
+            if (added[0]?.isConnected && this._tableEl?.style.tableLayout === 'fixed') {
+                this._updateCellTooltips(added);
+            }
+            if (notify) {
+                try { this.config.onRowsRendered?.({ rows: added, removed }); } catch (err) {
+                    console.error('[DataTable] onRowsRendered threw', err);
+                }
+            }
+        }
+        return added;
+    }
+
+    /** Make the DOM hold exactly the drawable rows of `[start, end)`, without
+     *  moving a row that is already there. See the promises above. */
+    _virtRender(start, end, removed = null) {
+        const v = this._virt;
+        const tbody = v.tbody;
+        const want = [];
+        for (let i = start; i < end; i++) if (v.heights[i] > 0) want.push(i);
+        const wanted = new Set(want);
+        for (const [i, tr] of v.map) {
+            if (!wanted.has(i)) { tr.remove(); v.map.delete(i); removed?.push(tr); }
+        }
+        v.start = start;
+        v.end = end;
+        this._virtSpacers();
+        const added = [];
+        // Right to left, so each new row goes in front of the one after it —
+        // which is either a row that stayed (and is not moved) or the bottom
+        // spacer (or the end of the body).
+        let ref = v.bottom.isConnected ? v.bottom : null;
+        for (let k = want.length - 1; k >= 0; k--) {
+            const i = want[k];
+            const have = v.map.get(i);
+            if (have) { ref = have; continue; }
+            const tr = this._buildBodyRow(v.rows[i], v.globalOf(i), i);
+            v.map.set(i, tr);
+            tbody.insertBefore(tr, ref);
+            ref = tr;
+            added.push(tr);
+        }
+        added.reverse();
+        return added;
+    }
+
+    /**
+     * Size the two spacers, and put each in the DOM only while it has a height.
+     *
+     * AND KEEP THE STRIPE. `tr:nth-child(even)` stripes by POSITION, and in a
+     * full render row `i` is child `i + 1`. Here the first drawn row is preceded
+     * by the top spacer, so its position is off by one — and by a different one
+     * each time the window's start changes parity, which strobes every stripe
+     * on the screen as you scroll. A hidden filler row after the spacer, present
+     * exactly when `start` is even, puts the parity back: a `display: none` row
+     * is still a child, and so still counted by `nth-child`.
+     */
+    _virtSpacers() {
+        const v = this._virt;
+        const n = v.rows.length;
+        const above = v.offsets[v.start];
+        const below = v.offsets[n] - v.offsets[v.end];
+        const tbody = v.tbody;
+        if (above > 0) {
+            v.top.firstChild.style.height = `${above}px`;
+            if (tbody.firstChild !== v.top) tbody.insertBefore(v.top, tbody.firstChild);
+            const needFiller = v.start % 2 === 0;
+            if (needFiller && v.top.nextSibling !== v.filler) v.top.after(v.filler);
+            else if (!needFiller) v.filler.remove();
+        } else {
+            v.top.remove();
+            v.filler.remove();
+        }
+        if (below > 0) {
+            v.bottom.firstChild.style.height = `${below}px`;
+            if (tbody.lastChild !== v.bottom) tbody.appendChild(v.bottom);
+        } else {
+            v.bottom.remove();
+        }
+    }
+
+    /**
+     * Recompute every row's height and redraw the window. For an embedder whose
+     * `virtualRowHeight` answer has changed — a group folded, a header added.
+     * A no-op on a table that is not virtual.
+     */
+    refreshVirtualLayout() {
+        if (!this._virt) return;
+        this._virtMeasure();
+        this._virtComputeOffsets();
+        this._virtUpdate({ force: true });
+    }
+
+    /** The element that scrolls the body. Read-only; the table owns it. */
+    get scrollElement() {
+        return this._tableWrapEl || null;
+    }
+
+    /** The `<tr>` drawing row `rowIndex` (the `__rowIndex` space), or null when
+     *  it is not in the DOM — outside the window, on another page, or hidden. */
+    getRowElement(rowIndex) {
+        const v = this._virt;
+        if (v) {
+            const local = this._virtLocalOf(rowIndex);
+            return local < 0 ? null : (v.map.get(local) || null);
+        }
+        const tbody = this._tbodyEl;
+        if (!tbody) return null;
+        for (const tr of tbody.children) if (tr.__rowIndex === rowIndex) return tr;
+        return null;
+    }
+
+    /** Keep the window's row list and `config.rows` in step for one row. They
+     *  are the same array in server-side mode; in client mode the window reads
+     *  the filtered-and-sorted copy, which holds its own reference. */
+    _virtSetRow(rowIndex, row) {
+        const v = this._virt;
+        if (!v) return;
+        if (Array.isArray(this.config.rows) && rowIndex >= 0
+            && rowIndex < this.config.rows.length) {
+            this.config.rows[rowIndex] = row;
+        }
+        const local = this._virtLocalOf(rowIndex);
+        if (local >= 0) v.rows[local] = row;
+    }
+
+    /** `__rowIndex` → position in the window's row list, or -1. */
+    _virtLocalOf(rowIndex) {
+        const v = this._virt;
+        if (!v) return -1;
+        let local;
+        if (v.serverSide) local = rowIndex - v.configOffset;
+        else {
+            const map = this._processedIndexMap;
+            const processed = map ? map.indexOf(rowIndex) : rowIndex;
+            local = processed < 0 ? -1 : processed - v.offset;
+        }
+        return local >= 0 && local < v.rows.length ? local : -1;
+    }
+
+    /**
+     * Scroll the body so row `rowIndex` is on screen, drawing it if it was not,
+     * and return its `<tr>` (null when it cannot be shown: another page, or a
+     * row the embedder hides). Works with or without `virtualize`.
+     *
+     * @param {number} rowIndex  in the `__rowIndex` space.
+     * @param {{block?: 'nearest'|'center'|'start'}} [opts]
+     */
+    scrollToRow(rowIndex, { block = 'nearest' } = {}) {
+        const wrap = this._tableWrapEl;
+        const v = this._virt;
+        if (!v) {
+            const tr = this.getRowElement(rowIndex);
+            if (!tr || !wrap) return tr;
+            const zoom = this._tableEl?.currentCSSZoom || 1;
+            const box = wrap.getBoundingClientRect();
+            const r = tr.getBoundingClientRect();
+            const rowTop = (r.top - box.top) / zoom + wrap.scrollTop;
+            const rowH = r.height / zoom;
+            const target = this._scrollTarget(rowTop, rowH, wrap.scrollTop,
+                                              wrap.clientHeight, block);
+            if (target !== wrap.scrollTop) wrap.scrollTop = target;
+            return tr;
+        }
+        const local = this._virtLocalOf(rowIndex);
+        if (local < 0 || !(v.heights[local] > 0)) return null;
+        const view = wrap?.clientHeight || VIRTUAL_FALLBACK_VIEWPORT_PX;
+        const current = wrap?.scrollTop || 0;
+        let target = this._scrollTarget(v.offsets[local], v.heights[local],
+                                        current, view, block);
+        target = Math.max(0, Math.min(target, Math.max(0, v.offsets[v.rows.length] - view)));
+        if (wrap && Math.abs(target - current) >= 1) wrap.scrollTop = target;
+        this._virtUpdate({ top: Math.abs(target - current) >= 1 ? target : current });
+        return v.map.get(local) || null;
+    }
+
+    _scrollTarget(rowTop, rowH, current, view, block) {
+        if (block === 'start') return rowTop;
+        if (block === 'center') return rowTop - Math.max(0, (view - rowH) / 2);
+        if (rowTop < current) return rowTop;
+        if (rowTop + rowH > current + view) return rowTop + rowH - view;
+        return current;
+    }
+
+    /** The first body row that draws a row of data — never a spacer, and never
+     *  a row an embedder injected (a group header spans every column with ONE
+     *  cell, so measuring it would report one column). */
+    _firstBodyRow() {
+        const tbody = this._tableEl?.querySelector?.('tbody');
+        if (!tbody) return null;
+        for (const tr of tbody.children) {
+            if (tr.__rowIndex !== undefined) return tr;
+        }
+        return null;
     }
 
     /** Build (or rebuild) one row's cells in place.
@@ -1674,7 +2164,15 @@ export class DataTable {
         for (const candidate of tbody.children) {
             if (candidate.__rowIndex === index) { tr = candidate; break; }
         }
-        if (!tr) return false;
+        // C10. OUTSIDE THE WINDOW IS NOT OFF THE PAGE. The row will be drawn the
+        // moment it scrolls back in, from the window's own row list — so the
+        // data has to change now, or it comes back showing the value it had
+        // before this update. Without `virtualize` a row that is not in the DOM
+        // is on another page, and that path is unchanged.
+        if (!tr) {
+            if (this._virt) this._virtSetRow(index, row);
+            return false;
+        }
 
         // Keep the caller's data in step, so a later full render agrees with
         // what is on screen. Server-side paging means config.rows may hold only
@@ -1682,6 +2180,7 @@ export class DataTable {
         if (Array.isArray(this.config.rows) && this.config.rows[index]) {
             this.config.rows[index] = row;
         }
+        if (this._virt) this._virtSetRow(index, row);
 
         // Record focus BEFORE the replace: `replaceChildren` detaches the
         // focused cell and the browser moves focus to <body>.
@@ -1756,14 +2255,26 @@ export class DataTable {
      * never visible. Clearing inline widths first stops the last sync's forced
      * widths from constraining the measure.
      *
+     * C10 — UNDER `virtualize` ONLY THE WINDOW IS IN THE DOM, so `max-content`
+     * spans the eighty-odd rows drawn rather than every row loaded. The fit
+     * pass that runs on every render is content with that (it is fitting what
+     * is on screen). An EXPLICIT auto-size is not: it is a promise to fit the
+     * column's content, and the longest value in a 6,000-row table is usually
+     * not in the window. So `sample` adds, for the length of this one reflow,
+     * the row holding each column's longest value — see `_virtSampleRows`.
+     *
+     * @param {{sample?: boolean}} [o]
      * @returns {number[]|null} width per DOM column index, or null when there
      *   is nothing laid out to measure.
      */
-    _measureNaturalWidths() {
+    _measureNaturalWidths({ sample = false } = {}) {
         const headerTable = this._headerTableEl;
         const bodyTable   = this._tableEl;
         if (!headerTable || !bodyTable) return null;
-        const firstRow = bodyTable.querySelector('tbody > tr');
+        // A ROW OF DATA, not merely the first `<tr>`: under C10 that is a
+        // spacer, and an embedder may inject rows of its own (a group header is
+        // one cell spanning every column, which would measure as ONE column).
+        const firstRow = this._firstBodyRow();
         if (!firstRow) return null;
         const bodyCells = firstRow.children;
         if (!bodyCells.length) return null;
@@ -1772,10 +2283,17 @@ export class DataTable {
             for (const th of tr.children) this._clearCellWidth(th);
         });
         for (const td of bodyCells) this._clearCellWidth(td);
+        // C10: the `<col>`s are what hold the widths, so they are what has to
+        // let go for the measure (`.twm-dt-measuring col` also overrides them).
+        for (const col of this._cols() || []) col.style.width = '';
         headerTable.style.width = '';
         bodyTable.style.width   = '';
         headerTable.classList.add('twm-dt-measuring');
         bodyTable.classList.add('twm-dt-measuring');
+        // Appended at the end, where they move no drawn row, and taken out
+        // again below before anything paints.
+        const sampled = sample ? this._virtSampleRows() : [];
+        for (const tr of sampled) this._virt.tbody.appendChild(tr);
         // Force layout flush so measurements are current.
         // eslint-disable-next-line no-unused-expressions
         bodyTable.offsetWidth;
@@ -1811,13 +2329,60 @@ export class DataTable {
             natural[i] = Math.max(body, head);
         }
 
+        for (const tr of sampled) tr.remove();
         headerTable.classList.remove('twm-dt-measuring');
         bodyTable.classList.remove('twm-dt-measuring');
         return natural;
     }
 
     /**
-     * Fit one column to its widest visible value and pin it there.
+     * The rows an explicit auto-size must measure that the window has not
+     * drawn: for each column, the drawable row whose value is LONGEST as a
+     * string, plus the last row (the widest row number). Built with
+     * `_buildBodyRow` — so a consumer's `renderCell` draws them exactly as it
+     * would on screen — and handed back detached, for `_measureNaturalWidths`
+     * to put in and take out around its one reflow.
+     *
+     * The string length is a proxy, not a measurement: in a proportional font
+     * forty `i`s are narrower than thirty `W`s. It is the proxy a spreadsheet's
+     * own autofit falls short by, and it is right about the case that matters
+     * here — a value five times longer than anything in the window. One pass
+     * over the loaded rows, on a click and never on a scroll or a resize.
+     *
+     * @returns {HTMLTableRowElement[]}
+     */
+    _virtSampleRows() {
+        const v = this._virt;
+        if (!v || !v.rows.length) return [];
+        const longest = [];
+        const at = [];
+        let last = -1;
+        for (let i = 0; i < v.rows.length; i++) {
+            if (!(v.heights[i] > 0)) continue;       // hidden: not drawn, not fitted
+            last = i;
+            const row = v.rows[i];
+            if (!Array.isArray(row)) continue;
+            for (let c = 0; c < row.length; c++) {
+                const value = row[c];
+                const len = value == null ? 0 : String(value).length;
+                if (len > (longest[c] ?? -1)) { longest[c] = len; at[c] = i; }
+            }
+        }
+        const want = new Set(at.filter((i) => i !== undefined));
+        if (last >= 0) want.add(last);
+        const rows = [];
+        for (const i of want) {
+            if (v.map.has(i)) continue;             // drawn already; measured anyway
+            const tr = this._buildBodyRow(v.rows[i], v.globalOf(i), i);
+            tr.setAttribute('aria-hidden', 'true');
+            rows.push(tr);
+        }
+        return rows;
+    }
+
+    /**
+     * Fit one column to its widest value and pin it there — every loaded
+     * row's, under `virtualize` (see `_virtSampleRows`), not only the window's.
      *
      * The gesture is a double-click on the column's resize grip, which is where
      * every spreadsheet has put it — and the grip is this component's, which is
@@ -1832,7 +2397,7 @@ export class DataTable {
      * @returns {boolean} whether it had a layout to measure.
      */
     autoSizeColumn(domIdx, opts = {}) {
-        const natural = this._measureNaturalWidths();
+        const natural = this._measureNaturalWidths({ sample: true });
         if (!natural || domIdx < 0 || domIdx >= natural.length) return false;
         this._colWidths[domIdx] = this._autoWidth(natural[domIdx], opts);
         this._colWidthsSig = this._colSig();
@@ -1857,7 +2422,7 @@ export class DataTable {
      * already, so a button that did that would be a button that does nothing.
      */
     autoSizeColumns(opts = {}) {
-        const natural = this._measureNaturalWidths();
+        const natural = this._measureNaturalWidths({ sample: true });
         if (!natural) return false;
         this._colWidths = {};
         for (let i = 0; i < natural.length; i++) {
@@ -1909,10 +2474,15 @@ export class DataTable {
         const headerTable = this._headerTableEl;
         const bodyTable   = this._tableEl;
         if (!headerTable || !bodyTable) return;
-        const firstRow = bodyTable.querySelector('tbody > tr');
-        if (!firstRow) return;
-        const bodyCells = firstRow.children;
-        if (!bodyCells.length) return;
+        // C10. UNDER `virtualize` THE COLUMN TRACK IS THE `<colgroup>`, and the
+        // column count is ITS length — not the first row's, which is whatever
+        // row the window happens to start at (or a spacer). Without it, the
+        // first ROW OF DATA; see `_firstBodyRow` for why not merely the first `<tr>`.
+        const cols = this._cols();
+        const firstRow = this._firstBodyRow();
+        const bodyCells = cols ? [] : firstRow?.children;
+        const n = cols ? cols.length : (bodyCells?.length || 0);
+        if (!n) return;
 
         const headerRows = headerTable.querySelectorAll('thead > tr');
         // DO NOT MEASURE WHAT NOTHING WILL READ.
@@ -1930,8 +2500,8 @@ export class DataTable {
         // only thing left that the array supplies is `n`, which is its length.
         // So zeroes of the right length are not an approximation of the
         // measurement, they are indistinguishable from it.
-        const natural = this._allColumnsPinned(bodyCells.length)
-            ? new Array(bodyCells.length).fill(0)
+        const natural = this._allColumnsPinned(n)
+            ? new Array(n).fill(0)
             : this._measureNaturalWidths();
         if (!natural) return;
 
@@ -1941,7 +2511,7 @@ export class DataTable {
         const wrap = this._tableWrapEl;
         const headerWrap = this._headerWrapEl;
         const avail = wrap ? wrap.clientWidth : 0;
-        const firstIdx = this.config.showRowNumbers && bodyCells.length > 1 ? 1 : 0;
+        const firstIdx = this.config.showRowNumbers && n > 1 ? 1 : 0;
         const widths = this._fitColumnWidths(natural, avail, {
             firstIdx,
             overrides: this._colWidths,
@@ -1959,8 +2529,14 @@ export class DataTable {
                 this._setCellWidth(tr.children[i], widths[i]);
             }
         });
-        for (let i = 0; i < bodyCells.length && i < widths.length; i++) {
-            this._setCellWidth(bodyCells[i], widths[i]);
+        if (cols) {
+            for (let i = 0; i < cols.length && i < widths.length; i++) {
+                cols[i].style.width = `${widths[i]}px`;
+            }
+        } else {
+            for (let i = 0; i < bodyCells.length && i < widths.length; i++) {
+                this._setCellWidth(bodyCells[i], widths[i]);
+            }
         }
 
         // Lock both tables so the widths stick even when content changes.
@@ -2361,7 +2937,13 @@ export class DataTable {
         headerTable.querySelectorAll('thead > tr').forEach((tr) => {
             if (tr.children[i]) this._setCellWidth(tr.children[i], w);
         });
-        const bodyRow = bodyTable && bodyTable.querySelector('tbody > tr');
+        // C10: the `<col>` is the track; without one, the first row of data.
+        const cols = this._cols();
+        if (cols) {
+            if (cols[i]) cols[i].style.width = `${w}px`;
+            return;
+        }
+        const bodyRow = bodyTable && this._firstBodyRow();
         if (bodyRow && bodyRow.children[i]) this._setCellWidth(bodyRow.children[i], w);
     }
 
@@ -2417,10 +2999,15 @@ export class DataTable {
     /** Add a native `title` tooltip to any body cell whose text is
      *  clipped by its column width; remove ours once it fits again.
      *  Leaves caller-supplied titles (e.g. from renderCell) untouched. */
-    _updateCellTooltips() {
+    _updateCellTooltips(rows = null) {
         const bodyTable = this._tableEl;
         if (!bodyTable) return;
-        bodyTable.querySelectorAll('tbody td').forEach((td) => {
+        // `rows`: only these (C10 — the rows a window slide just added).
+        const cells = rows
+            ? rows.flatMap((tr) => [...tr.children])
+            : bodyTable.querySelectorAll('tbody td');
+        cells.forEach((td) => {
+            if (td.parentElement?.classList.contains('twm-dt-spacer')) return;
             const clipped = td.scrollWidth > td.clientWidth + 1;
             if (clipped) {
                 if (!td.title) td.title = td.textContent;

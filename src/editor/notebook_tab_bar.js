@@ -61,6 +61,8 @@ export class NotebookTabBar {
         this.#container.className = 'tabs notebook-tabs';
         this.#boundHideContextMenu = () => this.#hideContextMenu();
         this.#installStripDnDHandlers();
+        // NOT PASSIVE: it has to be able to take the wheel from the page.
+        this.#container.addEventListener('wheel', this.#onWheel, { passive: false });
         this.#dragReorder = new DragReorder({
             container: this.#container,
             itemSelector: '.tab',
@@ -118,6 +120,9 @@ export class NotebookTabBar {
     dispose() {
         this.#hideContextMenu();
         this.#removeStripDnDHandlers();
+        this.#container?.removeEventListener('wheel', this.#onWheel);
+        if (this.#revealFrame) cancelAnimationFrame(this.#revealFrame);
+        this.#revealFrame = 0;
         this.#dragReorder?.destroy();
         this.#dragReorder = null;
         this.#container = null;
@@ -161,6 +166,11 @@ export class NotebookTabBar {
     #render() {
         if (!this.#container) return;
 
+        // THE STRIP KEEPS ITS SCROLL ACROSS A REBUILD. Emptying it shrinks its
+        // scroll width to nothing, which clamps `scrollLeft` to 0 — so every
+        // render (a tab activated, a title changed) threw a strip scrolled to
+        // its tenth tab back to its first.
+        const keepLeft = this.#container.scrollLeft;
         this.#container.innerHTML = '';
 
         for (const tab of this.#tabs) {
@@ -222,7 +232,86 @@ export class NotebookTabBar {
         }
         // Make the freshly-rendered tabs draggable-to-reorder.
         this.#dragReorder?.attach();
+
+        this.#container.scrollLeft = keepLeft;
+        // A tab that has just BECOME active — opened, switched to, moved here
+        // from another pane — is scrolled into the strip. Only then: a render
+        // for any other reason (a title, a dirty dot) leaves the strip where the
+        // reader put it, rather than yanking it back to the active tab.
+        const revealKey = `${this.#activeTab}\u0000${this.#tabs.length}`;
+        if (revealKey !== this.#revealedKey) {
+            this.#revealedKey = revealKey;
+            this.#revealActive(true);
+        }
     }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  Scrolling (1.5) — the strip scrolls rather than wrapping or shrinking its
+    //  tabs, and hides its scrollbar (a bar in a 26px strip eats a third of every
+    //  label). So it owes a mouse user every other way in: a plain wheel, the
+    //  active tab brought into view, and — in `DragReorder._autoScrollEdge` —
+    //  the edges scrolling while a tab is dragged toward them.
+    // ═════════════════════════════════════════════════════════════════════════
+
+    /** @type {string|null} the active tab + count last scrolled into view */
+    #revealedKey = null;
+
+    /** @type {number} a pending retry, for a strip not yet laid out */
+    #revealFrame = 0;
+
+    /** Bring the active tab fully into the strip — and ONLY the strip. Not
+     *  `scrollIntoView`, which scrolls every scrollable ancestor as well and
+     *  would drag the tile, the window or the page along with the tab. */
+    #revealActive(retry = false) {
+        const el = this.#container;
+        if (!el) return;
+        const active = el.querySelector(':scope > .tab.active');
+        if (!active) return;
+        if (!el.isConnected || el.clientWidth === 0) {
+            // Mounted but not laid out yet (the renderer updates a strip before
+            // it attaches it). Once, on the next frame — not a loop.
+            if (retry && !this.#revealFrame && typeof requestAnimationFrame === 'function') {
+                this.#revealFrame = requestAnimationFrame(() => {
+                    this.#revealFrame = 0;
+                    this.#revealActive(false);
+                });
+            }
+            return;
+        }
+        const box = el.getBoundingClientRect();
+        const tab = active.getBoundingClientRect();
+        // Client pixels to the strip's own: 1 unless something above it zooms.
+        const scale = (el.offsetWidth ? box.width / el.offsetWidth : 1) || 1;
+        const left = (tab.left - box.left) / scale + el.scrollLeft;
+        const right = left + tab.width / scale;
+        if (left < el.scrollLeft) el.scrollLeft = left;
+        else if (right > el.scrollLeft + el.clientWidth) el.scrollLeft = right - el.clientWidth;
+    }
+
+    /**
+     * A VERTICAL WHEEL SCROLLS THE STRIP SIDEWAYS. Chromium and Firefox scroll
+     * an element that overflows only horizontally with Shift+wheel or a
+     * touchpad, and not with the plain wheel most people have — so with the
+     * scrollbar hidden, every tab past the edge was unreachable with a mouse.
+     *
+     * The wheel is taken from the page only while the strip can actually move
+     * that way: at either end it is left alone, so a wheel over a strip that
+     * has nothing more to show still scrolls whatever is behind it. A gesture
+     * that is already horizontal (a touchpad, Shift+wheel) and Ctrl+wheel (zoom)
+     * are the browser's, untouched.
+     */
+    #onWheel = (e) => {
+        const el = this.#container;
+        if (!el || e.ctrlKey || e.shiftKey) return;
+        if (Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
+        const room = el.scrollWidth - el.clientWidth;
+        if (room <= 0) return;
+        const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? el.clientWidth : 1;
+        const next = Math.max(0, Math.min(room, el.scrollLeft + e.deltaY * unit));
+        if (Math.abs(next - el.scrollLeft) < 0.5) return;
+        e.preventDefault();
+        el.scrollLeft = next;
+    };
 
     // ═════════════════════════════════════════════════════════════════════════
     //  Drag and drop reordering (same-pane + cross-pane)

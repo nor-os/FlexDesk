@@ -553,6 +553,25 @@ body.twm-dt-col-resizing {
 .twm-preview-table.twm-dt-measuring .twm-data-table__filter-row {
     display: none !important;
 }
+/* ── C10. The virtual window (`DataTable` with `virtualize`) ─────────────
+ * The column track is a `<colgroup>` (see `_createTable`), so it is the
+ * `<col>` widths the measuring pass has to lift — the same `!important` it
+ * already uses on the cells. The floors on body cells (100px on the first,
+ * 80px on the rest) are off: a full render lifts them with inline styles on
+ * its first row, and a virtual one has no fixed first row to write them on.
+ * The spacers carry their geometry inline; this only keeps a hover or a
+ * stripe from painting them. */
+.twm-preview-table.twm-dt-measuring col {
+    width: auto !important;
+}
+.twm-preview-table.twm-dt--virtual tbody td {
+    min-width: 0;
+    max-width: none;
+}
+.twm-preview-table tbody tr.twm-dt-spacer,
+.twm-preview-table tbody tr.twm-dt-spacer > td {
+    background: transparent !important;
+}
 .twm-preview-table th {
     position: sticky;
     top: 0;
@@ -984,7 +1003,9 @@ body.twm-dt-col-resizing {
     outline-offset: -2px;
 }
 /* Unified collapsible arrow system */
-.twm-collapsible-arrow {
+/* Compounded for the Material Symbols tie — see `.twm-leaf__icon`. */
+.twm-collapsible-arrow,
+.twm-collapsible-arrow.material-symbols-outlined {
     transition: transform 0.2s ease;
     transform: rotate(0deg); /* Default: pointing down (expanded) */
     font-size: 10px;
@@ -1045,7 +1066,12 @@ body.twm-dt-col-resizing {
     margin: 0 1px;
     user-select: none;
 }
-.twm-topbar-breadcrumb__icon {
+/* Written twice for `.twm-leaf__icon`'s reason: the icon also carries
+ * `.material-symbols-outlined`, and Google's stylesheet — loaded after this
+ * one — sets that class to 24px. A single-class rule ties and loses on source
+ * order, so every crumb drew a 24px glyph beside 12px text (Tables BUG-0024). */
+.twm-topbar-breadcrumb__icon,
+.twm-topbar-breadcrumb__icon.material-symbols-outlined {
     font-size: var(--font-size-lg);
 }
 .twm-topbar-breadcrumb__item--current {
@@ -1343,7 +1369,9 @@ body.twm-dt-col-resizing {
 .twm-autocomplete-field__item:hover {
     background-color: #3a3a3a;
 }
-.twm-autocomplete-field__icon {
+/* Compounded for the Material Symbols tie — see `.twm-leaf__icon`. */
+.twm-autocomplete-field__icon,
+.twm-autocomplete-field__icon.material-symbols-outlined {
     font-size: var(--font-size-2xl);
     color: var(--text-muted);
     flex-shrink: 0;
@@ -3356,7 +3384,9 @@ body.twm-window-maximized .twm-resize-handle {
 .twm-managed-window--no-drag .twm-managed-window__topbar {
     cursor: default;
 }
-.twm-managed-window__icon {
+/* Compounded for the Material Symbols tie — see `.twm-leaf__icon`. */
+.twm-managed-window__icon,
+.twm-managed-window__icon.material-symbols-outlined {
     font-size: var(--font-size-lg);
     color: var(--text-muted);
     flex-shrink: 0;
@@ -3518,7 +3548,9 @@ button.twm-managed-window__btn svg rect {
 .twm-bar-windows__item:active {
     background: #1a6aa5;
 }
-.twm-bar-windows__item-icon {
+/* Compounded for the Material Symbols tie — see `.twm-leaf__icon`. */
+.twm-bar-windows__item-icon,
+.twm-bar-windows__item-icon.material-symbols-outlined {
     font-size: var(--font-size-sm);
     flex-shrink: 0;
 }
@@ -3569,7 +3601,9 @@ button.twm-managed-window__btn svg rect {
     align-items: flex-start;
     gap: var(--space-lg);
 }
-.twm-confirm-dialog__icon {
+/* Compounded for the Material Symbols tie — see `.twm-leaf__icon`. */
+.twm-confirm-dialog__icon,
+.twm-confirm-dialog__icon.material-symbols-outlined {
     font-size: 32px;
     color: var(--text-muted);
     flex-shrink: 0;
@@ -3638,7 +3672,9 @@ button.twm-confirm-dialog__btn:focus {
     border-bottom: 1px solid #333;
     flex-shrink: 0;
 }
-.twm-about-dialog__logo {
+/* Compounded for the Material Symbols tie — see `.twm-leaf__icon`. */
+.twm-about-dialog__logo,
+.twm-about-dialog__logo.material-symbols-outlined {
     font-size: 40px;
     color: var(--accent-bright);
 }
@@ -3788,7 +3824,9 @@ button.twm-about-dialog__btn--close:focus {
     gap: 10px;
     min-width: 0;
 }
-.twm-detail-header__icon {
+/* Compounded for the Material Symbols tie — see `.twm-leaf__icon`. */
+.twm-detail-header__icon,
+.twm-detail-header__icon.material-symbols-outlined {
     font-size: 20px;
     color: var(--text-muted, var(--text-muted));
     flex-shrink: 0;
@@ -4041,7 +4079,9 @@ button.twm-about-dialog__btn--close:focus {
     background-color: var(--ea-input-bg, #1e1e1e);
     border-color: rgba(96, 192, 96, 0.50);
 }
-.twm-attr-editor__attention {
+/* Compounded for the Material Symbols tie — see `.twm-leaf__icon`. */
+.twm-attr-editor__attention,
+.twm-attr-editor__attention.material-symbols-outlined {
     /* Positioned in the row's left gutter so it doesn't push the
      * cells. The row already has `position: relative`. */
     position: absolute;
@@ -4052,7 +4092,9 @@ button.twm-about-dialog__btn--close:focus {
     font-size: 0.85em;
     pointer-events: none;
 }
-.twm-attr-editor__revert {
+/* Compounded for the Material Symbols tie — see `.twm-leaf__icon`. */
+.twm-attr-editor__revert,
+.twm-attr-editor__revert.material-symbols-outlined {
     /* Floats over the right edge of the row, outside the column grid.
      * Sits ABOVE the trailing remove-button gutter that sortable_list
      * draws, so it stays visible. */
@@ -5609,8 +5651,11 @@ body.twm-dragging * { user-select: none; }
      * scrolls under them — a tab that shrinks to nothing as you open the tenth
      * one is a tab you cannot read or aim at. The scrollbar itself is hidden:
      * it is a 26px strip, and a horizontal bar in it would eat a third of the
-     * label. Wheel and drag still scroll it, and DragReorder auto-scrolls the
-     * edges while a tab is being dragged (`drag_reorder.js:_autoScrollEdge`). */
+     * label. What replaces it is in `notebook_tab_bar.js` (1.5): a plain
+     * vertical wheel scrolls the strip sideways (`#onWheel`), the tab that has
+     * just become active is scrolled into view (`#revealActive`), and the edges
+     * auto-scroll while a tab is dragged toward them
+     * (`drag_reorder.js:_autoScrollEdge`). */
     overflow-x: auto;
     overflow-y: hidden;
     scrollbar-width: none;
@@ -5862,7 +5907,9 @@ body.twm-dragging * { user-select: none; }
     letter-spacing: 0.04em;
     color: var(--text-secondary);
 }
-.twm-tile-tabmenu__head-icon { font-size: 14px; }
+/* Compounded for the Material Symbols tie — see `.twm-leaf__icon`. */
+.twm-tile-tabmenu__head-icon,
+.twm-tile-tabmenu__head-icon.material-symbols-outlined { font-size: 14px; }
 .twm-tile-tabmenu__head-label { flex: 1 1 auto; }
 .twm-tile-tabmenu__close {
     background: transparent;
@@ -6038,7 +6085,9 @@ body.twm-dragging * { user-select: none; }
     outline-offset: -1px;
 }
 .twm-tile-tabswitch__item--on { color: var(--text-bright); }
-.twm-tile-tabswitch__check { font-size: 14px; color: var(--accent-bright, #1683c4); }
+/* Compounded for the Material Symbols tie — see `.twm-leaf__icon`. */
+.twm-tile-tabswitch__check,
+.twm-tile-tabswitch__check.material-symbols-outlined { font-size: 14px; color: var(--accent-bright, #1683c4); }
 .twm-tile-tabswitch__label {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -6098,7 +6147,9 @@ body.twm-dragging * { user-select: none; }
     white-space: nowrap;
     user-select: none;
 }
-.twm-cmdpal__type-chip-icon {
+/* Compounded for the Material Symbols tie — see `.twm-leaf__icon`. */
+.twm-cmdpal__type-chip-icon,
+.twm-cmdpal__type-chip-icon.material-symbols-outlined {
     font-size: 14px;
 }
 .twm-cmdpal__type-chip-label {
@@ -6181,7 +6232,9 @@ body.twm-dragging * { user-select: none; }
     background: var(--state-selected);
     color: var(--text-bright);
 }
-.twm-cmdpal__icon { color: var(--text-muted); font-size: 16px; }
+/* Compounded for the Material Symbols tie — see `.twm-leaf__icon`. */
+.twm-cmdpal__icon,
+.twm-cmdpal__icon.material-symbols-outlined { color: var(--text-muted); font-size: 16px; }
 .twm-cmdpal__label { font-weight: var(--font-weight-medium); }
 .twm-cmdpal__kind,
 .twm-cmdpal__hint {
@@ -7002,7 +7055,9 @@ tr:hover .twm-row-action { opacity: 1; }
     color: var(--text-muted);
     text-align: center;
 }
-.twm-window-placeholder__icon {
+/* Compounded for the Material Symbols tie — see `.twm-leaf__icon`. */
+.twm-window-placeholder__icon,
+.twm-window-placeholder__icon.material-symbols-outlined {
     font-size: 32px;
     opacity: 0.5;
 }
@@ -7081,7 +7136,9 @@ tr:hover .twm-row-action { opacity: 1; }
     background: #000;
     color: var(--text-bright);
 }
-.twm-top-nav__icon {
+/* Compounded for the Material Symbols tie — see `.twm-leaf__icon`. */
+.twm-top-nav__icon,
+.twm-top-nav__icon.material-symbols-outlined {
     font-size: 16px;
     font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
 }

@@ -385,6 +385,9 @@ export class DataTable {
         // Invalidate processed cache
         this._processedRows = null;
         this._processedIndexMap = null;
+        // A new order starts at its first page. Staying on page 3 showed rows
+        // 201–300 of the NEW order, which reads as "it only sorted this page".
+        this._state.offset = 0;
 
         // Auto-spinner: if the sort handler returns a Promise (i.e.
         // it does a server-side refetch), show the loading overlay

@@ -323,27 +323,32 @@ export class WindowManager {
      *  the content has a level of its own above the one it shows (C37), the
      *  active tab has per-tab history, OR the current kind has a taxonomy
      *  parent. Used by the breadcrumb to grey out / hide the Back button when
-     *  there's nowhere to go. */
+     *  there's nowhere to go.
+     *
+     *  IT ANSWERS FOR THE SCOPE BACKSPACE ACTS ON — `_backScope`'s: a floating
+     *  window last pressed in, else the focused content tile, else the primary
+     *  one. It used to pick the tile alone, so after a press inside a window it
+     *  reported on the tile BEHIND it while Backspace climbed the window, and
+     *  C37's question went to the wrong content. For a tile the answer is
+     *  exactly what it always was; only a window scope answers differently. */
     canNavigateBack() {
-        const tree = this._tree();
-        const focusedId = tree.focusedLeafId;
-        const primaryId = tree.primaryLeafId();
-        const focusedLeaf = focusedId ? tree.get(focusedId) : null;
-        const focusedKind = focusedLeaf?.content?.kind || '';
-        const id = (focusedId && focusedKind
-                    && !focusedKind.startsWith('panel:')
-                    && focusedKind !== 'window-placeholder')
-            ? focusedId : primaryId;
-        if (!id) return false;
-        const content = this.renderer?.contentOf?.(id);
+        const scope = this._backScope();
+        if (!scope) return false;
+        const content = this._scopeContent(scope);
         if (typeof content?.canNavigateBack === 'function') {
             try { if (content.canNavigateBack() === true) return true; }
             catch (err) { console.warn('[wm] content canNavigateBack threw', err); }
         }
-        const history = tree.activeTabHistory?.(id) || [];
-        if (history.length > 0) return true;
-        const leaf = tree.get(id);
-        const kind = leaf?.content?.kind;
+        if (scope.leafId) {
+            const tree = this._tree();
+            const history = tree.activeTabHistory?.(scope.leafId) || [];
+            if (history.length > 0) return true;
+            const kind = tree.get(scope.leafId)?.content?.kind;
+            return !!(kind && this.taxonomy.parentKindFor(kind));
+        }
+        // A window keeps no per-tab history (`navigateBack`'s step 1 is tiles
+        // only), so what is left to it is its active tab's taxonomy parent.
+        const kind = this._scopeActiveTab(scope)?.kind;
         return !!(kind && this.taxonomy.parentKindFor(kind));
     }
 

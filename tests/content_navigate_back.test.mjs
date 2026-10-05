@@ -16,15 +16,24 @@
  *
  * Pinned against the REAL `navigateBack` and `canNavigateBack`, the REAL
  * `TileTree`, on a hand-built `this` — back_to_open_list.test.mjs's harness.
+ * The renderer here is a stub whose `contentOf` hands back what a test put in
+ * it; the REAL `TileRenderer.contentOf`, a real floated window's `mountInfo`
+ * and a real Backspace through the keymap are content_navigate_back_mounted
+ * .test.mjs's, under jsdom.
  *
  *   §1  a content with a level above it climbs, and nothing else happens
  *   §2  a content at its top (`false`), with no such function, or that throws:
  *       the walk runs exactly as before
  *   §3  the scope is `_backScope`'s: the focused tile's content, the primary
  *       one behind a panel, and a floating window's `mountInfo`
- *   §4  `canNavigateBack` hears the content too
+ *   §4  `canNavigateBack` hears the content too — and a content whose
+ *       `canNavigateBack` throws falls through to the history and the taxonomy
+ *   §4b `canNavigateBack` answers for `_backScope`'s scope, as Backspace acts:
+ *       after a press in a floating window, the WINDOW's content, not the
+ *       tile's behind it (the 0.4.7 review)
  *   §5  `renderBreadcrumb` draws the tile breadcrumb's markup with segments the
- *       caller routes (needs jsdom; skipped, loudly, without it)
+ *       caller routes — against a recording `document`, with no jsdom, so it
+ *       always runs
  *
  *     node tests/content_navigate_back.test.mjs
  */
@@ -171,6 +180,73 @@ console.log('\n§4 canNavigateBack hears the content');
     check('with a level of its own above it: somewhere', wm.canNavigateBack(), true);
     content.navigateBack();
     check('at its top again: nowhere', wm.canNavigateBack(), false);
+}
+{
+    // A content whose question THROWS has said nothing: the answer is the one
+    // the history and the taxonomy give, exactly as `navigateBack` treats a
+    // `navigateBack` that throws (§2).
+    const throwing = { canNavigateBack() { throw new Error('boom'); } };
+    const { wm, leafId } = makeWm({ tabs: [{ kind: 'home', props: {} }], active: 0 });
+    wm.renderer.contentOf = (id) => (id === leafId ? throwing : null);
+    const warned = [];
+    const warn = console.warn;
+    console.warn = (...args) => warned.push(args[0]);
+    let threw = null;
+    let answer;
+    try { answer = wm.canNavigateBack(); } catch (err) { threw = err; }
+    check('a throwing canNavigateBack, nothing else to go to: nowhere (and no throw)',
+        [answer, threw && String(threw)], [false, null]);
+    wm._tree().get(leafId).tabs[0].history = [{ kind: 'home', props: { id: 'x' }, title: 'X' }];
+    try { answer = wm.canNavigateBack(); } catch (err) { threw = err; }
+    console.warn = warn;
+    check('…with tab history behind it: somewhere, from the history',
+        [answer, threw && String(threw)], [true, null]);
+    check('and the throw is reported, not swallowed silently', warned.length, 2);
+}
+
+// ── §4b ─────────────────────────────────────────────────────────────────
+// The 0.4.7 review: `canNavigateBack` picked the focused or primary TILE and
+// never a window, while `navigateBack` acts on `_backScope` — the window last
+// pressed in, when there is one. So after a press inside a floating window it
+// answered for the tile behind it while Backspace climbed the window's content.
+// Both kinds here are the taxonomy ROOT (no parent) and neither tile nor window
+// has history, so the only thing that can say "somewhere" is the content.
+console.log('\n§4b canNavigateBack answers for the scope Backspace acts on');
+{
+    const root = { kind: 'home', props: {} };
+    const inWindow = page(1);
+    const inTile = page(0);
+    const windows = new Map([['w1', { mountInfo: inWindow, original: root }]]);
+    const { wm, leafId } = makeWm({ tabs: [root], active: 0, windows });
+    wm.renderer.contentOf = (id) => (id === leafId ? inTile : null);
+    wm._backWindowId = 'w1';
+    check('a press in the window whose content has a level: somewhere (the tile has none)',
+        wm.canNavigateBack(), true);
+    wm.navigateBack();
+    check('and that is the level Backspace climbs', [inWindow.at, inTile.at], [0, 0]);
+    check('at the window content\'s top: nowhere', wm.canNavigateBack(), false);
+}
+{
+    const root = { kind: 'home', props: {} };
+    const inWindow = page(0);
+    const inTile = page(1);
+    const windows = new Map([['w1', { mountInfo: inWindow, original: root }]]);
+    const { wm, leafId } = makeWm({ tabs: [root], active: 0, windows });
+    wm.renderer.contentOf = (id) => (id === leafId ? inTile : null);
+    wm._backWindowId = 'w1';
+    check('the window at its top while the tile behind has a level: nowhere — not the tile\'s answer',
+        wm.canNavigateBack(), false);
+    wm._backWindowId = null;
+    check('no window pressed: the tile\'s answer, exactly as before', wm.canNavigateBack(), true);
+    wm._backWindowId = 'gone';
+    check('a pressed window that has since closed: the tile\'s answer', wm.canNavigateBack(), true);
+}
+{
+    // A window whose kind HAS a taxonomy parent still says so with no content.
+    const windows = new Map([['w1', { mountInfo: {}, original: tabs[1] }]]);
+    const { wm } = makeWm({ tabs: [{ kind: 'home', props: {} }], active: 0, windows });
+    wm._backWindowId = 'w1';
+    check('a window on a kind with a parent: somewhere, from the taxonomy', wm.canNavigateBack(), true);
 }
 
 // ── §5 ──────────────────────────────────────────────────────────────────

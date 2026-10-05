@@ -38,6 +38,11 @@ var DataTable = class {
       showRowNumbers: false,
       emptyMessage: "No data",
       onSort: null,
+      // OFF unless asked for, for `columnFit`'s reason below: a sort kept
+      // the client-side page before this key existed, so turning the
+      // reset on for everybody would change every paged table that never
+      // asked. See the typedef.
+      resetPageOnSort: false,
       onSelectionChange: null,
       formatValue: null,
       getHeaderIcon: null,
@@ -274,6 +279,7 @@ var DataTable = class {
     }
     this._processedRows = null;
     this._processedIndexMap = null;
+    if (this.config.resetPageOnSort) this._state.offset = 0;
     const ret = this.config.onSort?.(colIndex, this._state.sortAscending);
     this._awaitWithSpinner(ret);
     this._savePersisted();
@@ -2619,4 +2625,4 @@ export {
   createRafResizeObserver,
   DataTable
 };
-//# sourceMappingURL=chunk-CYTWMP2Y.js.map
+//# sourceMappingURL=chunk-WMGOJ3I6.js.map

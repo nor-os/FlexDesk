@@ -47,6 +47,7 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {boolean} [showRowNumbers=false] - Show row number column
  * @property {string} [emptyMessage='No data'] - Message when no data
  * @property {Function} [onSort] - Callback when sort changes: (column, ascending) => void
+ * @property {boolean} [resetPageOnSort=false] - A client-paged table goes back to its first page on every `sortBy()` (a header click included), the way a new filter already does: on page 3, a new order otherwise draws rows 201–300 OF THE NEW ORDER under "Page 3 of 3", which reads as "it only sorted this page". OFF by default: before this key existed a sort kept the page, and a table that does not ask keeps that. Server-side paging is untouched either way — its page is the consumer's `offset`, which `sortBy` never reads or writes.
  * @property {Function} [onSelectionChange] - Callback when selection changes: (selectedIndices) => void
  * @property {Function} [formatValue] - Custom value formatter: (value, colIndex) => string
  * @property {Function} [getHeaderIcon] - Get icon for header: (header, colIndex) => {icon, title}
@@ -96,6 +97,11 @@ export class DataTable {
             showRowNumbers: false,
             emptyMessage: 'No data',
             onSort: null,
+            // OFF unless asked for, for `columnFit`'s reason below: a sort kept
+            // the client-side page before this key existed, so turning the
+            // reset on for everybody would change every paged table that never
+            // asked. See the typedef.
+            resetPageOnSort: false,
             onSelectionChange: null,
             formatValue: null,
             getHeaderIcon: null,
@@ -385,9 +391,13 @@ export class DataTable {
         // Invalidate processed cache
         this._processedRows = null;
         this._processedIndexMap = null;
-        // A new order starts at its first page. Staying on page 3 showed rows
-        // 201–300 of the NEW order, which reads as "it only sorted this page".
-        this._state.offset = 0;
+        // A new order starts at its first page — when the table asked for it.
+        // Staying on page 3 shows rows 201–300 of the NEW order, which reads as
+        // "it only sorted this page"; but that IS what a sort did before
+        // `resetPageOnSort` existed, so a table that does not ask keeps it (D6:
+        // additive and back-compatible). `render()` keeps the scroll position
+        // only on the same page, so the reset also starts the body at its top.
+        if (this.config.resetPageOnSort) this._state.offset = 0;
 
         // Auto-spinner: if the sort handler returns a Promise (i.e.
         // it does a server-side refetch), show the loading overlay

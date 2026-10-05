@@ -163,6 +163,22 @@ anywhere else, it walks the focused tile as before. With `backToOpenList`, a
 record in a window closes onto an open list of its section, first among the
 window's own tabs and then in any tile of its desktop.
 
+**A page's own levels come first** (0.4.7). A page can have levels that are not
+tabs, such as a section whose list opens one member in place of itself. Return
+`navigateBack()` from the content factory's mount, and Backspace asks it before
+anything above: it climbs one of the page's own levels and returns `true`. Only
+a strict `true` counts. `false`, any other value, a missing function or a throw
+(logged as a warning) all let Back walk the tab history, the open list and the
+taxonomy exactly as before. It is asked in the same place as the rest of Back:
+the window you last clicked in, else the focused tile. Return
+`canNavigateBack()` as well, and `wm.canNavigateBack()` reports the page's own
+levels, for that same window or tile. `TileRenderer.contentOf(leafId)` reads
+what a tile's factory returned. To draw the page's levels, call
+`renderBreadcrumb(container, segments)` from `@flexdesk/wm`, with
+`segments = [{ label, icon?, onClick? }]`. It uses the tile breadcrumb's
+markup, so it looks the same, and each `onClick` is yours: the last segment,
+and any without `onClick`, is drawn as plain text.
+
 ### Column sizing
 
 `fitColumns(columns, avail)` (from `@flexdesk/widgets`) turns per-column
@@ -174,6 +190,15 @@ rest. When space runs short, short columns lose their rare outliers first,
 then text shrinks to a floor. The widths are fractional and add up to `avail`
 exactly whenever the floors fit. `DataTable` does not use it yet; an embedder
 that measures its own columns can.
+
+### Sorting a paged DataTable
+
+A client-paged `DataTable` (no `onPageChange`) keeps its page when it is
+sorted, so a sort on page 3 shows rows 201–300 of the new order. Pass
+`resetPageOnSort: true` (0.4.7) to start every new order at the first page, a
+header click included, the way a new filter already does. It is off by default
+because keeping the page is what every earlier release did. Server-side paging
+is not affected: its page is your `offset`, which a sort never changes.
 
 ### Scrollbars
 

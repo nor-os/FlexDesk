@@ -2450,6 +2450,9 @@ function _segments(kind, props, taxonomy, rootCrumb, rootLabel, navigate, trail)
   }
   return segs;
 }
+function renderBreadcrumb(container, segments) {
+  _renderInto(container, segments);
+}
 function _renderInto(container, segments) {
   container.innerHTML = "";
   if (!segments?.length) return;
@@ -3040,6 +3043,16 @@ var TileRenderer = class {
   leafKey(leafId) {
     const leaf = this.tree?.get?.(leafId);
     return leaf && leaf.kind === "leaf" ? this._leafKindKey(leaf) : null;
+  }
+  /**
+   * C37. WHAT A LEAF'S CONTENT FACTORY RETURNED for the tab on screen, or
+   * `null` — so the window manager can ask the content a question about
+   * itself (`wm.navigateBack`: *"have you a level of your own to go up?"*)
+   * without reaching into the cache. Read-only; a leaf that has not been
+   * rendered yet has none.
+   */
+  contentOf(leafId) {
+    return this._leafCache.get(leafId)?.content ?? null;
   }
   /**
    * C34. ACCEPT A PROPS WRITE THE CONTENT MADE ABOUT ITSELF, WITHOUT
@@ -4159,10 +4172,21 @@ var WindowManager = class _WindowManager {
    *  Adding a new "Open from X" click that should be a back-able
    *  navigation just needs to use one of the in-tile routing
    *  methods (openFromContext / openInLeaf / navigateActiveTab) —
-   *  they all record history by default. */
+   *  they all record history by default.
+   *
+   *  (0) C37. BEFORE ALL OF THAT, THE CONTENT'S OWN LEVELS. A page can have
+   *  levels that are not tabs — a settings page whose section opened one
+   *  member in place of its list, an organization page showing one of its
+   *  projects — and Backspace must climb those before it walks the tile. The
+   *  content factory says so by returning `navigateBack()` from its mount: it
+   *  is asked first, in the scope Backspace acts on (`_backScope`, so a
+   *  floating window's content and the focused tile's alike), and `true`
+   *  means it climbed. `false`, or no such function, and the walk below runs
+   *  exactly as it always has. */
   navigateBack() {
     const scope = this._backScope();
     if (!scope) return;
+    if (this._contentNavigateBack(scope)) return;
     if (scope.leafId && this._popTabHistory(scope.leafId)) return;
     if (this._returnToOpenList(scope)) return;
     const active = this._scopeActiveTab(scope);
@@ -4199,9 +4223,10 @@ var WindowManager = class _WindowManager {
     this._navigateInScope(scope, kind, props);
   }
   /** True when `navigateBack` would do something user-visible — i.e.
-   *  the active tab has per-tab history, OR the current kind has a
-   *  taxonomy parent. Used by the breadcrumb to grey out / hide the
-   *  Back button when there's nowhere to go. */
+   *  the content has a level of its own above the one it shows (C37), the
+   *  active tab has per-tab history, OR the current kind has a taxonomy
+   *  parent. Used by the breadcrumb to grey out / hide the Back button when
+   *  there's nowhere to go. */
   canNavigateBack() {
     const tree = this._tree();
     const focusedId = tree.focusedLeafId;
@@ -4210,6 +4235,14 @@ var WindowManager = class _WindowManager {
     const focusedKind = focusedLeaf?.content?.kind || "";
     const id = focusedId && focusedKind && !focusedKind.startsWith("panel:") && focusedKind !== "window-placeholder" ? focusedId : primaryId;
     if (!id) return false;
+    const content = this.renderer?.contentOf?.(id);
+    if (typeof content?.canNavigateBack === "function") {
+      try {
+        if (content.canNavigateBack() === true) return true;
+      } catch (err) {
+        console.warn("[wm] content canNavigateBack threw", err);
+      }
+    }
     const history = tree.activeTabHistory?.(id) || [];
     if (history.length > 0) return true;
     const leaf = tree.get(id);
@@ -4275,6 +4308,25 @@ var WindowManager = class _WindowManager {
   _scopeActiveTab(scope) {
     const src = this._scopeTabs(scope);
     return src ? src.tabs[src.activeIdx] || null : null;
+  }
+  /** C37. What the scope's content factory returned for what is on screen:
+   *  a window's `mountInfo`, or the tile's mounted content. */
+  _scopeContent(scope) {
+    if (scope?.windowId) return this._windowToLeaf.get(scope.windowId)?.mountInfo || null;
+    return scope?.leafId ? this.renderer?.contentOf?.(scope.leafId) || null : null;
+  }
+  /** C37. Ask the content to climb one of its own levels; `true` if it did.
+   *  A content that throws is treated as having nowhere to go, so Backspace
+   *  still walks the tile rather than doing nothing. */
+  _contentNavigateBack(scope) {
+    const content = this._scopeContent(scope);
+    if (typeof content?.navigateBack !== "function") return false;
+    try {
+      return content.navigateBack() === true;
+    } catch (err) {
+      console.warn("[wm] content navigateBack threw", err);
+      return false;
+    }
   }
   /** Replace what a scope shows, in place: the tile's active tab (recording
    *  history) or the window's content. */
@@ -8008,6 +8060,7 @@ export {
   openTileTabMenu,
   openTileTabSwitcher,
   registerPanelKeys,
+  renderBreadcrumb,
   saveDesktops,
   uninstallPanelKeyRouter,
   wireLandingPaneFocus

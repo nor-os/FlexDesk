@@ -206,6 +206,27 @@ function _segments(kind, props, taxonomy, rootCrumb, rootLabel, navigate, trail)
     return segs;
 }
 
+/**
+ * C37. THE SAME STRIP FOR A CONTENT'S OWN LEVELS — the markup every tile
+ * breadcrumb draws, with segments the caller routes itself.
+ *
+ * `mountTileBreadcrumb` names where the TILE is, and every one of its segments
+ * climbs through the window manager. A page with levels that are not tabs (a
+ * section's list, one record opened in its place) has a trail the taxonomy
+ * cannot know and segments the WM cannot route; it draws them here, in the same
+ * markup and so the same look, and pairs it with a `navigateBack()` from its
+ * mount so Backspace climbs the same levels (`wm.navigateBack`, step 0).
+ *
+ * `segments` is `[{label, icon?, onClick?}]`; the last one — and any with no
+ * `onClick` — is drawn as the current one, as text. Redraws `container` in full.
+ *
+ * @param {HTMLElement} container
+ * @param {Array<{label: string, icon?: string, onClick?: Function}>} segments
+ */
+export function renderBreadcrumb(container, segments) {
+    _renderInto(container, segments);
+}
+
 function _renderInto(container, segments) {
     container.innerHTML = '';
     if (!segments?.length) return;

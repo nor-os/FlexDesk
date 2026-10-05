@@ -840,6 +840,17 @@ export class TileRenderer {
     }
 
     /**
+     * C37. WHAT A LEAF'S CONTENT FACTORY RETURNED for the tab on screen, or
+     * `null` — so the window manager can ask the content a question about
+     * itself (`wm.navigateBack`: *"have you a level of your own to go up?"*)
+     * without reaching into the cache. Read-only; a leaf that has not been
+     * rendered yet has none.
+     */
+    contentOf(leafId) {
+        return this._leafCache.get(leafId)?.content ?? null;
+    }
+
+    /**
      * C34. ACCEPT A PROPS WRITE THE CONTENT MADE ABOUT ITSELF, WITHOUT
      * REBUILDING THE TILE THAT MADE IT.
      *

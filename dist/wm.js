@@ -2,10 +2,11 @@ import {
   HelpModal,
   openForm,
   showContextMenu
-} from "./chunk-ELXVW542.js";
+} from "./chunk-24MS7W5Y.js";
 import {
-  ManagedWindow
-} from "./chunk-LH5TSOZW.js";
+  ManagedWindow,
+  isRowActivation
+} from "./chunk-6JSOVNID.js";
 import "./chunk-FL5KFNQH.js";
 import {
   NotebookTabBar
@@ -1708,7 +1709,7 @@ function attachLandingTableBehavior(host, getRow, entityActions, options = {}) {
       dispatch(actionBtn.dataset.twmAction, tr2 ? getRow(tr2.__rowIndex) : null);
       return;
     }
-    if (ev.target.closest("button, a, input, select, textarea")) return;
+    if (!isRowActivation(ev, "click", { scope: host })) return;
     const tr = bodyRowFor(ev);
     if (tr) dispatch("open", getRow(tr.__rowIndex));
   };

@@ -179,4 +179,18 @@
     --ea-text-muted:  var(--text-muted);
     --ea-text-dim:    var(--text-dim);
     --ea-accent:      var(--accent-bright);
+
+    /* ── DataTable row geometry (0.5.0) — DELIBERATELY UNSET ──────
+       Three tokens make every DataTable's rows one height, whatever its
+       density. Set them (on :root, or on any ancestor of the tables) and
+       both the normal and the compact density read them:
+
+           --twm-dt-cell-pad-block:   2px;    the cell's top and bottom padding
+           --twm-dt-cell-pad-inline:  6px;    its left and right padding
+           --twm-dt-cell-line-height: 1.35;   the line height in a cell
+
+       They are NOT defined here, and must not be: each density falls back
+       to its OWN 0.4 values when a token is unset (normal: 6px 8px and an
+       inherited line height; compact: 2px 6px and 1.35), and a default here
+       would replace both densities' values with one. */
 }

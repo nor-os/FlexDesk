@@ -1,10 +1,10 @@
 import {
   DataTable,
   createRafResizeObserver
-} from "./chunk-WMGOJ3I6.js";
+} from "./chunk-4AP5DHP7.js";
 import {
   ManagedWindow
-} from "./chunk-LH5TSOZW.js";
+} from "./chunk-6JSOVNID.js";
 
 // src/charts/plotly_wrapper.js
 var _plotlySrc = null;
@@ -2370,4 +2370,4 @@ export {
   openPlotPopoutWindow,
   openRawTracesWindow
 };
-//# sourceMappingURL=chunk-F5FYDCOA.js.map
+//# sourceMappingURL=chunk-VY24MEMC.js.map

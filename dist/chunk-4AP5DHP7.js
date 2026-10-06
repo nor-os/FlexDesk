@@ -1,3 +1,8 @@
+import {
+  isRowActivation,
+  isRowControl
+} from "./chunk-6JSOVNID.js";
+
 // src/ui/utils/raf_resize_observer.js
 function createRafResizeObserver(callback) {
   let scheduled = false;
@@ -13,8 +18,426 @@ function createRafResizeObserver(callback) {
   });
 }
 
+// src/ui/components/table_values.js
+var MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December"
+];
+var WEEKDAYS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday"
+];
+var ISO_DATE = "YYYY-MM-DD";
+var ISO_DATETIME = "YYYY-MM-DD HH:mm";
+var ISO_RE = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d{1,9}))?)?)?\s*(Z|[+-]\d{2}(?::?\d{2})?)?$/i;
+var pad = (n, w = 2) => String(Math.trunc(Math.abs(n))).padStart(w, "0");
+function parseDateValue(value, { utc = false } = {}) {
+  if (value == null || value === "") return NaN;
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number") return Number.isFinite(value) ? value : NaN;
+  const text = String(value).trim();
+  if (!text) return NaN;
+  const m = ISO_RE.exec(text);
+  if (m) {
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    const d = Number(m[3]);
+    if (mo < 1 || mo > 12 || d < 1 || d > 31) return NaN;
+    const h = m[4] ? Number(m[4]) : 0;
+    const mi = m[5] ? Number(m[5]) : 0;
+    const s = m[6] ? Number(m[6]) : 0;
+    const ms = m[7] ? Math.round(Number(`0.${m[7]}`) * 1e3) : 0;
+    if (h > 24 || mi > 59 || s > 60) return NaN;
+    const zone = m[8];
+    if (zone) {
+      let offset = 0;
+      if (zone.toUpperCase() !== "Z") {
+        const sign = zone[0] === "-" ? -1 : 1;
+        const digits = zone.slice(1).replace(":", "");
+        offset = sign * (Number(digits.slice(0, 2)) * 60 + Number(digits.slice(2, 4) || 0));
+      }
+      return Date.UTC(y, mo - 1, d, h, mi, s, ms) - offset * 6e4;
+    }
+    return utc ? Date.UTC(y, mo - 1, d, h, mi, s, ms) : new Date(y, mo - 1, d, h, mi, s, ms).getTime();
+  }
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) ? parsed : NaN;
+}
+function formatDate(value, pattern = ISO_DATE, { utc = false } = {}) {
+  if (value == null || value === "") return "";
+  const t = parseDateValue(value, { utc });
+  if (!Number.isFinite(t)) return String(value);
+  const date = new Date(t);
+  if (typeof pattern === "function") return String(pattern(date) ?? "");
+  const get = utc ? {
+    y: date.getUTCFullYear(),
+    mo: date.getUTCMonth(),
+    d: date.getUTCDate(),
+    wd: date.getUTCDay(),
+    h: date.getUTCHours(),
+    mi: date.getUTCMinutes(),
+    s: date.getUTCSeconds(),
+    ms: date.getUTCMilliseconds()
+  } : {
+    y: date.getFullYear(),
+    mo: date.getMonth(),
+    d: date.getDate(),
+    wd: date.getDay(),
+    h: date.getHours(),
+    mi: date.getMinutes(),
+    s: date.getSeconds(),
+    ms: date.getMilliseconds()
+  };
+  const h12 = get.h % 12 === 0 ? 12 : get.h % 12;
+  return String(pattern || ISO_DATE).replace(
+    /\[([^\]]*)\]|YYYY|YY|MMMM|MMM|MM|M|dddd|ddd|DD|D|HH|H|hh|h|mm|m|ss|s|SSS|A|a/g,
+    (tok, literal) => {
+      if (literal !== void 0) return literal;
+      switch (tok) {
+        case "YYYY":
+          return pad(get.y, 4);
+        case "YY":
+          return pad(get.y % 100);
+        case "MMMM":
+          return MONTHS[get.mo];
+        case "MMM":
+          return MONTHS[get.mo].slice(0, 3);
+        case "MM":
+          return pad(get.mo + 1);
+        case "M":
+          return String(get.mo + 1);
+        case "dddd":
+          return WEEKDAYS[get.wd];
+        case "ddd":
+          return WEEKDAYS[get.wd].slice(0, 3);
+        case "DD":
+          return pad(get.d);
+        case "D":
+          return String(get.d);
+        case "HH":
+          return pad(get.h);
+        case "H":
+          return String(get.h);
+        case "hh":
+          return pad(h12);
+        case "h":
+          return String(h12);
+        case "mm":
+          return pad(get.mi);
+        case "m":
+          return String(get.mi);
+        case "ss":
+          return pad(get.s);
+        case "s":
+          return String(get.s);
+        case "SSS":
+          return pad(get.ms, 3);
+        case "A":
+          return get.h < 12 ? "AM" : "PM";
+        case "a":
+          return get.h < 12 ? "am" : "pm";
+        default:
+          return tok;
+      }
+    }
+  );
+}
+function parseDatePeriod(text, { utc = false } = {}) {
+  const t = String(text ?? "").trim();
+  const m = /^(\d{4})(?:-(\d{1,2})(?:-(\d{1,2})(?:[T ](\d{1,2})(?::(\d{2})(?::(\d{2}))?)?)?)?)?$/.exec(t);
+  if (m) {
+    const parts = [
+      Number(m[1]),
+      m[2] ? Number(m[2]) - 1 : 0,
+      m[3] ? Number(m[3]) : 1,
+      m[4] ? Number(m[4]) : 0,
+      m[5] ? Number(m[5]) : 0,
+      m[6] ? Number(m[6]) : 0
+    ];
+    if (parts[1] < 0 || parts[1] > 11 || parts[2] < 1 || parts[2] > 31) return null;
+    const unit = m[6] ? 5 : m[5] ? 4 : m[4] ? 3 : m[3] ? 2 : m[2] ? 1 : 0;
+    const next = parts.slice();
+    next[unit] += 1;
+    const at = (p) => utc ? Date.UTC(...p) : new Date(...p).getTime();
+    return { start: at(parts), end: at(next) };
+  }
+  const instant = parseDateValue(t, { utc });
+  return Number.isFinite(instant) ? { start: instant, end: instant + 1 } : null;
+}
+var DURATION_UNITS = {
+  ms: 1,
+  msec: 1,
+  msecs: 1,
+  millisecond: 1,
+  milliseconds: 1,
+  s: 1e3,
+  sec: 1e3,
+  secs: 1e3,
+  second: 1e3,
+  seconds: 1e3,
+  m: 6e4,
+  min: 6e4,
+  mins: 6e4,
+  minute: 6e4,
+  minutes: 6e4,
+  h: 36e5,
+  hr: 36e5,
+  hrs: 36e5,
+  hour: 36e5,
+  hours: 36e5,
+  d: 864e5,
+  day: 864e5,
+  days: 864e5
+};
+function parseDuration(value) {
+  if (value == null || value === "") return NaN;
+  if (typeof value === "number") return Number.isFinite(value) ? value : NaN;
+  let text = String(value).trim().toLowerCase();
+  if (!text) return NaN;
+  let sign = 1;
+  if (text[0] === "-") {
+    sign = -1;
+    text = text.slice(1).trim();
+  }
+  if (/^\d+(?:\.\d+)?$/.test(text)) return sign * Number(text);
+  const clock = /^(?:(\d+)\.)?(\d+):(\d{1,2})(?::(\d{1,2}(?:\.\d+)?))?$/.exec(text);
+  if (clock) {
+    const [, d, a, b, c] = clock;
+    const ms = (Number(d || 0) * 86400 + Number(a) * 3600 + Number(b) * 60 + Number(c || 0)) * 1e3;
+    return sign * ms;
+  }
+  const re = /(\d+(?:\.\d+)?)\s*([a-z]+)\s*/g;
+  let total = 0;
+  let consumed = 0;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index !== consumed) return NaN;
+    const unit = DURATION_UNITS[m[2]];
+    if (unit === void 0) return NaN;
+    total += Number(m[1]) * unit;
+    consumed = re.lastIndex;
+  }
+  return consumed === text.length && consumed > 0 ? sign * total : NaN;
+}
+function formatDuration(value, pattern = "auto") {
+  if (value == null || value === "") return "";
+  const ms = parseDuration(value);
+  if (!Number.isFinite(ms)) return String(value);
+  if (typeof pattern === "function") return String(pattern(ms) ?? "");
+  const neg = ms < 0;
+  const a = Math.abs(ms);
+  let out;
+  if (pattern === "clock") {
+    const total = Math.round(a / 1e3);
+    const d = Math.floor(total / 86400);
+    const h = Math.floor(total % 86400 / 3600);
+    const mi = Math.floor(total % 3600 / 60);
+    const s = total % 60;
+    out = `${d ? `${d}.${pad(h)}` : h}:${pad(mi)}:${pad(s)}`;
+  } else if (a < 1e3) {
+    out = `${Math.round(a)} ms`;
+  } else if (a < 59950) {
+    out = `${(a / 1e3).toFixed(1)} s`;
+  } else if (a < 36e5) {
+    let mi = Math.floor(a / 6e4);
+    let s = Math.round(a % 6e4 / 1e3);
+    if (s === 60) {
+      mi += 1;
+      s = 0;
+    }
+    out = `${mi}m ${s}s`;
+  } else if (a < 864e5) {
+    let h = Math.floor(a / 36e5);
+    let mi = Math.round(a % 36e5 / 6e4);
+    if (mi === 60) {
+      h += 1;
+      mi = 0;
+    }
+    out = `${h}h ${mi}m`;
+  } else {
+    let d = Math.floor(a / 864e5);
+    let h = Math.round(a % 864e5 / 36e5);
+    if (h === 24) {
+      d += 1;
+      h = 0;
+    }
+    out = `${d}d ${h}h`;
+  }
+  return neg ? `-${out}` : out;
+}
+function matchDateFilter(t, filterText, shown, { utc = false } = {}) {
+  const text = String(filterText ?? "").trim();
+  if (!text) return true;
+  const range = /^(.+?)\s*\.\.\s*(.+)$/.exec(text);
+  if (range) {
+    const lo = parseDatePeriod(range[1], { utc });
+    const hi = parseDatePeriod(range[2], { utc });
+    if (!lo || !hi) return true;
+    return Number.isFinite(t) && t >= lo.start && t < hi.end;
+  }
+  const op = /^(>=|<=|!=|>|<|=)\s*(.+)$/.exec(text);
+  if (op) {
+    const p2 = parseDatePeriod(op[2], { utc });
+    if (!p2) return true;
+    if (!Number.isFinite(t)) return false;
+    switch (op[1]) {
+      case ">":
+        return t >= p2.end;
+      case ">=":
+        return t >= p2.start;
+      case "<":
+        return t < p2.start;
+      case "<=":
+        return t < p2.end;
+      case "=":
+        return t >= p2.start && t < p2.end;
+      case "!=":
+        return !(t >= p2.start && t < p2.end);
+    }
+  }
+  const p = parseDatePeriod(text, { utc });
+  if (p) return Number.isFinite(t) && t >= p.start && t < p.end;
+  return String(shown ?? "").toLowerCase().includes(text.toLowerCase());
+}
+function matchDurationFilter(ms, filterText, shown) {
+  const text = String(filterText ?? "").trim();
+  if (!text) return true;
+  const range = /^(.+?)\s*\.\.\s*(.+)$/.exec(text);
+  if (range) {
+    const lo = parseDuration(range[1]);
+    const hi = parseDuration(range[2]);
+    if (!Number.isFinite(lo) || !Number.isFinite(hi)) return true;
+    return Number.isFinite(ms) && ms >= lo && ms <= hi;
+  }
+  const op = /^(>=|<=|!=|>|<|=)\s*(.+)$/.exec(text);
+  if (op) {
+    const target = parseDuration(op[2]);
+    if (!Number.isFinite(target)) return true;
+    if (!Number.isFinite(ms)) return false;
+    switch (op[1]) {
+      case ">":
+        return ms > target;
+      case ">=":
+        return ms >= target;
+      case "<":
+        return ms < target;
+      case "<=":
+        return ms <= target;
+      case "=":
+        return ms === target;
+      case "!=":
+        return ms !== target;
+    }
+  }
+  return String(shown ?? "").toLowerCase().includes(text.toLowerCase());
+}
+
 // src/ui/components/data_table.js
 var DEFAULT_PAGE_SIZE = 100;
+var TYPED_COLUMNS = /* @__PURE__ */ new Set(["date", "datetime", "duration"]);
+var AUTO_DISPOSE = /* @__PURE__ */ new Map();
+var AUTO_REFS = /* @__PURE__ */ new WeakMap();
+var weakRef = (table) => typeof WeakRef === "function" ? new WeakRef(table) : { deref: () => table };
+function autoDisposeSweep(entry) {
+  for (const ref of entry.tables) {
+    const table = ref.deref();
+    if (!table) {
+      entry.tables.delete(ref);
+      continue;
+    }
+    const el = table._wrapperEl;
+    if (!el) continue;
+    if (el.isConnected) {
+      table._autoSeen = true;
+      continue;
+    }
+    if (!table._autoSeen || table._autoPending) continue;
+    table._autoPending = true;
+    setTimeout(() => {
+      table._autoPending = false;
+      if (!entry.tables.has(ref)) return;
+      const now = table._wrapperEl;
+      if (now && !now.isConnected) table.dispose();
+    }, 0);
+  }
+  if (entry.tables.size === 0) autoDisposeRelease(entry);
+}
+function autoDisposeRelease(entry) {
+  for (const [doc, e] of AUTO_DISPOSE) {
+    if (e !== entry) continue;
+    try {
+      e.observer.disconnect();
+    } catch (_) {
+    }
+    AUTO_DISPOSE.delete(doc);
+  }
+}
+function autoDisposeWatch(table) {
+  const doc = table.container?.ownerDocument;
+  const MO = doc?.defaultView?.MutationObserver || globalThis.MutationObserver;
+  if (!doc || typeof MO !== "function") return;
+  let entry = AUTO_DISPOSE.get(doc);
+  if (!entry) {
+    entry = { observer: null, tables: /* @__PURE__ */ new Set() };
+    entry.observer = new MO(() => autoDisposeSweep(entry));
+    entry.observer.observe(doc, { childList: true, subtree: true });
+    AUTO_DISPOSE.set(doc, entry);
+  }
+  let ref = AUTO_REFS.get(table);
+  if (!ref) {
+    ref = weakRef(table);
+    AUTO_REFS.set(table, ref);
+  }
+  entry.tables.add(ref);
+  if (table._wrapperEl?.isConnected) table._autoSeen = true;
+}
+function autoDisposeUnwatch(table) {
+  const ref = AUTO_REFS.get(table);
+  if (!ref) return;
+  for (const entry of [...AUTO_DISPOSE.values()]) {
+    if (entry.tables.delete(ref) && entry.tables.size === 0) autoDisposeRelease(entry);
+  }
+}
+function perColumn(option, colIdx) {
+  if (option == null) return null;
+  if (Array.isArray(option)) return option[colIdx] ?? null;
+  if (typeof option === "object") return option[colIdx] ?? null;
+  return option;
+}
+function normaliseSortKey(k) {
+  if (k == null) return null;
+  if (k instanceof Date) k = k.getTime();
+  if (typeof k === "boolean") return k ? 1 : 0;
+  if (typeof k === "number") return Number.isFinite(k) ? k : null;
+  if (typeof k === "bigint") return Number(k);
+  return String(k).toLowerCase();
+}
+function compareSortKeys(a, b, asc) {
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  const na = typeof a === "number";
+  const nb = typeof b === "number";
+  let cmp;
+  if (na !== nb) cmp = na ? -1 : 1;
+  else cmp = a < b ? -1 : a > b ? 1 : 0;
+  return asc ? cmp : -cmp;
+}
 var AUTOSIZE_MAX_PX = 520;
 var VIRTUAL_FALLBACK_VIEWPORT_PX = 1e3;
 var DataTable = class {
@@ -81,8 +504,34 @@ var DataTable = class {
       virtualize: false,
       virtualRowHeight: null,
       onRowsRendered: null,
+      // 0.5.0. Every key below is off — or exactly the 0.4 behaviour — until
+      // a consumer sets it (D6: additive and back-compatible). The typedef
+      // says what each does.
+      fitContent: false,
+      maxHeight: null,
+      autoDispose: false,
+      firstColumn: "time",
+      clickable: null,
+      onRowActivate: null,
+      activateOn: "click",
+      getRowKey: null,
+      activeRow: null,
+      rowClass: null,
+      rowAttrs: null,
+      cellClass: null,
+      rowIcon: null,
+      emptyState: void 0,
+      nullDisplay: null,
+      columnTypes: null,
+      sortValue: null,
+      dateFormat: null,
+      dateTimeFormat: null,
+      durationFormat: null,
+      dateTimeZone: "local",
       ...config
     };
+    this._activeKey = this.config.activeRow == null ? null : String(this.config.activeRow);
+    this._error = null;
     this._virt = null;
     this._virtBase = null;
     if (this.config.persistKey && !this.config.stateStore) {
@@ -122,6 +571,44 @@ var DataTable = class {
         }
       });
     }
+  }
+  /**
+   * 0.5.0. Construct AND DRAW, in one call. The constructor draws nothing
+   * until `render()`, so every consumer that forgot the second line got an
+   * empty box; this is the two lines, once.
+   *
+   * Called on a class made by `withDefaults`, it builds that class — so the
+   * house defaults apply.
+   *
+   * @param {HTMLElement} container
+   * @param {DataTableConfig} [config]
+   * @returns {DataTable}
+   */
+  static mount(container, config = {}) {
+    const table = new this(container, config);
+    table.render();
+    return table;
+  }
+  /**
+   * 0.5.0. A DataTable class with house defaults: `defaults` sit under every
+   * config it is constructed (or `mount`ed) with, and the config wins key by
+   * key. It is a real subclass — `instanceof DataTable` holds — and it can be
+   * narrowed again with its own `withDefaults`.
+   *
+   *     const ListTable = DataTable.withDefaults({ mode: 'compact', sortable: true,
+   *                                                pagination: false, fitContent: true });
+   *     const table = ListTable.mount(host, { headers, rows });
+   *
+   * @param {DataTableConfig} defaults
+   * @returns {typeof DataTable}
+   */
+  static withDefaults(defaults = {}) {
+    const house = { ...defaults };
+    return class extends this {
+      constructor(container, config = {}) {
+        super(container, { ...house, ...config });
+      }
+    };
   }
   /** Apply a persisted blob ({sort, asc, filters, widths}) onto this
    *  table's live state. Returns true if anything was applied. */
@@ -183,6 +670,13 @@ var DataTable = class {
         this._state.offset = 0;
       }
       this._columnTypes = this._detectColumnTypes();
+      this._error = null;
+    }
+    if (Object.prototype.hasOwnProperty.call(updates, "activeRow")) {
+      this._activeKey = updates.activeRow == null ? null : String(updates.activeRow);
+    }
+    if (updates.columnTypes || updates.getColumnType) {
+      this._columnTypes = this._detectColumnTypes();
     }
     this._processedRows = null;
     this._processedIndexMap = null;
@@ -199,7 +693,9 @@ var DataTable = class {
    * @param {boolean} on
    */
   setLoading(on) {
+    this._loading = !!on;
     if (!this._wrapperEl) return;
+    this._wrapperEl.classList.toggle("twm-data-table-component--loading", !!on);
     let overlay = this._wrapperEl.querySelector(".twm-data-table__loading");
     if (on) {
       if (!overlay) {
@@ -230,11 +726,78 @@ var DataTable = class {
     this._state.selected.clear();
     for (const idx of indices) {
       if (idx >= 0 && idx < this.config.rows.length) {
+        if (this.config.selectable === "single") this._state.selected.clear();
         this._state.selected.add(idx);
       }
     }
+    if (this.config.selectable === "single") {
+      this._state.anchorIndex = this._state.selected.size ? [...this._state.selected][0] : null;
+    }
     this._updateRowSelection();
     this._notifySelectionChange();
+  }
+  // ─────────────────────────────────────────────────────────────────
+  // 0.5.0 — the open row, the failure state, column widths
+  // ─────────────────────────────────────────────────────────────────
+  /**
+   * Mark the row that is OPEN — the master of a master-detail — by its key
+   * (`getRowKey`; without it, the row's original index). `null` clears it.
+   *
+   * The mark is NOT the selection: `setData` keeps it (the key is looked for
+   * in the new rows), a right-click does not move it, and a sort, a filter or
+   * a page change finds it where the row went. Drawn as `twm-dt-row--active`
+   * and `aria-current="true"` on the row, in place — no re-render.
+   *
+   * @param {*} key
+   */
+  setActiveRow(key) {
+    this._activeKey = key == null ? null : String(key);
+    this.config.activeRow = key ?? null;
+    const tbody = this._tbodyEl;
+    if (!tbody) return;
+    for (const tr of tbody.children) {
+      if (tr.__rowIndex === void 0) continue;
+      this._paintActive(tr);
+    }
+  }
+  /** The open row's key, as text, or null. */
+  getActiveRow() {
+    return this._activeKey;
+  }
+  /**
+   * Show a FAILURE inside the table's own box: text, a node, or an `Error`
+   * (its message). The rows already drawn STAY — a failed refresh does not
+   * blank a list a person was reading — under a banner saying what failed;
+   * with no rows, the failure takes the empty row's place. `setError(null)`
+   * clears it, and so does `setData({rows})`: new rows are an answer. A
+   * failure also ends `setLoading`.
+   *
+   * @param {string|Node|Error|null} error
+   */
+  setError(error) {
+    this._error = error == null || error === false ? null : error;
+    if (this._error) this.setLoading(false);
+    if (this._wrapperEl) this.render();
+  }
+  /** What `setError` was last given, or null. */
+  getError() {
+    return this._error;
+  }
+  /**
+   * Forget every column width a person dragged, a double-click fitted or the
+   * store restored, and measure the columns again from what is on screen —
+   * for an embedder whose content has just changed size under them (a zoom,
+   * a font). Persisted widths are cleared too.
+   *
+   * @returns {boolean} whether there was a table to measure
+   */
+  resetColumnWidths() {
+    this._colWidths = {};
+    this._colWidthsSig = this._colSig();
+    this._savePersisted();
+    if (!this._headerTableEl || !this._tableEl) return false;
+    this._syncHeaderWidths();
+    return true;
   }
   /**
    * Clear selection
@@ -333,21 +896,32 @@ var DataTable = class {
     }
     this._wrapperEl = document.createElement("div");
     this._wrapperEl.className = "twm-data-table-component" + (this.config.mode === "compact" ? " twm-data-table-component--compact" : "");
-    this._wrapperEl.style.cssText = "display:flex; flex-direction:column; height:100%; min-height:0;";
+    const fit = this._fitsContent();
+    if (fit) {
+      this._wrapperEl.classList.add("twm-data-table-component--fit");
+      const max = this._maxHeightCss();
+      this._wrapperEl.style.cssText = "display:flex; flex-direction:column; height:auto; min-height:0;" + (max ? ` max-height:${max};` : "");
+    } else {
+      this._wrapperEl.style.cssText = "display:flex; flex-direction:column; height:100%; min-height:0;";
+    }
+    this._loading = false;
     if (pagination && rows.length > 0) {
       this._paginationEl = this._createPagination();
       if (this._paginationEl) this._wrapperEl.appendChild(this._paginationEl);
     }
     const tableWrap = document.createElement("div");
     tableWrap.className = this.config.readonly ? "twm-preview-table-wrap twm-preview-table-wrap--wizard" : "twm-preview-table-wrap";
-    tableWrap.style.cssText = "flex:1 1 0; min-height:0; min-width:0; overflow:auto;";
+    tableWrap.style.cssText = fit ? "flex:0 1 auto; min-height:0; min-width:0; overflow:auto;" : "flex:1 1 0; min-height:0; min-width:0; overflow:auto;";
+    if (this._error && rows.length > 0) {
+      this._wrapperEl.appendChild(this._createErrorBanner());
+    }
     if (rows.length === 0) {
       const { headers, showRowNumbers } = this.config;
       const headerWrap = document.createElement("div");
       headerWrap.className = "twm-preview-table-header-wrap";
       headerWrap.style.cssText = "flex:0 0 auto; overflow:hidden; min-width:0;";
       const headerTable = document.createElement("table");
-      headerTable.className = this.config.readonly ? "twm-preview-table twm-preview-table--readonly" : "twm-preview-table";
+      headerTable.className = this._tableClassName();
       const thead = document.createElement("thead");
       const tr = document.createElement("tr");
       if (showRowNumbers) {
@@ -376,8 +950,18 @@ var DataTable = class {
       const colCount = headers.length + (showRowNumbers ? 1 : 0);
       const emptyTd = document.createElement("td");
       emptyTd.colSpan = colCount;
-      emptyTd.style.cssText = "text-align:center; font-style:italic; color:#888; padding:16px;";
-      emptyTd.textContent = emptyMessage;
+      if (this._error) {
+        emptyTd.className = "twm-data-table__empty-cell twm-data-table__empty-cell--error";
+        emptyTd.setAttribute("role", "alert");
+        this._appendStateContent(emptyTd, this._errorContent());
+      } else if (this.config.emptyState !== void 0) {
+        emptyTd.className = "twm-data-table__empty-cell twm-data-table__empty-cell--state";
+        const state = typeof this.config.emptyState === "function" ? this.config.emptyState() : this.config.emptyState;
+        this._appendStateContent(emptyTd, state);
+      } else {
+        emptyTd.style.cssText = "text-align:center; font-style:italic; color:#888; padding:16px;";
+        emptyTd.textContent = emptyMessage;
+      }
       emptyTr.appendChild(emptyTd);
       tbody.appendChild(emptyTr);
       bodyTable.appendChild(tbody);
@@ -408,6 +992,7 @@ var DataTable = class {
     }
     this._tableWrapEl = tableWrap;
     this.container.appendChild(this._wrapperEl);
+    if (this.config.autoDispose) autoDisposeWatch(this);
     if (prevScroll && this._state.offset === this._renderedOffset) {
       tableWrap.scrollTop = prevScroll.top;
       tableWrap.scrollLeft = prevScroll.left;
@@ -438,7 +1023,7 @@ var DataTable = class {
       this._installHeaderScrollSync();
       if (rows.length > 0) this._installColumnResizers();
     }
-    if (rows.length > 0 && (this.config.selectable || this.config.copyable || !this.config.readonly)) {
+    if (rows.length > 0 && (this.config.selectable || this.config.copyable || !this.config.readonly || typeof this.config.onRowActivate === "function")) {
       this._installInteractions();
     }
     if (activeFilterColIdx !== null) {
@@ -535,6 +1120,8 @@ var DataTable = class {
    * Dispose and cleanup
    */
   dispose() {
+    autoDisposeUnwatch(this);
+    this._autoSeen = false;
     this._cleanup();
     this._closeFilterDropdown();
     this._teardownContextMenu();
@@ -604,6 +1191,26 @@ var DataTable = class {
             pass = false;
             break;
           }
+        } else if (colType === "date" || colType === "datetime") {
+          const utc = this._utc();
+          if (!matchDateFilter(
+            parseDateValue(value, { utc }),
+            filterText,
+            this._formatValue(value, colIdx),
+            { utc }
+          )) {
+            pass = false;
+            break;
+          }
+        } else if (colType === "duration") {
+          if (!matchDurationFilter(
+            parseDuration(value),
+            filterText,
+            this._formatValue(value, colIdx)
+          )) {
+            pass = false;
+            break;
+          }
         } else {
           if (!this._matchTextFilter(value, filterText)) {
             pass = false;
@@ -621,6 +1228,32 @@ var DataTable = class {
   _applySorting(rows, indexMap) {
     const colIdx = this._state.sortColumn;
     const asc = this._state.sortAscending;
+    const hook = this._sortValueFor(colIdx);
+    const kind = this._columnTypes[colIdx];
+    if (hook || TYPED_COLUMNS.has(kind)) {
+      const utc = this._utc();
+      const keyOf = (row) => {
+        const value = row[colIdx];
+        if (hook) {
+          const k = hook(value, colIdx, row);
+          if (k !== void 0) return normaliseSortKey(k);
+        }
+        if (kind === "date" || kind === "datetime") {
+          return normaliseSortKey(parseDateValue(value, { utc }));
+        }
+        if (kind === "duration") return normaliseSortKey(parseDuration(value));
+        if (kind === "num") {
+          return normaliseSortKey(typeof value === "number" ? value : parseFloat(value));
+        }
+        return value == null ? null : String(value).toLowerCase();
+      };
+      const keyed = rows.map((row, i) => ({ row, origIdx: indexMap[i], key: keyOf(row) }));
+      keyed.sort((a, b) => compareSortKeys(a.key, b.key, asc));
+      return {
+        rows: keyed.map((p) => p.row),
+        indexMap: keyed.map((p) => p.origIdx)
+      };
+    }
     const paired = rows.map((row, i) => ({ row, origIdx: indexMap[i] }));
     const isNumeric = this._columnTypes[colIdx] === "num";
     paired.sort((a, b) => {
@@ -727,8 +1360,8 @@ var DataTable = class {
       const input = document.createElement("input");
       input.type = "text";
       input.className = "twm-data-table__filter-input";
-      const isNumeric = this._columnTypes[colIdx] === "num";
-      input.placeholder = isNumeric ? "e.g. >100" : "Filter...";
+      const kind = this._columnTypes[colIdx];
+      input.placeholder = kind === "num" ? "e.g. >100" : kind === "date" || kind === "datetime" ? "e.g. >2026-01-01" : kind === "duration" ? "e.g. >1s" : "Filter...";
       const existingFilter = this._state.filters.get(colIdx);
       if (existingFilter) {
         input.value = existingFilter;
@@ -771,17 +1404,28 @@ var DataTable = class {
   // ─────────────────────────────────────────────────────────────────
   _openFilterDropdown(colIdx, anchorEl, filterInput) {
     this._closeFilterDropdown();
-    const isNumeric = this._columnTypes[colIdx] === "num";
+    const kind = this._columnTypes[colIdx];
+    const isNumeric = kind === "num";
+    const isDate = kind === "date" || kind === "datetime";
+    const isOrdered = isNumeric || isDate || kind === "duration";
     const currentFilter = this._state.filters.get(colIdx) || "";
-    const parsed = this._parseFilterForDropdown(currentFilter, isNumeric);
+    const parsed = this._parseFilterForDropdown(currentFilter, isOrdered ? isNumeric ? true : kind : false);
     const panel = document.createElement("div");
     panel.className = "twm-data-table__filter-dropdown";
     const selectLabel = document.createElement("label");
     selectLabel.className = "twm-data-table__filter-dropdown-label";
-    selectLabel.textContent = isNumeric ? "Operator" : "Mode";
+    selectLabel.textContent = isOrdered ? "Operator" : "Mode";
     const select = document.createElement("select");
     select.className = "twm-data-table__filter-dropdown-select";
-    const options = isNumeric ? [
+    const options = isDate ? [
+      { value: "=", label: "On / in" },
+      { value: "!=", label: "Not on / in" },
+      { value: ">", label: "After" },
+      { value: ">=", label: "On or after" },
+      { value: "<", label: "Before" },
+      { value: "<=", label: "On or before" },
+      { value: "..", label: "Between" }
+    ] : isOrdered ? [
       { value: "=", label: "Equals" },
       { value: "!=", label: "Not equals" },
       { value: ">", label: "Greater than" },
@@ -806,27 +1450,29 @@ var DataTable = class {
     const valueLabel = document.createElement("label");
     valueLabel.className = "twm-data-table__filter-dropdown-label";
     valueLabel.textContent = "Value";
+    const operandPlaceholder = isNumeric ? "Number..." : isDate ? "YYYY-MM-DD" : isOrdered ? "e.g. 1.5s" : "Text...";
     const valueInput = document.createElement("input");
     valueInput.type = isNumeric ? "number" : "text";
     valueInput.className = "twm-data-table__filter-dropdown-input";
-    valueInput.placeholder = isNumeric ? "Number..." : "Text...";
+    valueInput.placeholder = operandPlaceholder;
     valueInput.value = parsed.value;
     const value2Label = document.createElement("label");
     value2Label.className = "twm-data-table__filter-dropdown-label";
     value2Label.textContent = "And";
     const value2Input = document.createElement("input");
-    value2Input.type = "number";
+    value2Input.type = isOrdered && !isNumeric ? "text" : "number";
     value2Input.className = "twm-data-table__filter-dropdown-input";
-    value2Input.placeholder = "Number...";
+    value2Input.placeholder = isOrdered && !isNumeric ? operandPlaceholder : "Number...";
     value2Input.value = parsed.value2;
     const value2Container = document.createElement("div");
     value2Container.className = "twm-data-table__filter-dropdown-between";
-    value2Container.style.display = isNumeric && parsed.operator === ".." ? "" : "none";
+    value2Container.style.display = isOrdered && parsed.operator === ".." ? "" : "none";
     value2Container.appendChild(value2Label);
     value2Container.appendChild(value2Input);
     select.addEventListener("change", () => {
-      value2Container.style.display = isNumeric && select.value === ".." ? "" : "none";
+      value2Container.style.display = isOrdered && select.value === ".." ? "" : "none";
     });
+    const composeMode = isNumeric ? true : isOrdered ? kind : false;
     const actions = document.createElement("div");
     actions.className = "twm-data-table__filter-dropdown-actions";
     const clearBtn = document.createElement("button");
@@ -845,7 +1491,7 @@ var DataTable = class {
     applyBtn.textContent = "Apply";
     applyBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      const composed = this._composeFilterString(select.value, valueInput.value, value2Input.value, isNumeric);
+      const composed = this._composeFilterString(select.value, valueInput.value, value2Input.value, composeMode);
       filterInput.value = composed;
       this._onFilterInput(colIdx, composed);
       this._closeFilterDropdown();
@@ -885,7 +1531,7 @@ var DataTable = class {
     const handleEnter = (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        const composed = this._composeFilterString(select.value, valueInput.value, value2Input.value, isNumeric);
+        const composed = this._composeFilterString(select.value, valueInput.value, value2Input.value, composeMode);
         filterInput.value = composed;
         this._onFilterInput(colIdx, composed);
         this._closeFilterDropdown();
@@ -915,6 +1561,13 @@ var DataTable = class {
     if (!text) {
       return { operator: isNumeric ? "=" : "contains", value: "", value2: "" };
     }
+    if (typeof isNumeric === "string") {
+      const range = text.match(/^(.+?)\s*\.\.\s*(.+)$/);
+      if (range) return { operator: "..", value: range[1], value2: range[2] };
+      const op = text.match(/^(>=|<=|!=|>|<|=)\s*(.+)$/);
+      if (op) return { operator: op[1], value: op[2], value2: "" };
+      return { operator: "=", value: text, value2: "" };
+    }
     if (isNumeric) {
       const rangeMatch = text.match(/^(-?[\d.]+)\.\.(-?[\d.]+)$/);
       if (rangeMatch) {
@@ -942,6 +1595,10 @@ var DataTable = class {
   }
   _composeFilterString(operator, value, value2, isNumeric) {
     if (!value && operator !== "..") return "";
+    if (typeof isNumeric === "string") {
+      if (operator === "..") return value && value2 ? `${value}..${value2}` : "";
+      return `${operator}${value}`;
+    }
     if (isNumeric) {
       if (operator === "..") {
         return value && value2 ? `${value}..${value2}` : "";
@@ -1025,9 +1682,14 @@ var DataTable = class {
     }
   }
   _detectColumnTypes() {
-    const { headers, rows, getColumnType } = this.config;
+    const { headers, rows, getColumnType, columnTypes } = this.config;
     const types = [];
     for (let colIdx = 0; colIdx < headers.length; colIdx++) {
+      const declared = Array.isArray(columnTypes) ? columnTypes[colIdx] : null;
+      if (declared) {
+        types.push(declared);
+        continue;
+      }
       if (getColumnType) {
         types.push(getColumnType(colIdx, rows));
         continue;
@@ -1173,7 +1835,7 @@ var DataTable = class {
     const offset = isServerSide ? configOffset || 0 : this._state.offset;
     const pageRows = isServerSide || !this.config.pagination ? processedRows : processedRows.slice(offset, offset + pageSize);
     const table = document.createElement("table");
-    table.className = readonly ? "twm-preview-table twm-preview-table--readonly" : "twm-preview-table";
+    table.className = this._tableClassName();
     table.tabIndex = 0;
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
@@ -1233,6 +1895,7 @@ var DataTable = class {
       const processedIdx = offset + localIdx;
       return isServerSide ? (configOffset || 0) + localIdx : this._processedIndexMap?.[processedIdx] ?? processedIdx;
     };
+    this._positionBase = isServerSide ? configOffset || 0 : this.config.pagination ? offset : 0;
     const tbody = document.createElement("tbody");
     table.appendChild(tbody);
     this._tbodyEl = tbody;
@@ -1256,10 +1919,12 @@ var DataTable = class {
     const { showRowNumbers } = this.config;
     const tr = document.createElement("tr");
     tr.__rowIndex = globalIdx;
+    tr.__position = (this._positionBase || 0) + localIdx;
     tr.className = "data-preview-row";
     if (this._state.selected.has(globalIdx)) {
       tr.classList.add("selected");
     }
+    this._decorateRow(tr, row, globalIdx);
     if (this._virt) tr.classList.toggle("twm-dt-row--alt", localIdx % 2 === 1);
     this._fillRowCells(tr, row, globalIdx, showRowNumbers);
     if (this.config.onRowClick) {
@@ -1684,20 +2349,32 @@ var DataTable = class {
     if (showRowNumbers) {
       const td = document.createElement("td");
       td.className = "num";
-      td.textContent = String(globalIdx + 1);
+      const byPosition = this.config.showRowNumbers === "position" && Number.isInteger(tr.__position);
+      td.textContent = String((byPosition ? tr.__position : globalIdx) + 1);
       tr.appendChild(td);
     }
+    const { cellClass, nullDisplay } = this.config;
     for (let colIdx = 0; colIdx < row.length; colIdx++) {
       const td = document.createElement("td");
       td.className = this._columnTypes[colIdx] || "text";
       const value = row[colIdx];
+      let handled = false;
       if (this.config.renderCell) {
-        const handled = this.config.renderCell(td, value, colIdx, globalIdx, row);
+        handled = !!this.config.renderCell(td, value, colIdx, globalIdx, row);
         if (!handled) {
           td.textContent = this._formatValue(value, colIdx);
         }
       } else {
         td.textContent = this._formatValue(value, colIdx);
+      }
+      if (!handled && value == null && nullDisplay != null) {
+        td.classList.add("twm-dt-cell--null");
+      }
+      if (typeof cellClass === "function") {
+        this._addClasses(td, cellClass(value, colIdx, row, globalIdx));
+      }
+      if (colIdx === 0 && typeof this.config.rowIcon === "function") {
+        this._prependRowIcon(td, this.config.rowIcon(row, globalIdx));
       }
       if (this.config.onCellContextMenu) {
         const cellColIdx = colIdx;
@@ -1782,10 +2459,269 @@ var DataTable = class {
       });
     }
     tr.classList.toggle("selected", this._state?.selected?.has(index) === true);
+    this._decorateRow(tr, row, index);
     if (focusedCol >= 0 && tr.children[focusedCol]) {
       tr.children[focusedCol].focus?.();
     }
     return true;
+  }
+  // ─────────────────────────────────────────────────────────────────
+  // 0.5.0 — decoration, states and the typed columns
+  // ─────────────────────────────────────────────────────────────────
+  /** The class list both halves of the table carry: the 0.4 pair, plus the
+   *  0.5.0 modifiers a consumer asked for. */
+  _tableClassName() {
+    const names = this.config.readonly ? ["twm-preview-table", "twm-preview-table--readonly"] : ["twm-preview-table"];
+    if (this.config.firstColumn === "plain") names.push("twm-dt--first-plain");
+    if (this._isClickable()) names.push("twm-dt--clickable");
+    return names.join(" ");
+  }
+  /** `clickable` when it is said; otherwise exactly when rows open. */
+  _isClickable() {
+    const c = this.config.clickable;
+    if (c === true || c === false) return c;
+    return typeof this.config.onRowActivate === "function";
+  }
+  _fitsContent() {
+    return !!this.config.fitContent || this._maxHeightCss() !== null;
+  }
+  _maxHeightCss() {
+    const m = this.config.maxHeight;
+    if (m == null || m === "" || m === false) return null;
+    if (typeof m === "number") return Number.isFinite(m) && m > 0 ? `${m}px` : null;
+    return String(m);
+  }
+  _utc() {
+    return String(this.config.dateTimeZone || "").toUpperCase() === "UTC";
+  }
+  /** `classList.add` for whatever a hook returned: a string (space-separated
+   *  names allowed), an array of them, or nothing. */
+  _addClasses(el, names) {
+    if (!names) return [];
+    const list = (Array.isArray(names) ? names : String(names).split(/\s+/)).map((n) => String(n || "").trim()).filter(Boolean);
+    if (list.length) el.classList.add(...list);
+    return list;
+  }
+  /** A row's key, as text, or null: `getRowKey`, else its original index. */
+  _rowKey(row, rowIdx) {
+    const fn = this.config.getRowKey;
+    let key;
+    if (typeof fn === "function") {
+      try {
+        key = fn(row, rowIdx);
+      } catch (err) {
+        console.error("[DataTable] getRowKey threw", err);
+        key = null;
+      }
+    } else {
+      key = rowIdx;
+    }
+    return key == null ? null : String(key);
+  }
+  /** The gestures `activateOn` names, as a set. */
+  _activateOn() {
+    const a = this.config.activateOn;
+    const list = Array.isArray(a) ? a : [a || "click"];
+    return new Set(list.map((g) => String(g).toLowerCase()));
+  }
+  /**
+   * Open a row on the gestures `activateOn` names, by the one rule in
+   * `row_activation.js` (a control is its own gesture, a drag that selects
+   * text is not a click, the second click of a double-click opens nothing).
+   * Delegated on the body, bound after the selection handler.
+   */
+  _installActivation(tbody, table) {
+    const on = this._activateOn();
+    const scope = this._wrapperEl;
+    const sel = this.config.selectable;
+    const multi = !!sel && sel !== "single";
+    const fire = (tr, ev) => {
+      try {
+        this.config.onRowActivate(tr.__rowIndex, tr.__row, ev);
+      } catch (err) {
+        console.error("[DataTable] onRowActivate threw", err);
+      }
+    };
+    const rowFor = (ev) => {
+      const tr = ev.target?.closest?.("tr");
+      return tr && tr.__rowIndex !== void 0 && tbody.contains(tr) ? tr : null;
+    };
+    if (on.has("click")) {
+      const onClick = (ev) => {
+        if (ev.button != null && ev.button !== 0) return;
+        const tr = rowFor(ev);
+        if (!tr || !isRowActivation(ev, "click", { scope })) return;
+        if (multi && (ev.shiftKey || ev.ctrlKey || ev.metaKey)) return;
+        fire(tr, ev);
+      };
+      tbody.addEventListener("click", onClick);
+      this._disposers.push(() => tbody.removeEventListener("click", onClick));
+    }
+    if (on.has("dblclick")) {
+      const onDbl = (ev) => {
+        const tr = rowFor(ev);
+        if (!tr || !isRowActivation(ev, "dblclick", { scope })) return;
+        fire(tr, ev);
+      };
+      tbody.addEventListener("dblclick", onDbl);
+      this._disposers.push(() => tbody.removeEventListener("dblclick", onDbl));
+    }
+    if (on.has("enter")) {
+      const onKey = (ev) => {
+        if (ev.key !== "Enter" || ev.isComposing) return;
+        if (ev.ctrlKey || ev.metaKey || ev.altKey || ev.shiftKey) return;
+        if (isRowControl(ev.target, table)) return;
+        const tr = this._currentRowEl();
+        if (!tr) return;
+        ev.preventDefault();
+        fire(tr, ev);
+      };
+      table.addEventListener("keydown", onKey);
+      this._disposers.push(() => table.removeEventListener("keydown", onKey));
+    }
+  }
+  /** The row Enter opens: the open row when it is drawn, else the one row
+   *  selected (or the selection's anchor). */
+  _currentRowEl() {
+    const tbody = this._tbodyEl;
+    if (!tbody) return null;
+    if (this._activeKey !== null) {
+      for (const tr of tbody.children) {
+        if (tr.__rowIndex !== void 0 && tr.classList.contains("twm-dt-row--active")) return tr;
+      }
+    }
+    const selected = this._state.selected;
+    let idx = null;
+    if (selected.size === 1) idx = [...selected][0];
+    else if (this._state.anchorIndex != null && selected.has(this._state.anchorIndex)) {
+      idx = this._state.anchorIndex;
+    }
+    return idx == null ? null : this.getRowElement(idx);
+  }
+  /** Everything `rowClass`, `rowAttrs` and the open mark put on a `<tr>`,
+   *  taken off again first — so `updateRow` cannot leave last state's class
+   *  behind. */
+  _decorateRow(tr, row, rowIdx) {
+    tr.__row = row;
+    const { rowClass, rowAttrs } = this.config;
+    if (tr.__twmClasses) {
+      for (const c of tr.__twmClasses) tr.classList.remove(c);
+      tr.__twmClasses = null;
+    }
+    if (typeof rowClass === "function") {
+      const added = this._addClasses(tr, rowClass(row, rowIdx));
+      tr.__twmClasses = added.filter((c) => c !== "data-preview-row" && c !== "selected");
+    }
+    if (tr.__twmAttrs) {
+      for (const name of tr.__twmAttrs) tr.removeAttribute(name);
+      tr.__twmAttrs = null;
+    }
+    if (typeof rowAttrs === "function") {
+      const attrs = rowAttrs(row, rowIdx) || {};
+      const set = [];
+      for (const [name, value] of Object.entries(attrs)) {
+        if (value == null || value === false) continue;
+        try {
+          tr.setAttribute(name, value === true ? "" : String(value));
+          set.push(name);
+        } catch (err) {
+          console.error(`[DataTable] rowAttrs: bad attribute "${name}"`, err);
+        }
+      }
+      tr.__twmAttrs = set;
+    }
+    if (typeof this.config.getRowKey === "function" || this._activeKey !== null) {
+      tr.__rowKey = this._rowKey(row, rowIdx);
+    }
+    this._paintActive(tr);
+  }
+  /** The open mark on one row, from `_activeKey`. */
+  _paintActive(tr) {
+    if (tr.__rowKey === void 0 && this._activeKey !== null && tr.__rowIndex !== void 0) {
+      const rows = this.config.rows;
+      const local = this._virt ? this._virtLocalOf(tr.__rowIndex) : -1;
+      const row = local >= 0 ? this._virt.rows[local] : rows?.[tr.__rowIndex];
+      tr.__rowKey = this._rowKey(row, tr.__rowIndex);
+    }
+    const on = this._activeKey !== null && tr.__rowKey === this._activeKey;
+    tr.classList.toggle("twm-dt-row--active", on);
+    if (on) tr.setAttribute("aria-current", "true");
+    else if (tr.getAttribute("aria-current") === "true" && !(tr.__twmAttrs || []).includes("aria-current")) {
+      tr.removeAttribute("aria-current");
+    }
+  }
+  /** The row icon, drawn by CSS from `data-twm-icon` so that its name is in
+   *  neither `textContent`, the clipped-cell tooltip nor a copy. */
+  _prependRowIcon(td, spec) {
+    if (!spec) return;
+    const s = typeof spec === "string" ? { icon: spec } : spec;
+    if (!s.icon) return;
+    const icon = document.createElement("span");
+    icon.className = "material-symbols-outlined twm-dt-row-icon" + (s.tone ? ` twm-dt-row-icon--${String(s.tone).replace(/[^\w-]/g, "")}` : "");
+    icon.dataset.twmIcon = String(s.icon);
+    if (s.title) {
+      icon.title = String(s.title);
+      icon.setAttribute("role", "img");
+      icon.setAttribute("aria-label", String(s.title));
+    } else {
+      icon.setAttribute("aria-hidden", "true");
+    }
+    td.insertBefore(icon, td.firstChild);
+    td.classList.add("twm-dt-cell--has-icon");
+  }
+  /** Text, a node, or nothing, into an empty-state cell. */
+  _appendStateContent(td, content) {
+    if (content == null || content === false) return;
+    if (typeof Node !== "undefined" && content instanceof Node) td.appendChild(content);
+    else td.textContent = String(content);
+  }
+  /** What `setError` holds, as something `_appendStateContent` can draw. */
+  _errorContent() {
+    const e = this._error;
+    if (e == null) return null;
+    if (typeof Node !== "undefined" && e instanceof Node) return e;
+    if (e instanceof Error) return e.message || String(e);
+    if (typeof e === "object" && e.message) return String(e.message);
+    return String(e);
+  }
+  /** The failure banner over rows that are kept. */
+  _createErrorBanner() {
+    const banner = document.createElement("div");
+    banner.className = "twm-data-table__error";
+    banner.setAttribute("role", "alert");
+    const icon = document.createElement("span");
+    icon.className = "material-symbols-outlined twm-data-table__error-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = "error";
+    const text = document.createElement("span");
+    text.className = "twm-data-table__error-text";
+    const content = this._errorContent();
+    if (typeof Node !== "undefined" && content instanceof Node) text.appendChild(content);
+    else text.textContent = String(content ?? "");
+    banner.append(icon, text);
+    return banner;
+  }
+  /** The `sortValue` hook for one column, or null. */
+  _sortValueFor(colIdx) {
+    const sv = this.config.sortValue;
+    if (typeof sv === "function") return sv;
+    const fn = perColumn(sv, colIdx);
+    return typeof fn === "function" ? fn : null;
+  }
+  /** The words for a value in a typed column, or `undefined` when the
+   *  column is not typed (or the value is empty). */
+  _formatTyped(value, colIdx) {
+    const kind = this._columnTypes?.[colIdx];
+    if (!TYPED_COLUMNS.has(kind) || value == null || value === "") return void 0;
+    if (kind === "duration") {
+      return formatDuration(value, perColumn(this.config.durationFormat, colIdx) || "auto");
+    }
+    const pattern = kind === "datetime" ? perColumn(this.config.dateTimeFormat, colIdx) || ISO_DATETIME : perColumn(this.config.dateFormat, colIdx) || ISO_DATE;
+    if (typeof pattern === "function") {
+      const t = parseDateValue(value, { utc: this._utc() });
+      return Number.isFinite(t) ? String(pattern(new Date(t), colIdx, value) ?? "") : String(value);
+    }
+    return formatDate(value, pattern, { utc: this._utc() });
   }
   /** Sync the (separate) header table's column widths to the body
    *  table's measured widths. Without this, the two tables compute
@@ -2397,7 +3333,12 @@ var DataTable = class {
         if (!rowEl || rowEl.__rowIndex === void 0) return;
         const idx = rowEl.__rowIndex;
         const selected = this._state.selected;
-        if (event.shiftKey && this._state.anchorIndex != null) {
+        if (selectable === "single") {
+          const was = selected.has(idx);
+          selected.clear();
+          if (!(was && (event.metaKey || event.ctrlKey))) selected.add(idx);
+          this._state.anchorIndex = selected.size ? idx : null;
+        } else if (event.shiftKey && this._state.anchorIndex != null) {
           const start = Math.min(this._state.anchorIndex, idx);
           const end = Math.max(this._state.anchorIndex, idx);
           selected.clear();
@@ -2420,6 +3361,9 @@ var DataTable = class {
       };
       tbody.addEventListener("click", handleRowClick);
       this._disposers.push(() => tbody.removeEventListener("click", handleRowClick));
+    }
+    if (typeof this.config.onRowActivate === "function") {
+      this._installActivation(tbody, table);
     }
     if (copyable) {
       const handleContextMenu = (event) => {
@@ -2450,7 +3394,9 @@ var DataTable = class {
         const ctrlLike = event.ctrlKey || event.metaKey;
         if (ctrlLike && !event.altKey) {
           const key = String(event.key || "").toLowerCase();
-          if (key === "a" && selectable) {
+          if (key === "a" && selectable === "single") {
+            event.preventDefault();
+          } else if (key === "a" && selectable) {
             event.preventDefault();
             this._state.selected.clear();
             const indexMap = this._processedIndexMap;
@@ -2524,8 +3470,23 @@ var DataTable = class {
       e.preventDefault();
       e.stopPropagation();
     });
+    this._contextMenuEl = menu;
+    return menu;
+  }
+  /**
+   * The document-level listeners that close the copy menu — a click
+   * elsewhere, a scroll, Escape, a resize — held ONLY WHILE IT IS OPEN
+   * (0.5.0). They were installed the first time the menu was built and kept
+   * until `dispose()`, so every table anybody had ever right-clicked kept four
+   * listeners on the document for as long as the instance lived, and an
+   * instance whose host was thrown away without a `dispose()` kept them for
+   * the life of the page. A closed menu has nothing for them to do.
+   */
+  _armContextMenuGlobals() {
+    if (this._contextMenuGlobals.length) return;
+    const menu = this._contextMenuEl;
     const hideOnGlobal = (event) => {
-      if (event?.target && menu.contains(event.target)) return;
+      if (event?.target && menu?.contains(event.target)) return;
       this._hideContextMenu();
     };
     const hideOnEscape = (event) => {
@@ -2540,16 +3501,25 @@ var DataTable = class {
     this._contextMenuGlobals.push(() => document.removeEventListener("scroll", hideOnGlobal, true));
     this._contextMenuGlobals.push(() => document.removeEventListener("keydown", hideOnEscape));
     this._contextMenuGlobals.push(() => window.removeEventListener("resize", hideOnResize));
-    this._contextMenuEl = menu;
-    return menu;
+  }
+  _disarmContextMenuGlobals() {
+    this._contextMenuGlobals.forEach((off) => {
+      try {
+        off?.();
+      } catch (_) {
+      }
+    });
+    this._contextMenuGlobals = [];
   }
   _hideContextMenu() {
     if (this._contextMenuEl) {
       this._contextMenuEl.style.display = "none";
     }
+    this._disarmContextMenuGlobals();
   }
   _showContextMenu(clientX, clientY) {
     const menu = this._ensureContextMenu();
+    this._armContextMenuGlobals();
     const hasSelection = this._state.selected.size > 0;
     menu.querySelectorAll(".twm-context-menu-item").forEach((item) => {
       item.classList.toggle("disabled", !hasSelection);
@@ -2582,6 +3552,11 @@ var DataTable = class {
     this._contextMenuEl = null;
   }
   _formatValue(value, colIndex) {
+    if (value == null && this.config.nullDisplay != null) {
+      return String(this.config.nullDisplay);
+    }
+    const typed = this._formatTyped(value, colIndex);
+    if (typed !== void 0) return typed;
     if (this.config.formatValue) {
       return this.config.formatValue(value, colIndex);
     }
@@ -2623,6 +3598,15 @@ var DataTable = class {
 
 export {
   createRafResizeObserver,
+  ISO_DATE,
+  ISO_DATETIME,
+  parseDateValue,
+  formatDate,
+  parseDatePeriod,
+  parseDuration,
+  formatDuration,
+  matchDateFilter,
+  matchDurationFilter,
   DataTable
 };
-//# sourceMappingURL=chunk-WMGOJ3I6.js.map
+//# sourceMappingURL=chunk-4AP5DHP7.js.map

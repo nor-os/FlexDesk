@@ -59,6 +59,19 @@ try {
     const p = await centre(page, '#spike');
     await click(page, p.x + p.w / 2 - 4, p.y);
     same('it starts as two chips', await chips(), ['${row.name}', '${steps.check.body}']);
+    // The classic trap: a caret after a non-editable span that ENDS the host.
+    await at(39);
+    await type(page, 'Z');
+    same('typing after the chip that ends the field', await value(), 'Hi ${row.name}, see ${steps.check.body}Z');
+    await key(page, 'Backspace');
+    same('…and a plain Backspace takes the letter, not the chip', await value(), 'Hi ${row.name}, see ${steps.check.body}');
+    await key(page, 'Delete');
+    same('Delete at the very end does nothing', await value(), 'Hi ${row.name}, see ${steps.check.body}');
+    await at(20);
+    await key(page, 'Delete');
+    same('one Delete before a chip removes it whole', await value(), 'Hi ${row.name}, see ');
+    await key(page, 'z', { mods: ['ctrl'] });
+    same('…and the field\'s Ctrl+Z puts it back', await value(), 'Hi ${row.name}, see ${steps.check.body}');
     await at(3);
     await type(page, 'X');
     same('typing before a chip', await value(), 'Hi X${row.name}, see ${steps.check.body}');

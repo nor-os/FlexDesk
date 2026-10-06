@@ -241,6 +241,15 @@ t.section('§7 rename, values, columns');
     const title = el.querySelector('.twm-flow-panel__title-input');
     t.typeInto(title, 'Fetch');
     t.check('the title reports a rename', renames, [['fetch', 'Fetch']]);
+    panel.show({ step: { ...s, label: 'Fetch' }, type: HTTP, title: 'Fetch', rename: true,
+                 fields: [{ key: 'method', spec: HTTP.config_schema.properties.method },
+                          { key: 'body', spec: HTTP.config_schema.properties.body }] });
+    t.typeInto(el.querySelector('.twm-flow-panel__title-input'), 'Fetch them all');
+    t.change(fieldEl(el, 'method').querySelector('select'), '2');
+    t.ok('a reshape after a rename draws the NEW title', fieldEl(el, 'body') !== null
+         && el.querySelector('.twm-flow-panel__title-input').value === 'Fetch them all');
+    showStep(panel, s, { rename: true, fields: [{ key: 'url', spec: { type: 'string', 'x-ui-widget': 'template' } },
+                                                 { key: 'col', spec: { type: 'string', 'x-ui-widget': 'upstream-column' } }] });
     t.check('the columns provider is asked for this step', [...fieldEl(el, 'col').querySelectorAll('option')].map((o) => o.textContent),
             ['Choose…', 'id', 'email']);
     t.press(fieldEl(el, 'url').querySelector('.twm-flow-refbox__insert'));

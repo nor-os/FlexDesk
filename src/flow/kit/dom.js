@@ -13,7 +13,8 @@
  *  - it is dismissed by a press outside it, by Escape, or by `close()`, and
  *    **it returns focus to its anchor** when it closes with focus inside it —
  *    a picker that drops focus on `<body>` drops it where an editor's keys
- *    never arrive;
+ *    never arrive — except when focus has just left it by Tab, which the
+ *    pickers close it for (`'blur'`): that focus is going where it was sent;
  *  - there is ONE at a time: opening a second closes the first, and opening one
  *    from the anchor that holds the open one closes it (a toggle);
  *  - `closeFlowPopovers()` closes whichever is open, which is what an editor's
@@ -169,7 +170,9 @@ export function openPopover({ anchor, content, label, className = '', onClose = 
             window.removeEventListener('resize', onResize);
             pop.remove();
             if (ACTIVE === handle) ACTIVE = null;
-            if (held && anchor?.isConnected) anchor.focus?.({ preventScroll: true });
+            // Focus that LEFT the popover (a Tab out of it) is going somewhere the
+            // reader sent it; taking it back to the anchor would fight that move.
+            if (held && reason !== 'blur' && anchor?.isConnected) anchor.focus?.({ preventScroll: true });
             onClose?.(reason);
         },
     };

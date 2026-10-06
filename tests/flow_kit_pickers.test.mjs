@@ -161,6 +161,14 @@ t.section('§5 dismissal and focus');
     t.ok('one at a time', document.querySelectorAll('.twm-flow-popover').length === 1);
     closeFlowPopovers();
     t.check('closeFlowPopovers()', await e, null);
+    const tabbed = openStepPicker({ anchor: other, entries: ENTRIES });
+    const elsewhere = document.body.appendChild(document.createElement('input'));
+    const box = openFlowPopover().querySelector('input');
+    let anchorFocused = 0;
+    other.addEventListener('focus', () => { anchorFocused += 1; });
+    box.dispatchEvent(new window.FocusEvent('focusout', { bubbles: true, relatedTarget: elsewhere }));
+    t.check('focus leaving by Tab closes it…', await tabbed, null);
+    t.check('…and is not pulled back to the anchor while it moves on', anchorFocused, 0);
 }
 
 const GROUPS = [

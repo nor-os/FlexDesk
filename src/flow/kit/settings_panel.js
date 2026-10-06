@@ -119,7 +119,12 @@ export function createSettingsPanel({ widgets, references = {}, strings = null, 
             input.setAttribute('aria-label', say(S, 'rename'));
             input.setAttribute(TITLE, '');
             input.readOnly = isReadOnly();
-            input.addEventListener('input', () => onRename?.(stepId(), input.value));
+            input.addEventListener('input', () => {
+                // What was typed is the title now: a repaint the reader asks for
+                // next (a reshape) must not draw the old one back.
+                spec.title = input.value;
+                onRename?.(stepId(), input.value);
+            });
             titles.appendChild(input);
         } else {
             titles.appendChild(el('h3', 'twm-flow-panel__title', spec.title ?? ''));

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>FlexDesk — the lane editor</title>
+    <!-- The lane editor's own page, for headless Edge (36 §8). It loads the
+         SOURCE — the development barrel `../flow.js` and the stylesheets under
+         `../css/` — so it needs no dist/ build. Serve the repository root over
+         http and open /demo/flow_lanes.html; `demo/flow_lanes_probe.mjs` does
+         both and drives it.
+
+           flow_lanes.html              the editor (the Pipeline mock)
+           flow_lanes.html?view=small   the editor at the small size, no step tabs
+                                        (the PipelineInWorkflow mock)
+           flow_lanes.html?view=strip   the compact strip (the PipelineStep mock's
+                                        "What it does, left to right") -->
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />
+    <link href="../css/tokens.css" rel="stylesheet" />
+    <link href="../css/reset.css" rel="stylesheet" />
+    <link href="../css/flexdesk.css" rel="stylesheet" />
+    <style>
+        /* The demo's own frame. Everything inside #host is the editor's. */
+        html, body { height: 100%; margin: 0; }
+        body { background: var(--surface-0); color: var(--text-body); font-family: var(--font-family-sans); }
+        .demo { display: flex; flex-direction: column; height: 100%; }
+        .demo__title { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; flex: 0 0 auto;
+                       background: var(--surface-1); border-bottom: 1px solid var(--border-default); font-size: 12px; }
+        .demo__host { flex: 1 1 0; min-height: 0; }
+        .demo__chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: 12px;
+                      background: var(--surface-2); border: 1px solid var(--surface-3); color: #c8c8c8; font-size: 12px; }
+        .demo__step { max-width: 680px; margin: 24px; padding: 16px 20px; background: #232324; border: 1px solid var(--border-default);
+                      font-size: 12px; display: flex; flex-direction: column; gap: 8px; }
+        .demo__what { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px 10px; background: #1b1b1c;
+                      border: 1px solid #333; border-radius: 4px; }
+        .demo__what-label { color: #a6a6a6; font-size: 11px; }
+        .demo__what-scroll { overflow-x: auto; }
+        .demo__label { display: inline-flex; align-items: center; gap: 6px; margin-right: 6px; color: #72d8c8; font-size: 11px;
+                       font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+    </style>
+</head>
+<body>
+    <div class="demo" id="demo">
+        <div class="demo__title" id="title">Applications from the portal</div>
+        <div class="demo__host" id="host"></div>
+    </div>
+    <script type="module" src="./flow_lanes.js"></script>
+</body>
+</html>

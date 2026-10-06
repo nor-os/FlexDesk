@@ -1,0 +1,4305 @@
+{
+ "about": "Graphs and the outline each one IS (36 §6.4): `expect.tree` is describeOutline's text, written by hand; `expect.refused` is the refusal's code and the step it names. The four demo workflows of the first consumer are transcribed with shortened settings; their lines are exact.",
+ "graphs": [
+  {
+   "name": "enrolment-health",
+   "about": "Demo 1: three counts side by side; each count sends `empty` straight to the Merge (an empty arm that rejoins).",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "label": "Start (press Run)",
+      "position": {
+       "x": 40,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "counts",
+      "type": "parallel",
+      "label": "Count side by side",
+      "position": {
+       "x": 300,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "graded",
+      "type": "table-read",
+      "label": "Graded enrolments",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "config": {
+       "table": "Enrolments",
+       "mode": "count",
+       "limit": 1000,
+       "filter": {
+        "op": "and",
+        "children": [
+         {
+          "column": "Grade",
+          "operator": "is_not_blank"
+         }
+        ]
+       }
+      }
+     },
+     {
+      "id": "below",
+      "type": "table-read",
+      "label": "Graded below 40",
+      "position": {
+       "x": 820,
+       "y": 80
+      },
+      "config": {
+       "table": "Enrolments",
+       "mode": "count",
+       "limit": 1000,
+       "filter": {
+        "op": "and",
+        "children": [
+         {
+          "column": "Grade",
+          "operator": "lt",
+          "value": 40
+         }
+        ]
+       }
+      }
+     },
+     {
+      "id": "unmarked",
+      "type": "table-read",
+      "label": "Not graded yet",
+      "position": {
+       "x": 1080,
+       "y": 80
+      },
+      "config": {
+       "table": "Enrolments",
+       "mode": "count",
+       "limit": 1000,
+       "filter": {
+        "op": "and",
+        "children": [
+         {
+          "column": "Status",
+          "operator": "eq",
+          "value": "attending"
+         },
+         {
+          "column": "Grade",
+          "operator": "is_blank"
+         }
+        ]
+       }
+      }
+     },
+     {
+      "id": "counted",
+      "type": "merge",
+      "label": "All three counted",
+      "position": {
+       "x": 1340,
+       "y": 80
+      },
+      "config": {
+       "join": "all"
+      }
+     },
+     {
+      "id": "rate",
+      "type": "set-variable",
+      "label": "Work out the rate",
+      "position": {
+       "x": 1600,
+       "y": 80
+      },
+      "config": {
+       "assignments": [
+        {
+         "variable": "graded",
+         "expression": "[nodes.graded.count]"
+        },
+        {
+         "variable": "below",
+         "expression": "[nodes.below.count]"
+        },
+        {
+         "variable": "unmarked",
+         "expression": "[nodes.unmarked.count]"
+        },
+        {
+         "variable": "fail_rate",
+         "expression": "IF([vars.graded] > 0, ROUND([vars.below] * 100 / [vars.graded], 1), 0)"
+        }
+       ]
+      }
+     },
+     {
+      "id": "over",
+      "type": "condition",
+      "label": "Over 5% failing?",
+      "position": {
+       "x": 1860,
+       "y": 80
+      },
+      "config": {
+       "expression": "[vars.fail_rate] > 5"
+      }
+     },
+     {
+      "id": "warn",
+      "type": "log",
+      "label": "Needs attention",
+      "position": {
+       "x": 40,
+       "y": 80
+      },
+      "config": {
+       "level": "warning",
+       "message": "Enrolment health needs attention: ${vars.below} of ${vars.graded} graded enrolments are below the pass mark.",
+       "fields": {
+        "graded": "${vars.graded}",
+        "below": "${vars.below}"
+       }
+      }
+     },
+     {
+      "id": "within",
+      "type": "log",
+      "label": "Within bounds",
+      "position": {
+       "x": 300,
+       "y": 80
+      },
+      "config": {
+       "level": "info",
+       "message": "Enrolment health is within bounds: ${vars.below} of ${vars.graded}.",
+       "fields": {
+        "graded": "${vars.graded}"
+       }
+      }
+     },
+     {
+      "id": "end",
+      "type": "end",
+      "label": "End",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "config": {
+       "outcome": "success",
+       "output": {
+        "graded": "${vars.graded}",
+        "below": "${vars.below}"
+       }
+      }
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "counts",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "counts",
+      "target": "graded",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "counts",
+      "target": "below",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "counts",
+      "target": "unmarked",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "graded",
+      "target": "counted",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "graded",
+      "target": "counted",
+      "sourcePort": "empty",
+      "targetPort": "in"
+     },
+     {
+      "source": "below",
+      "target": "counted",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "below",
+      "target": "counted",
+      "sourcePort": "empty",
+      "targetPort": "in"
+     },
+     {
+      "source": "unmarked",
+      "target": "counted",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "unmarked",
+      "target": "counted",
+      "sourcePort": "empty",
+      "targetPort": "in"
+     },
+     {
+      "source": "counted",
+      "target": "rate",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "rate",
+      "target": "over",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "over",
+      "target": "warn",
+      "sourcePort": "true",
+      "targetPort": "in"
+     },
+     {
+      "source": "over",
+      "target": "within",
+      "sourcePort": "false",
+      "targetPort": "in"
+     },
+     {
+      "source": "warn",
+      "target": "end",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "within",
+      "target": "end",
+      "sourcePort": "out",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "tree": [
+     "start start",
+     "fanout counts join counted",
+     "  branch",
+     "    step graded",
+     "      arm empty",
+     "        = rejoin",
+     "    = rejoin",
+     "  branch",
+     "    step below",
+     "      arm empty",
+     "        = rejoin",
+     "    = rejoin",
+     "  branch",
+     "    step unmarked",
+     "      arm empty",
+     "        = rejoin",
+     "    = rejoin",
+     "step rate",
+     "branch over",
+     "  arm true",
+     "    step warn",
+     "    = rejoin",
+     "  arm false",
+     "    step within",
+     "    = rejoin",
+     "end end",
+     "= end"
+    ]
+   }
+  },
+  {
+   "name": "failing-grades",
+   "about": "Demo 2: a loop whose body holds a condition that rejoins at `raise`.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "label": "Start (press Run)",
+      "position": {
+       "x": 820,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "init",
+      "type": "set-variable",
+      "label": "Start the tally",
+      "position": {
+       "x": 1080,
+       "y": 80
+      },
+      "config": {
+       "assignments": [
+        {
+         "variable": "raised",
+         "expression": "0"
+        },
+        {
+         "variable": "refreshed",
+         "expression": "0"
+        },
+        {
+         "variable": "today",
+         "expression": "TODAY()"
+        }
+       ]
+      }
+     },
+     {
+      "id": "failing",
+      "type": "loop-over-rows",
+      "label": "Each failing grade",
+      "position": {
+       "x": 1340,
+       "y": 80
+      },
+      "config": {
+       "table": "Enrolments",
+       "filter": {
+        "op": "and",
+        "children": [
+         {
+          "column": "Grade",
+          "operator": "lt",
+          "value": 40
+         }
+        ]
+       }
+      }
+     },
+     {
+      "id": "attending",
+      "type": "condition",
+      "label": "Still attending?",
+      "position": {
+       "x": 1600,
+       "y": 80
+      },
+      "config": {
+       "expression": "[loop.item.status] = \"attending\""
+      }
+     },
+     {
+      "id": "support",
+      "type": "set-variable",
+      "label": "Arrange support",
+      "position": {
+       "x": 1860,
+       "y": 80
+      },
+      "config": {
+       "assignments": [
+        {
+         "variable": "action",
+         "value": "Arrange academic support: still attending"
+        }
+       ]
+      }
+     },
+     {
+      "id": "resit",
+      "type": "set-variable",
+      "label": "Offer a resit",
+      "position": {
+       "x": 40,
+       "y": 80
+      },
+      "config": {
+       "assignments": [
+        {
+         "variable": "action",
+         "value": "Offer a resit: completed below the pass mark"
+        }
+       ]
+      }
+     },
+     {
+      "id": "raise",
+      "type": "table-upsert",
+      "label": "Raise or refresh",
+      "position": {
+       "x": 300,
+       "y": 80
+      },
+      "config": {
+       "table": "Follow-ups",
+       "rows": [
+        {
+         "key": "grade:${loop.item.id}",
+         "detail": "${vars.action}",
+         "done": false
+        }
+       ]
+      }
+     },
+     {
+      "id": "tally",
+      "type": "set-variable",
+      "label": "Count it",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "config": {
+       "assignments": [
+        {
+         "variable": "raised",
+         "expression": "[vars.raised] + [nodes.raise.inserted]"
+        }
+       ]
+      }
+     },
+     {
+      "id": "report",
+      "type": "log",
+      "label": "Report",
+      "position": {
+       "x": 820,
+       "y": 80
+      },
+      "config": {
+       "message": "Checked ${nodes.failing.rows} enrolments graded below 40: ${vars.raised} follow-ups raised."
+      }
+     },
+     {
+      "id": "end",
+      "type": "end",
+      "label": "End",
+      "position": {
+       "x": 1080,
+       "y": 80
+      },
+      "config": {
+       "outcome": "success",
+       "output": {
+        "raised": "${vars.raised}"
+       }
+      }
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "init",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "init",
+      "target": "failing",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "failing",
+      "target": "attending",
+      "sourcePort": "body",
+      "targetPort": "in"
+     },
+     {
+      "source": "attending",
+      "target": "support",
+      "sourcePort": "true",
+      "targetPort": "in"
+     },
+     {
+      "source": "attending",
+      "target": "resit",
+      "sourcePort": "false",
+      "targetPort": "in"
+     },
+     {
+      "source": "support",
+      "target": "raise",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "resit",
+      "target": "raise",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "raise",
+      "target": "tally",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "tally",
+      "target": "failing",
+      "sourcePort": "out",
+      "targetPort": "next"
+     },
+     {
+      "source": "failing",
+      "target": "report",
+      "sourcePort": "done",
+      "targetPort": "in"
+     },
+     {
+      "source": "report",
+      "target": "end",
+      "sourcePort": "out",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "tree": [
+     "start start",
+     "step init",
+     "loop failing",
+     "  body",
+     "    branch attending",
+     "      arm true",
+     "        step support",
+     "        = rejoin",
+     "      arm false",
+     "        step resit",
+     "        = rejoin",
+     "    step raise",
+     "    step tally",
+     "    = rejoin",
+     "step report",
+     "end end",
+     "= end"
+    ]
+   }
+  },
+  {
+   "name": "close-applications",
+   "about": "Demo 3: nested conditions inside a loop, every arm ending at the body's end.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "label": "Start (press Run)",
+      "position": {
+       "x": 1340,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "answer",
+      "type": "set-variable",
+      "label": "Dry run unless yes",
+      "position": {
+       "x": 1600,
+       "y": 80
+      },
+      "config": {
+       "assignments": [
+        {
+         "variable": "answer",
+         "value": "${input.yes_to_close}"
+        },
+        {
+         "variable": "past",
+         "expression": "0"
+        },
+        {
+         "variable": "closed",
+         "expression": "0"
+        }
+       ]
+      }
+     },
+     {
+      "id": "courses",
+      "type": "loop-over-rows",
+      "label": "Each open course",
+      "position": {
+       "x": 1860,
+       "y": 80
+      },
+      "config": {
+       "table": "Courses"
+      }
+     },
+     {
+      "id": "passed",
+      "type": "condition",
+      "label": "Deadline passed?",
+      "position": {
+       "x": 40,
+       "y": 80
+      },
+      "config": {
+       "expression": "[loop.item.closes] < NOW()"
+      }
+     },
+     {
+      "id": "past",
+      "type": "set-variable",
+      "label": "Count it",
+      "position": {
+       "x": 300,
+       "y": 80
+      },
+      "config": {
+       "assignments": [
+        {
+         "variable": "past",
+         "expression": "[vars.past] + 1"
+        }
+       ]
+      }
+     },
+     {
+      "id": "stays",
+      "type": "log",
+      "label": "Still open",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "config": {
+       "message": "${loop.item.code} stays open."
+      }
+     },
+     {
+      "id": "yes",
+      "type": "condition",
+      "label": "Answered yes?",
+      "position": {
+       "x": 820,
+       "y": 80
+      },
+      "config": {
+       "expression": "[vars.close]"
+      }
+     },
+     {
+      "id": "close",
+      "type": "table-upsert",
+      "label": "Close applications",
+      "position": {
+       "x": 1080,
+       "y": 80
+      },
+      "config": {
+       "table": "Courses",
+       "rows": [
+        {
+         "code": "${loop.item.code}",
+         "open": false
+        }
+       ]
+      }
+     },
+     {
+      "id": "would",
+      "type": "log",
+      "label": "Would close",
+      "position": {
+       "x": 1340,
+       "y": 80
+      },
+      "config": {
+       "message": "Dry run: would close ${loop.item.code}."
+      }
+     },
+     {
+      "id": "closed",
+      "type": "set-variable",
+      "label": "Count it",
+      "position": {
+       "x": 1600,
+       "y": 80
+      },
+      "config": {
+       "assignments": [
+        {
+         "variable": "closed",
+         "expression": "[vars.closed] + [nodes.close.updated]"
+        }
+       ]
+      }
+     },
+     {
+      "id": "report",
+      "type": "log",
+      "label": "Report",
+      "position": {
+       "x": 1860,
+       "y": 80
+      },
+      "config": {
+       "message": "Checked ${nodes.courses.rows} courses."
+      }
+     },
+     {
+      "id": "end",
+      "type": "end",
+      "label": "End",
+      "position": {
+       "x": 40,
+       "y": 80
+      },
+      "config": {
+       "outcome": "success",
+       "output": {
+        "past": "${vars.past}",
+        "closed": "${vars.closed}"
+       }
+      }
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "answer",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "answer",
+      "target": "courses",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "courses",
+      "target": "passed",
+      "sourcePort": "body",
+      "targetPort": "in"
+     },
+     {
+      "source": "passed",
+      "target": "past",
+      "sourcePort": "true",
+      "targetPort": "in"
+     },
+     {
+      "source": "passed",
+      "target": "stays",
+      "sourcePort": "false",
+      "targetPort": "in"
+     },
+     {
+      "source": "past",
+      "target": "yes",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "yes",
+      "target": "close",
+      "sourcePort": "true",
+      "targetPort": "in"
+     },
+     {
+      "source": "yes",
+      "target": "would",
+      "sourcePort": "false",
+      "targetPort": "in"
+     },
+     {
+      "source": "close",
+      "target": "closed",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "closed",
+      "target": "courses",
+      "sourcePort": "out",
+      "targetPort": "next"
+     },
+     {
+      "source": "would",
+      "target": "courses",
+      "sourcePort": "out",
+      "targetPort": "next"
+     },
+     {
+      "source": "stays",
+      "target": "courses",
+      "sourcePort": "out",
+      "targetPort": "next"
+     },
+     {
+      "source": "courses",
+      "target": "report",
+      "sourcePort": "done",
+      "targetPort": "in"
+     },
+     {
+      "source": "report",
+      "target": "end",
+      "sourcePort": "out",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "tree": [
+     "start start",
+     "step answer",
+     "loop courses",
+     "  body",
+     "    branch passed",
+     "      arm true",
+     "        step past",
+     "        branch yes",
+     "          arm true",
+     "            step close",
+     "            step closed",
+     "            = rejoin",
+     "          arm false",
+     "            step would",
+     "            = rejoin",
+     "        = rejoin",
+     "      arm false",
+     "        step stays",
+     "        = rejoin",
+     "    = rejoin",
+     "step report",
+     "end end",
+     "= end"
+    ]
+   }
+  },
+  {
+   "name": "withdrawn-still-enrolled",
+   "about": "Demo 4: two count reads in a loop; their `empty` arms exit to the next row past a later body step.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "label": "Start (press Run)",
+      "position": {
+       "x": 300,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "init",
+      "type": "set-variable",
+      "label": "Start the tally",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "config": {
+       "assignments": [
+        {
+         "variable": "raised",
+         "expression": "0"
+        },
+        {
+         "variable": "already",
+         "expression": "0"
+        },
+        {
+         "variable": "today",
+         "expression": "TODAY()"
+        }
+       ]
+      }
+     },
+     {
+      "id": "students",
+      "type": "loop-over-rows",
+      "label": "Withdrawn students",
+      "position": {
+       "x": 820,
+       "y": 80
+      },
+      "config": {
+       "table": "Students",
+       "filter": {
+        "op": "and",
+        "children": [
+         {
+          "column": "Status",
+          "operator": "eq",
+          "value": "withdrawn"
+         }
+        ]
+       }
+      }
+     },
+     {
+      "id": "enrolled",
+      "type": "table-read",
+      "label": "Still enrolled?",
+      "position": {
+       "x": 1080,
+       "y": 80
+      },
+      "config": {
+       "table": "Enrolments",
+       "mode": "count",
+       "limit": 1000,
+       "filter": {
+        "op": "and",
+        "children": [
+         {
+          "column": "Student",
+          "operator": "eq",
+          "value": "${loop.item.id}"
+         }
+        ]
+       }
+      }
+     },
+     {
+      "id": "already",
+      "type": "table-read",
+      "label": "Already raised?",
+      "position": {
+       "x": 1340,
+       "y": 80
+      },
+      "config": {
+       "table": "Follow-ups",
+       "mode": "count",
+       "limit": 1000,
+       "filter": {
+        "op": "and",
+        "children": [
+         {
+          "column": "Key",
+          "operator": "eq",
+          "value": "withdrawn:${loop.item.number}"
+         }
+        ]
+       }
+      }
+     },
+     {
+      "id": "raise",
+      "type": "table-write",
+      "label": "Raise a follow-up",
+      "position": {
+       "x": 1600,
+       "y": 80
+      },
+      "config": {
+       "table": "Follow-ups",
+       "rows": [
+        {
+         "key": "withdrawn:${loop.item.number}",
+         "detail": "Marked withdrawn, but ${nodes.enrolled.count} enrolment(s) are still attending"
+        }
+       ]
+      }
+     },
+     {
+      "id": "tally",
+      "type": "set-variable",
+      "label": "Count it",
+      "position": {
+       "x": 1860,
+       "y": 80
+      },
+      "config": {
+       "assignments": [
+        {
+         "variable": "raised",
+         "expression": "[vars.raised] + [nodes.raise.inserted]"
+        }
+       ]
+      }
+     },
+     {
+      "id": "leave",
+      "type": "set-variable",
+      "label": "Count it, leave it",
+      "position": {
+       "x": 40,
+       "y": 80
+      },
+      "config": {
+       "assignments": [
+        {
+         "variable": "already",
+         "expression": "[vars.already] + 1"
+        }
+       ]
+      }
+     },
+     {
+      "id": "report",
+      "type": "log",
+      "label": "Report",
+      "position": {
+       "x": 300,
+       "y": 80
+      },
+      "config": {
+       "message": "Checked ${nodes.students.rows} withdrawn students."
+      }
+     },
+     {
+      "id": "end",
+      "type": "end",
+      "label": "End",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "config": {
+       "outcome": "success",
+       "output": {
+        "raised": "${vars.raised}",
+        "already": "${vars.already}"
+       }
+      }
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "init",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "init",
+      "target": "students",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "students",
+      "target": "enrolled",
+      "sourcePort": "body",
+      "targetPort": "in"
+     },
+     {
+      "source": "enrolled",
+      "target": "already",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "enrolled",
+      "target": "students",
+      "sourcePort": "empty",
+      "targetPort": "next"
+     },
+     {
+      "source": "already",
+      "target": "raise",
+      "sourcePort": "empty",
+      "targetPort": "in"
+     },
+     {
+      "source": "already",
+      "target": "leave",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "raise",
+      "target": "tally",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "tally",
+      "target": "students",
+      "sourcePort": "out",
+      "targetPort": "next"
+     },
+     {
+      "source": "leave",
+      "target": "students",
+      "sourcePort": "out",
+      "targetPort": "next"
+     },
+     {
+      "source": "students",
+      "target": "report",
+      "sourcePort": "done",
+      "targetPort": "in"
+     },
+     {
+      "source": "report",
+      "target": "end",
+      "sourcePort": "out",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "tree": [
+     "start start",
+     "step init",
+     "loop students",
+     "  body",
+     "    step enrolled",
+     "      arm empty",
+     "        = next",
+     "    step already",
+     "      arm empty",
+     "        step raise",
+     "        step tally",
+     "        = next",
+     "    step leave",
+     "    = rejoin",
+     "step report",
+     "end end",
+     "= end"
+    ]
+   }
+  },
+  {
+   "name": "sync-applications",
+   "about": "The Main mock's \"Sync applications from the portal\". Its Otherwise ends and its Then never meets it, so the arms meet nowhere and Then holds the rest of the flow — the mock draws At the same time and Finish after the block instead, which the lines cannot say (36 §6.3; raised with the outline's handover).",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "label": "Start",
+      "position": {
+       "x": 820,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "fetch",
+      "type": "http-request",
+      "label": "Fetch new applications",
+      "position": {
+       "x": 1080,
+       "y": 80
+      },
+      "config": {
+       "method": "GET",
+       "url": "https://portal.example.org/api/applications?since=${input.since}",
+       "headers": {
+        "Accept": "application/json"
+       }
+      }
+     },
+     {
+      "id": "portaldown",
+      "type": "end",
+      "label": "Stop: the portal is down",
+      "position": {
+       "x": 1340,
+       "y": 80
+      },
+      "config": {
+       "outcome": "failed",
+       "message": "The portal did not answer: ${nodes.fetch.error.message}"
+      }
+     },
+     {
+      "id": "save",
+      "type": "table-upsert",
+      "label": "Save the applications",
+      "position": {
+       "x": 1600,
+       "y": 80
+      },
+      "config": {
+       "table": "Applications",
+       "rows": "${nodes.fetch.body.items}"
+      }
+     },
+     {
+      "id": "anynew",
+      "type": "condition",
+      "label": "Anything new?",
+      "position": {
+       "x": 1860,
+       "y": 80
+      },
+      "config": {
+       "expression": "[nodes.save.inserted] > 0"
+      }
+     },
+     {
+      "id": "each",
+      "type": "loop-over-rows",
+      "label": "For each new application",
+      "position": {
+       "x": 40,
+       "y": 80
+      },
+      "config": {
+       "table": "Applications",
+       "page_size": 200
+      }
+     },
+     {
+      "id": "check",
+      "type": "http-request",
+      "label": "Check eligibility",
+      "position": {
+       "x": 300,
+       "y": 80
+      },
+      "config": {
+       "method": "POST",
+       "url": "https://eligibility.example.org/v1/check",
+       "body": {
+        "applicant": "${loop.item.applicant_id}"
+       }
+      }
+     },
+     {
+      "id": "checkfail",
+      "type": "log",
+      "label": "Note it and move on",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "config": {
+       "level": "warning",
+       "message": "Could not check ${loop.item.name}: ${nodes.check.error.message}"
+      }
+     },
+     {
+      "id": "invite",
+      "type": "http-request",
+      "label": "Send the invitation",
+      "position": {
+       "x": 820,
+       "y": 80
+      },
+      "config": {
+       "method": "POST",
+       "body": {
+        "to": "${loop.item.email}",
+        "template": "interview-invite"
+       }
+      }
+     },
+     {
+      "id": "nothing",
+      "type": "end",
+      "label": "Stop: nothing new",
+      "position": {
+       "x": 1080,
+       "y": 80
+      },
+      "config": {
+       "outcome": "success",
+       "message": "No new applications since ${input.since}"
+      }
+     },
+     {
+      "id": "report",
+      "type": "parallel",
+      "label": "At the same time",
+      "position": {
+       "x": 1340,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "tell",
+      "type": "http-request",
+      "label": "Tell admissions",
+      "position": {
+       "x": 1600,
+       "y": 80
+      },
+      "config": {
+       "method": "POST",
+       "url": "https://hooks.example.org/admissions"
+      }
+     },
+     {
+      "id": "summary",
+      "type": "log",
+      "label": "Write a summary",
+      "position": {
+       "x": 1860,
+       "y": 80
+      },
+      "config": {
+       "level": "info",
+       "message": "Saved ${nodes.save.inserted} new and ${nodes.save.updated} changed applications."
+      }
+     },
+     {
+      "id": "merged",
+      "type": "merge",
+      "position": {
+       "x": 40,
+       "y": 80
+      },
+      "config": {
+       "join": "all"
+      }
+     },
+     {
+      "id": "done",
+      "type": "end",
+      "label": "Finish",
+      "position": {
+       "x": 300,
+       "y": 80
+      },
+      "config": {
+       "outcome": "success",
+       "output": {
+        "saved": "${nodes.save.inserted}",
+        "checked": "${nodes.each.rows}"
+       }
+      }
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "fetch",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "fetch",
+      "target": "save",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "fetch",
+      "target": "portaldown",
+      "sourcePort": "error",
+      "targetPort": "in"
+     },
+     {
+      "source": "save",
+      "target": "anynew",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "anynew",
+      "target": "each",
+      "sourcePort": "true",
+      "targetPort": "in"
+     },
+     {
+      "source": "anynew",
+      "target": "nothing",
+      "sourcePort": "false",
+      "targetPort": "in"
+     },
+     {
+      "source": "each",
+      "target": "check",
+      "sourcePort": "body",
+      "targetPort": "in"
+     },
+     {
+      "source": "check",
+      "target": "invite",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "check",
+      "target": "checkfail",
+      "sourcePort": "error",
+      "targetPort": "in"
+     },
+     {
+      "source": "checkfail",
+      "target": "each",
+      "sourcePort": "out",
+      "targetPort": "next"
+     },
+     {
+      "source": "invite",
+      "target": "each",
+      "sourcePort": "out",
+      "targetPort": "next"
+     },
+     {
+      "source": "each",
+      "target": "report",
+      "sourcePort": "done",
+      "targetPort": "in"
+     },
+     {
+      "source": "report",
+      "target": "tell",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "report",
+      "target": "summary",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "tell",
+      "target": "merged",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "summary",
+      "target": "merged",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "merged",
+      "target": "done",
+      "sourcePort": "out",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "tree": [
+     "start start",
+     "step fetch",
+     "  arm error",
+     "    end portaldown",
+     "    = end",
+     "step save",
+     "branch anynew",
+     "  arm true",
+     "    loop each",
+     "      body",
+     "        step check",
+     "          arm error",
+     "            step checkfail",
+     "            = next",
+     "        step invite",
+     "          arm error",
+     "            = open",
+     "        = rejoin",
+     "    fanout report join merged",
+     "      branch",
+     "        step tell",
+     "          arm error",
+     "            = open",
+     "        = rejoin",
+     "      branch",
+     "        step summary",
+     "        = rejoin",
+     "    end done",
+     "    = end",
+     "  arm false",
+     "    end nothing",
+     "    = end",
+     "= rejoin"
+    ]
+   }
+  },
+  {
+   "name": "fresh-blocks",
+   "about": "Each block as the step picker inserts it: a condition with both arms empty and connected straight to what follows, a loop with its body and Next unconnected, a parallel with its one empty branch.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "condition",
+      "type": "condition",
+      "position": {
+       "x": 820,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "loop-over-rows",
+      "type": "loop-over-rows",
+      "position": {
+       "x": 1080,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "parallel",
+      "type": "parallel",
+      "position": {
+       "x": 1340,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "merge",
+      "type": "merge",
+      "position": {
+       "x": 1600,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "end",
+      "type": "end",
+      "position": {
+       "x": 1860,
+       "y": 80
+      },
+      "config": {}
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "condition",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "condition",
+      "target": "loop-over-rows",
+      "sourcePort": "true",
+      "targetPort": "in"
+     },
+     {
+      "source": "condition",
+      "target": "loop-over-rows",
+      "sourcePort": "false",
+      "targetPort": "in"
+     },
+     {
+      "source": "loop-over-rows",
+      "target": "parallel",
+      "sourcePort": "done",
+      "targetPort": "in"
+     },
+     {
+      "source": "parallel",
+      "target": "merge",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "merge",
+      "target": "end",
+      "sourcePort": "out",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "tree": [
+     "start start",
+     "branch condition",
+     "  arm true",
+     "    = rejoin",
+     "  arm false",
+     "    = rejoin",
+     "loop loop-over-rows",
+     "  body",
+     "    = open",
+     "fanout parallel join merge",
+     "  branch",
+     "    = rejoin",
+     "end end",
+     "= end"
+    ]
+   }
+  },
+  {
+   "name": "empty-flow",
+   "about": "Start alone.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 40,
+       "y": 80
+      },
+      "config": {}
+     }
+    ],
+    "connections": []
+   },
+   "expect": {
+    "tree": [
+     "start start",
+     "= rejoin"
+    ]
+   }
+  },
+  {
+   "name": "branch-open-arm",
+   "about": "A condition whose false port is unconnected: the arm stops, meets nothing, and Then holds the rest.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 300,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "c",
+      "type": "condition",
+      "label": "Ready?",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "config": {
+       "expression": "[vars.ready]"
+      }
+     },
+     {
+      "id": "a",
+      "type": "log",
+      "label": "Go",
+      "position": {
+       "x": 820,
+       "y": 80
+      },
+      "config": {
+       "message": "go"
+      }
+     },
+     {
+      "id": "b",
+      "type": "log",
+      "label": "Then",
+      "position": {
+       "x": 1080,
+       "y": 80
+      },
+      "config": {
+       "message": "then"
+      }
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "c",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "c",
+      "target": "a",
+      "sourcePort": "true",
+      "targetPort": "in"
+     },
+     {
+      "source": "a",
+      "target": "b",
+      "sourcePort": "out",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "tree": [
+     "start start",
+     "branch c",
+     "  arm true",
+     "    step a",
+     "    step b",
+     "    = rejoin",
+     "  arm false",
+     "    = rejoin",
+     "= rejoin"
+    ]
+   }
+  },
+  {
+   "name": "stop-inside-branch",
+   "about": "An HTTP step inside Then whose failure ends the run: the condition still carries on where its arms meet.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 1340,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "c",
+      "type": "condition",
+      "label": "New?",
+      "position": {
+       "x": 1600,
+       "y": 80
+      },
+      "config": {
+       "expression": "[vars.n] > 0"
+      }
+     },
+     {
+      "id": "h",
+      "type": "http-request",
+      "label": "Tell them",
+      "position": {
+       "x": 1860,
+       "y": 80
+      },
+      "config": {
+       "url": "https://hooks.example.org/x"
+      }
+     },
+     {
+      "id": "stop",
+      "type": "end",
+      "label": "Stop",
+      "position": {
+       "x": 40,
+       "y": 80
+      },
+      "config": {
+       "outcome": "failed"
+      }
+     },
+     {
+      "id": "after",
+      "type": "log",
+      "label": "After",
+      "position": {
+       "x": 300,
+       "y": 80
+      },
+      "config": {
+       "message": "after"
+      }
+     },
+     {
+      "id": "fin",
+      "type": "end",
+      "label": "Finish",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "config": {}
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "c",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "c",
+      "target": "h",
+      "sourcePort": "true",
+      "targetPort": "in"
+     },
+     {
+      "source": "c",
+      "target": "after",
+      "sourcePort": "false",
+      "targetPort": "in"
+     },
+     {
+      "source": "h",
+      "target": "after",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "h",
+      "target": "stop",
+      "sourcePort": "error",
+      "targetPort": "in"
+     },
+     {
+      "source": "after",
+      "target": "fin",
+      "sourcePort": "out",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "tree": [
+     "start start",
+     "branch c",
+     "  arm true",
+     "    step h",
+     "      arm error",
+     "        end stop",
+     "        = end",
+     "    = rejoin",
+     "  arm false",
+     "    = rejoin",
+     "step after",
+     "end fin",
+     "= end"
+    ]
+   }
+  },
+  {
+   "name": "branch-rejoins-what-follows-its-block",
+   "about": "A condition inside Then whose own Then ends and whose Otherwise goes straight on to what follows the outer block: its arms meet nowhere, and the one that goes on rejoins where its Seq goes on.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 820,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "outer",
+      "type": "condition",
+      "label": "Outer?",
+      "position": {
+       "x": 1080,
+       "y": 80
+      },
+      "config": {
+       "expression": "[x]"
+      }
+     },
+     {
+      "id": "inner",
+      "type": "condition",
+      "label": "Inner?",
+      "position": {
+       "x": 1340,
+       "y": 80
+      },
+      "config": {
+       "expression": "[y]"
+      }
+     },
+     {
+      "id": "a",
+      "type": "log",
+      "label": "A",
+      "position": {
+       "x": 1600,
+       "y": 80
+      },
+      "config": {
+       "message": "a"
+      }
+     },
+     {
+      "id": "stop",
+      "type": "end",
+      "label": "Stop",
+      "position": {
+       "x": 1860,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "after",
+      "type": "log",
+      "label": "After",
+      "position": {
+       "x": 40,
+       "y": 80
+      },
+      "config": {
+       "message": "z"
+      }
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "outer",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "outer",
+      "target": "inner",
+      "sourcePort": "true",
+      "targetPort": "in"
+     },
+     {
+      "source": "outer",
+      "target": "after",
+      "sourcePort": "false",
+      "targetPort": "in"
+     },
+     {
+      "source": "inner",
+      "target": "a",
+      "sourcePort": "true",
+      "targetPort": "in"
+     },
+     {
+      "source": "a",
+      "target": "stop",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "inner",
+      "target": "after",
+      "sourcePort": "false",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "tree": [
+     "start start",
+     "branch outer",
+     "  arm true",
+     "    branch inner",
+     "      arm true",
+     "        step a",
+     "        end stop",
+     "        = end",
+     "      arm false",
+     "        = rejoin",
+     "    = rejoin",
+     "  arm false",
+     "    = rejoin",
+     "step after",
+     "= rejoin"
+    ]
+   }
+  },
+  {
+   "name": "nested-loops",
+   "about": "A loop inside a loop's body; the inner one's Done goes on to the outer one's Next.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 300,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "outer",
+      "type": "loop-over-rows",
+      "label": "Each course",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "config": {
+       "table": "Courses"
+      }
+     },
+     {
+      "id": "inner",
+      "type": "loop-over-rows",
+      "label": "Each student",
+      "position": {
+       "x": 820,
+       "y": 80
+      },
+      "config": {
+       "table": "Students"
+      }
+     },
+     {
+      "id": "s",
+      "type": "log",
+      "label": "Note",
+      "position": {
+       "x": 1080,
+       "y": 80
+      },
+      "config": {
+       "message": "${loop.item.id}"
+      }
+     },
+     {
+      "id": "fin",
+      "type": "end",
+      "label": "Finish",
+      "position": {
+       "x": 1340,
+       "y": 80
+      },
+      "config": {}
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "outer",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "outer",
+      "target": "inner",
+      "sourcePort": "body",
+      "targetPort": "in"
+     },
+     {
+      "source": "inner",
+      "target": "s",
+      "sourcePort": "body",
+      "targetPort": "in"
+     },
+     {
+      "source": "s",
+      "target": "inner",
+      "sourcePort": "out",
+      "targetPort": "next"
+     },
+     {
+      "source": "inner",
+      "target": "outer",
+      "sourcePort": "done",
+      "targetPort": "next"
+     },
+     {
+      "source": "outer",
+      "target": "fin",
+      "sourcePort": "done",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "tree": [
+     "start start",
+     "loop outer",
+     "  body",
+     "    loop inner",
+     "      body",
+     "        step s",
+     "        = rejoin",
+     "    = rejoin",
+     "end fin",
+     "= end"
+    ]
+   }
+  },
+  {
+   "name": "branch-in-a-branch-of-parallel",
+   "about": "A condition inside a parallel's branch whose arms meet at the Merge.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 1600,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "p",
+      "type": "parallel",
+      "label": "Both",
+      "position": {
+       "x": 1860,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "c",
+      "type": "condition",
+      "label": "Big?",
+      "position": {
+       "x": 40,
+       "y": 80
+      },
+      "config": {
+       "expression": "[vars.n] > 9"
+      }
+     },
+     {
+      "id": "a",
+      "type": "log",
+      "label": "Big",
+      "position": {
+       "x": 300,
+       "y": 80
+      },
+      "config": {
+       "message": "big"
+      }
+     },
+     {
+      "id": "b",
+      "type": "log",
+      "label": "Small",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "config": {
+       "message": "small"
+      }
+     },
+     {
+      "id": "x",
+      "type": "log",
+      "label": "Other",
+      "position": {
+       "x": 820,
+       "y": 80
+      },
+      "config": {
+       "message": "other"
+      }
+     },
+     {
+      "id": "m",
+      "type": "merge",
+      "label": "Both done",
+      "position": {
+       "x": 1080,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "fin",
+      "type": "end",
+      "label": "Finish",
+      "position": {
+       "x": 1340,
+       "y": 80
+      },
+      "config": {}
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "p",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "p",
+      "target": "c",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "p",
+      "target": "x",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "c",
+      "target": "a",
+      "sourcePort": "true",
+      "targetPort": "in"
+     },
+     {
+      "source": "c",
+      "target": "b",
+      "sourcePort": "false",
+      "targetPort": "in"
+     },
+     {
+      "source": "a",
+      "target": "m",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "b",
+      "target": "m",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "x",
+      "target": "m",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "m",
+      "target": "fin",
+      "sourcePort": "out",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "tree": [
+     "start start",
+     "fanout p join m",
+     "  branch",
+     "    branch c",
+     "      arm true",
+     "        step a",
+     "        = rejoin",
+     "      arm false",
+     "        step b",
+     "        = rejoin",
+     "    = rejoin",
+     "  branch",
+     "    step x",
+     "    = rejoin",
+     "end fin",
+     "= end"
+    ]
+   }
+  },
+  {
+   "name": "arm-stops-before-the-step-after",
+   "about": "An HTTP step whose error arm logs and stops: the arm is open, the step carries on.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 1600,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "h",
+      "type": "http-request",
+      "label": "Call",
+      "position": {
+       "x": 1860,
+       "y": 80
+      },
+      "config": {
+       "url": "https://api.example.org"
+      }
+     },
+     {
+      "id": "l",
+      "type": "log",
+      "label": "Note the failure",
+      "position": {
+       "x": 40,
+       "y": 80
+      },
+      "config": {
+       "message": "failed"
+      }
+     },
+     {
+      "id": "n",
+      "type": "log",
+      "label": "Next",
+      "position": {
+       "x": 300,
+       "y": 80
+      },
+      "config": {
+       "message": "next"
+      }
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "h",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "h",
+      "target": "n",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "h",
+      "target": "l",
+      "sourcePort": "error",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "tree": [
+     "start start",
+     "step h",
+     "  arm error",
+     "    step l",
+     "    = open",
+     "step n",
+     "= rejoin"
+    ]
+   }
+  },
+  {
+   "name": "data-line-kept",
+   "about": "A line between two DATA ports is not part of the outline and is kept as it is.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "r",
+      "type": "table-read",
+      "label": "Read",
+      "position": {
+       "x": 820,
+       "y": 80
+      },
+      "config": {
+       "table": "T",
+       "limit": 10
+      }
+     },
+     {
+      "id": "w",
+      "type": "table-write",
+      "label": "Write",
+      "position": {
+       "x": 1080,
+       "y": 80
+      },
+      "config": {
+       "table": "U",
+       "rows": "${nodes.r.rows}"
+      }
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "r",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "r",
+      "target": "w",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "r",
+      "target": "w",
+      "sourcePort": "rows",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "tree": [
+     "start start",
+     "step r",
+     "  arm empty",
+     "    = open",
+     "step w",
+     "= rejoin"
+    ]
+   }
+  },
+  {
+   "name": "refuse-no-start",
+   "about": "No Start step.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "a",
+      "type": "log",
+      "label": "Alone",
+      "position": {
+       "x": 1340,
+       "y": 80
+      },
+      "config": {
+       "message": "x"
+      }
+     }
+    ],
+    "connections": []
+   },
+   "expect": {
+    "refused": {
+     "code": "outline_no_start",
+     "node_id": null
+    }
+   }
+  },
+  {
+   "name": "refuse-two-starts",
+   "about": "Two Start steps.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "s1",
+      "type": "start",
+      "position": {
+       "x": 1600,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "s2",
+      "type": "start",
+      "position": {
+       "x": 1860,
+       "y": 80
+      },
+      "config": {}
+     }
+    ],
+    "connections": []
+   },
+   "expect": {
+    "refused": {
+     "code": "outline_two_starts",
+     "node_id": "s2"
+    }
+   }
+  },
+  {
+   "name": "refuse-unknown-type",
+   "about": "A type the catalogue does not have.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 40,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "t",
+      "type": "teleport",
+      "label": "Beam me up",
+      "position": {
+       "x": 300,
+       "y": 80
+      },
+      "config": {}
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "t",
+      "sourcePort": "out",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "refused": {
+     "code": "outline_unknown_type",
+     "node_id": "t"
+    }
+   }
+  },
+  {
+   "name": "refuse-unreachable",
+   "about": "A step nothing leads to.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "a",
+      "type": "log",
+      "label": "A",
+      "position": {
+       "x": 820,
+       "y": 80
+      },
+      "config": {
+       "message": "a"
+      }
+     },
+     {
+      "id": "lost",
+      "type": "log",
+      "label": "Lost",
+      "position": {
+       "x": 1080,
+       "y": 80
+      },
+      "config": {
+       "message": "b"
+      }
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "a",
+      "sourcePort": "out",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "refused": {
+     "code": "outline_unreachable",
+     "node_id": "lost"
+    }
+   }
+  },
+  {
+   "name": "refuse-shared-step",
+   "about": "Two branches of a parallel step both reach one step that is not their Merge.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 1340,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "p",
+      "type": "parallel",
+      "label": "Both",
+      "position": {
+       "x": 1600,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "a",
+      "type": "log",
+      "label": "A",
+      "position": {
+       "x": 1860,
+       "y": 80
+      },
+      "config": {
+       "message": "a"
+      }
+     },
+     {
+      "id": "b",
+      "type": "log",
+      "label": "B",
+      "position": {
+       "x": 40,
+       "y": 80
+      },
+      "config": {
+       "message": "b"
+      }
+     },
+     {
+      "id": "m",
+      "type": "merge",
+      "position": {
+       "x": 300,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "fin",
+      "type": "end",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "config": {}
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "p",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "p",
+      "target": "a",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "p",
+      "target": "b",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "a",
+      "target": "m",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "b",
+      "target": "a",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "m",
+      "target": "fin",
+      "sourcePort": "out",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "refused": {
+     "code": "outline_shared_step",
+     "node_id": "a"
+    }
+   }
+  },
+  {
+   "name": "refuse-arm-into-what-follows",
+   "about": "An error arm goes into a step that also follows the step after it.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 820,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "s1",
+      "type": "http-request",
+      "label": "Call",
+      "position": {
+       "x": 1080,
+       "y": 80
+      },
+      "config": {
+       "url": "u"
+      }
+     },
+     {
+      "id": "s2",
+      "type": "log",
+      "label": "Next",
+      "position": {
+       "x": 1340,
+       "y": 80
+      },
+      "config": {
+       "message": "n"
+      }
+     },
+     {
+      "id": "e",
+      "type": "log",
+      "label": "On failure",
+      "position": {
+       "x": 1600,
+       "y": 80
+      },
+      "config": {
+       "message": "f"
+      }
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "s1",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "s1",
+      "target": "s2",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "s1",
+      "target": "e",
+      "sourcePort": "error",
+      "targetPort": "in"
+     },
+     {
+      "source": "s2",
+      "target": "e",
+      "sourcePort": "out",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "refused": {
+     "code": "outline_jump_out",
+     "node_id": "s1"
+    }
+   }
+  },
+  {
+   "name": "refuse-jump-between-branches",
+   "about": "Spike S-outline: a line jumping from one branch into another.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 1860,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "c",
+      "type": "condition",
+      "label": "Which?",
+      "position": {
+       "x": 40,
+       "y": 80
+      },
+      "config": {
+       "expression": "[vars.x]"
+      }
+     },
+     {
+      "id": "a",
+      "type": "log",
+      "label": "A",
+      "position": {
+       "x": 300,
+       "y": 80
+      },
+      "config": {
+       "message": "a"
+      }
+     },
+     {
+      "id": "h",
+      "type": "http-request",
+      "label": "H",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "config": {
+       "url": "u"
+      }
+     },
+     {
+      "id": "d",
+      "type": "log",
+      "label": "D",
+      "position": {
+       "x": 820,
+       "y": 80
+      },
+      "config": {
+       "message": "d"
+      }
+     },
+     {
+      "id": "after",
+      "type": "log",
+      "label": "After",
+      "position": {
+       "x": 1080,
+       "y": 80
+      },
+      "config": {
+       "message": "z"
+      }
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "c",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "c",
+      "target": "a",
+      "sourcePort": "true",
+      "targetPort": "in"
+     },
+     {
+      "source": "c",
+      "target": "h",
+      "sourcePort": "false",
+      "targetPort": "in"
+     },
+     {
+      "source": "a",
+      "target": "after",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "h",
+      "target": "d",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "d",
+      "target": "after",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "h",
+      "target": "a",
+      "sourcePort": "error",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "refused": {
+     "code": "outline_jump_out",
+     "node_id": "h"
+    }
+   }
+  },
+  {
+   "name": "refuse-jump-out-of-arm",
+   "about": "An error arm that goes on past the step after its own.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 1340,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "h",
+      "type": "http-request",
+      "label": "H",
+      "position": {
+       "x": 1600,
+       "y": 80
+      },
+      "config": {
+       "url": "u"
+      }
+     },
+     {
+      "id": "c",
+      "type": "log",
+      "label": "C",
+      "position": {
+       "x": 1860,
+       "y": 80
+      },
+      "config": {
+       "message": "c"
+      }
+     },
+     {
+      "id": "d",
+      "type": "log",
+      "label": "D",
+      "position": {
+       "x": 40,
+       "y": 80
+      },
+      "config": {
+       "message": "d"
+      }
+     },
+     {
+      "id": "e",
+      "type": "log",
+      "label": "E",
+      "position": {
+       "x": 300,
+       "y": 80
+      },
+      "config": {
+       "message": "e"
+      }
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "h",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "h",
+      "target": "c",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "c",
+      "target": "d",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "h",
+      "target": "e",
+      "sourcePort": "error",
+      "targetPort": "in"
+     },
+     {
+      "source": "e",
+      "target": "d",
+      "sourcePort": "out",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "refused": {
+     "code": "outline_jump_out",
+     "node_id": "e"
+    }
+   }
+  },
+  {
+   "name": "refuse-two-continuations",
+   "about": "Two lines out of one single port.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "s",
+      "type": "log",
+      "label": "S",
+      "position": {
+       "x": 820,
+       "y": 80
+      },
+      "config": {
+       "message": "s"
+      }
+     },
+     {
+      "id": "a",
+      "type": "log",
+      "label": "A",
+      "position": {
+       "x": 1080,
+       "y": 80
+      },
+      "config": {
+       "message": "a"
+      }
+     },
+     {
+      "id": "b",
+      "type": "log",
+      "label": "B",
+      "position": {
+       "x": 1340,
+       "y": 80
+      },
+      "config": {
+       "message": "b"
+      }
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "s",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "s",
+      "target": "a",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "s",
+      "target": "b",
+      "sourcePort": "out",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "refused": {
+     "code": "outline_two_continuations",
+     "node_id": "s"
+    }
+   }
+  },
+  {
+   "name": "refuse-parallel-unjoined",
+   "about": "Branches closed by two different merges.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 1600,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "p",
+      "type": "parallel",
+      "position": {
+       "x": 1860,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "a",
+      "type": "log",
+      "label": "A",
+      "position": {
+       "x": 40,
+       "y": 80
+      },
+      "config": {
+       "message": "a"
+      }
+     },
+     {
+      "id": "b",
+      "type": "log",
+      "label": "B",
+      "position": {
+       "x": 300,
+       "y": 80
+      },
+      "config": {
+       "message": "b"
+      }
+     },
+     {
+      "id": "m1",
+      "type": "merge",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "m2",
+      "type": "merge",
+      "position": {
+       "x": 820,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "fin",
+      "type": "end",
+      "position": {
+       "x": 1080,
+       "y": 80
+      },
+      "config": {}
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "p",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "p",
+      "target": "a",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "p",
+      "target": "b",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "a",
+      "target": "m1",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "b",
+      "target": "m2",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "m1",
+      "target": "fin",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "m2",
+      "target": "fin",
+      "sourcePort": "out",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "refused": {
+     "code": "outline_parallel_unjoined",
+     "node_id": "p"
+    }
+   }
+  },
+  {
+   "name": "refuse-merge-unpaired",
+   "about": "A merge closing a condition rather than a parallel.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 1340,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "c",
+      "type": "condition",
+      "label": "C",
+      "position": {
+       "x": 1600,
+       "y": 80
+      },
+      "config": {
+       "expression": "[x]"
+      }
+     },
+     {
+      "id": "a",
+      "type": "log",
+      "label": "A",
+      "position": {
+       "x": 1860,
+       "y": 80
+      },
+      "config": {
+       "message": "a"
+      }
+     },
+     {
+      "id": "b",
+      "type": "log",
+      "label": "B",
+      "position": {
+       "x": 40,
+       "y": 80
+      },
+      "config": {
+       "message": "b"
+      }
+     },
+     {
+      "id": "m",
+      "type": "merge",
+      "label": "Meet",
+      "position": {
+       "x": 300,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "fin",
+      "type": "end",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "config": {}
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "c",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "c",
+      "target": "a",
+      "sourcePort": "true",
+      "targetPort": "in"
+     },
+     {
+      "source": "c",
+      "target": "b",
+      "sourcePort": "false",
+      "targetPort": "in"
+     },
+     {
+      "source": "a",
+      "target": "m",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "b",
+      "target": "m",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "m",
+      "target": "fin",
+      "sourcePort": "out",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "refused": {
+     "code": "outline_merge_unpaired",
+     "node_id": "m"
+    }
+   }
+  },
+  {
+   "name": "refuse-loop-never-returns",
+   "about": "A body that never reaches its Next.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 820,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "l",
+      "type": "loop-over-rows",
+      "label": "Each",
+      "position": {
+       "x": 1080,
+       "y": 80
+      },
+      "config": {
+       "table": "T"
+      }
+     },
+     {
+      "id": "a",
+      "type": "log",
+      "label": "A",
+      "position": {
+       "x": 1340,
+       "y": 80
+      },
+      "config": {
+       "message": "a"
+      }
+     },
+     {
+      "id": "fin",
+      "type": "end",
+      "position": {
+       "x": 1600,
+       "y": 80
+      },
+      "config": {}
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "l",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "l",
+      "target": "a",
+      "sourcePort": "body",
+      "targetPort": "in"
+     },
+     {
+      "source": "l",
+      "target": "fin",
+      "sourcePort": "done",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "refused": {
+     "code": "outline_loop_shape",
+     "node_id": "l"
+    }
+   }
+  },
+  {
+   "name": "refuse-loop-next-from-outside",
+   "about": "A step after the loop goes on with its Next.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 1860,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "l",
+      "type": "loop-over-rows",
+      "label": "Each",
+      "position": {
+       "x": 40,
+       "y": 80
+      },
+      "config": {
+       "table": "T"
+      }
+     },
+     {
+      "id": "a",
+      "type": "log",
+      "label": "A",
+      "position": {
+       "x": 300,
+       "y": 80
+      },
+      "config": {
+       "message": "a"
+      }
+     },
+     {
+      "id": "y",
+      "type": "log",
+      "label": "Y",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "config": {
+       "message": "y"
+      }
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "l",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "l",
+      "target": "a",
+      "sourcePort": "body",
+      "targetPort": "in"
+     },
+     {
+      "source": "a",
+      "target": "l",
+      "sourcePort": "out",
+      "targetPort": "next"
+     },
+     {
+      "source": "l",
+      "target": "y",
+      "sourcePort": "done",
+      "targetPort": "in"
+     },
+     {
+      "source": "y",
+      "target": "l",
+      "sourcePort": "out",
+      "targetPort": "next"
+     }
+    ]
+   },
+   "expect": {
+    "refused": {
+     "code": "outline_loop_shape",
+     "node_id": "y"
+    }
+   }
+  },
+  {
+   "name": "refuse-loop-body-leaks",
+   "about": "A body step reaches what runs after the loop.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 820,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "l",
+      "type": "loop-over-rows",
+      "label": "Each",
+      "position": {
+       "x": 1080,
+       "y": 80
+      },
+      "config": {
+       "table": "T"
+      }
+     },
+     {
+      "id": "h",
+      "type": "http-request",
+      "label": "H",
+      "position": {
+       "x": 1340,
+       "y": 80
+      },
+      "config": {
+       "url": "u"
+      }
+     },
+     {
+      "id": "d",
+      "type": "log",
+      "label": "After",
+      "position": {
+       "x": 1600,
+       "y": 80
+      },
+      "config": {
+       "message": "d"
+      }
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "l",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "l",
+      "target": "h",
+      "sourcePort": "body",
+      "targetPort": "in"
+     },
+     {
+      "source": "h",
+      "target": "l",
+      "sourcePort": "out",
+      "targetPort": "next"
+     },
+     {
+      "source": "h",
+      "target": "d",
+      "sourcePort": "error",
+      "targetPort": "in"
+     },
+     {
+      "source": "l",
+      "target": "d",
+      "sourcePort": "done",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "refused": {
+     "code": "outline_loop_shape",
+     "node_id": "l"
+    }
+   }
+  },
+  {
+   "name": "refuse-loop-reenters-in",
+   "about": "A body step goes back into the loop's in port.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 1860,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "l",
+      "type": "loop-over-rows",
+      "label": "Each",
+      "position": {
+       "x": 40,
+       "y": 80
+      },
+      "config": {
+       "table": "T"
+      }
+     },
+     {
+      "id": "a",
+      "type": "log",
+      "label": "A",
+      "position": {
+       "x": 300,
+       "y": 80
+      },
+      "config": {
+       "message": "a"
+      }
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "l",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "l",
+      "target": "a",
+      "sourcePort": "body",
+      "targetPort": "in"
+     },
+     {
+      "source": "a",
+      "target": "l",
+      "sourcePort": "out",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "refused": {
+     "code": "outline_cycle",
+     "node_id": "a"
+    }
+   }
+  },
+  {
+   "name": "refuse-cycle",
+   "about": "A line back that is not a loop's Next.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "a",
+      "type": "log",
+      "label": "A",
+      "position": {
+       "x": 820,
+       "y": 80
+      },
+      "config": {
+       "message": "a"
+      }
+     },
+     {
+      "id": "b",
+      "type": "log",
+      "label": "B",
+      "position": {
+       "x": 1080,
+       "y": 80
+      },
+      "config": {
+       "message": "b"
+      }
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "a",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "a",
+      "target": "b",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "b",
+      "target": "a",
+      "sourcePort": "out",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "refused": {
+     "code": "outline_cycle",
+     "node_id": "b"
+    }
+   }
+  },
+  {
+   "name": "limit-parallel-branches-share-an-end",
+   "about": "Two branches of a parallel step end at ONE End, with no Merge (9 of the first consumer's test graphs). A Parallel is closed by a Merge (36 §6.3).",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 1340,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "p",
+      "type": "parallel",
+      "position": {
+       "x": 1600,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "l",
+      "type": "loop-over-rows",
+      "label": "Each",
+      "position": {
+       "x": 1860,
+       "y": 80
+      },
+      "config": {
+       "table": "T"
+      }
+     },
+     {
+      "id": "b",
+      "type": "log",
+      "label": "Body",
+      "position": {
+       "x": 40,
+       "y": 80
+      },
+      "config": {
+       "message": "b"
+      }
+     },
+     {
+      "id": "x",
+      "type": "log",
+      "label": "Beside",
+      "position": {
+       "x": 300,
+       "y": 80
+      },
+      "config": {
+       "message": "x"
+      }
+     },
+     {
+      "id": "e",
+      "type": "end",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "config": {}
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "p",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "p",
+      "target": "l",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "p",
+      "target": "x",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "l",
+      "target": "b",
+      "sourcePort": "body",
+      "targetPort": "in"
+     },
+     {
+      "source": "b",
+      "target": "l",
+      "sourcePort": "out",
+      "targetPort": "next"
+     },
+     {
+      "source": "l",
+      "target": "e",
+      "sourcePort": "done",
+      "targetPort": "in"
+     },
+     {
+      "source": "x",
+      "target": "e",
+      "sourcePort": "out",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "refused": {
+     "code": "outline_shared_step",
+     "node_id": "e"
+    }
+   }
+  },
+  {
+   "name": "limit-merge-after-a-condition",
+   "about": "A Merge closing a Condition's arms inside a loop (4 of the first consumer's test graphs). A Merge closes a Parallel step only.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 820,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "l",
+      "type": "loop-over-rows",
+      "label": "Each",
+      "position": {
+       "x": 1080,
+       "y": 80
+      },
+      "config": {
+       "table": "T"
+      }
+     },
+     {
+      "id": "c",
+      "type": "condition",
+      "label": "Odd?",
+      "position": {
+       "x": 1340,
+       "y": 80
+      },
+      "config": {
+       "expression": "[loop.index]"
+      }
+     },
+     {
+      "id": "odd",
+      "type": "log",
+      "label": "Odd",
+      "position": {
+       "x": 1600,
+       "y": 80
+      },
+      "config": {
+       "message": "o"
+      }
+     },
+     {
+      "id": "even",
+      "type": "log",
+      "label": "Even",
+      "position": {
+       "x": 1860,
+       "y": 80
+      },
+      "config": {
+       "message": "e"
+      }
+     },
+     {
+      "id": "j",
+      "type": "merge",
+      "position": {
+       "x": 40,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "e",
+      "type": "end",
+      "position": {
+       "x": 300,
+       "y": 80
+      },
+      "config": {}
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "l",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "l",
+      "target": "c",
+      "sourcePort": "body",
+      "targetPort": "in"
+     },
+     {
+      "source": "c",
+      "target": "odd",
+      "sourcePort": "true",
+      "targetPort": "in"
+     },
+     {
+      "source": "c",
+      "target": "even",
+      "sourcePort": "false",
+      "targetPort": "in"
+     },
+     {
+      "source": "odd",
+      "target": "j",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "even",
+      "target": "j",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "j",
+      "target": "l",
+      "sourcePort": "out",
+      "targetPort": "next"
+     },
+     {
+      "source": "l",
+      "target": "e",
+      "sourcePort": "done",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "refused": {
+     "code": "outline_merge_unpaired",
+     "node_id": "j"
+    }
+   }
+  },
+  {
+   "name": "limit-error-arm-rejoins-after-the-success-path",
+   "about": "A step's error arm rejoins after the step its success path runs (1 of the first consumer's test graphs). An ordinary step carries on by its continue port; its arms rejoin there.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "h",
+      "type": "http-request",
+      "label": "Call",
+      "position": {
+       "x": 820,
+       "y": 80
+      },
+      "config": {
+       "url": "u"
+      }
+     },
+     {
+      "id": "ok",
+      "type": "log",
+      "label": "On success",
+      "position": {
+       "x": 1080,
+       "y": 80
+      },
+      "config": {
+       "message": "ok"
+      }
+     },
+     {
+      "id": "handled",
+      "type": "log",
+      "label": "On failure",
+      "position": {
+       "x": 1340,
+       "y": 80
+      },
+      "config": {
+       "message": "f"
+      }
+     },
+     {
+      "id": "e",
+      "type": "end",
+      "position": {
+       "x": 1600,
+       "y": 80
+      },
+      "config": {}
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "h",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "h",
+      "target": "ok",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "h",
+      "target": "handled",
+      "sourcePort": "error",
+      "targetPort": "in"
+     },
+     {
+      "source": "ok",
+      "target": "e",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "handled",
+      "target": "e",
+      "sourcePort": "out",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "refused": {
+     "code": "outline_jump_out",
+     "node_id": "handled"
+    }
+   }
+  },
+  {
+   "name": "parallel-whose-branches-all-end",
+   "about": "A parallel with no Merge whose every branch ends on its own (a loop with nothing after Done; an End): nothing to wait for, no continuation.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 1860,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "p",
+      "type": "parallel",
+      "position": {
+       "x": 40,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "l",
+      "type": "loop-over-rows",
+      "label": "Each",
+      "position": {
+       "x": 300,
+       "y": 80
+      },
+      "config": {
+       "table": "T"
+      }
+     },
+     {
+      "id": "a",
+      "type": "log",
+      "label": "A",
+      "position": {
+       "x": 560,
+       "y": 80
+      },
+      "config": {
+       "message": "a"
+      }
+     },
+     {
+      "id": "e",
+      "type": "end",
+      "position": {
+       "x": 820,
+       "y": 80
+      },
+      "config": {}
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "p",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "p",
+      "target": "l",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "p",
+      "target": "e",
+      "sourcePort": "out",
+      "targetPort": "in"
+     },
+     {
+      "source": "l",
+      "target": "a",
+      "sourcePort": "body",
+      "targetPort": "in"
+     },
+     {
+      "source": "a",
+      "target": "l",
+      "sourcePort": "out",
+      "targetPort": "next"
+     }
+    ]
+   },
+   "expect": {
+    "tree": [
+     "start start",
+     "fanout p",
+     "  branch",
+     "    loop l",
+     "      body",
+     "        step a",
+     "        = rejoin",
+     "    = open",
+     "  branch",
+     "    end e",
+     "    = end",
+     "= rejoin"
+    ]
+   }
+  },
+  {
+   "name": "refuse-unknown-port",
+   "about": "A line from a port the type does not have.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 1080,
+       "y": 80
+      },
+      "config": {}
+     },
+     {
+      "id": "a",
+      "type": "log",
+      "label": "A",
+      "position": {
+       "x": 1340,
+       "y": 80
+      },
+      "config": {
+       "message": "a"
+      }
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "a",
+      "sourcePort": "sideways",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "refused": {
+     "code": "outline_unknown_port",
+     "node_id": "start"
+    }
+   }
+  },
+  {
+   "name": "refuse-broken-line",
+   "about": "A line to a step that is not there.",
+   "graph": {
+    "nodes": [
+     {
+      "id": "start",
+      "type": "start",
+      "position": {
+       "x": 1600,
+       "y": 80
+      },
+      "config": {}
+     }
+    ],
+    "connections": [
+     {
+      "source": "start",
+      "target": "ghost",
+      "sourcePort": "out",
+      "targetPort": "in"
+     }
+    ]
+   },
+   "expect": {
+    "refused": {
+     "code": "outline_broken_line",
+     "node_id": "start"
+    }
+   }
+  }
+ ]
+}

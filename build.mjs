@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CHECK = process.argv.includes('--check');
 
-const ENTRIES = ['core', 'host', 'wm', 'widgets', 'charts', 'tiles', 'editor'];
+const ENTRIES = ['core', 'host', 'wm', 'widgets', 'charts', 'tiles', 'editor', 'canvas', 'flow'];
 
 const result = await build({
     entryPoints: ENTRIES.map((e) => join(HERE, `${e}.js`)),

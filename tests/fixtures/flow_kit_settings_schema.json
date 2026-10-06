@@ -1,0 +1,52 @@
+{
+    "about": "Settings schemas and the verdict of the subset check (36 §3.2). null is 'inside the subset'; a string is the FIRST refusal, sentence for sentence. Read by tests/flow_kit_settings_schema.test.mjs (checkSettingsSchema) and, from round 4, by Tables' schema.py parity test (check_schema). Keys are never integer-like: a JavaScript object lists those first, a Python dict keeps the document's order.",
+    "cases": [
+        { "name": "the empty schema", "schema": {}, "verdict": null },
+        { "name": "an HTTP-like step's whole schema", "verdict": null, "schema": {
+            "type": "object", "title": "HTTP request", "description": "Calls an address.",
+            "additionalProperties": false, "required": ["url"],
+            "properties": {
+                "method": { "type": "string", "enum": ["GET", "POST"], "default": "GET", "x-ui-enum-labels": { "GET": "Get" } },
+                "url": { "type": "string", "minLength": 1, "x-ui-widget": "template", "x-ui-references": "template" },
+                "headers": { "type": "object", "x-ui-widget": "key-value-map" },
+                "body": { "type": ["string", "object", "array", "null"], "x-ui-widget": "json-body" },
+                "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 300, "examples": [30] },
+                "on_error": { "type": "string", "enum": ["fail", "arm"], "x-ui-widget": "choice-cards" },
+                "tags": { "type": "array", "items": { "type": "string" }, "minItems": 0, "maxItems": 10 },
+                "id": { "type": "string", "format": "uuid" },
+                "kind": { "const": "http" },
+                "retry": { "type": "object", "x-ui-fold": true, "properties": {
+                    "max_attempts": { "type": "integer", "minimum": 1 },
+                    "backoff": { "type": "number", "minimum": 0 } } },
+                "note": { "type": "string", "maxLength": 200, "x-ui-multiline": true, "x-ui-when": { "field": "method", "in": ["POST"] } }
+            } } },
+        { "name": "any x- hint is admitted, known or not", "schema": { "x-ui-anything": [1, 2], "x-vendor": { "a": 1 } }, "verdict": null },
+        { "name": "oneOf is refused", "schema": { "oneOf": [] }, "verdict": "<root>: the keyword 'oneOf' is not supported." },
+        { "name": "anyOf is refused", "schema": { "anyOf": [{ "type": "string" }] }, "verdict": "<root>: the keyword 'anyOf' is not supported." },
+        { "name": "$ref is refused", "schema": { "$ref": "#/defs/x" }, "verdict": "<root>: the keyword '$ref' is not supported." },
+        { "name": "pattern is refused (a regex reads three ways)", "schema": { "type": "string", "pattern": "^a$" }, "verdict": "<root>: the keyword 'pattern' is not supported." },
+        { "name": "if is refused", "schema": { "if": {} }, "verdict": "<root>: the keyword 'if' is not supported." },
+        { "name": "the first refusal in document order wins", "schema": { "type": "string", "pattern": "a", "oneOf": [] }, "verdict": "<root>: the keyword 'pattern' is not supported." },
+        { "name": "a property's refusal names its path", "schema": { "type": "object", "properties": { "url": { "type": "string", "pattern": "x" } } }, "verdict": "url: the keyword 'pattern' is not supported." },
+        { "name": "a nested property's path is dotted", "schema": { "properties": { "retry": { "properties": { "max": { "type": "bigint" } } } } }, "verdict": "retry.max: unknown type 'bigint'." },
+        { "name": "a property is checked before a later keyword", "schema": { "properties": { "a": { "type": "nope" } }, "type": "object" }, "verdict": "a: unknown type 'nope'." },
+        { "name": "an unknown type in a list", "schema": { "type": ["string", "date"] }, "verdict": "<root>: unknown type 'date'." },
+        { "name": "a boolean is not a type name", "schema": { "type": true }, "verdict": "<root>: unknown type True." },
+        { "name": "a number is not a type name", "schema": { "type": 5 }, "verdict": "<root>: unknown type 5." },
+        { "name": "null is not a type name", "schema": { "type": [null] }, "verdict": "<root>: unknown type None." },
+        { "name": "properties must be an object — at the root the path is empty, not <root>", "schema": { "properties": ["a"] }, "verdict": ": properties must be an object." },
+        { "name": "properties must be an object — nested", "schema": { "properties": { "a": { "properties": 5 } } }, "verdict": "a: properties must be an object." },
+        { "name": "items must be a schema, not a tuple", "schema": { "type": "array", "items": [{ "type": "string" }] }, "verdict": "[]: a schema must be an object." },
+        { "name": "an item's refusal names path[]", "schema": { "properties": { "tags": { "type": "array", "items": { "pattern": "x" } } } }, "verdict": "tags[]: the keyword 'pattern' is not supported." },
+        { "name": "additionalProperties must be a boolean", "schema": { "additionalProperties": { "type": "string" } }, "verdict": ": additionalProperties must be true or false." },
+        { "name": "only format uuid", "schema": { "properties": { "at": { "type": "string", "format": "date-time" } } }, "verdict": "at: only format 'uuid' is supported." },
+        { "name": "required must be a list", "schema": { "required": "url" }, "verdict": ": required must be a list of names." },
+        { "name": "required must be a list of names", "schema": { "properties": { "a": { "type": "object", "required": [1] } } }, "verdict": "a: required must be a list of names." },
+        { "name": "a property's schema must be an object", "schema": { "properties": { "a": "string" } }, "verdict": "a: a schema must be an object." },
+        { "name": "the schema itself must be an object", "schema": ["type", "string"], "verdict": "<root>: a schema must be an object." },
+        { "name": "a name with an apostrophe is quoted the other way", "schema": { "it's": 1 }, "verdict": "<root>: the keyword \"it's\" is not supported." },
+        { "name": "annotations are admitted with any value", "schema": { "title": 5, "description": null, "default": [1], "examples": "x" }, "verdict": null },
+        { "name": "const and enum of any JSON", "schema": { "enum": [1, "a", null, true], "const": { "a": 1 } }, "verdict": null },
+        { "name": "dependentRequired is refused", "schema": { "properties": { "a": { "type": "string" } }, "dependentRequired": {} }, "verdict": "<root>: the keyword 'dependentRequired' is not supported." }
+    ]
+}

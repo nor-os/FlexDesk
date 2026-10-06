@@ -53,6 +53,14 @@
         "./editor": {
             "import": "./dist/editor.js",
             "development": "./editor.js"
+        },
+        "./canvas": {
+            "import": "./dist/canvas.js",
+            "development": "./canvas.js"
+        },
+        "./flow": {
+            "import": "./dist/flow.js",
+            "development": "./flow.js"
         }
     },
     "scripts": {

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>FlexDesk — the flow-editor kit</title>
+    <!-- The kit's own page, for headless Edge (36 §8). It loads the SOURCE —
+         the development barrel `../flow.js` and the stylesheets under `../css/`
+         — so it needs no dist/ build: a feature branch never builds dist/.
+         Serve the repository root over http (ES modules do not load from
+         file://) and open /demo/flow_kit.html. `demo/flow_kit_probe.mjs` does
+         both and drives it. -->
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />
+    <link href="../css/tokens.css" rel="stylesheet" />
+    <link href="../css/reset.css" rel="stylesheet" />
+    <link href="../css/flexdesk.css" rel="stylesheet" />
+    <style>
+        /* The demo's own layout. Everything inside the columns is the kit's. */
+        html, body { height: 100%; }
+        body { overflow: auto; background: var(--surface-0); color: var(--text-body); }
+        .demo { display: grid; grid-template-columns: 300px minmax(0, 1fr); grid-template-rows: auto auto 1fr;
+                min-height: 100%; }
+        .demo__bar { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; padding: 6px 10px;
+                     background: var(--surface-1); border-bottom: 1px solid var(--border-default); }
+        .demo__bar .twm-btn { min-height: 26px; padding: 0 9px; font-size: 12px; }
+        .demo__status { margin-left: 8px; color: var(--twm-flow-muted); }
+        .demo__strip { grid-column: 1 / -1; }
+        .demo__side { padding: 12px; border-right: 1px solid var(--border-default); display: flex;
+                      flex-direction: column; gap: 12px; outline: none; }
+        .demo__side h2 { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--twm-flow-muted); }
+        .demo__add { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border: 1px dashed #4a4a4a;
+                     border-radius: 4px; background: transparent; color: #b0b0b0; font: inherit; cursor: pointer; }
+        .demo__spike { display: flex; flex-direction: column; gap: 6px; }
+        .demo__spike label { color: var(--twm-flow-muted); font-size: 11px; }
+        .demo__naive { min-height: 26px; padding: 3px 8px; background: var(--twm-flow-control-bg);
+                       border: 1px solid var(--twm-flow-control-border); border-radius: 3px; white-space: pre-wrap;
+                       user-select: text; -webkit-user-select: text; outline: none; }
+        .demo__naive .twm-flow-chip { cursor: text; }
+        .demo__out { font-family: var(--font-family-mono); font-size: 11px; color: var(--text-secondary);
+                     white-space: pre-wrap; overflow-wrap: anywhere; }
+        .demo__panel { min-width: 0; }
+    </style>
+</head>
+<body>
+    <div class="demo" id="demo">
+        <div class="demo__bar" id="bar"></div>
+        <div class="demo__strip" id="strip"></div>
+        <aside class="demo__side" id="side" tabindex="0">
+            <h2>Steps</h2>
+            <button class="demo__add" id="add" type="button" aria-haspopup="dialog">+ Add a step</button>
+            <div class="demo__spike">
+                <label for="spike">Spike S-chip — the kit's chip input</label>
+                <div id="spike-host"></div>
+                <div class="demo__out" id="spike-out"></div>
+                <label for="naive">The naive version — chips without contenteditable="false"</label>
+                <div class="demo__naive" id="naive" contenteditable="true"></div>
+                <div class="demo__out" id="naive-out"></div>
+            </div>
+        </aside>
+        <main class="demo__panel" id="panel-host"></main>
+    </div>
+    <script type="module" src="./flow_kit.js"></script>
+</body>
+</html>

@@ -200,6 +200,102 @@ header click included, the way a new filter already does. It is off by default
 because keeping the page is what every earlier release did. Server-side paging
 is not affected: its page is your `offset`, which a sort never changes.
 
+### DataTable options in 0.5.0: lists that need no help
+
+0.5.0 adds options for the ordinary list in an application: one that sits in a
+page, opens a row, marks the open one, and sorts dates as dates. Every option
+is off until you set it. A table that sets none of them looks and behaves as it
+did in 0.4. This was measured in headless Edge: 109 cells in 7 default tables
+computed the same under 0.4.7 and 0.5.0.
+
+```js
+import { DataTable } from '@flexdesk/widgets';
+
+// House rules once, then one call per list: build AND draw.
+const ListTable = DataTable.withDefaults({
+    mode: 'compact', sortable: true, pagination: false,
+    fitContent: true, firstColumn: 'plain', autoDispose: true,
+});
+
+const table = ListTable.mount(host, {
+    headers: ['Name', 'Role', 'Last seen', 'Took'],
+    rows,                                    // values, not formatted text
+    columnTypes: [null, null, 'datetime', 'duration'],
+    getRowKey: (row) => row[0],
+    activeRow: openName,
+    onRowActivate: (i, row) => open(row),    // one click opens
+    rowClass: (row) => (row[1] === 'Suspended' ? 'is-off' : null),
+    emptyState: 'Nobody yet.',
+});
+```
+
+**Layout**
+
+| Option | What it does |
+|---|---|
+| `fitContent: true` | Makes the table as tall as its rows. By default the wrapper is `height: 100%`. In a parent without a height (an ordinary block in a page that scrolls) that resolves to nothing, so the header draws and the rows do not. |
+| `maxHeight: 240` | Implies `fitContent` and caps the table at this height. A number is px; a string is used as CSS. Past the cap, the body scrolls under its header. |
+| `firstColumn: 'plain'` | Styles the first column like the others. By default it is styled as a time column: 120–150px wide, grey, weight 500. |
+| `--twm-dt-cell-pad-block`, `--twm-dt-cell-pad-inline`, `--twm-dt-cell-line-height` | Three CSS tokens. Set them on `:root` or on any ancestor to give both densities one row height. They are unset by default, and then each density keeps its own 0.4 values. In Edge, with the tokens set to `2px`, `6px` and `1.35`, normal and compact rows both measured 21.19px. Without them, normal rows measured 27px. |
+
+**Opening a row, and which one is open**
+
+| Option | What it does |
+|---|---|
+| `onRowActivate(rowIdx, row, ev)` | Opens a row. It fires after the selection has been updated (`onRowClick` still fires before it, as in 0.4). It does not fire for a press on a control in the row (a button, link, field, or `[data-twm-action]`), for a click that ends a drag selecting text in the table, or for the second click of a double-click. `ev.type` tells you which gesture fired it. |
+| `activateOn` | Which gestures open a row: `'click'` (the default), `'dblclick'`, `'enter'`, or an array of them. A pick list, where one click selects, uses `['dblclick', 'enter']`. Enter opens the active row; if there is none, it opens the one selected row. |
+| `clickable` | Adds `twm-dt--clickable` to the table, which gives rows a pointer cursor and a hover, readonly tables included. It defaults to on exactly when `onRowActivate` is set. |
+| `selectable: 'single'` | Lets a click select exactly one row. Shift and Ctrl do not extend the selection, Ctrl+A selects nothing, and `setSelection` keeps the last index it is given. |
+| `getRowKey(row, idx)`, `activeRow`, `setActiveRow(key)`, `getActiveRow()` | Mark the open row: `twm-dt-row--active` and `aria-current="true"`, drawn as an accent on the left edge. The mark is not the selection. It survives `setData`, sorting, filtering and paging, and a right-click does not move it. |
+
+The landing helper `attachLandingTableBehavior` now uses the same rule as
+`onRowActivate` to decide whether a click opens a row. As a result, a
+double-click opens the row once, not twice, and a click that ends a text
+selection does not open it.
+
+**Row state**
+
+| Option | What it does |
+|---|---|
+| `rowClass(row, idx)`, `rowAttrs(row, idx)` | Add classes and attributes to the row's `<tr>`. They follow the row through sorts and filters, and `updateRow` asks again, so a class the row no longer earns is removed. |
+| `cellClass(value, colIdx, row, idx)` | Adds classes to a cell, after its type class. |
+| `rowIcon(row, idx)` | Draws an icon (`'name'` or `{ icon, title, tone }`) at the start of the first cell. It is drawn from an attribute, so the icon's name is not part of the cell's text, its tooltip or a copy. |
+| `emptyState` | Text, a node, or a function, shown in place of `emptyMessage`. It is hidden while `setLoading(true)` is on. |
+| `setError(message \| node \| Error \| null)` | Shows a failure inside the table. If there are rows on screen, they stay, under a `role="alert"` banner. If there are none, the failure takes the place of the empty row. `setData({ rows })` and `setError(null)` clear it. |
+| `showRowNumbers: 'position'` | Numbers rows 1, 2, 3 in the order shown, after a sort, a filter, or on a later page. `true` still numbers rows by their original index. |
+| `nullDisplay: 'NULL'` | Draws `null` and `undefined` as this text, adds `twm-dt-cell--null` to the cell, and copies the text as well. |
+
+**Values, not text**
+
+| Option | What it does |
+|---|---|
+| `columnTypes: [..., 'date' \| 'datetime' \| 'duration']` (or `getColumnType`) | Sorts and filters the column by its value: an ISO string, a `Date` or epoch ms for dates, and milliseconds or text such as `'3.2 s'` for durations. Text that cannot be read is shown as it came. A date-only value such as `2026-10-05` is a calendar date, so the time zone never moves it. |
+| `dateFormat`, `dateTimeFormat` | **Default ISO: `YYYY-MM-DD` and `YYYY-MM-DD HH:mm`.** Pass a pattern (`DD.MM.YYYY`, `D MMM YYYY, h:mm a`, with `[literal]` text) or a function `(date) => string`, for every column or per column index. |
+| `durationFormat` | `'auto'` (`850 ms`, `3.2 s`, `2m 5s`, `1h 2m`), `'clock'` (`1:02:05`), or a function. |
+| `dateTimeZone: 'UTC'` | Reads and draws typed dates in UTC instead of the local zone. |
+| `sortValue(value, colIdx, row)` | Sets what a column sorts by, for every column or (as an object or array) per column. Return `undefined` to fall back to the column's own rule. |
+
+The column filters work on values. On a date column, `2026-10` matches October,
+`>2026-10` matches after October, `<=2026-10-05` includes the 5th, and
+`2026-01..2026-03` matches January through the end of March. On a duration
+column, `>1s`, `<500ms` and `1s..1m` work. Text without an operator is matched
+against the cell as drawn. `formatDate`, `formatDuration`, `parseDateValue` and
+`parseDuration` are exported, so text drawn elsewhere can use the same words
+as the table.
+
+**Housekeeping**
+
+| Option | What it does |
+|---|---|
+| `DataTable.mount(host, config)` | Builds the table and draws it. The constructor still draws nothing until `render()`. |
+| `DataTable.withDefaults(defaults)` | Returns a subclass whose `defaults` sit under every config it is given. `instanceof DataTable` holds, and it can be narrowed again. |
+| `autoDispose: true` | Calls `dispose()` once the table has been taken out of the document and is still out a task later. Do not set it on a table you detach and attach again later, such as a cached tab, because a disposed table comes back empty. |
+| `resetColumnWidths()` | Forgets every dragged, fitted or restored width, the persisted ones included, and measures the columns again. Use it after a zoom or a font change. |
+
+One change needs no option. The copy menu's document listeners (click, scroll,
+Escape, resize) now exist only while the menu is open. Before 0.5.0, a table
+that had ever been right-clicked kept them until `dispose()`.
+
 ### Scrollbars
 
 `installAutoScrollbars(root)` (from `@flexdesk/widgets`) replaces the browser's

@@ -3,7 +3,10 @@
  * pattern used by SFC / Markets / Scenarios / KPIs landings (and the
  * market-archetype instances table). Three responsibilities:
  *
- *   1. Single-click row → open the entity (handled by callers).
+ *   1. Single-click row → open the entity (handled by callers). Since 0.5.0
+ *      the click is judged by the same rule as `DataTable`'s `onRowActivate`
+ *      (`ui/components/row_activation.js`); a table that owns its rows can
+ *      use that option directly instead of this helper.
  *   2. Right-click row → custom context menu with Open / Edit / Delete
  *      (replaces DataTable's default copy-as-TSV menu for these tables;
  *      the default still applies to data tables outside this helper).
@@ -16,6 +19,7 @@
  */
 
 import { showContextMenu } from '../ui/components/context_menu.js';
+import { isRowActivation } from '../ui/components/row_activation.js';
 import { registerPanelKeys } from './panel_keys.js';
 
 /** Attach the navigation-table interactions to a host element that
@@ -85,10 +89,14 @@ export function attachLandingTableBehavior(host, getRow, entityActions, options 
             dispatch(actionBtn.dataset.twmAction, tr ? getRow(tr.__rowIndex) : null);
             return;
         }
-        // Plain row click → open. Ignore clicks on interactive controls
-        // (buttons, filter inputs, links) and anything outside a body row
-        // (pagination strip, header, empty space).
-        if (ev.target.closest('button, a, input, select, textarea')) return;
+        // Plain row click → open — by THE row-activation rule DataTable's own
+        // `onRowActivate` uses (0.5.0, `ui/components/row_activation.js`), so
+        // the two cannot drift: not on a control (a button, a field, a link),
+        // not on the click that ends a drag selecting a cell's text, and not on
+        // the second click of a double-click, which used to open the row twice.
+        // Anything outside a body row (pagination strip, header, empty space)
+        // is not a row either.
+        if (!isRowActivation(ev, 'click', { scope: host })) return;
         const tr = bodyRowFor(ev);
         if (tr) dispatch('open', getRow(tr.__rowIndex));
     };

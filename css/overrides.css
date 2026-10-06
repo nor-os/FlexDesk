@@ -1873,8 +1873,10 @@ tr:hover .twm-row-action { opacity: 1; }
 }
 .twm-data-table-component--compact .twm-preview-table th,
 .twm-data-table-component--compact .twm-preview-table td {
-    padding: 2px 6px;
-    line-height: 1.35;
+    /* 0.5.0: the row-geometry tokens (tokens.css), falling back to exactly
+     * the 0.4 compact values. */
+    padding: var(--twm-dt-cell-pad-block, 2px) var(--twm-dt-cell-pad-inline, 6px);
+    line-height: var(--twm-dt-cell-line-height, 1.35);
 }
 .twm-data-table-component--compact .twm-pagination-controls {
     padding: 1px 6px !important;

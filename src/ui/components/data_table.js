@@ -19,8 +19,133 @@
  */
 
 import { createRafResizeObserver } from '../utils/raf_resize_observer.js';
+import {
+    ISO_DATE, ISO_DATETIME, formatDate, formatDuration, matchDateFilter,
+    matchDurationFilter, parseDateValue, parseDuration,
+} from './table_values.js';
+import { isRowActivation, isRowControl } from './row_activation.js';
+
+// 0.5.0: the value helpers a typed column uses, and the one row-activation rule,
+// re-exported so a consumer reaches them where it reaches DataTable.
+export {
+    ISO_DATE, ISO_DATETIME, formatDate, formatDuration, parseDateValue,
+    parseDatePeriod, parseDuration, matchDateFilter, matchDurationFilter,
+} from './table_values.js';
+export {
+    ROW_CONTROL_SELECTOR, endsTextSelection, isRowActivation, isRowControl,
+} from './row_activation.js';
 
 const DEFAULT_PAGE_SIZE = 100;
+
+/** 0.5.0 — the column types that sort and filter by a value rather than by
+ *  the text drawn for it. */
+const TYPED_COLUMNS = new Set(['date', 'datetime', 'duration']);
+
+// ── 0.5.0 `autoDispose` ─────────────────────────────────────────────────────
+// ONE MutationObserver per document, shared by every table that asked, rather
+// than one per table: a page with forty lists would otherwise run forty
+// callbacks on every mutation anywhere in it. Each callback asks each table one
+// question (`isConnected`), and the observer disconnects itself when the last
+// table is gone.
+//
+// The tables are held WEAKLY. A table rendered into a host that never reaches
+// the page is never "taken out" of it, so it is never disposed — and a strong
+// set here would then keep it, its rows and its DOM alive for the life of the
+// page: the very leak the option exists to stop.
+const AUTO_DISPOSE = new Map();   // Document -> { observer, tables: Set<{deref()}> }
+const AUTO_REFS = new WeakMap();  // DataTable -> its entry in that set
+const weakRef = (table) => (typeof WeakRef === 'function'
+    ? new WeakRef(table) : { deref: () => table });
+
+function autoDisposeSweep(entry) {
+    for (const ref of entry.tables) {
+        const table = ref.deref();
+        if (!table) { entry.tables.delete(ref); continue; }
+        const el = table._wrapperEl;
+        if (!el) continue;
+        if (el.isConnected) { table._autoSeen = true; continue; }
+        if (!table._autoSeen || table._autoPending) continue;
+        // NOT AT ONCE. A renderer that takes a subtree out and puts it back in
+        // the same task (FlexDesk's own tile renderer re-appends every leaf in
+        // tree order) has put it back by the time this microtask runs — and one
+        // that takes a turn longer still gets one task's grace. Only a table
+        // that is STILL out after that has been removed from the page.
+        table._autoPending = true;
+        setTimeout(() => {
+            table._autoPending = false;
+            if (!entry.tables.has(ref)) return;
+            const now = table._wrapperEl;
+            if (now && !now.isConnected) table.dispose();
+        }, 0);
+    }
+    if (entry.tables.size === 0) autoDisposeRelease(entry);
+}
+
+function autoDisposeRelease(entry) {
+    for (const [doc, e] of AUTO_DISPOSE) {
+        if (e !== entry) continue;
+        try { e.observer.disconnect(); } catch (_) { /* gone */ }
+        AUTO_DISPOSE.delete(doc);
+    }
+}
+
+function autoDisposeWatch(table) {
+    const doc = table.container?.ownerDocument;
+    const MO = doc?.defaultView?.MutationObserver || globalThis.MutationObserver;
+    if (!doc || typeof MO !== 'function') return;
+    let entry = AUTO_DISPOSE.get(doc);
+    if (!entry) {
+        entry = { observer: null, tables: new Set() };
+        entry.observer = new MO(() => autoDisposeSweep(entry));
+        entry.observer.observe(doc, { childList: true, subtree: true });
+        AUTO_DISPOSE.set(doc, entry);
+    }
+    let ref = AUTO_REFS.get(table);
+    if (!ref) { ref = weakRef(table); AUTO_REFS.set(table, ref); }
+    entry.tables.add(ref);
+    if (table._wrapperEl?.isConnected) table._autoSeen = true;
+}
+
+function autoDisposeUnwatch(table) {
+    const ref = AUTO_REFS.get(table);
+    if (!ref) return;
+    for (const entry of [...AUTO_DISPOSE.values()]) {
+        if (entry.tables.delete(ref) && entry.tables.size === 0) autoDisposeRelease(entry);
+    }
+}
+
+/** A per-column option: one value for every column, or an array / object
+ *  keyed by column index. `null` and `undefined` mean "not set". */
+function perColumn(option, colIdx) {
+    if (option == null) return null;
+    if (Array.isArray(option)) return option[colIdx] ?? null;
+    if (typeof option === 'object') return option[colIdx] ?? null;
+    return option;
+}
+
+/** One sort key, comparable with `compareSortKeys`. */
+function normaliseSortKey(k) {
+    if (k == null) return null;
+    if (k instanceof Date) k = k.getTime();
+    if (typeof k === 'boolean') return k ? 1 : 0;
+    if (typeof k === 'number') return Number.isFinite(k) ? k : null;
+    if (typeof k === 'bigint') return Number(k);
+    return String(k).toLowerCase();
+}
+
+/** Nulls (and NaN) last in either direction — as the 0.4 comparator put them —
+ *  numbers before text, numbers numerically, text as lower-cased text. */
+function compareSortKeys(a, b, asc) {
+    if (a === null && b === null) return 0;
+    if (a === null) return 1;
+    if (b === null) return -1;
+    const na = typeof a === 'number';
+    const nb = typeof b === 'number';
+    let cmp;
+    if (na !== nb) cmp = na ? -1 : 1;
+    else cmp = a < b ? -1 : a > b ? 1 : 0;
+    return asc ? cmp : -cmp;
+}
 
 /** How wide auto-sizing a column is allowed to make it.
  *
@@ -39,12 +164,12 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {Array<Array>} rows - Row data (array of arrays)
  * @property {number} [pageSize=100] - Rows per page
  * @property {boolean} [pagination=true] - Enable pagination controls
- * @property {boolean} [selectable=true] - Enable row selection
+ * @property {boolean|'single'} [selectable=true] - Enable row selection. 'single' (0.5.0): a click selects exactly one row, Shift and Ctrl do not extend it, Ctrl+A selects nothing, and `setSelection` keeps the last index it is given.
  * @property {boolean} [copyable=true] - Enable copy shortcuts and context menu
  * @property {boolean} [sortable=false] - Enable column sorting
  * @property {boolean} [filterable=false] - Enable per-column filter inputs
  * @property {boolean} [readonly=false] - Read-only mode (no selection/hover effects)
- * @property {boolean} [showRowNumbers=false] - Show row number column
+ * @property {boolean|'position'} [showRowNumbers=false] - Show row number column. `true` numbers a row by its ORIGINAL index (2, 3, 4, 1 after a sort); 'position' (0.5.0) numbers the rows as SHOWN — 1, 2, 3 after a sort, a filter, or on any page.
  * @property {string} [emptyMessage='No data'] - Message when no data
  * @property {Function} [onSort] - Callback when sort changes: (column, ascending) => void
  * @property {boolean} [resetPageOnSort=false] - A client-paged table goes back to its first page on every `sortBy()` (a header click included), the way a new filter already does: on page 3, a new order otherwise draws rows 201–300 OF THE NEW ORDER under "Page 3 of 3", which reads as "it only sorted this page". OFF by default: before this key existed a sort kept the page, and a table that does not ask keeps that. Server-side paging is untouched either way — its page is the consumer's `offset`, which `sortBy` never reads or writes.
@@ -69,6 +194,29 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {boolean|{overscan?: number, rowHeight?: number}} [virtualize=false] - C10. Draw only the rows near the viewport, between a top and a bottom spacer row, and give the body table a `<colgroup>` so its column widths no longer come from whichever row happens to be first. OFF by default: nothing about a table that does not ask changes. `overscan` (rows drawn beyond each edge, default 20) and `rowHeight` (the estimate used until a real row has been measured, default 24) tune it. See `_virtUpdate` for the whole contract.
  * @property {Function} [virtualRowHeight] - `(rowIndex, baseHeight) => number`. Under `virtualize`, the height a row occupies, including anything the embedder injects in front of it (a group header) — and 0 for a row the embedder hides, which is then not drawn at all. Absent: every row is `baseHeight`, which is measured from a real row.
  * @property {Function} [onRowsRendered] - `({ rows, removed }) => void`. Under `virtualize`, called whenever the window changes after `render()` returned: `rows` are the `<tr>`s the virtualiser ADDED — the rows an embedder that decorates rows after a render would otherwise never see — and `removed` the ones it took OUT, already detached (an embedder that injected rows of its own beside them, or holds an editor in one, has to hear that they went). The rows present when `render()` returns are not reported: they are the render's, exactly as without `virtualize`.
+ *
+ * ── 0.5.0, every one of them off unless asked for ─────────────────────────
+ * @property {boolean} [fitContent=false] - The table is as tall as its rows: the wrapper is `height:auto` instead of `height:100%`, and the body grows with its rows instead of filling the box. For a list in a flowing page, whose parent has no height — where the default draws a header and NO rows.
+ * @property {number|string} [maxHeight] - Implies `fitContent`, and caps the whole table at this height (a number is px); past it the body scrolls under its header.
+ * @property {boolean} [autoDispose=false] - Call `dispose()` by itself once the table has been taken out of the document (and is still out a task later). Do NOT set it on a table you take out and put back later — a cached tab — since a disposed table comes back empty.
+ * @property {'time'|'plain'} [firstColumn='time'] - 'plain' draws the first column like every other column: no 120–150px pin, no grey, no weight. The default keeps the time-series styling the component was built around.
+ * @property {boolean} [clickable] - Draw body rows as things to press (`twm-dt--clickable`: a pointer and a hover, readonly tables included). Defaults to on exactly when `onRowActivate` is set.
+ * @property {Function} [onRowActivate] - `(rowIdx, row, ev) => void`. The row OPENS. Fired after the selection has been updated, on the gestures `activateOn` names, and never on a press on a control inside the row, a click that ends a text selection in the table, or the second click of a double-click. `ev.type` says which gesture ('click', 'dblclick' or 'keydown'). `rowIdx` is the original index, as for `onRowClick`.
+ * @property {'click'|'dblclick'|'enter'|Array<'click'|'dblclick'|'enter'>} [activateOn='click'] - Which gestures open a row. A list of things to open: 'click'. A pick list, where one click selects: ['dblclick', 'enter']. Enter opens the active row (`activeRow`), else the one selected row.
+ * @property {Function} [getRowKey] - `(row, rowIdx) => key`. A row's identity, which `activeRow` is matched by. Compared as text.
+ * @property {*} [activeRow] - The key of the row that is OPEN (the master of a master-detail): drawn `twm-dt-row--active` with `aria-current="true"`. It survives `setData`, a sort, a filter and a page, and a right-click does not move it. Without `getRowKey` the key is the row's original index. See `setActiveRow`.
+ * @property {Function} [rowClass] - `(row, rowIdx) => string|string[]|null`. Classes for the row's `<tr>`.
+ * @property {Function} [rowAttrs] - `(row, rowIdx) => {name: value}`. Attributes for the row's `<tr>` (`null`/`false` leaves one off, `true` sets it empty).
+ * @property {Function} [cellClass] - `(value, colIdx, row, rowIdx) => string|string[]|null`. Classes for a cell, after its type class.
+ * @property {Function} [rowIcon] - `(row, rowIdx) => string|{icon, title?, tone?}|null`. A Material Symbols icon at the start of the row's first cell; `tone` adds `twm-dt-row-icon--<tone>`. Drawn by CSS, so it is in neither the cell's text, its tooltip nor a copy.
+ * @property {string|Node|Function} [emptyState] - What the box says when there are no rows: text, a node, or a function returning either (called on each render). Replaces `emptyMessage`, and is hidden while `setLoading(true)` — an empty table that is still loading is not empty.
+ * @property {string} [nullDisplay] - Draw `null`/`undefined` as this text (and copy it so), with `twm-dt-cell--null` on the cell, instead of '-'.
+ * @property {Array<string|null>} [columnTypes] - Each column's type by position ('num', 'text', 'date', 'datetime', 'duration'); `null` leaves a column to `getColumnType` and detection.
+ * @property {Function|Object|Array} [sortValue] - `(value, colIdx, row) => comparable` — what a column sorts by, for every column or (as an object or array keyed by column index) for some. `undefined` falls back to the column's own rule. A `Date` sorts by its time, numbers numerically, text as lower-cased text, `null` last.
+ * @property {string|Function|Object|Array} [dateFormat='YYYY-MM-DD'] - How a 'date' column is drawn: a pattern (see `formatDate`) or `(date) => string`, for every date column or per column index.
+ * @property {string|Function|Object|Array} [dateTimeFormat='YYYY-MM-DD HH:mm'] - The same for a 'datetime' column.
+ * @property {'auto'|'clock'|Function|Object|Array} [durationFormat='auto'] - How a 'duration' column (milliseconds) is drawn: '850 ms', '3.2 s', '2m 5s' (auto) or '0:02:05' (clock).
+ * @property {'local'|'UTC'} [dateTimeZone='local'] - The zone typed date columns are read and drawn in.
  */
 
 /** C10. When the scroll box has no layout — mounted hidden, or a DOM with no
@@ -140,8 +288,36 @@ export class DataTable {
             virtualize: false,
             virtualRowHeight: null,
             onRowsRendered: null,
+            // 0.5.0. Every key below is off — or exactly the 0.4 behaviour — until
+            // a consumer sets it (D6: additive and back-compatible). The typedef
+            // says what each does.
+            fitContent: false,
+            maxHeight: null,
+            autoDispose: false,
+            firstColumn: 'time',
+            clickable: null,
+            onRowActivate: null,
+            activateOn: 'click',
+            getRowKey: null,
+            activeRow: null,
+            rowClass: null,
+            rowAttrs: null,
+            cellClass: null,
+            rowIcon: null,
+            emptyState: undefined,
+            nullDisplay: null,
+            columnTypes: null,
+            sortValue: null,
+            dateFormat: null,
+            dateTimeFormat: null,
+            durationFormat: null,
+            dateTimeZone: 'local',
             ...config,
         };
+
+        // 0.5.0. The open row's key, and the failure on show (`setError`).
+        this._activeKey = this.config.activeRow == null ? null : String(this.config.activeRow);
+        this._error = null;
 
         // C10. The render window, or null when this table draws every row.
         this._virt = null;
@@ -207,6 +383,46 @@ export class DataTable {
                 }
             });
         }
+    }
+
+    /**
+     * 0.5.0. Construct AND DRAW, in one call. The constructor draws nothing
+     * until `render()`, so every consumer that forgot the second line got an
+     * empty box; this is the two lines, once.
+     *
+     * Called on a class made by `withDefaults`, it builds that class — so the
+     * house defaults apply.
+     *
+     * @param {HTMLElement} container
+     * @param {DataTableConfig} [config]
+     * @returns {DataTable}
+     */
+    static mount(container, config = {}) {
+        const table = new this(container, config);
+        table.render();
+        return table;
+    }
+
+    /**
+     * 0.5.0. A DataTable class with house defaults: `defaults` sit under every
+     * config it is constructed (or `mount`ed) with, and the config wins key by
+     * key. It is a real subclass — `instanceof DataTable` holds — and it can be
+     * narrowed again with its own `withDefaults`.
+     *
+     *     const ListTable = DataTable.withDefaults({ mode: 'compact', sortable: true,
+     *                                                pagination: false, fitContent: true });
+     *     const table = ListTable.mount(host, { headers, rows });
+     *
+     * @param {DataTableConfig} defaults
+     * @returns {typeof DataTable}
+     */
+    static withDefaults(defaults = {}) {
+        const house = { ...defaults };
+        return class extends this {
+            constructor(container, config = {}) {
+                super(container, { ...house, ...config });
+            }
+        };
     }
 
     /** Apply a persisted blob ({sort, asc, filters, widths}) onto this
@@ -281,6 +497,16 @@ export class DataTable {
                 this._state.offset = 0;
             }
             this._columnTypes = this._detectColumnTypes();
+            // 0.5.0. New rows are an ANSWER, so a failure on show is over. The
+            // open row is not reset: it is a key, and is found again in these
+            // rows (or stays unmarked until it comes back).
+            this._error = null;
+        }
+        if (Object.prototype.hasOwnProperty.call(updates, 'activeRow')) {
+            this._activeKey = updates.activeRow == null ? null : String(updates.activeRow);
+        }
+        if (updates.columnTypes || updates.getColumnType) {
+            this._columnTypes = this._detectColumnTypes();
         }
 
         // Invalidate processed cache
@@ -301,7 +527,11 @@ export class DataTable {
      * @param {boolean} on
      */
     setLoading(on) {
+        this._loading = !!on;
         if (!this._wrapperEl) return;
+        // 0.5.0. A wrapper class as well as the overlay, so an `emptyState` can
+        // stay quiet while there is nothing YET (see the CSS).
+        this._wrapperEl.classList.toggle('twm-data-table-component--loading', !!on);
         let overlay = this._wrapperEl.querySelector('.twm-data-table__loading');
         if (on) {
             if (!overlay) {
@@ -336,11 +566,87 @@ export class DataTable {
         this._state.selected.clear();
         for (const idx of indices) {
             if (idx >= 0 && idx < this.config.rows.length) {
+                // 0.5.0. A single-selection table keeps the LAST index it is
+                // given — the most recent choice — never several.
+                if (this.config.selectable === 'single') this._state.selected.clear();
                 this._state.selected.add(idx);
             }
         }
+        if (this.config.selectable === 'single') {
+            this._state.anchorIndex = this._state.selected.size
+                ? [...this._state.selected][0] : null;
+        }
         this._updateRowSelection();
         this._notifySelectionChange();
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // 0.5.0 — the open row, the failure state, column widths
+    // ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Mark the row that is OPEN — the master of a master-detail — by its key
+     * (`getRowKey`; without it, the row's original index). `null` clears it.
+     *
+     * The mark is NOT the selection: `setData` keeps it (the key is looked for
+     * in the new rows), a right-click does not move it, and a sort, a filter or
+     * a page change finds it where the row went. Drawn as `twm-dt-row--active`
+     * and `aria-current="true"` on the row, in place — no re-render.
+     *
+     * @param {*} key
+     */
+    setActiveRow(key) {
+        this._activeKey = key == null ? null : String(key);
+        this.config.activeRow = key ?? null;
+        const tbody = this._tbodyEl;
+        if (!tbody) return;
+        for (const tr of tbody.children) {
+            if (tr.__rowIndex === undefined) continue;
+            this._paintActive(tr);
+        }
+    }
+
+    /** The open row's key, as text, or null. */
+    getActiveRow() {
+        return this._activeKey;
+    }
+
+    /**
+     * Show a FAILURE inside the table's own box: text, a node, or an `Error`
+     * (its message). The rows already drawn STAY — a failed refresh does not
+     * blank a list a person was reading — under a banner saying what failed;
+     * with no rows, the failure takes the empty row's place. `setError(null)`
+     * clears it, and so does `setData({rows})`: new rows are an answer. A
+     * failure also ends `setLoading`.
+     *
+     * @param {string|Node|Error|null} error
+     */
+    setError(error) {
+        this._error = error == null || error === false ? null : error;
+        if (this._error) this.setLoading(false);
+        if (this._wrapperEl) this.render();
+    }
+
+    /** What `setError` was last given, or null. */
+    getError() {
+        return this._error;
+    }
+
+    /**
+     * Forget every column width a person dragged, a double-click fitted or the
+     * store restored, and measure the columns again from what is on screen —
+     * for an embedder whose content has just changed size under them (a zoom,
+     * a font). Persisted widths are cleared too.
+     *
+     * @returns {boolean} whether there was a table to measure
+     */
+    resetColumnWidths() {
+        this._colWidths = {};
+        this._colWidthsSig = this._colSig();
+        this._savePersisted();
+        if (!this._headerTableEl || !this._tableEl) return false;
+        this._syncHeaderWidths();
+        return true;
     }
 
     /**
@@ -486,7 +792,24 @@ export class DataTable {
         this._wrapperEl = document.createElement('div');
         this._wrapperEl.className = 'twm-data-table-component'
             + (this.config.mode === 'compact' ? ' twm-data-table-component--compact' : '');
-        this._wrapperEl.style.cssText = 'display:flex; flex-direction:column; height:100%; min-height:0;';
+        // 0.5.0 `fitContent` / `maxHeight`. THE DEFAULT IS `height:100%`, which
+        // is right for a pane that already has a height and wrong for a list in
+        // a flowing page: against an `auto` parent it resolves to nothing, and
+        // the body (`flex:1 1 0`) gets ZERO — a header, a filter row, and every
+        // `<tr>` in the DOM with no box to draw in. A fitted table is as tall as
+        // its rows instead, up to `maxHeight`, past which its body scrolls.
+        const fit = this._fitsContent();
+        if (fit) {
+            this._wrapperEl.classList.add('twm-data-table-component--fit');
+            const max = this._maxHeightCss();
+            this._wrapperEl.style.cssText = 'display:flex; flex-direction:column; height:auto; min-height:0;'
+                + (max ? ` max-height:${max};` : '');
+        } else {
+            this._wrapperEl.style.cssText = 'display:flex; flex-direction:column; height:100%; min-height:0;';
+        }
+        // A render ends a `setLoading` (the overlay goes with the old wrapper,
+        // as it always has).
+        this._loading = false;
 
         // Pagination (top). `_createPagination` returns null when the
         // strip would be uninformative (single page, no active filter).
@@ -504,7 +827,16 @@ export class DataTable {
         tableWrap.className = this.config.readonly
             ? 'twm-preview-table-wrap twm-preview-table-wrap--wizard'
             : 'twm-preview-table-wrap';
-        tableWrap.style.cssText = 'flex:1 1 0; min-height:0; min-width:0; overflow:auto;';
+        tableWrap.style.cssText = fit
+            // As tall as its content, and the one thing that gives way under a
+            // `maxHeight`: the header and the pager keep their height.
+            ? 'flex:0 1 auto; min-height:0; min-width:0; overflow:auto;'
+            : 'flex:1 1 0; min-height:0; min-width:0; overflow:auto;';
+
+        // 0.5.0 `setError` with rows on screen: the rows STAY, under a banner.
+        if (this._error && rows.length > 0) {
+            this._wrapperEl.appendChild(this._createErrorBanner());
+        }
 
         if (rows.length === 0) {
             // Empty state — render the same chrome as the data table
@@ -518,9 +850,7 @@ export class DataTable {
             headerWrap.style.cssText
                 = 'flex:0 0 auto; overflow:hidden; min-width:0;';
             const headerTable = document.createElement('table');
-            headerTable.className = this.config.readonly
-                ? 'twm-preview-table twm-preview-table--readonly'
-                : 'twm-preview-table';
+            headerTable.className = this._tableClassName();
             const thead = document.createElement('thead');
             const tr = document.createElement('tr');
             if (showRowNumbers) {
@@ -553,9 +883,23 @@ export class DataTable {
             const colCount = headers.length + (showRowNumbers ? 1 : 0);
             const emptyTd = document.createElement('td');
             emptyTd.colSpan = colCount;
-            emptyTd.style.cssText
-                = 'text-align:center; font-style:italic; color:#888; padding:16px;';
-            emptyTd.textContent = emptyMessage;
+            if (this._error) {
+                // 0.5.0. Nothing to keep: the failure takes the empty row.
+                emptyTd.className = 'twm-data-table__empty-cell twm-data-table__empty-cell--error';
+                emptyTd.setAttribute('role', 'alert');
+                this._appendStateContent(emptyTd, this._errorContent());
+            } else if (this.config.emptyState !== undefined) {
+                // 0.5.0. The consumer's own words (or node), styled by class
+                // rather than inline, and quiet while the table is loading.
+                emptyTd.className = 'twm-data-table__empty-cell twm-data-table__empty-cell--state';
+                const state = typeof this.config.emptyState === 'function'
+                    ? this.config.emptyState() : this.config.emptyState;
+                this._appendStateContent(emptyTd, state);
+            } else {
+                emptyTd.style.cssText
+                    = 'text-align:center; font-style:italic; color:#888; padding:16px;';
+                emptyTd.textContent = emptyMessage;
+            }
             emptyTr.appendChild(emptyTd);
             tbody.appendChild(emptyTr);
             bodyTable.appendChild(tbody);
@@ -592,6 +936,9 @@ export class DataTable {
 
         this._tableWrapEl = tableWrap;
         this.container.appendChild(this._wrapperEl);
+        // 0.5.0. Watched from here, so a table rendered again after an automatic
+        // dispose (a `setData` into a re-attached host) is watched again.
+        if (this.config.autoDispose) autoDisposeWatch(this);
         if (prevScroll && this._state.offset === this._renderedOffset) {
             tableWrap.scrollTop = prevScroll.top;
             tableWrap.scrollLeft = prevScroll.left;
@@ -641,7 +988,8 @@ export class DataTable {
         }
 
         // Install interactions (readonly only prevents editing, not selection/copy)
-        if (rows.length > 0 && (this.config.selectable || this.config.copyable || !this.config.readonly)) {
+        if (rows.length > 0 && (this.config.selectable || this.config.copyable || !this.config.readonly
+                                || typeof this.config.onRowActivate === 'function')) {
             this._installInteractions();
         }
 
@@ -762,6 +1110,8 @@ export class DataTable {
      * Dispose and cleanup
      */
     dispose() {
+        autoDisposeUnwatch(this);
+        this._autoSeen = false;
         this._cleanup();
         this._closeFilterDropdown();
         this._teardownContextMenu();
@@ -836,6 +1186,19 @@ export class DataTable {
 
                 if (colType === 'num') {
                     if (!this._matchNumericFilter(value, filterText)) { pass = false; break; }
+                } else if (colType === 'date' || colType === 'datetime') {
+                    // 0.5.0. By the TIME, with the drawn words as the fallback
+                    // for text that names no period.
+                    const utc = this._utc();
+                    if (!matchDateFilter(parseDateValue(value, { utc }), filterText,
+                                         this._formatValue(value, colIdx), { utc })) {
+                        pass = false; break;
+                    }
+                } else if (colType === 'duration') {
+                    if (!matchDurationFilter(parseDuration(value), filterText,
+                                             this._formatValue(value, colIdx))) {
+                        pass = false; break;
+                    }
                 } else {
                     if (!this._matchTextFilter(value, filterText)) { pass = false; break; }
                 }
@@ -853,6 +1216,37 @@ export class DataTable {
     _applySorting(rows, indexMap) {
         const colIdx = this._state.sortColumn;
         const asc = this._state.sortAscending;
+
+        // 0.5.0. A `sortValue` hook, or a column typed by its VALUE, sorts by a
+        // key computed ONCE per row (a date is parsed once, not once per
+        // comparison). Every other column takes the 0.4 comparator below,
+        // untouched.
+        const hook = this._sortValueFor(colIdx);
+        const kind = this._columnTypes[colIdx];
+        if (hook || TYPED_COLUMNS.has(kind)) {
+            const utc = this._utc();
+            const keyOf = (row) => {
+                const value = row[colIdx];
+                if (hook) {
+                    const k = hook(value, colIdx, row);
+                    if (k !== undefined) return normaliseSortKey(k);
+                }
+                if (kind === 'date' || kind === 'datetime') {
+                    return normaliseSortKey(parseDateValue(value, { utc }));
+                }
+                if (kind === 'duration') return normaliseSortKey(parseDuration(value));
+                if (kind === 'num') {
+                    return normaliseSortKey(typeof value === 'number' ? value : parseFloat(value));
+                }
+                return value == null ? null : String(value).toLowerCase();
+            };
+            const keyed = rows.map((row, i) => ({ row, origIdx: indexMap[i], key: keyOf(row) }));
+            keyed.sort((a, b) => compareSortKeys(a.key, b.key, asc));
+            return {
+                rows: keyed.map((p) => p.row),
+                indexMap: keyed.map((p) => p.origIdx),
+            };
+        }
 
         // Build paired array for stable sort with index tracking
         const paired = rows.map((row, i) => ({ row, origIdx: indexMap[i] }));
@@ -984,8 +1378,11 @@ export class DataTable {
             const input = document.createElement('input');
             input.type = 'text';
             input.className = 'twm-data-table__filter-input';
-            const isNumeric = this._columnTypes[colIdx] === 'num';
-            input.placeholder = isNumeric ? 'e.g. >100' : 'Filter...';
+            const kind = this._columnTypes[colIdx];
+            input.placeholder = kind === 'num' ? 'e.g. >100'
+                : kind === 'date' || kind === 'datetime' ? 'e.g. >2026-01-01'
+                : kind === 'duration' ? 'e.g. >1s'
+                : 'Filter...';
 
             // Restore existing filter value
             const existingFilter = this._state.filters.get(colIdx);
@@ -1043,9 +1440,14 @@ export class DataTable {
         // Close any existing dropdown
         this._closeFilterDropdown();
 
-        const isNumeric = this._columnTypes[colIdx] === 'num';
+        const kind = this._columnTypes[colIdx];
+        const isNumeric = kind === 'num';
+        // 0.5.0. A date or a duration takes the numeric OPERATORS — before,
+        // after, between — over operands typed as text (`2026-10`, `1.5s`).
+        const isDate = kind === 'date' || kind === 'datetime';
+        const isOrdered = isNumeric || isDate || kind === 'duration';
         const currentFilter = this._state.filters.get(colIdx) || '';
-        const parsed = this._parseFilterForDropdown(currentFilter, isNumeric);
+        const parsed = this._parseFilterForDropdown(currentFilter, isOrdered ? (isNumeric ? true : kind) : false);
 
         // Build dropdown panel
         const panel = document.createElement('div');
@@ -1054,12 +1456,22 @@ export class DataTable {
         // Operator/mode select
         const selectLabel = document.createElement('label');
         selectLabel.className = 'twm-data-table__filter-dropdown-label';
-        selectLabel.textContent = isNumeric ? 'Operator' : 'Mode';
+        selectLabel.textContent = isOrdered ? 'Operator' : 'Mode';
 
         const select = document.createElement('select');
         select.className = 'twm-data-table__filter-dropdown-select';
 
-        const options = isNumeric
+        const options = isDate
+            ? [
+                { value: '=', label: 'On / in' },
+                { value: '!=', label: 'Not on / in' },
+                { value: '>', label: 'After' },
+                { value: '>=', label: 'On or after' },
+                { value: '<', label: 'Before' },
+                { value: '<=', label: 'On or before' },
+                { value: '..', label: 'Between' },
+            ]
+            : isOrdered
             ? [
                 { value: '=', label: 'Equals' },
                 { value: '!=', label: 'Not equals' },
@@ -1090,10 +1502,12 @@ export class DataTable {
         valueLabel.className = 'twm-data-table__filter-dropdown-label';
         valueLabel.textContent = 'Value';
 
+        const operandPlaceholder = isNumeric ? 'Number...'
+            : isDate ? 'YYYY-MM-DD' : isOrdered ? 'e.g. 1.5s' : 'Text...';
         const valueInput = document.createElement('input');
         valueInput.type = isNumeric ? 'number' : 'text';
         valueInput.className = 'twm-data-table__filter-dropdown-input';
-        valueInput.placeholder = isNumeric ? 'Number...' : 'Text...';
+        valueInput.placeholder = operandPlaceholder;
         valueInput.value = parsed.value;
 
         // Second value input (for "between")
@@ -1102,21 +1516,24 @@ export class DataTable {
         value2Label.textContent = 'And';
 
         const value2Input = document.createElement('input');
-        value2Input.type = 'number';
+        value2Input.type = isOrdered && !isNumeric ? 'text' : 'number';
         value2Input.className = 'twm-data-table__filter-dropdown-input';
-        value2Input.placeholder = 'Number...';
+        value2Input.placeholder = isOrdered && !isNumeric ? operandPlaceholder : 'Number...';
         value2Input.value = parsed.value2;
 
         const value2Container = document.createElement('div');
         value2Container.className = 'twm-data-table__filter-dropdown-between';
-        value2Container.style.display = (isNumeric && parsed.operator === '..') ? '' : 'none';
+        value2Container.style.display = (isOrdered && parsed.operator === '..') ? '' : 'none';
         value2Container.appendChild(value2Label);
         value2Container.appendChild(value2Input);
 
         // Toggle between fields when operator changes
         select.addEventListener('change', () => {
-            value2Container.style.display = (isNumeric && select.value === '..') ? '' : 'none';
+            value2Container.style.display = (isOrdered && select.value === '..') ? '' : 'none';
         });
+        // What `_composeFilterString` is told: true for a number (0.4), the
+        // kind for a date or a duration, false for text.
+        const composeMode = isNumeric ? true : isOrdered ? kind : false;
 
         // Actions
         const actions = document.createElement('div');
@@ -1139,7 +1556,7 @@ export class DataTable {
         applyBtn.textContent = 'Apply';
         applyBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const composed = this._composeFilterString(select.value, valueInput.value, value2Input.value, isNumeric);
+            const composed = this._composeFilterString(select.value, valueInput.value, value2Input.value, composeMode);
             filterInput.value = composed;
             this._onFilterInput(colIdx, composed);
             this._closeFilterDropdown();
@@ -1193,7 +1610,7 @@ export class DataTable {
         const handleEnter = (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
-                const composed = this._composeFilterString(select.value, valueInput.value, value2Input.value, isNumeric);
+                const composed = this._composeFilterString(select.value, valueInput.value, value2Input.value, composeMode);
                 filterInput.value = composed;
                 this._onFilterInput(colIdx, composed);
                 this._closeFilterDropdown();
@@ -1229,6 +1646,16 @@ export class DataTable {
             return { operator: isNumeric ? '=' : 'contains', value: '', value2: '' };
         }
 
+        // 0.5.0. A date or a duration (`isNumeric` is then the kind): the
+        // numeric operators, over operands that are text.
+        if (typeof isNumeric === 'string') {
+            const range = text.match(/^(.+?)\s*\.\.\s*(.+)$/);
+            if (range) return { operator: '..', value: range[1], value2: range[2] };
+            const op = text.match(/^(>=|<=|!=|>|<|=)\s*(.+)$/);
+            if (op) return { operator: op[1], value: op[2], value2: '' };
+            return { operator: '=', value: text, value2: '' };
+        }
+
         if (isNumeric) {
             // Range: "10..100"
             const rangeMatch = text.match(/^(-?[\d.]+)\.\.(-?[\d.]+)$/);
@@ -1262,6 +1689,13 @@ export class DataTable {
 
     _composeFilterString(operator, value, value2, isNumeric) {
         if (!value && operator !== '..') return '';
+
+        // 0.5.0. A date or a duration keeps its `=`: an operand with no
+        // operator is matched against the drawn words, not compared.
+        if (typeof isNumeric === 'string') {
+            if (operator === '..') return (value && value2) ? `${value}..${value2}` : '';
+            return `${operator}${value}`;
+        }
 
         if (isNumeric) {
             if (operator === '..') {
@@ -1348,10 +1782,18 @@ export class DataTable {
     }
 
     _detectColumnTypes() {
-        const { headers, rows, getColumnType } = this.config;
+        const { headers, rows, getColumnType, columnTypes } = this.config;
         const types = [];
 
         for (let colIdx = 0; colIdx < headers.length; colIdx++) {
+            // 0.5.0. A type declared by position wins over the callback and
+            // over detection — which never guesses a date: typing one is a
+            // decision about how it is drawn.
+            const declared = Array.isArray(columnTypes) ? columnTypes[colIdx] : null;
+            if (declared) {
+                types.push(declared);
+                continue;
+            }
             if (getColumnType) {
                 types.push(getColumnType(colIdx, rows));
                 continue;
@@ -1547,7 +1989,7 @@ export class DataTable {
             ? processedRows : processedRows.slice(offset, offset + pageSize);
 
         const table = document.createElement('table');
-        table.className = readonly ? 'twm-preview-table twm-preview-table--readonly' : 'twm-preview-table';
+        table.className = this._tableClassName();
         table.tabIndex = 0;
 
         // Header
@@ -1637,6 +2079,11 @@ export class DataTable {
                 : (this._processedIndexMap?.[processedIdx] ?? processedIdx);
         };
 
+        // 0.5.0 `showRowNumbers: 'position'`: where the first row drawn here
+        // stands in the order SHOWN (the page's first row on a later page).
+        this._positionBase = isServerSide ? (configOffset || 0)
+            : (this.config.pagination ? offset : 0);
+
         // Body
         const tbody = document.createElement('tbody');
         table.appendChild(tbody);
@@ -1662,11 +2109,15 @@ export class DataTable {
         const { showRowNumbers } = this.config;
         const tr = document.createElement('tr');
         tr.__rowIndex = globalIdx;
+        // 0.5.0. The row's place in the order shown (for 'position' numbers).
+        tr.__position = (this._positionBase || 0) + localIdx;
         tr.className = 'data-preview-row';
 
         if (this._state.selected.has(globalIdx)) {
             tr.classList.add('selected');
         }
+        // 0.5.0. The consumer's row classes and attributes, and the open mark.
+        this._decorateRow(tr, row, globalIdx);
         // C10. The stripe is `tr:nth-child(even)`, which is a question about a
         // row's POSITION among its siblings — and a window that drops rows off
         // its top changes every answer. `_virtSpacers` keeps the position's
@@ -2107,23 +2558,42 @@ export class DataTable {
         if (showRowNumbers) {
             const td = document.createElement('td');
             td.className = 'num';
-            td.textContent = String(globalIdx + 1);
+            // 0.5.0. 'position' counts the rows as SHOWN; `true` keeps the 0.4
+            // number, the row's original index.
+            const byPosition = this.config.showRowNumbers === 'position'
+                && Number.isInteger(tr.__position);
+            td.textContent = String((byPosition ? tr.__position : globalIdx) + 1);
             tr.appendChild(td);
         }
 
+        const { cellClass, nullDisplay } = this.config;
         for (let colIdx = 0; colIdx < row.length; colIdx++) {
             const td = document.createElement('td');
             td.className = this._columnTypes[colIdx] || 'text';
 
             // Use custom cell renderer if provided
             const value = row[colIdx];
+            let handled = false;
             if (this.config.renderCell) {
-                const handled = this.config.renderCell(td, value, colIdx, globalIdx, row);
+                handled = !!this.config.renderCell(td, value, colIdx, globalIdx, row);
                 if (!handled) {
                     td.textContent = this._formatValue(value, colIdx);
                 }
             } else {
                 td.textContent = this._formatValue(value, colIdx);
+            }
+            // 0.5.0 `nullDisplay`: a NULL is marked as one, so it can be drawn
+            // unlike the text "NULL" — unless `renderCell` drew the cell.
+            if (!handled && value == null && nullDisplay != null) {
+                td.classList.add('twm-dt-cell--null');
+            }
+            // 0.5.0 `cellClass`.
+            if (typeof cellClass === 'function') {
+                this._addClasses(td, cellClass(value, colIdx, row, globalIdx));
+            }
+            // 0.5.0 `rowIcon`, at the start of the first data cell.
+            if (colIdx === 0 && typeof this.config.rowIcon === 'function') {
+                this._prependRowIcon(td, this.config.rowIcon(row, globalIdx));
             }
 
             // Cell-level right-click hook (P2). Fires before the row-level
@@ -2241,11 +2711,301 @@ export class DataTable {
         }
 
         tr.classList.toggle('selected', this._state?.selected?.has(index) === true);
+        // 0.5.0. The row's data changed, so its classes, attributes, key and
+        // open mark are asked again (a key paused, a delivery that died).
+        this._decorateRow(tr, row, index);
 
         if (focusedCol >= 0 && tr.children[focusedCol]) {
             tr.children[focusedCol].focus?.();
         }
         return true;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // 0.5.0 — decoration, states and the typed columns
+    // ─────────────────────────────────────────────────────────────────
+
+    /** The class list both halves of the table carry: the 0.4 pair, plus the
+     *  0.5.0 modifiers a consumer asked for. */
+    _tableClassName() {
+        const names = this.config.readonly
+            ? ['twm-preview-table', 'twm-preview-table--readonly']
+            : ['twm-preview-table'];
+        if (this.config.firstColumn === 'plain') names.push('twm-dt--first-plain');
+        if (this._isClickable()) names.push('twm-dt--clickable');
+        return names.join(' ');
+    }
+
+    /** `clickable` when it is said; otherwise exactly when rows open. */
+    _isClickable() {
+        const c = this.config.clickable;
+        if (c === true || c === false) return c;
+        return typeof this.config.onRowActivate === 'function';
+    }
+
+    _fitsContent() {
+        return !!this.config.fitContent || this._maxHeightCss() !== null;
+    }
+
+    _maxHeightCss() {
+        const m = this.config.maxHeight;
+        if (m == null || m === '' || m === false) return null;
+        if (typeof m === 'number') return Number.isFinite(m) && m > 0 ? `${m}px` : null;
+        return String(m);
+    }
+
+    _utc() {
+        return String(this.config.dateTimeZone || '').toUpperCase() === 'UTC';
+    }
+
+    /** `classList.add` for whatever a hook returned: a string (space-separated
+     *  names allowed), an array of them, or nothing. */
+    _addClasses(el, names) {
+        if (!names) return [];
+        const list = (Array.isArray(names) ? names : String(names).split(/\s+/))
+            .map((n) => String(n || '').trim()).filter(Boolean);
+        if (list.length) el.classList.add(...list);
+        return list;
+    }
+
+    /** A row's key, as text, or null: `getRowKey`, else its original index. */
+    _rowKey(row, rowIdx) {
+        const fn = this.config.getRowKey;
+        let key;
+        if (typeof fn === 'function') {
+            try { key = fn(row, rowIdx); } catch (err) {
+                console.error('[DataTable] getRowKey threw', err);
+                key = null;
+            }
+        } else {
+            key = rowIdx;
+        }
+        return key == null ? null : String(key);
+    }
+
+    /** The gestures `activateOn` names, as a set. */
+    _activateOn() {
+        const a = this.config.activateOn;
+        const list = Array.isArray(a) ? a : [a || 'click'];
+        return new Set(list.map((g) => String(g).toLowerCase()));
+    }
+
+    /**
+     * Open a row on the gestures `activateOn` names, by the one rule in
+     * `row_activation.js` (a control is its own gesture, a drag that selects
+     * text is not a click, the second click of a double-click opens nothing).
+     * Delegated on the body, bound after the selection handler.
+     */
+    _installActivation(tbody, table) {
+        const on = this._activateOn();
+        const scope = this._wrapperEl;
+        // A table that selects several rows reads Shift and Ctrl as SELECTION
+        // gestures; one that does not leaves them to the consumer (ev.ctrlKey:
+        // "open it somewhere else").
+        const sel = this.config.selectable;
+        const multi = !!sel && sel !== 'single';
+        const fire = (tr, ev) => {
+            try { this.config.onRowActivate(tr.__rowIndex, tr.__row, ev); } catch (err) {
+                console.error('[DataTable] onRowActivate threw', err);
+            }
+        };
+        const rowFor = (ev) => {
+            const tr = ev.target?.closest?.('tr');
+            return tr && tr.__rowIndex !== undefined && tbody.contains(tr) ? tr : null;
+        };
+        if (on.has('click')) {
+            const onClick = (ev) => {
+                if (ev.button != null && ev.button !== 0) return;
+                const tr = rowFor(ev);
+                if (!tr || !isRowActivation(ev, 'click', { scope })) return;
+                if (multi && (ev.shiftKey || ev.ctrlKey || ev.metaKey)) return;
+                fire(tr, ev);
+            };
+            tbody.addEventListener('click', onClick);
+            this._disposers.push(() => tbody.removeEventListener('click', onClick));
+        }
+        if (on.has('dblclick')) {
+            const onDbl = (ev) => {
+                const tr = rowFor(ev);
+                if (!tr || !isRowActivation(ev, 'dblclick', { scope })) return;
+                fire(tr, ev);
+            };
+            tbody.addEventListener('dblclick', onDbl);
+            this._disposers.push(() => tbody.removeEventListener('dblclick', onDbl));
+        }
+        if (on.has('enter')) {
+            const onKey = (ev) => {
+                if (ev.key !== 'Enter' || ev.isComposing) return;
+                if (ev.ctrlKey || ev.metaKey || ev.altKey || ev.shiftKey) return;
+                if (isRowControl(ev.target, table)) return;
+                const tr = this._currentRowEl();
+                if (!tr) return;
+                ev.preventDefault();
+                fire(tr, ev);
+            };
+            table.addEventListener('keydown', onKey);
+            this._disposers.push(() => table.removeEventListener('keydown', onKey));
+        }
+    }
+
+    /** The row Enter opens: the open row when it is drawn, else the one row
+     *  selected (or the selection's anchor). */
+    _currentRowEl() {
+        const tbody = this._tbodyEl;
+        if (!tbody) return null;
+        if (this._activeKey !== null) {
+            for (const tr of tbody.children) {
+                if (tr.__rowIndex !== undefined && tr.classList.contains('twm-dt-row--active')) return tr;
+            }
+        }
+        const selected = this._state.selected;
+        let idx = null;
+        if (selected.size === 1) idx = [...selected][0];
+        else if (this._state.anchorIndex != null && selected.has(this._state.anchorIndex)) {
+            idx = this._state.anchorIndex;
+        }
+        return idx == null ? null : this.getRowElement(idx);
+    }
+
+    /** Everything `rowClass`, `rowAttrs` and the open mark put on a `<tr>`,
+     *  taken off again first — so `updateRow` cannot leave last state's class
+     *  behind. */
+    _decorateRow(tr, row, rowIdx) {
+        // The row's data, for a delegated handler (`onRowActivate`).
+        tr.__row = row;
+        const { rowClass, rowAttrs } = this.config;
+        if (tr.__twmClasses) {
+            for (const c of tr.__twmClasses) tr.classList.remove(c);
+            tr.__twmClasses = null;
+        }
+        if (typeof rowClass === 'function') {
+            const added = this._addClasses(tr, rowClass(row, rowIdx));
+            // Never take away a class this component owns.
+            tr.__twmClasses = added.filter((c) => c !== 'data-preview-row' && c !== 'selected');
+        }
+        if (tr.__twmAttrs) {
+            for (const name of tr.__twmAttrs) tr.removeAttribute(name);
+            tr.__twmAttrs = null;
+        }
+        if (typeof rowAttrs === 'function') {
+            const attrs = rowAttrs(row, rowIdx) || {};
+            const set = [];
+            for (const [name, value] of Object.entries(attrs)) {
+                if (value == null || value === false) continue;
+                try {
+                    tr.setAttribute(name, value === true ? '' : String(value));
+                    set.push(name);
+                } catch (err) {
+                    console.error(`[DataTable] rowAttrs: bad attribute "${name}"`, err);
+                }
+            }
+            tr.__twmAttrs = set;
+        }
+        if (typeof this.config.getRowKey === 'function' || this._activeKey !== null) {
+            tr.__rowKey = this._rowKey(row, rowIdx);
+        }
+        this._paintActive(tr);
+    }
+
+    /** The open mark on one row, from `_activeKey`. */
+    _paintActive(tr) {
+        if (tr.__rowKey === undefined && this._activeKey !== null && tr.__rowIndex !== undefined) {
+            // A row drawn before a key was asked for (setActiveRow after render).
+            const rows = this.config.rows;
+            const local = this._virt ? this._virtLocalOf(tr.__rowIndex) : -1;
+            const row = local >= 0 ? this._virt.rows[local] : rows?.[tr.__rowIndex];
+            tr.__rowKey = this._rowKey(row, tr.__rowIndex);
+        }
+        const on = this._activeKey !== null && tr.__rowKey === this._activeKey;
+        tr.classList.toggle('twm-dt-row--active', on);
+        if (on) tr.setAttribute('aria-current', 'true');
+        else if (tr.getAttribute('aria-current') === 'true' && !(tr.__twmAttrs || []).includes('aria-current')) {
+            tr.removeAttribute('aria-current');
+        }
+    }
+
+    /** The row icon, drawn by CSS from `data-twm-icon` so that its name is in
+     *  neither `textContent`, the clipped-cell tooltip nor a copy. */
+    _prependRowIcon(td, spec) {
+        if (!spec) return;
+        const s = typeof spec === 'string' ? { icon: spec } : spec;
+        if (!s.icon) return;
+        const icon = document.createElement('span');
+        icon.className = 'material-symbols-outlined twm-dt-row-icon'
+            + (s.tone ? ` twm-dt-row-icon--${String(s.tone).replace(/[^\w-]/g, '')}` : '');
+        icon.dataset.twmIcon = String(s.icon);
+        if (s.title) {
+            icon.title = String(s.title);
+            icon.setAttribute('role', 'img');
+            icon.setAttribute('aria-label', String(s.title));
+        } else {
+            icon.setAttribute('aria-hidden', 'true');
+        }
+        td.insertBefore(icon, td.firstChild);
+        td.classList.add('twm-dt-cell--has-icon');
+    }
+
+    /** Text, a node, or nothing, into an empty-state cell. */
+    _appendStateContent(td, content) {
+        if (content == null || content === false) return;
+        if (typeof Node !== 'undefined' && content instanceof Node) td.appendChild(content);
+        else td.textContent = String(content);
+    }
+
+    /** What `setError` holds, as something `_appendStateContent` can draw. */
+    _errorContent() {
+        const e = this._error;
+        if (e == null) return null;
+        if (typeof Node !== 'undefined' && e instanceof Node) return e;
+        if (e instanceof Error) return e.message || String(e);
+        if (typeof e === 'object' && e.message) return String(e.message);
+        return String(e);
+    }
+
+    /** The failure banner over rows that are kept. */
+    _createErrorBanner() {
+        const banner = document.createElement('div');
+        banner.className = 'twm-data-table__error';
+        banner.setAttribute('role', 'alert');
+        const icon = document.createElement('span');
+        icon.className = 'material-symbols-outlined twm-data-table__error-icon';
+        icon.setAttribute('aria-hidden', 'true');
+        icon.textContent = 'error';
+        const text = document.createElement('span');
+        text.className = 'twm-data-table__error-text';
+        const content = this._errorContent();
+        // A node is the consumer's (and is MOVED here); a copy would lose its
+        // listeners.
+        if (typeof Node !== 'undefined' && content instanceof Node) text.appendChild(content);
+        else text.textContent = String(content ?? '');
+        banner.append(icon, text);
+        return banner;
+    }
+
+    /** The `sortValue` hook for one column, or null. */
+    _sortValueFor(colIdx) {
+        const sv = this.config.sortValue;
+        if (typeof sv === 'function') return sv;
+        const fn = perColumn(sv, colIdx);
+        return typeof fn === 'function' ? fn : null;
+    }
+
+    /** The words for a value in a typed column, or `undefined` when the
+     *  column is not typed (or the value is empty). */
+    _formatTyped(value, colIdx) {
+        const kind = this._columnTypes?.[colIdx];
+        if (!TYPED_COLUMNS.has(kind) || value == null || value === '') return undefined;
+        if (kind === 'duration') {
+            return formatDuration(value, perColumn(this.config.durationFormat, colIdx) || 'auto');
+        }
+        const pattern = kind === 'datetime'
+            ? perColumn(this.config.dateTimeFormat, colIdx) || ISO_DATETIME
+            : perColumn(this.config.dateFormat, colIdx) || ISO_DATE;
+        if (typeof pattern === 'function') {
+            const t = parseDateValue(value, { utc: this._utc() });
+            return Number.isFinite(t) ? String(pattern(new Date(t), colIdx, value) ?? '') : String(value);
+        }
+        return formatDate(value, pattern, { utc: this._utc() });
     }
 
     /** Sync the (separate) header table's column widths to the body
@@ -3045,7 +3805,14 @@ export class DataTable {
                 const idx = rowEl.__rowIndex;
                 const selected = this._state.selected;
 
-                if (event.shiftKey && this._state.anchorIndex != null) {
+                if (selectable === 'single') {
+                    // 0.5.0. One row, whatever the modifiers say: Ctrl takes
+                    // the one row back off, nothing extends it.
+                    const was = selected.has(idx);
+                    selected.clear();
+                    if (!(was && (event.metaKey || event.ctrlKey))) selected.add(idx);
+                    this._state.anchorIndex = selected.size ? idx : null;
+                } else if (event.shiftKey && this._state.anchorIndex != null) {
                     const start = Math.min(this._state.anchorIndex, idx);
                     const end = Math.max(this._state.anchorIndex, idx);
                     selected.clear();
@@ -3067,6 +3834,14 @@ export class DataTable {
 
             tbody.addEventListener('click', handleRowClick);
             this._disposers.push(() => tbody.removeEventListener('click', handleRowClick));
+        }
+
+        // 0.5.0 `onRowActivate`. Bound AFTER the selection handler on the same
+        // element, so a row is selected before it is opened — the listener
+        // order is the guarantee. `onRowClick` stays exactly where it was (on
+        // the `<tr>`, before the selection), for whoever already relies on that.
+        if (typeof this.config.onRowActivate === 'function') {
+            this._installActivation(tbody, table);
         }
 
         if (copyable) {
@@ -3100,7 +3875,11 @@ export class DataTable {
                 const ctrlLike = event.ctrlKey || event.metaKey;
                 if (ctrlLike && !event.altKey) {
                     const key = String(event.key || '').toLowerCase();
-                    if (key === 'a' && selectable) {
+                    if (key === 'a' && selectable === 'single') {
+                        // 0.5.0. Nothing to select all of — and not the page's
+                        // text either.
+                        event.preventDefault();
+                    } else if (key === 'a' && selectable) {
                         event.preventDefault();
                         this._state.selected.clear();
                         // Select only visible (filtered) rows via index map
@@ -3183,8 +3962,24 @@ export class DataTable {
             e.stopPropagation();
         });
 
+        this._contextMenuEl = menu;
+        return menu;
+    }
+
+    /**
+     * The document-level listeners that close the copy menu — a click
+     * elsewhere, a scroll, Escape, a resize — held ONLY WHILE IT IS OPEN
+     * (0.5.0). They were installed the first time the menu was built and kept
+     * until `dispose()`, so every table anybody had ever right-clicked kept four
+     * listeners on the document for as long as the instance lived, and an
+     * instance whose host was thrown away without a `dispose()` kept them for
+     * the life of the page. A closed menu has nothing for them to do.
+     */
+    _armContextMenuGlobals() {
+        if (this._contextMenuGlobals.length) return;
+        const menu = this._contextMenuEl;
         const hideOnGlobal = (event) => {
-            if (event?.target && menu.contains(event.target)) return;
+            if (event?.target && menu?.contains(event.target)) return;
             this._hideContextMenu();
         };
         const hideOnEscape = (event) => {
@@ -3201,19 +3996,25 @@ export class DataTable {
         this._contextMenuGlobals.push(() => document.removeEventListener('scroll', hideOnGlobal, true));
         this._contextMenuGlobals.push(() => document.removeEventListener('keydown', hideOnEscape));
         this._contextMenuGlobals.push(() => window.removeEventListener('resize', hideOnResize));
+    }
 
-        this._contextMenuEl = menu;
-        return menu;
+    _disarmContextMenuGlobals() {
+        this._contextMenuGlobals.forEach((off) => {
+            try { off?.(); } catch (_) { /* already gone */ }
+        });
+        this._contextMenuGlobals = [];
     }
 
     _hideContextMenu() {
         if (this._contextMenuEl) {
             this._contextMenuEl.style.display = 'none';
         }
+        this._disarmContextMenuGlobals();
     }
 
     _showContextMenu(clientX, clientY) {
         const menu = this._ensureContextMenu();
+        this._armContextMenuGlobals();
         const hasSelection = this._state.selected.size > 0;
 
         menu.querySelectorAll('.twm-context-menu-item').forEach(item => {
@@ -3249,6 +4050,13 @@ export class DataTable {
     }
 
     _formatValue(value, colIndex) {
+        // 0.5.0 `nullDisplay`, then a typed column's own words — each only when
+        // asked for, so a table without them formats exactly as 0.4 did.
+        if (value == null && this.config.nullDisplay != null) {
+            return String(this.config.nullDisplay);
+        }
+        const typed = this._formatTyped(value, colIndex);
+        if (typed !== undefined) return typed;
         if (this.config.formatValue) {
             return this.config.formatValue(value, colIndex);
         }

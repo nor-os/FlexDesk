@@ -46,6 +46,21 @@ var ISO_DATE = "YYYY-MM-DD";
 var ISO_DATETIME = "YYYY-MM-DD HH:mm";
 var ISO_RE = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d{1,9}))?)?)?\s*(Z|[+-]\d{2}(?::?\d{2})?)?$/i;
 var pad = (n, w = 2) => String(Math.trunc(Math.abs(n))).padStart(w, "0");
+function daysInMonth(y, mo) {
+  if (mo !== 1) return [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mo];
+  return y % 4 === 0 && y % 100 !== 0 || y % 400 === 0 ? 29 : 28;
+}
+function partsToTime(utc, y, mo, d = 1, h = 0, mi = 0, s = 0, ms = 0) {
+  const date = /* @__PURE__ */ new Date(0);
+  if (utc) {
+    date.setUTCFullYear(y, mo, d);
+    date.setUTCHours(h, mi, s, ms);
+  } else {
+    date.setFullYear(y, mo, d);
+    date.setHours(h, mi, s, ms);
+  }
+  return date.getTime();
+}
 function parseDateValue(value, { utc = false } = {}) {
   if (value == null || value === "") return NaN;
   if (value instanceof Date) return value.getTime();
@@ -53,30 +68,27 @@ function parseDateValue(value, { utc = false } = {}) {
   const text = String(value).trim();
   if (!text) return NaN;
   const m = ISO_RE.exec(text);
-  if (m) {
-    const y = Number(m[1]);
-    const mo = Number(m[2]);
-    const d = Number(m[3]);
-    if (mo < 1 || mo > 12 || d < 1 || d > 31) return NaN;
-    const h = m[4] ? Number(m[4]) : 0;
-    const mi = m[5] ? Number(m[5]) : 0;
-    const s = m[6] ? Number(m[6]) : 0;
-    const ms = m[7] ? Math.round(Number(`0.${m[7]}`) * 1e3) : 0;
-    if (h > 24 || mi > 59 || s > 60) return NaN;
-    const zone = m[8];
-    if (zone) {
-      let offset = 0;
-      if (zone.toUpperCase() !== "Z") {
-        const sign = zone[0] === "-" ? -1 : 1;
-        const digits = zone.slice(1).replace(":", "");
-        offset = sign * (Number(digits.slice(0, 2)) * 60 + Number(digits.slice(2, 4) || 0));
-      }
-      return Date.UTC(y, mo - 1, d, h, mi, s, ms) - offset * 6e4;
+  if (!m) return NaN;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (mo < 1 || mo > 12 || d < 1 || d > daysInMonth(y, mo - 1)) return NaN;
+  const h = m[4] ? Number(m[4]) : 0;
+  const mi = m[5] ? Number(m[5]) : 0;
+  const s = m[6] ? Number(m[6]) : 0;
+  const ms = m[7] ? Math.round(Number(`0.${m[7]}`) * 1e3) : 0;
+  if (h > 24 || mi > 59 || s > 60 || h === 24 && (mi || s || ms)) return NaN;
+  const zone = m[8];
+  if (zone) {
+    let offset = 0;
+    if (zone.toUpperCase() !== "Z") {
+      const sign = zone[0] === "-" ? -1 : 1;
+      const digits = zone.slice(1).replace(":", "");
+      offset = sign * (Number(digits.slice(0, 2)) * 60 + Number(digits.slice(2, 4) || 0));
     }
-    return utc ? Date.UTC(y, mo - 1, d, h, mi, s, ms) : new Date(y, mo - 1, d, h, mi, s, ms).getTime();
+    return partsToTime(true, y, mo - 1, d, h, mi, s, ms) - offset * 6e4;
   }
-  const parsed = Date.parse(text);
-  return Number.isFinite(parsed) ? parsed : NaN;
+  return partsToTime(utc, y, mo - 1, d, h, mi, s, ms);
 }
 function formatDate(value, pattern = ISO_DATE, { utc = false } = {}) {
   if (value == null || value === "") return "";
@@ -159,7 +171,7 @@ function formatDate(value, pattern = ISO_DATE, { utc = false } = {}) {
 }
 function parseDatePeriod(text, { utc = false } = {}) {
   const t = String(text ?? "").trim();
-  const m = /^(\d{4})(?:-(\d{1,2})(?:-(\d{1,2})(?:[T ](\d{1,2})(?::(\d{2})(?::(\d{2}))?)?)?)?)?$/.exec(t);
+  const m = /^(\d{4})(?:-(\d{2})(?:-(\d{2})(?:[T ](\d{2})(?::(\d{2})(?::(\d{2}))?)?)?)?)?$/i.exec(t);
   if (m) {
     const parts = [
       Number(m[1]),
@@ -169,12 +181,11 @@ function parseDatePeriod(text, { utc = false } = {}) {
       m[5] ? Number(m[5]) : 0,
       m[6] ? Number(m[6]) : 0
     ];
-    if (parts[1] < 0 || parts[1] > 11 || parts[2] < 1 || parts[2] > 31) return null;
+    if (parts[1] < 0 || parts[1] > 11 || parts[2] < 1 || parts[2] > daysInMonth(parts[0], parts[1]) || parts[3] > 23 || parts[4] > 59 || parts[5] > 59) return null;
     const unit = m[6] ? 5 : m[5] ? 4 : m[4] ? 3 : m[3] ? 2 : m[2] ? 1 : 0;
     const next = parts.slice();
     next[unit] += 1;
-    const at = (p) => utc ? Date.UTC(...p) : new Date(...p).getTime();
-    return { start: at(parts), end: at(next) };
+    return { start: partsToTime(utc, ...parts), end: partsToTime(utc, ...next) };
   }
   const instant = parseDateValue(t, { utc });
   return Number.isFinite(instant) ? { start: instant, end: instant + 1 } : null;
@@ -350,6 +361,7 @@ function matchDurationFilter(ms, filterText, shown) {
 // src/ui/components/data_table.js
 var DEFAULT_PAGE_SIZE = 100;
 var TYPED_COLUMNS = /* @__PURE__ */ new Set(["date", "datetime", "duration"]);
+var DESELECTING_CLICKS = /* @__PURE__ */ new WeakSet();
 var AUTO_DISPOSE = /* @__PURE__ */ new Map();
 var AUTO_REFS = /* @__PURE__ */ new WeakMap();
 var weakRef = (table) => typeof WeakRef === "function" ? new WeakRef(table) : { deref: () => table };
@@ -372,7 +384,7 @@ function autoDisposeSweep(entry) {
       table._autoPending = false;
       if (!entry.tables.has(ref)) return;
       const now = table._wrapperEl;
-      if (now && !now.isConnected) table.dispose();
+      if (now && !now.isConnected) table._disposeOwn();
     }, 0);
   }
   if (entry.tables.size === 0) autoDisposeRelease(entry);
@@ -560,6 +572,7 @@ var DataTable = class {
     this._colWidthsSig = null;
     this._disposers = [];
     this._contextMenuGlobals = [];
+    this._activationOffs = [];
     if (this.config.persistKey) {
       const store = this.config.stateStore;
       this._restorePersisted(store.get(this.config.persistKey));
@@ -675,7 +688,7 @@ var DataTable = class {
     if (Object.prototype.hasOwnProperty.call(updates, "activeRow")) {
       this._activeKey = updates.activeRow == null ? null : String(updates.activeRow);
     }
-    if (updates.columnTypes || updates.getColumnType) {
+    if (Object.prototype.hasOwnProperty.call(updates, "columnTypes") && !updates.rows) {
       this._columnTypes = this._detectColumnTypes();
     }
     this._processedRows = null;
@@ -695,7 +708,10 @@ var DataTable = class {
   setLoading(on) {
     this._loading = !!on;
     if (!this._wrapperEl) return;
-    this._wrapperEl.classList.toggle("twm-data-table-component--loading", !!on);
+    this._wrapperEl.classList.toggle(
+      "twm-data-table-component--loading",
+      !!on && this.config.emptyState !== void 0
+    );
     let overlay = this._wrapperEl.querySelector(".twm-data-table__loading");
     if (on) {
       if (!overlay) {
@@ -883,6 +899,7 @@ var DataTable = class {
     const prevWrap = this._tableWrapEl;
     const prevScroll = prevWrap?.isConnected && this._renderedOffset === this._state.offset ? { top: prevWrap.scrollTop, left: prevWrap.scrollLeft } : null;
     this._cleanup();
+    this._retireActivation();
     this.container.innerHTML = "";
     this._virt = null;
     const { rows, pagination, emptyMessage } = this.config;
@@ -1117,11 +1134,26 @@ var DataTable = class {
     this._notify("Download", "Download started", "info");
   }
   /**
-   * Dispose and cleanup
+   * Dispose and cleanup. Empties the host, as it always has.
    */
   dispose() {
+    this._teardown(true);
+  }
+  /**
+   * 0.5.0 `autoDispose`'s dispose: everything `dispose()` lets go of — but of
+   * the host, only the table's OWN wrapper. A table that has been taken out
+   * of the page no longer owns its host: in the task before this runs, the
+   * consumer may have mounted the next list into it, or written its own
+   * message there, and emptying the host would wipe that.
+   */
+  _disposeOwn() {
+    this._teardown(false);
+  }
+  _teardown(emptyHost) {
     autoDisposeUnwatch(this);
     this._autoSeen = false;
+    this._runOffs(this._activationOffs);
+    this._activationOffs = [];
     this._cleanup();
     this._closeFilterDropdown();
     this._teardownContextMenu();
@@ -1140,7 +1172,8 @@ var DataTable = class {
       this._onBodyScroll = null;
       this._scrollSyncEl = null;
     }
-    this.container.innerHTML = "";
+    if (emptyHost) this.container.innerHTML = "";
+    else this._wrapperEl?.remove();
     this._wrapperEl = null;
     this._paginationEl = null;
     this._tableEl = null;
@@ -1185,7 +1218,7 @@ var DataTable = class {
       for (const [colIdx, filterText] of filters) {
         if (!filterText) continue;
         const value = row[colIdx];
-        const colType = this._columnTypes[colIdx];
+        const colType = this._valueKind(colIdx);
         if (colType === "num") {
           if (!this._matchNumericFilter(value, filterText)) {
             pass = false;
@@ -1229,7 +1262,7 @@ var DataTable = class {
     const colIdx = this._state.sortColumn;
     const asc = this._state.sortAscending;
     const hook = this._sortValueFor(colIdx);
-    const kind = this._columnTypes[colIdx];
+    const kind = this._valueKind(colIdx);
     if (hook || TYPED_COLUMNS.has(kind)) {
       const utc = this._utc();
       const keyOf = (row) => {
@@ -1360,7 +1393,7 @@ var DataTable = class {
       const input = document.createElement("input");
       input.type = "text";
       input.className = "twm-data-table__filter-input";
-      const kind = this._columnTypes[colIdx];
+      const kind = this._valueKind(colIdx);
       input.placeholder = kind === "num" ? "e.g. >100" : kind === "date" || kind === "datetime" ? "e.g. >2026-01-01" : kind === "duration" ? "e.g. >1s" : "Filter...";
       const existingFilter = this._state.filters.get(colIdx);
       if (existingFilter) {
@@ -1404,7 +1437,7 @@ var DataTable = class {
   // ─────────────────────────────────────────────────────────────────
   _openFilterDropdown(colIdx, anchorEl, filterInput) {
     this._closeFilterDropdown();
-    const kind = this._columnTypes[colIdx];
+    const kind = this._valueKind(colIdx);
     const isNumeric = kind === "num";
     const isDate = kind === "date" || kind === "datetime";
     const isOrdered = isNumeric || isDate || kind === "duration";
@@ -1667,6 +1700,30 @@ var DataTable = class {
   // ─────────────────────────────────────────────────────────────────
   // Private methods
   // ─────────────────────────────────────────────────────────────────
+  /** Run (and forget) a list of removers. */
+  _runOffs(offs) {
+    for (const off of offs || []) {
+      try {
+        off?.();
+      } catch (_) {
+      }
+    }
+  }
+  /**
+   * 0.5.0. A render takes `onRowActivate`'s listeners off the body it is
+   * replacing ONE TASK LATER, not now. The render may be running INSIDE the
+   * very click that is about to open a row — an `onSelectionChange` that calls
+   * `setData`, an `onRowClick` that calls `render` — and a listener removed
+   * during its own event's dispatch is skipped: the row silently did not
+   * open. The event's path was fixed when it was dispatched, so it still
+   * reaches the old body, whose listener opens the row that was pressed. The
+   * old body is out of the page, so nothing else can reach it meanwhile.
+   */
+  _retireActivation() {
+    const offs = this._activationOffs;
+    this._activationOffs = [];
+    if (offs.length) setTimeout(() => this._runOffs(offs), 0);
+  }
   _cleanup() {
     this._disposers.forEach((dispose) => {
       try {
@@ -2494,6 +2551,21 @@ var DataTable = class {
   _utc() {
     return String(this.config.dateTimeZone || "").toUpperCase() === "UTC";
   }
+  /**
+   * What a column is drawn, sorted and filtered BY: its type, except that a
+   * 'date', 'datetime' or 'duration' counts only when it was DECLARED through
+   * `columnTypes`. In 0.4, whatever `getColumnType` returned was the cells'
+   * class name and nothing more (only 'num' changed the sort and the
+   * filter), so a consumer that returned 'date' there to style its cells gets
+   * exactly 0.4 — its `formatValue`, its text sort, its text filter — and
+   * the class name it asked for.
+   */
+  _valueKind(colIdx) {
+    const t = this._columnTypes?.[colIdx];
+    if (!TYPED_COLUMNS.has(t)) return t;
+    const declared = Array.isArray(this.config.columnTypes) ? this.config.columnTypes[colIdx] : null;
+    return declared === t ? t : "text";
+  }
   /** `classList.add` for whatever a hook returned: a string (space-separated
    *  names allowed), an array of them, or nothing. */
   _addClasses(el, names) {
@@ -2529,6 +2601,11 @@ var DataTable = class {
    * `row_activation.js` (a control is its own gesture, a drag that selects
    * text is not a click, the second click of a double-click opens nothing).
    * Delegated on the body, bound after the selection handler.
+   *
+   * The listeners go in `_activationOffs`, not `_disposers`, and a render
+   * retires them a task late (`_retireActivation`): a press whose selection
+   * callback re-draws the table still opens the row it pressed — the row
+   * as it was drawn (`tr.__row`), with its original index.
    */
   _installActivation(tbody, table) {
     const on = this._activateOn();
@@ -2536,6 +2613,7 @@ var DataTable = class {
     const sel = this.config.selectable;
     const multi = !!sel && sel !== "single";
     const fire = (tr, ev) => {
+      if (!this._wrapperEl || typeof this.config.onRowActivate !== "function") return;
       try {
         this.config.onRowActivate(tr.__rowIndex, tr.__row, ev);
       } catch (err) {
@@ -2546,28 +2624,29 @@ var DataTable = class {
       const tr = ev.target?.closest?.("tr");
       return tr && tr.__rowIndex !== void 0 && tbody.contains(tr) ? tr : null;
     };
+    const listen = (el, type, fn) => {
+      el.addEventListener(type, fn);
+      this._activationOffs.push(() => el.removeEventListener(type, fn));
+    };
     if (on.has("click")) {
-      const onClick = (ev) => {
+      listen(tbody, "click", (ev) => {
         if (ev.button != null && ev.button !== 0) return;
         const tr = rowFor(ev);
         if (!tr || !isRowActivation(ev, "click", { scope })) return;
         if (multi && (ev.shiftKey || ev.ctrlKey || ev.metaKey)) return;
+        if (DESELECTING_CLICKS.has(ev)) return;
         fire(tr, ev);
-      };
-      tbody.addEventListener("click", onClick);
-      this._disposers.push(() => tbody.removeEventListener("click", onClick));
+      });
     }
     if (on.has("dblclick")) {
-      const onDbl = (ev) => {
+      listen(tbody, "dblclick", (ev) => {
         const tr = rowFor(ev);
         if (!tr || !isRowActivation(ev, "dblclick", { scope })) return;
         fire(tr, ev);
-      };
-      tbody.addEventListener("dblclick", onDbl);
-      this._disposers.push(() => tbody.removeEventListener("dblclick", onDbl));
+      });
     }
     if (on.has("enter")) {
-      const onKey = (ev) => {
+      listen(table, "keydown", (ev) => {
         if (ev.key !== "Enter" || ev.isComposing) return;
         if (ev.ctrlKey || ev.metaKey || ev.altKey || ev.shiftKey) return;
         if (isRowControl(ev.target, table)) return;
@@ -2575,28 +2654,33 @@ var DataTable = class {
         if (!tr) return;
         ev.preventDefault();
         fire(tr, ev);
-      };
-      table.addEventListener("keydown", onKey);
-      this._disposers.push(() => table.removeEventListener("keydown", onKey));
+      });
     }
   }
-  /** The row Enter opens: the open row when it is drawn, else the one row
-   *  selected (or the selection's anchor). */
+  /**
+   * The row Enter opens: the SELECTED one — the one row selected, or the
+   * selection's anchor — because that is the row a person just chose (a
+   * double-click opens the row it lands on, and Enter must agree with it);
+   * the open row (`activeRow`) only when nothing is selected. A selected row
+   * that is not drawn (another page) opens nothing rather than a different
+   * row.
+   */
   _currentRowEl() {
     const tbody = this._tbodyEl;
     if (!tbody) return null;
-    if (this._activeKey !== null) {
-      for (const tr of tbody.children) {
-        if (tr.__rowIndex !== void 0 && tr.classList.contains("twm-dt-row--active")) return tr;
-      }
-    }
     const selected = this._state.selected;
     let idx = null;
     if (selected.size === 1) idx = [...selected][0];
     else if (this._state.anchorIndex != null && selected.has(this._state.anchorIndex)) {
       idx = this._state.anchorIndex;
     }
-    return idx == null ? null : this.getRowElement(idx);
+    if (idx != null) return this.getRowElement(idx);
+    if (this._activeKey !== null) {
+      for (const tr of tbody.children) {
+        if (tr.__rowIndex !== void 0 && tr.classList.contains("twm-dt-row--active")) return tr;
+      }
+    }
+    return null;
   }
   /** Everything `rowClass`, `rowAttrs` and the open mark put on a `<tr>`,
    *  taken off again first — so `updateRow` cannot leave last state's class
@@ -2645,9 +2729,14 @@ var DataTable = class {
     }
     const on = this._activeKey !== null && tr.__rowKey === this._activeKey;
     tr.classList.toggle("twm-dt-row--active", on);
-    if (on) tr.setAttribute("aria-current", "true");
-    else if (tr.getAttribute("aria-current") === "true" && !(tr.__twmAttrs || []).includes("aria-current")) {
-      tr.removeAttribute("aria-current");
+    if (on) {
+      if (tr.getAttribute("aria-current") !== "true") {
+        tr.setAttribute("aria-current", "true");
+        tr.__twmAriaCurrent = true;
+      }
+    } else if (tr.__twmAriaCurrent) {
+      tr.__twmAriaCurrent = false;
+      if (!(tr.__twmAttrs || []).includes("aria-current")) tr.removeAttribute("aria-current");
     }
   }
   /** The row icon, drawn by CSS from `data-twm-icon` so that its name is in
@@ -2711,7 +2800,7 @@ var DataTable = class {
   /** The words for a value in a typed column, or `undefined` when the
    *  column is not typed (or the value is empty). */
   _formatTyped(value, colIdx) {
-    const kind = this._columnTypes?.[colIdx];
+    const kind = this._valueKind(colIdx);
     if (!TYPED_COLUMNS.has(kind) || value == null || value === "") return void 0;
     if (kind === "duration") {
       return formatDuration(value, perColumn(this.config.durationFormat, colIdx) || "auto");
@@ -3337,6 +3426,7 @@ var DataTable = class {
           const was = selected.has(idx);
           selected.clear();
           if (!(was && (event.metaKey || event.ctrlKey))) selected.add(idx);
+          else DESELECTING_CLICKS.add(event);
           this._state.anchorIndex = selected.size ? idx : null;
         } else if (event.shiftKey && this._state.anchorIndex != null) {
           const start = Math.min(this._state.anchorIndex, idx);
@@ -3609,4 +3699,4 @@ export {
   matchDurationFilter,
   DataTable
 };
-//# sourceMappingURL=chunk-4AP5DHP7.js.map
+//# sourceMappingURL=chunk-KH2GJTKR.js.map

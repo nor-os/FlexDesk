@@ -29,8 +29,18 @@
  *   §7  a copy carries the drawn words; the filter row and its dropdown speak
  *       dates and durations
  *   §8  the helpers are exported for a consumer that draws a value elsewhere
+ *   §9  getColumnType keeps its 0.4 meaning: 'date' returned there is a CLASS
+ *       NAME (formatValue draws, text sorts, text filters), and a new
+ *       getColumnType alone waits for the next rows; a new columnTypes does not
+ *   §10 a date filter TYPED ONE KEY AT A TIME narrows as it goes — never an
+ *       empty table at `2`, `202`, `2026-` — and words drawn by a non-ISO
+ *       pattern (`5 Oct`, `30 Sep`) find their rows
+ *   §11 ISO, a Date or epoch ms, or it is text: `5`, `12`, `1/2` are drawn as
+ *       they came, not as dates in 2001; a date that does not exist
+ *       (`2026-02-31`) is not rolled into March; `0001-01-01` is year 1
  *
- * Against 0.4.7, §1–§8 fail.
+ * Against 0.4.7, §1–§8, §10, §11 and §9's columnTypes half fail; against the
+ * first 0.5.0 build, §9–§11.
  *
  *     node tests/typed_columns.test.mjs
  */
@@ -97,9 +107,7 @@ section('§2 date');
     check('sorted by time, the unreadable last', col(host, 0), ['epoch', 'instant', 'iso', 'date', 'none', 'junk']);
     table.sortBy(1, false);
     check('descending', col(host, 0), ['date', 'iso', 'instant', 'epoch', 'none', 'junk']);
-    const viaCallback = mount({ headers: ['When'], rows: [['2026-10-05']], getColumnType: () => 'date' }).host;
-    check('getColumnType may type it too', col(viaCallback, 0), ['2026-10-05']);
-    ok('the cell carries its type class', bodyRows(viaCallback)[0].children[0].classList.contains('date'));
+    ok('the cell carries its type class', bodyRows(host)[0].children[1].classList.contains('date'));
 }
 
 section('§3 datetime');
@@ -222,6 +230,113 @@ section('§8 the helpers are exported');
           ['850 ms', '3.2 s', '2m 5s', '2h 1m']);
     check('parseDuration', [parseDuration('2m 5s'), parseDuration('1:02:05'), parseDuration('1.5 hours'), parseDuration('soon')].map(String),
           ['125000', '3725000', '5400000', 'NaN']);
+}
+
+section('§9 getColumnType keeps its 0.4 meaning');
+{
+    const copied = [];
+    globalThis.navigator.clipboard = { writeText: async (t) => { copied.push(t); } };
+    const rows = [['a', '2026-10-01T10:00:00Z'], ['b', '2026-09-30T23:00:00Z'], ['c', '2026-10-01T09:00:00Z']];
+    const { host, table } = mount({
+        headers: ['Id', 'When'], rows, sortable: true, filterable: true,
+        getColumnType: (colIdx) => (colIdx === 1 ? 'date' : 'text'),
+        formatValue: (v) => `fv:${v}`,
+    });
+    ok('the cell takes the class it returned', bodyRows(host)[0].children[1].classList.contains('date'));
+    check('formatValue draws it, as in 0.4', col(host, 1)[0], 'fv:2026-10-01T10:00:00Z');
+    check('the filter row offers text', host.querySelectorAll('.twm-data-table__filter-input')[1].placeholder,
+          'Filter...');
+    table.sortBy(1, false);
+    check('it sorts as text', col(host, 0), ['fv:a', 'fv:c', 'fv:b']);
+    table.setSelection([0]);
+    await table.copyToClipboard('tsv');
+    check('a copy carries formatValue\'s words', copied.at(-1).split('\n')[1], 'fv:a\tfv:2026-10-01T10:00:00Z');
+}
+{
+    const { host, table } = mount({ headers: ['N'], rows: [['1'], ['2']] });
+    check('detected', [...bodyRows(host)].map((tr) => tr.children[0].className), ['num', 'num']);
+    table.setData({ getColumnType: () => 'text' });
+    check('a new getColumnType alone waits for the next rows (0.4)',
+          [...bodyRows(host)].map((tr) => tr.children[0].className), ['num', 'num']);
+    table.setData({ rows: [['1'], ['2']] });
+    check('…and applies with them', [...bodyRows(host)].map((tr) => tr.children[0].className), ['text', 'text']);
+    table.setData({ columnTypes: ['duration'] });
+    check('a new columnTypes applies at once', col(host, 0), ['1 ms', '2 ms']);
+    table.setData({ columnTypes: null });
+    check('…and so does clearing it', [...bodyRows(host)].map((tr) => tr.children[0].className), ['text', 'text']);
+}
+
+section('§10 a date filter typed one key at a time');
+{
+    const rows = [
+        ['a', '2026-09-30T12:00:00'],
+        ['b', '2026-10-05T14:30:00'],
+        ['c', '2026-10-31T08:00:00'],
+        ['d', '2027-02-01T09:15:00'],
+        ['e', null],
+    ];
+    const { host } = mount({ headers: ['Id', 'When'], rows, filterable: true, columnTypes: [null, 'datetime'] });
+    const steps = [];
+    for (const text of ['2', '20', '202', '2026', '2026-', '2026-1', '2026-10', '2026-10-', '2026-10-0', '2026-10-05']) {
+        await typeFilter(host, 1, text);
+        steps.push(`${text}=${col(host, 0).join('')}`);
+    }
+    check('no operator: it narrows as it is typed, and never empties on the way',
+          steps, ['2=abcd', '20=abcd', '202=abcd', '2026=abc', '2026-=abc', '2026-1=bc', '2026-10=bc',
+                  '2026-10-=bc', '2026-10-0=b', '2026-10-05=b']);
+    steps.length = 0;
+    for (const text of ['>2', '>20', '>2026', '>2026-', '>2026-1', '>2026-10']) {
+        await typeFilter(host, 1, text);
+        steps.push(`${text}=${col(host, 0).join('')}`);
+    }
+    check('an operator over a half-typed date filters nothing until it is one',
+          steps, ['>2=abcde', '>20=abcde', '>2026=d', '>2026-=abcde', '>2026-1=abcde', '>2026-10=d']);
+}
+{
+    const rows = [
+        ['a', '2026-09-30T08:00:00'],
+        ['b', '2026-10-05T14:30:00'],
+        ['c', '2026-10-15T10:00:00'],
+    ];
+    const { host } = mount({ headers: ['Id', 'When'], rows, filterable: true, columnTypes: [null, 'datetime'],
+                             dateTimeFormat: 'D MMM YYYY, h:mm a' });
+    check('drawn by the pattern', col(host, 1), ['30 Sep 2026, 8:00 am', '5 Oct 2026, 2:30 pm', '15 Oct 2026, 10:00 am']);
+    const found = [];
+    for (const text of ['5 Oct', '30 Sep', '5 Oct 2026', '15 Oct', 'Oct', '2:30']) {
+        await typeFilter(host, 1, text);
+        found.push(`${text}=${col(host, 0).join('')}`);
+    }
+    check('the words drawn find their rows', found,
+          ['5 Oct=bc', '30 Sep=a', '5 Oct 2026=bc', '15 Oct=c', 'Oct=bc', '2:30=b']);
+}
+
+section('§11 ISO, a Date or epoch ms — or it is text');
+{
+    const rows = [['a', '5'], ['b', '12'], ['c', '1/2'], ['d', 'Mon, 05 Oct 2026 14:30:00 GMT'],
+                  ['e', '2026-02-31'], ['f', '2026-04-31'], ['g', '2026-02-29'], ['h', '2024-02-29'],
+                  ['i', '0001-01-01'], ['j', '2026-10-05']];
+    const { host, table } = mount({ headers: ['Id', 'Due'], rows, sortable: true, filterable: true,
+                                    columnTypes: [null, 'date'] });
+    check('drawn as they came unless they are ISO dates that exist', col(host, 1),
+          ['5', '12', '1/2', 'Mon, 05 Oct 2026 14:30:00 GMT', '2026-02-31', '2026-04-31', '2026-02-29',
+           '2024-02-29', '0001-01-01', '2026-10-05']);
+    table.sortBy(1, true);
+    check('the dates sort by time; the text after them', col(host, 0).slice(0, 3), ['i', 'h', 'j']);
+    await typeFilter(host, 1, '=2026-03-03');
+    check('2026-02-31 is not the 3rd of March', col(host, 0), []);
+    await typeFilter(host, 1, '2026-02-31');
+    check('…it is text, and its words find it', col(host, 0), ['e']);
+    const { parseDateValue, parseDatePeriod, formatDate } = T;
+    check('parseDateValue: no Date.parse fallback',
+          ['5', '12', '1/2', '5 Oct', 'Oct 5 2026', '2026-02-31', '2026-10-05 24:01'].map((v) => String(parseDateValue(v))),
+          ['NaN', 'NaN', 'NaN', 'NaN', 'NaN', 'NaN', 'NaN']);
+    check('…the end of a day is the next day', formatDate('2026-10-05 24:00', 'YYYY-MM-DD HH:mm'), '2026-10-06 00:00');
+    check('year 1 is year 1', formatDate(parseDateValue('0001-01-01T00:00:00Z'), 'YYYY-MM-DD', { utc: true }), '0001-01-01');
+    check('parseDatePeriod: an ISO prefix with two-digit parts, or nothing',
+          ['2', '202', '2026-', '2026-1', '2026-10-5', '5 Oct', '2026-02-31', '2026-10-05 25'].map((v) => parseDatePeriod(v)),
+          [null, null, null, null, null, null, null, null]);
+    const oct = parseDatePeriod('2026-10');
+    check('…and a month is the month', [oct.start, oct.end], [new Date(2026, 9, 1).getTime(), new Date(2026, 10, 1).getTime()]);
 }
 
 T.done();

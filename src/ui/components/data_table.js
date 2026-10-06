@@ -41,6 +41,13 @@ const DEFAULT_PAGE_SIZE = 100;
  *  the text drawn for it. */
 const TYPED_COLUMNS = new Set(['date', 'datetime', 'duration']);
 
+/** 0.5.0. The clicks with which a `selectable: 'single'` table took its row
+ *  back OFF the selection (Ctrl on the chosen row). `onRowActivate` does not
+ *  open a row on such a click. Marked on the EVENT, not read back from the
+ *  selection, because a selection callback that re-draws with new rows clears
+ *  the selection before the activation listener runs. */
+const DESELECTING_CLICKS = new WeakSet();
+
 // ── 0.5.0 `autoDispose` ─────────────────────────────────────────────────────
 // ONE MutationObserver per document, shared by every table that asked, rather
 // than one per table: a page with forty lists would otherwise run forty
@@ -75,7 +82,10 @@ function autoDisposeSweep(entry) {
             table._autoPending = false;
             if (!entry.tables.has(ref)) return;
             const now = table._wrapperEl;
-            if (now && !now.isConnected) table.dispose();
+            // `_disposeOwn`, NOT `dispose()`: by now the host may hold
+            // something else — the next list mounted into it, or the pane's
+            // own message — and `dispose()` empties the host.
+            if (now && !now.isConnected) table._disposeOwn();
         }, 0);
     }
     if (entry.tables.size === 0) autoDisposeRelease(entry);
@@ -176,7 +186,7 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {Function} [onSelectionChange] - Callback when selection changes: (selectedIndices) => void
  * @property {Function} [formatValue] - Custom value formatter: (value, colIndex) => string
  * @property {Function} [getHeaderIcon] - Get icon for header: (header, colIndex) => {icon, title}
- * @property {Function} [getColumnType] - Get column type: (colIndex, rows) => 'num'|'text'
+ * @property {Function} [getColumnType] - Get column type: (colIndex, rows) => 'num'|'text'. What it returns is the cells' class name, and 'num' also sorts and filters as a number — exactly as in 0.4. A date, datetime or duration column is declared through `columnTypes` (0.5.0): returned from here, those names are class names only.
  * @property {Object} [services] - App services { eventBus, logger } for notifications
  * @property {number} [totalCount] - Total row count for server-side pagination (when rows only contains current page)
  * @property {number} [offset=0] - Current offset for server-side pagination
@@ -198,11 +208,11 @@ const AUTOSIZE_MAX_PX = 520;
  * ── 0.5.0, every one of them off unless asked for ─────────────────────────
  * @property {boolean} [fitContent=false] - The table is as tall as its rows: the wrapper is `height:auto` instead of `height:100%`, and the body grows with its rows instead of filling the box. For a list in a flowing page, whose parent has no height — where the default draws a header and NO rows.
  * @property {number|string} [maxHeight] - Implies `fitContent`, and caps the whole table at this height (a number is px); past it the body scrolls under its header.
- * @property {boolean} [autoDispose=false] - Call `dispose()` by itself once the table has been taken out of the document (and is still out a task later). Do NOT set it on a table you take out and put back later — a cached tab — since a disposed table comes back empty.
+ * @property {boolean} [autoDispose=false] - Dispose by itself once the table has been taken out of the document (and is still out a task later). Unlike `dispose()`, it removes only the table's own elements and never empties the host, which by then may hold the next list or the pane's own message. Do NOT set it on a table you take out and put back later — a cached tab — since a disposed table comes back empty.
  * @property {'time'|'plain'} [firstColumn='time'] - 'plain' draws the first column like every other column: no 120–150px pin, no grey, no weight. The default keeps the time-series styling the component was built around.
  * @property {boolean} [clickable] - Draw body rows as things to press (`twm-dt--clickable`: a pointer and a hover, readonly tables included). Defaults to on exactly when `onRowActivate` is set.
- * @property {Function} [onRowActivate] - `(rowIdx, row, ev) => void`. The row OPENS. Fired after the selection has been updated, on the gestures `activateOn` names, and never on a press on a control inside the row, a click that ends a text selection in the table, or the second click of a double-click. `ev.type` says which gesture ('click', 'dblclick' or 'keydown'). `rowIdx` is the original index, as for `onRowClick`.
- * @property {'click'|'dblclick'|'enter'|Array<'click'|'dblclick'|'enter'>} [activateOn='click'] - Which gestures open a row. A list of things to open: 'click'. A pick list, where one click selects: ['dblclick', 'enter']. Enter opens the active row (`activeRow`), else the one selected row.
+ * @property {Function} [onRowActivate] - `(rowIdx, row, ev) => void`. The row OPENS. Fired after the selection has been updated, on the gestures `activateOn` names, and never on a press on a control inside the row, a click that ends a text selection in the table, the second click of a double-click, or (`selectable: 'single'`) the Ctrl click that took the row off the selection. `ev.type` says which gesture ('click', 'dblclick' or 'keydown'). `rowIdx` is the original index, as for `onRowClick`. A press whose `onSelectionChange` or `onRowClick` re-draws the table still opens the row pressed; `row` is that row as it was drawn.
+ * @property {'click'|'dblclick'|'enter'|Array<'click'|'dblclick'|'enter'>} [activateOn='click'] - Which gestures open a row. A list of things to open: 'click'. A pick list, where one click selects: ['dblclick', 'enter']. Enter opens the selected row (the one row selected, or the selection's anchor) — the row a double-click on it would open; with nothing selected, the active row (`activeRow`).
  * @property {Function} [getRowKey] - `(row, rowIdx) => key`. A row's identity, which `activeRow` is matched by. Compared as text.
  * @property {*} [activeRow] - The key of the row that is OPEN (the master of a master-detail): drawn `twm-dt-row--active` with `aria-current="true"`. It survives `setData`, a sort, a filter and a page, and a right-click does not move it. Without `getRowKey` the key is the row's original index. See `setActiveRow`.
  * @property {Function} [rowClass] - `(row, rowIdx) => string|string[]|null`. Classes for the row's `<tr>`.
@@ -211,7 +221,7 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {Function} [rowIcon] - `(row, rowIdx) => string|{icon, title?, tone?}|null`. A Material Symbols icon at the start of the row's first cell; `tone` adds `twm-dt-row-icon--<tone>`. Drawn by CSS, so it is in neither the cell's text, its tooltip nor a copy.
  * @property {string|Node|Function} [emptyState] - What the box says when there are no rows: text, a node, or a function returning either (called on each render). Replaces `emptyMessage`, and is hidden while `setLoading(true)` — an empty table that is still loading is not empty.
  * @property {string} [nullDisplay] - Draw `null`/`undefined` as this text (and copy it so), with `twm-dt-cell--null` on the cell, instead of '-'.
- * @property {Array<string|null>} [columnTypes] - Each column's type by position ('num', 'text', 'date', 'datetime', 'duration'); `null` leaves a column to `getColumnType` and detection.
+ * @property {Array<string|null>} [columnTypes] - Each column's type by position ('num', 'text', 'date', 'datetime', 'duration'); `null` leaves a column to `getColumnType` and detection. Only a type declared HERE makes a column a date, datetime or duration column — drawn, sorted and filtered by its value; `setData({columnTypes})` applies a new list at once.
  * @property {Function|Object|Array} [sortValue] - `(value, colIdx, row) => comparable` — what a column sorts by, for every column or (as an object or array keyed by column index) for some. `undefined` falls back to the column's own rule. A `Date` sorts by its time, numbers numerically, text as lower-cased text, `null` last.
  * @property {string|Function|Object|Array} [dateFormat='YYYY-MM-DD'] - How a 'date' column is drawn: a pattern (see `formatDate`) or `(date) => string`, for every date column or per column index.
  * @property {string|Function|Object|Array} [dateTimeFormat='YYYY-MM-DD HH:mm'] - The same for a 'datetime' column.
@@ -368,6 +378,9 @@ export class DataTable {
         // Event cleanup
         this._disposers = [];
         this._contextMenuGlobals = [];
+        // 0.5.0. `onRowActivate`'s listeners are kept apart from `_disposers`:
+        // a render does not remove them at once (see `_retireActivation`).
+        this._activationOffs = [];
 
         // Persistence: seed from whatever's already cached, then — once
         // the on-disk blob has loaded — re-apply and re-render if state
@@ -505,7 +518,10 @@ export class DataTable {
         if (Object.prototype.hasOwnProperty.call(updates, 'activeRow')) {
             this._activeKey = updates.activeRow == null ? null : String(updates.activeRow);
         }
-        if (updates.columnTypes || updates.getColumnType) {
+        // 0.5.0. A new `columnTypes` list (null included) applies at once. A new
+        // `getColumnType` alone does NOT re-detect: in 0.4 it took effect with
+        // the next rows, and a table that asks for nothing new keeps that.
+        if (Object.prototype.hasOwnProperty.call(updates, 'columnTypes') && !updates.rows) {
             this._columnTypes = this._detectColumnTypes();
         }
 
@@ -530,8 +546,11 @@ export class DataTable {
         this._loading = !!on;
         if (!this._wrapperEl) return;
         // 0.5.0. A wrapper class as well as the overlay, so an `emptyState` can
-        // stay quiet while there is nothing YET (see the CSS).
-        this._wrapperEl.classList.toggle('twm-data-table-component--loading', !!on);
+        // stay quiet while there is nothing YET (see the CSS) — and ONLY for a
+        // table with an `emptyState`, the one thing that reads it: a table that
+        // asks for nothing new keeps 0.4's wrapper to the attribute.
+        this._wrapperEl.classList.toggle('twm-data-table-component--loading',
+                                         !!on && this.config.emptyState !== undefined);
         let overlay = this._wrapperEl.querySelector('.twm-data-table__loading');
         if (on) {
             if (!overlay) {
@@ -764,6 +783,7 @@ export class DataTable {
             ? { top: prevWrap.scrollTop, left: prevWrap.scrollLeft } : null;
 
         this._cleanup();
+        this._retireActivation();
         this.container.innerHTML = '';
         // C10. A window belongs to one tbody; `_createTable` builds a new one.
         this._virt = null;
@@ -1107,11 +1127,28 @@ export class DataTable {
     }
 
     /**
-     * Dispose and cleanup
+     * Dispose and cleanup. Empties the host, as it always has.
      */
     dispose() {
+        this._teardown(true);
+    }
+
+    /**
+     * 0.5.0 `autoDispose`'s dispose: everything `dispose()` lets go of — but of
+     * the host, only the table's OWN wrapper. A table that has been taken out
+     * of the page no longer owns its host: in the task before this runs, the
+     * consumer may have mounted the next list into it, or written its own
+     * message there, and emptying the host would wipe that.
+     */
+    _disposeOwn() {
+        this._teardown(false);
+    }
+
+    _teardown(emptyHost) {
         autoDisposeUnwatch(this);
         this._autoSeen = false;
+        this._runOffs(this._activationOffs);
+        this._activationOffs = [];
         this._cleanup();
         this._closeFilterDropdown();
         this._teardownContextMenu();
@@ -1126,7 +1163,8 @@ export class DataTable {
             this._onBodyScroll = null;
             this._scrollSyncEl = null;
         }
-        this.container.innerHTML = '';
+        if (emptyHost) this.container.innerHTML = '';
+        else this._wrapperEl?.remove();
         this._wrapperEl = null;
         this._paginationEl = null;
         this._tableEl = null;
@@ -1182,7 +1220,7 @@ export class DataTable {
             for (const [colIdx, filterText] of filters) {
                 if (!filterText) continue;
                 const value = row[colIdx];
-                const colType = this._columnTypes[colIdx];
+                const colType = this._valueKind(colIdx);
 
                 if (colType === 'num') {
                     if (!this._matchNumericFilter(value, filterText)) { pass = false; break; }
@@ -1222,7 +1260,7 @@ export class DataTable {
         // comparison). Every other column takes the 0.4 comparator below,
         // untouched.
         const hook = this._sortValueFor(colIdx);
-        const kind = this._columnTypes[colIdx];
+        const kind = this._valueKind(colIdx);
         if (hook || TYPED_COLUMNS.has(kind)) {
             const utc = this._utc();
             const keyOf = (row) => {
@@ -1378,7 +1416,7 @@ export class DataTable {
             const input = document.createElement('input');
             input.type = 'text';
             input.className = 'twm-data-table__filter-input';
-            const kind = this._columnTypes[colIdx];
+            const kind = this._valueKind(colIdx);
             input.placeholder = kind === 'num' ? 'e.g. >100'
                 : kind === 'date' || kind === 'datetime' ? 'e.g. >2026-01-01'
                 : kind === 'duration' ? 'e.g. >1s'
@@ -1440,7 +1478,7 @@ export class DataTable {
         // Close any existing dropdown
         this._closeFilterDropdown();
 
-        const kind = this._columnTypes[colIdx];
+        const kind = this._valueKind(colIdx);
         const isNumeric = kind === 'num';
         // 0.5.0. A date or a duration takes the numeric OPERATORS — before,
         // after, between — over operands typed as text (`2026-10`, `1.5s`).
@@ -1768,6 +1806,29 @@ export class DataTable {
     // ─────────────────────────────────────────────────────────────────
     // Private methods
     // ─────────────────────────────────────────────────────────────────
+
+    /** Run (and forget) a list of removers. */
+    _runOffs(offs) {
+        for (const off of offs || []) {
+            try { off?.(); } catch (_) { /* already gone */ }
+        }
+    }
+
+    /**
+     * 0.5.0. A render takes `onRowActivate`'s listeners off the body it is
+     * replacing ONE TASK LATER, not now. The render may be running INSIDE the
+     * very click that is about to open a row — an `onSelectionChange` that calls
+     * `setData`, an `onRowClick` that calls `render` — and a listener removed
+     * during its own event's dispatch is skipped: the row silently did not
+     * open. The event's path was fixed when it was dispatched, so it still
+     * reaches the old body, whose listener opens the row that was pressed. The
+     * old body is out of the page, so nothing else can reach it meanwhile.
+     */
+    _retireActivation() {
+        const offs = this._activationOffs;
+        this._activationOffs = [];
+        if (offs.length) setTimeout(() => this._runOffs(offs), 0);
+    }
 
     _cleanup() {
         this._disposers.forEach(dispose => {
@@ -2758,6 +2819,22 @@ export class DataTable {
         return String(this.config.dateTimeZone || '').toUpperCase() === 'UTC';
     }
 
+    /**
+     * What a column is drawn, sorted and filtered BY: its type, except that a
+     * 'date', 'datetime' or 'duration' counts only when it was DECLARED through
+     * `columnTypes`. In 0.4, whatever `getColumnType` returned was the cells'
+     * class name and nothing more (only 'num' changed the sort and the
+     * filter), so a consumer that returned 'date' there to style its cells gets
+     * exactly 0.4 — its `formatValue`, its text sort, its text filter — and
+     * the class name it asked for.
+     */
+    _valueKind(colIdx) {
+        const t = this._columnTypes?.[colIdx];
+        if (!TYPED_COLUMNS.has(t)) return t;
+        const declared = Array.isArray(this.config.columnTypes) ? this.config.columnTypes[colIdx] : null;
+        return declared === t ? t : 'text';
+    }
+
     /** `classList.add` for whatever a hook returned: a string (space-separated
      *  names allowed), an array of them, or nothing. */
     _addClasses(el, names) {
@@ -2795,6 +2872,11 @@ export class DataTable {
      * `row_activation.js` (a control is its own gesture, a drag that selects
      * text is not a click, the second click of a double-click opens nothing).
      * Delegated on the body, bound after the selection handler.
+     *
+     * The listeners go in `_activationOffs`, not `_disposers`, and a render
+     * retires them a task late (`_retireActivation`): a press whose selection
+     * callback re-draws the table still opens the row it pressed — the row
+     * as it was drawn (`tr.__row`), with its original index.
      */
     _installActivation(tbody, table) {
         const on = this._activateOn();
@@ -2805,6 +2887,9 @@ export class DataTable {
         const sel = this.config.selectable;
         const multi = !!sel && sel !== 'single';
         const fire = (tr, ev) => {
+            // A table disposed by the press (its selection callback threw the
+            // list away) opens nothing.
+            if (!this._wrapperEl || typeof this.config.onRowActivate !== 'function') return;
             try { this.config.onRowActivate(tr.__rowIndex, tr.__row, ev); } catch (err) {
                 console.error('[DataTable] onRowActivate threw', err);
             }
@@ -2813,28 +2898,32 @@ export class DataTable {
             const tr = ev.target?.closest?.('tr');
             return tr && tr.__rowIndex !== undefined && tbody.contains(tr) ? tr : null;
         };
+        const listen = (el, type, fn) => {
+            el.addEventListener(type, fn);
+            this._activationOffs.push(() => el.removeEventListener(type, fn));
+        };
         if (on.has('click')) {
-            const onClick = (ev) => {
+            listen(tbody, 'click', (ev) => {
                 if (ev.button != null && ev.button !== 0) return;
                 const tr = rowFor(ev);
                 if (!tr || !isRowActivation(ev, 'click', { scope })) return;
                 if (multi && (ev.shiftKey || ev.ctrlKey || ev.metaKey)) return;
+                // 'single': a Ctrl click that took the row back OFF the
+                // selection does not also open it (the selection handler, bound
+                // first, said so on the event).
+                if (DESELECTING_CLICKS.has(ev)) return;
                 fire(tr, ev);
-            };
-            tbody.addEventListener('click', onClick);
-            this._disposers.push(() => tbody.removeEventListener('click', onClick));
+            });
         }
         if (on.has('dblclick')) {
-            const onDbl = (ev) => {
+            listen(tbody, 'dblclick', (ev) => {
                 const tr = rowFor(ev);
                 if (!tr || !isRowActivation(ev, 'dblclick', { scope })) return;
                 fire(tr, ev);
-            };
-            tbody.addEventListener('dblclick', onDbl);
-            this._disposers.push(() => tbody.removeEventListener('dblclick', onDbl));
+            });
         }
         if (on.has('enter')) {
-            const onKey = (ev) => {
+            listen(table, 'keydown', (ev) => {
                 if (ev.key !== 'Enter' || ev.isComposing) return;
                 if (ev.ctrlKey || ev.metaKey || ev.altKey || ev.shiftKey) return;
                 if (isRowControl(ev.target, table)) return;
@@ -2842,29 +2931,34 @@ export class DataTable {
                 if (!tr) return;
                 ev.preventDefault();
                 fire(tr, ev);
-            };
-            table.addEventListener('keydown', onKey);
-            this._disposers.push(() => table.removeEventListener('keydown', onKey));
+            });
         }
     }
 
-    /** The row Enter opens: the open row when it is drawn, else the one row
-     *  selected (or the selection's anchor). */
+    /**
+     * The row Enter opens: the SELECTED one — the one row selected, or the
+     * selection's anchor — because that is the row a person just chose (a
+     * double-click opens the row it lands on, and Enter must agree with it);
+     * the open row (`activeRow`) only when nothing is selected. A selected row
+     * that is not drawn (another page) opens nothing rather than a different
+     * row.
+     */
     _currentRowEl() {
         const tbody = this._tbodyEl;
         if (!tbody) return null;
-        if (this._activeKey !== null) {
-            for (const tr of tbody.children) {
-                if (tr.__rowIndex !== undefined && tr.classList.contains('twm-dt-row--active')) return tr;
-            }
-        }
         const selected = this._state.selected;
         let idx = null;
         if (selected.size === 1) idx = [...selected][0];
         else if (this._state.anchorIndex != null && selected.has(this._state.anchorIndex)) {
             idx = this._state.anchorIndex;
         }
-        return idx == null ? null : this.getRowElement(idx);
+        if (idx != null) return this.getRowElement(idx);
+        if (this._activeKey !== null) {
+            for (const tr of tbody.children) {
+                if (tr.__rowIndex !== undefined && tr.classList.contains('twm-dt-row--active')) return tr;
+            }
+        }
+        return null;
     }
 
     /** Everything `rowClass`, `rowAttrs` and the open mark put on a `<tr>`,
@@ -2918,9 +3012,17 @@ export class DataTable {
         }
         const on = this._activeKey !== null && tr.__rowKey === this._activeKey;
         tr.classList.toggle('twm-dt-row--active', on);
-        if (on) tr.setAttribute('aria-current', 'true');
-        else if (tr.getAttribute('aria-current') === 'true' && !(tr.__twmAttrs || []).includes('aria-current')) {
-            tr.removeAttribute('aria-current');
+        // `aria-current` is taken off only where THIS component wrote it. A
+        // consumer that marks its open row itself (0.4 had no mark of its own,
+        // and `updateRow` re-decorates a row) keeps the attribute it set.
+        if (on) {
+            if (tr.getAttribute('aria-current') !== 'true') {
+                tr.setAttribute('aria-current', 'true');
+                tr.__twmAriaCurrent = true;
+            }
+        } else if (tr.__twmAriaCurrent) {
+            tr.__twmAriaCurrent = false;
+            if (!(tr.__twmAttrs || []).includes('aria-current')) tr.removeAttribute('aria-current');
         }
     }
 
@@ -2993,7 +3095,7 @@ export class DataTable {
     /** The words for a value in a typed column, or `undefined` when the
      *  column is not typed (or the value is empty). */
     _formatTyped(value, colIdx) {
-        const kind = this._columnTypes?.[colIdx];
+        const kind = this._valueKind(colIdx);
         if (!TYPED_COLUMNS.has(kind) || value == null || value === '') return undefined;
         if (kind === 'duration') {
             return formatDuration(value, perColumn(this.config.durationFormat, colIdx) || 'auto');
@@ -3811,6 +3913,7 @@ export class DataTable {
                     const was = selected.has(idx);
                     selected.clear();
                     if (!(was && (event.metaKey || event.ctrlKey))) selected.add(idx);
+                    else DESELECTING_CLICKS.add(event);   // so it does not ALSO open it
                     this._state.anchorIndex = selected.size ? idx : null;
                 } else if (event.shiftKey && this._state.anchorIndex != null) {
                     const start = Math.min(this._state.anchorIndex, idx);

@@ -25,8 +25,14 @@
  *   §5  after an automatic dispose, setData into a re-attached host draws again
  *       and is watched again
  *   §6  the copy menu's document listeners exist only while it is open
+ *   §7  THE HOST IS NOT THE TABLE'S ONCE IT IS TAKEN OUT: the next list
+ *       mounted into the same host (with or without autoDispose, through
+ *       `withDefaults(...).mount` too) is still drawn a task later — the
+ *       automatic dispose used to empty the host, and the new list with it
+ *   §8  …nor is a message the pane writes into the host itself
+ *   §9  a MANUAL dispose() still empties its host, as in 0.4
  *
- * Against 0.4.7, §1 and §3–§6 fail.
+ * Against 0.4.7, §1 and §3–§6 fail; against the first 0.5.0 build, §7 and §8.
  *
  *     node tests/auto_dispose.test.mjs
  */
@@ -169,6 +175,69 @@ section('§6 the copy menu listens to the document only while open');
     table.dispose();
     check('dispose() while open removes them too', listening(), before);
     check('…and the menu', menus(), 0);
+}
+
+section('§7 the next list mounted into the same host survives');
+{
+    // A pane that reloads simply mounts again — the bookkeeping autoDispose
+    // exists to delete.
+    const { host, table: old } = mount({ headers, rows, autoDispose: true });
+    await tick(5);
+    const next = T.DataTable.mount(host, { headers, rows: [['x', 9], ['y', 8]] });
+    check('drawn at once', bodyRows(host).length, 2);
+    await tick(5);
+    check('…and still drawn a task later', bodyRows(host).length, 2);
+    ok('the new table still holds its wrapper, in the page', next._wrapperEl?.isConnected);
+    ok('the old one was disposed (it was taken out)', old._wrapperEl === null);
+    next.dispose();
+    host.remove();
+}
+{
+    const { host } = mount({ headers, rows, autoDispose: true });
+    await tick(5);
+    const next = T.DataTable.mount(host, { headers, rows: [['x', 9]], autoDispose: true });
+    await tick(5);
+    await tick(5);
+    check('both with autoDispose: the new one is drawn', bodyRows(host).length, 1);
+    ok('…and was not disposed in a cascade', next._wrapperEl?.isConnected);
+    next.dispose();
+    host.remove();
+}
+{
+    const ListTable = T.DataTable.withDefaults({ mode: 'compact', fitContent: true, autoDispose: true });
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    ListTable.mount(host, { headers, rows });
+    await tick(5);
+    const next = ListTable.mount(host, { headers, rows: [['Barbara', 1], ['Ken', 2]] });
+    await tick(5);
+    await tick(5);
+    check('withDefaults(...).mount twice into one host: the second list is drawn',
+          bodyRows(host).map((tr) => tr.children[0].textContent), ['Barbara', 'Ken']);
+    check('the host holds exactly the new table', host.children.length, 1);
+    next.dispose();
+    host.remove();
+}
+
+section('§8 a message written into the host survives');
+{
+    const { host, table } = mount({ headers, rows, autoDispose: true });
+    await tick(5);
+    host.innerHTML = '<p class="msg">Could not load the list.</p>';
+    await tick(5);
+    check('the pane\'s message is still there a task later', host.innerHTML,
+          '<p class="msg">Could not load the list.</p>');
+    ok('and the table was disposed', table._wrapperEl === null);
+    host.remove();
+}
+
+section('§9 a manual dispose() still empties its host (0.4)');
+{
+    const { host, table } = mount({ headers, rows, autoDispose: true });
+    host.appendChild(document.createElement('p'));
+    table.dispose();
+    check('dispose() empties the host, whatever else is in it', host.children.length, 0);
+    host.remove();
 }
 
 T.done();

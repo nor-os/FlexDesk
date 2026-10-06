@@ -16,8 +16,12 @@
  *   §3  a right-click on another row moves the SELECTION, never the mark
  *   §4  setActiveRow moves it in place (no re-render), null clears it, and
  *       without getRowKey the key is the original index
+ *   §5  an aria-current the CONSUMER put on a row is its own: updateRow on a
+ *       table with no open row keeps it (0.4 had no mark, and the consumer
+ *       painted its own), and the mark moving away takes off only what the
+ *       component wrote
  *
- * Against 0.4.7, §1–§4 fail.
+ * Against 0.4.7, §1–§4 fail; against the first 0.5.0 build, §5.
  *
  *     node tests/active_row.test.mjs
  */
@@ -106,6 +110,29 @@ section('§4 setActiveRow');
     const { host, table } = mount({ headers, rows });
     table.setActiveRow(1);
     check('without getRowKey the key is the original index', marked(host), ['p2']);
+}
+
+section('§5 a consumer\'s own aria-current is left alone');
+{
+    // The pattern of a 0.4 consumer marking its open board after a render.
+    const { host, table } = mount({ headers, rows });
+    const tr = bodyRows(host)[0];
+    tr.setAttribute('aria-current', 'true');
+    tr.classList.add('consumer-mark');
+    table.updateRow(0, ['p1', 'Alpha (renamed)']);
+    check('updateRow with no open row keeps the consumer\'s aria-current', tr.getAttribute('aria-current'), 'true');
+    ok('…and its class', tr.classList.contains('consumer-mark'));
+    check('…and the row was updated', tr.children[1].textContent, 'Alpha (renamed)');
+}
+{
+    const { host, table } = mount({ headers, rows, getRowKey: (r) => r[0] });
+    const mine = bodyRows(host)[2];
+    mine.setAttribute('aria-current', 'true');
+    table.setActiveRow('p1');
+    table.setActiveRow('p2');
+    check('the component\'s mark moved', marked(host), ['p2']);
+    ok('the row it left lost the aria-current IT wrote', !bodyRows(host)[0].hasAttribute('aria-current'));
+    check('the consumer\'s own is still on its row', mine.getAttribute('aria-current'), 'true');
 }
 
 T.done();

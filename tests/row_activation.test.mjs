@@ -17,13 +17,20 @@
  *   §3  the guards: a control in the row, the second click of a double-click,
  *       a drag that selected text in the table (one elsewhere does not count)
  *   §4  activateOn 'dblclick': one click opens nothing; a double-click opens once
- *   §5  activateOn 'enter': the active row, else the one selected row; never
- *       from a field inside a cell
+ *   §5  activateOn 'enter': the SELECTED row (the one a double-click on it
+ *       would open), the active row only when nothing is selected; never from
+ *       a field inside a cell
  *   §6  modifiers: a selection gesture in a multi-select table, the
  *       consumer's in a table that does not select
  *   §7  attachLandingTableBehavior opens by the same rule
+ *   §8  a press whose selection callback RE-DRAWS the table still opens the
+ *       pressed row (onSelectionChange → setData, onRowClick → render), on
+ *       click and on dblclick; one that DISPOSES it opens nothing
+ *   §9  'single': the Ctrl click that takes the row off the selection does
+ *       not also open it; a Ctrl click that selects a row opens it, saying so
  *
- * Against 0.4.7, §1–§7 fail.
+ * Against 0.4.7, §1–§9 fail; against the first 0.5.0 build, §5's selected-
+ * over-active case, §8 and §9.
  *
  *     node tests/row_activation.test.mjs
  */
@@ -157,7 +164,27 @@ section('§5 activateOn: enter');
     check('Ctrl+Enter is not this key', seen, ['1:keydown']);
     table.setActiveRow(2);
     key(tbl, 'Enter');
-    check('with an active row, Enter opens THAT row', seen, ['1:keydown', '2:keydown']);
+    check('a row selected and ANOTHER active: Enter opens the selected one', seen, ['1:keydown', '1:keydown']);
+    table.clearSelection();
+    key(tbl, 'Enter');
+    check('nothing selected: Enter opens the active row', seen, ['1:keydown', '1:keydown', '2:keydown']);
+}
+{
+    // The pick list of a master-detail screen: what opened is marked active,
+    // the person picks another row, and Enter must open THAT row — as a
+    // double-click on it would.
+    const seen = [];
+    let table;
+    ({ table } = mount({
+        headers, rows, selectable: 'single', activateOn: ['dblclick', 'enter'],
+        getRowKey: (r) => r[0],
+        onRowActivate: (_idx, row, ev) => { seen.push(`${row[0]}:${ev.type}`); table.setActiveRow(row[0]); },
+    }));
+    const host = table.container;
+    doubleClick(bodyRows(host)[0].children[0]);
+    click(bodyRows(host)[2].children[0]);
+    key(bodyTable(host), 'Enter');
+    check('dblclick opens c; picking b and pressing Enter opens b', seen, ['c:dblclick', 'b:keydown']);
 }
 
 section('§6 modifiers');
@@ -212,6 +239,123 @@ section('§7 the landing helper opens by the same rule');
     click(bodyRows(host)[2].children[0]);
     check('a plain click opens', opened, ['c', 'b']);
     off();
+}
+{
+    // The README lists these as the helper's changes that need no option.
+    const { attachLandingTableBehavior } = await import('../src/tiling/landing_table.js');
+    const opened = [];
+    const { host } = mount({
+        headers, rows, selectable: false, copyable: false,
+        renderCell: (td, value, colIdx) => {
+            if (colIdx !== 1) return false;
+            td.innerHTML = `<label>${value}</label><span contenteditable="true">x</span>`;
+            return true;
+        },
+    });
+    const off = attachLandingTableBehavior(host, (i) => rows[i], { open: (row) => opened.push(row[0]) });
+    click(bodyRows(host)[0].querySelector('label'));
+    click(bodyRows(host)[0].querySelector('[contenteditable]'));
+    check('a label or editable text in a row opens nothing', opened, []);
+    off();
+}
+
+section('§8 a press that re-draws the table still opens the row');
+{
+    const seen = [];
+    let table;
+    ({ table } = mount({
+        headers, rows,
+        onSelectionChange: () => table.setData({ rows: rows.map((r) => r.slice()) }),
+        onRowActivate: (idx, row, ev) => seen.push(`${idx}:${row[0]}:${ev.type}`),
+    }));
+    const host = table.container;
+    const pressed = bodyRows(host)[1];
+    click(pressed.children[0]);
+    check('onSelectionChange → setData: the pressed row opened, once', seen, ['1:a:click']);
+    ok('…and the table was re-drawn under it', !pressed.isConnected);
+    click(bodyRows(host)[2].children[0]);
+    check('…and the re-drawn table opens too', seen, ['1:a:click', '2:b:click']);
+    await tick(5);
+    click(pressed.children[0]);
+    check('a task later the replaced body has let go: its old row opens nothing',
+          seen, ['1:a:click', '2:b:click']);
+}
+{
+    const seen = [];
+    let table;
+    ({ table } = mount({
+        headers, rows, selectable: false,
+        onRowClick: () => table.render(),
+        onRowActivate: (idx) => seen.push(idx),
+    }));
+    click(bodyRows(table.container)[0].children[0]);
+    check('onRowClick → render: it opened', seen, [0]);
+}
+{
+    // A double-click on a list whose every click re-draws: the second click
+    // lands on the re-drawn row and re-draws again, and the dblclick goes to
+    // the row the second click landed on.
+    const seen = [];
+    let table;
+    ({ table } = mount({
+        headers, rows, selectable: 'single', activateOn: 'dblclick',
+        onSelectionChange: () => table.setData({ rows }),
+        onRowActivate: (idx, _row, ev) => seen.push(`${idx}:${ev.type}`),
+    }));
+    const host = table.container;
+    click(bodyRows(host)[2].children[0], { detail: 1 });
+    const second = bodyRows(host)[2].children[0];
+    click(second, { detail: 2 });
+    mouse('dblclick', second, { detail: 2 });
+    check('dblclick: it opened', seen, ['2:dblclick']);
+}
+{
+    const seen = [];
+    let table;
+    ({ table } = mount({
+        headers, rows,
+        onSelectionChange: () => table.dispose(),
+        onRowActivate: (idx) => seen.push(idx),
+    }));
+    click(bodyRows(table.container)[0].children[0]);
+    check('onSelectionChange → dispose(): a disposed table opens nothing', seen, []);
+}
+
+section('§9 single: the Ctrl click that takes the row off does not open it');
+{
+    const seen = [];
+    let table;
+    ({ table } = mount({
+        headers, rows, selectable: 'single',
+        onRowActivate: (idx, _row, ev) => seen.push({ idx, ctrl: ev.ctrlKey, selected: table.getSelection() }),
+    }));
+    const host = table.container;
+    click(bodyRows(host)[1].children[0]);
+    click(bodyRows(host)[1].children[0], { ctrlKey: true });
+    check('the plain click opened; the Ctrl click that took the row off did not',
+          seen, [{ idx: 1, ctrl: false, selected: [1] }]);
+    check('…and it is off', table.getSelection(), []);
+    click(bodyRows(host)[2].children[0], { ctrlKey: true });
+    check('a Ctrl click that SELECTS a row opens it, and says Ctrl',
+          seen.at(-1), { idx: 2, ctrl: true, selected: [2] });
+}
+{
+    // The same rule when the selection callback re-draws with new rows (which
+    // clears the selection before the activation listener runs).
+    const seen = [];
+    let table;
+    let redraw = false;
+    ({ table } = mount({
+        headers, rows, selectable: 'single',
+        onSelectionChange: () => { if (redraw) table.setData({ rows: rows.map((r) => r.slice()) }); },
+        onRowActivate: (idx) => seen.push(idx),
+    }));
+    const host = table.container;
+    click(bodyRows(host)[0].children[0]);
+    check('a plain click opens', seen, [0]);
+    redraw = true;
+    click(bodyRows(host)[0].children[0], { ctrlKey: true });
+    check('re-drawn by the callback: the un-selecting Ctrl click still opens nothing', seen, [0]);
 }
 
 await tick();

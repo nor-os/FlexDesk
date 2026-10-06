@@ -605,11 +605,17 @@ body.twm-dt-col-resizing {
  * styled exactly as in 0.4. ───────────────────────────────────────────── */
 
 /* The row-geometry tokens for the NORMAL density's line height. Compact
- * declares its own (with the token in front); normal never declared one, so
- * this one sits at ZERO specificity (`:where`): unset, the declaration
- * computes to `unset` — inheritance, which is what no declaration gives — and
- * any rule a consumer writes for these cells, however weak, still wins. */
-:where(.twm-preview-table) :where(th, td) {
+ * declares its own on the cells (with the token in front), as 0.4 did; normal
+ * never declared one, so this one is NOT on the cells. It is on the ROW GROUPS,
+ * which only this component creates, and the cells inherit it. Unset, it
+ * computes to `unset` — inheritance from the table, which is exactly what no
+ * declaration gives. A declaration on the cells themselves, however weak
+ * (`:where()`), would beat any consumer rule for the cells that sits in a
+ * cascade LAYER (unlayered author styles outrank every layer, whatever their
+ * specificity) and any zero-specificity one loaded before this sheet; on the
+ * row groups, a consumer's rule for the cells, the rows or the table still
+ * wins, as it did in 0.4. */
+:where(.twm-preview-table) > :where(thead, tbody, tfoot) {
     line-height: var(--twm-dt-cell-line-height);
 }
 /* `firstColumn: 'plain'` — the first column is a column like the others, not
@@ -632,11 +638,12 @@ body.twm-dt-col-resizing {
 }
 /* `onRowActivate` / `clickable` — a row that opens looks like it: a pointer,
  * and a hover even on a readonly table. Never over a selected row, whose
- * colour has to survive the pointer (see the selection rule's note). */
-.twm-preview-table.twm-dt--clickable tbody tr:not(.twm-dt-spacer) {
+ * colour has to survive the pointer (see the selection rule's note), and never
+ * over the empty or failed state's row, which opens nothing. */
+.twm-preview-table.twm-dt--clickable tbody tr:not(.twm-dt-spacer):not(.data-table__empty-row) {
     cursor: pointer;
 }
-.twm-preview-table.twm-dt--clickable tbody tr:not(.twm-dt-spacer):not(.selected):hover td {
+.twm-preview-table.twm-dt--clickable tbody tr:not(.twm-dt-spacer):not(.data-table__empty-row):not(.selected):hover td {
     background: var(--state-hover, rgba(255, 255, 255, 0.05));
 }
 /* `activeRow` — the row that is OPEN. A left edge, not a background: hover
@@ -664,22 +671,33 @@ body.twm-dt-col-resizing {
 .twm-preview-table td .twm-dt-row-icon--success { color: var(--color-success, #3fb950); }
 .twm-preview-table td .twm-dt-row-icon--warn    { color: var(--color-warning, #ff9800); }
 .twm-preview-table td .twm-dt-row-icon--danger  { color: var(--color-danger, #c74e4e); }
+/* THESE CELLS ARE OFTEN A ROW'S FIRST CELL, and the first cell is the time
+ * column's: `.twm-preview-table td:first-child` (0,2,1, grey and weight 500,
+ * declared twice, the second copy far below), `firstColumn: 'plain'` (0,3,1,
+ * `color: inherit`) and the compact density's cell padding (0,2,1, in
+ * overrides.css) all reach them. A rule of the same weight LOSES to whichever
+ * comes later — which drew a failure in an empty list grey, exactly like an
+ * empty state, and gave both 2px of padding under compact. So each rule below
+ * is (0,3,2) or more: the wrapper and `tbody` in front of the cell's class,
+ * which no first-column or density rule matches, and the order of the sheets
+ * cannot matter. */
 /* `nullDisplay` — a NULL reads as one, not as the text "NULL". */
-.twm-preview-table td.twm-dt-cell--null {
+.twm-data-table-component .twm-preview-table tbody td.twm-dt-cell--null {
     color: var(--text-dim, #666);
     font-style: italic;
 }
 /* `emptyState` and `setError` with no rows: the box's own words, which may
- * wrap. Quiet while loading — an empty table that is still loading is not
- * empty. */
-.twm-preview-table td.twm-data-table__empty-cell--state,
-.twm-preview-table td.twm-data-table__empty-cell--error {
+ * wrap — muted for an empty state, red for a failure, in both densities. Quiet
+ * while loading — an empty table that is still loading is not empty. */
+.twm-data-table-component .twm-preview-table tbody td.twm-data-table__empty-cell.twm-data-table__empty-cell--state,
+.twm-data-table-component .twm-preview-table tbody td.twm-data-table__empty-cell.twm-data-table__empty-cell--error {
     text-align: center;
     padding: 16px;
     white-space: normal;
+    font-weight: normal;
     color: var(--text-muted, #888);
 }
-.twm-preview-table td.twm-data-table__empty-cell--error {
+.twm-data-table-component .twm-preview-table tbody td.twm-data-table__empty-cell.twm-data-table__empty-cell--error {
     color: var(--color-danger, #c74e4e);
 }
 .twm-data-table-component--loading .twm-preview-table td.twm-data-table__empty-cell--state {

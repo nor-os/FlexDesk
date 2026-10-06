@@ -21,12 +21,20 @@
  *   §1  the normal cell rules read the padding tokens over their 0.4 values,
  *       in both copies of the rule, in both sheets
  *   §2  the compact cell rule reads all three over ITS 0.4 values
- *   §3  normal's line height is a ZERO-specificity rule with no fallback:
- *       unset, it computes to inheritance, exactly what no declaration gives,
- *       and any consumer rule still beats it
+ *   §3  normal's line height is declared on the ROW GROUPS (thead, tbody,
+ *       tfoot), at zero specificity and with no fallback, and the cells
+ *       inherit it: unset, it computes to inheritance, exactly what no
+ *       declaration gives. It is NOT declared on the cells: an unlayered
+ *       declaration there, however weak, beat every consumer rule for the cells
+ *       in a cascade layer (`@layer app { td { line-height: … } }`) and every
+ *       zero-specificity one loaded first — measured in headless Edge: 50px
+ *       and 40px under 0.4.7, `normal` under the first 0.5.0 build. Only the
+ *       compact cell rule, which carried a line height in 0.4, reads the token
+ *       on a cell.
  *   §4  no cell rule is left with a bare 0.4 padding the tokens cannot reach
  *
- * Against 0.4.7, every section but §0's first half fails.
+ * Against 0.4.7, every section but §0's first half fails; against the first
+ * 0.5.0 build, §3.
  *
  *     node tests/row_tokens.test.mjs
  */
@@ -71,11 +79,26 @@ for (const sheet of ['overrides.css', 'flexdesk.css']) {
     ok(`${sheet}: line height`, has(c, COMPACT_LINE));
 }
 
-console.log('\n§3 normal\'s line height: zero specificity, no fallback');
+console.log('\n§3 normal\'s line height: on the row groups, zero specificity, no fallback');
+const ROW_GROUPS = ':where(.twm-preview-table) > :where(thead, tbody, tfoot)';
+const COMPACT_CELLS = '.twm-data-table-component--compact .twm-preview-table th, .twm-data-table-component--compact .twm-preview-table td';
 for (const sheet of ['base.css', 'flexdesk.css']) {
-    const w = ruleBody(css(sheet), ':where(.twm-preview-table) :where(th, td)');
-    ok(`${sheet}: the :where() rule reads the token with NO fallback`,
+    const w = ruleBody(css(sheet), ROW_GROUPS);
+    ok(`${sheet}: the row-group rule reads the token with NO fallback`,
        has(w, 'line-height: var(--twm-dt-cell-line-height);'));
+}
+for (const sheet of ['base.css', 'flexdesk.css', 'overrides.css']) {
+    const text = stripComments(css(sheet));
+    const readers = [];
+    const re = /([^{}]+)\{([^{}]*)\}/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+        if (/line-height\s*:[^;]*--twm-dt-cell-line-height/.test(m[2])) {
+            readers.push(m[1].replace(/\s+/g, ' ').replace(/\s*,\s*/g, ', ').trim());
+        }
+    }
+    ok(`${sheet}: the line-height token is read by the row groups and compact's cells, and no other rule`,
+       readers.every((sel) => sel === ROW_GROUPS || sel === COMPACT_CELLS) && readers.length > 0);
 }
 
 console.log('\n§4 no table cell rule keeps a padding the tokens cannot reach');

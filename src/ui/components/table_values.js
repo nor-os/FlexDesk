@@ -41,6 +41,18 @@
  * `2026-10-05` everywhere. (`Date.parse('2026-10-05')` reads it as UTC
  * midnight, which west of Greenwich is the evening of the 4th: a calendar date
  * that moves a day depending on where it is read.)
+ *
+ * ══ WHAT IS READ AS A DATE: ISO 8601, A `Date`, EPOCH MS — NOTHING ELSE ══
+ *
+ * Text that is not ISO 8601 is NOT handed to `Date.parse`. Its other forms are
+ * implementation-defined, and V8's reads almost anything: `'2'`, `'12'`,
+ * `'1/2'` and `'5 Oct'` are all dates in 2001 there. A cell holding `'12'` was
+ * drawn `2001-12-01`, and a date filter being typed — `2`, `20`, `202`,
+ * `2026-` — emptied the table at every other keystroke, because each half was
+ * read as an instant nothing equalled. So: an ISO string, a `Date` or a
+ * number, or it is text — drawn as it came, sorted last, and matched by a
+ * filter's words. An impossible calendar date (`2026-02-31`) is text too, not
+ * the 3rd of March it would roll over to.
  */
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
@@ -58,11 +70,38 @@ const ISO_RE = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:[.,]
 
 const pad = (n, w = 2) => String(Math.trunc(Math.abs(n))).padStart(w, '0');
 
+/** Days in a month (0-based), proleptic Gregorian — as `Date` counts them. */
+function daysInMonth(y, mo) {
+    if (mo !== 1) return [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mo];
+    return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0 ? 29 : 28;
+}
+
+/**
+ * Epoch ms for calendar parts (month 0-based), in UTC or the local zone. Not
+ * `new Date(y, …)` or `Date.UTC(y, …)`: both read a year below 100 as 19xx, so
+ * `0001-01-01` — a common "no date" sentinel — would be drawn `1901-01-01`.
+ * Parts past their range roll over, which is what a period's END wants; a
+ * VALUE is checked before it gets here.
+ */
+function partsToTime(utc, y, mo, d = 1, h = 0, mi = 0, s = 0, ms = 0) {
+    const date = new Date(0);
+    if (utc) {
+        date.setUTCFullYear(y, mo, d);
+        date.setUTCHours(h, mi, s, ms);
+    } else {
+        date.setFullYear(y, mo, d);
+        date.setHours(h, mi, s, ms);
+    }
+    return date.getTime();
+}
+
 /**
  * Epoch milliseconds for a date-like value, or `NaN` when it is not one.
  *
- * @param {Date|number|string|null|undefined} value  a `Date`, epoch ms, or a
- *   string (ISO 8601 first; anything `Date.parse` reads as a fallback)
+ * @param {Date|number|string|null|undefined} value  a `Date`, epoch ms, or an
+ *   ISO 8601 string. Any other text is `NaN` — see "What is read as a date"
+ *   in the header — and so is a calendar date that does not exist
+ *   (`2026-02-31`, `2026-02-29`).
  * @param {{utc?: boolean}} [o]  read a zone-less string as UTC rather than local
  * @returns {number}
  */
@@ -73,32 +112,29 @@ export function parseDateValue(value, { utc = false } = {}) {
     const text = String(value).trim();
     if (!text) return NaN;
     const m = ISO_RE.exec(text);
-    if (m) {
-        const y = Number(m[1]);
-        const mo = Number(m[2]);
-        const d = Number(m[3]);
-        if (mo < 1 || mo > 12 || d < 1 || d > 31) return NaN;
-        const h = m[4] ? Number(m[4]) : 0;
-        const mi = m[5] ? Number(m[5]) : 0;
-        const s = m[6] ? Number(m[6]) : 0;
-        const ms = m[7] ? Math.round(Number(`0.${m[7]}`) * 1000) : 0;
-        if (h > 24 || mi > 59 || s > 60) return NaN;
-        const zone = m[8];
-        if (zone) {
-            let offset = 0;
-            if (zone.toUpperCase() !== 'Z') {
-                const sign = zone[0] === '-' ? -1 : 1;
-                const digits = zone.slice(1).replace(':', '');
-                offset = sign * (Number(digits.slice(0, 2)) * 60 + Number(digits.slice(2, 4) || 0));
-            }
-            return Date.UTC(y, mo - 1, d, h, mi, s, ms) - offset * 60000;
+    if (!m) return NaN;
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    const d = Number(m[3]);
+    if (mo < 1 || mo > 12 || d < 1 || d > daysInMonth(y, mo - 1)) return NaN;
+    const h = m[4] ? Number(m[4]) : 0;
+    const mi = m[5] ? Number(m[5]) : 0;
+    const s = m[6] ? Number(m[6]) : 0;
+    const ms = m[7] ? Math.round(Number(`0.${m[7]}`) * 1000) : 0;
+    // 24:00 is the end of the day (ISO 8601); 24:01 is nothing. A leap second
+    // (:60) is the next minute's first.
+    if (h > 24 || mi > 59 || s > 60 || (h === 24 && (mi || s || ms))) return NaN;
+    const zone = m[8];
+    if (zone) {
+        let offset = 0;
+        if (zone.toUpperCase() !== 'Z') {
+            const sign = zone[0] === '-' ? -1 : 1;
+            const digits = zone.slice(1).replace(':', '');
+            offset = sign * (Number(digits.slice(0, 2)) * 60 + Number(digits.slice(2, 4) || 0));
         }
-        return utc
-            ? Date.UTC(y, mo - 1, d, h, mi, s, ms)
-            : new Date(y, mo - 1, d, h, mi, s, ms).getTime();
+        return partsToTime(true, y, mo - 1, d, h, mi, s, ms) - offset * 60000;
     }
-    const parsed = Date.parse(text);
-    return Number.isFinite(parsed) ? parsed : NaN;
+    return partsToTime(utc, y, mo - 1, d, h, mi, s, ms);
 }
 
 /**
@@ -164,9 +200,12 @@ export function formatDate(value, pattern = ISO_DATE, { utc = false } = {}) {
 /**
  * The PERIOD an ISO prefix names, as `[start, end)` in epoch ms — `2026` is the
  * year, `2026-10` the month, `2026-10-05` the day, `2026-10-05 14` the hour,
- * `2026-10-05 14:30` the minute. A full instant (with a zone, say) is the one
- * millisecond it names. `null` for text that names no period — which is how a
- * filter half-typed (`>20`) filters nothing yet rather than everything.
+ * `2026-10-05 14:30` the minute — ISO's own two-digit parts, nothing looser. A
+ * full ISO instant (with a zone, say) is the one millisecond it names. `null`
+ * for anything else: half typed (`2`, `202`, `2026-`, `2026-1`), a date that
+ * does not exist (`2026-02-31`), or words (`5 Oct`). That is how a half-typed
+ * operand (`>20`) filters nothing yet, and how text with no operator falls
+ * through to the drawn words (`matchDateFilter`).
  *
  * @param {string} text
  * @param {{utc?: boolean}} [o]
@@ -174,7 +213,7 @@ export function formatDate(value, pattern = ISO_DATE, { utc = false } = {}) {
  */
 export function parseDatePeriod(text, { utc = false } = {}) {
     const t = String(text ?? '').trim();
-    const m = /^(\d{4})(?:-(\d{1,2})(?:-(\d{1,2})(?:[T ](\d{1,2})(?::(\d{2})(?::(\d{2}))?)?)?)?)?$/.exec(t);
+    const m = /^(\d{4})(?:-(\d{2})(?:-(\d{2})(?:[T ](\d{2})(?::(\d{2})(?::(\d{2}))?)?)?)?)?$/i.exec(t);
     if (m) {
         const parts = [Number(m[1]),
                        m[2] ? Number(m[2]) - 1 : 0,
@@ -182,14 +221,16 @@ export function parseDatePeriod(text, { utc = false } = {}) {
                        m[4] ? Number(m[4]) : 0,
                        m[5] ? Number(m[5]) : 0,
                        m[6] ? Number(m[6]) : 0];
-        if (parts[1] < 0 || parts[1] > 11 || parts[2] < 1 || parts[2] > 31) return null;
+        if (parts[1] < 0 || parts[1] > 11 || parts[2] < 1 || parts[2] > daysInMonth(parts[0], parts[1])
+            || parts[3] > 23 || parts[4] > 59 || parts[5] > 59) return null;
         // The least significant part that was GIVEN is the one the period spans.
         const unit = m[6] ? 5 : m[5] ? 4 : m[4] ? 3 : m[3] ? 2 : m[2] ? 1 : 0;
         const next = parts.slice();
         next[unit] += 1;
-        const at = (p) => (utc ? Date.UTC(...p) : new Date(...p).getTime());
-        return { start: at(parts), end: at(next) };
+        return { start: partsToTime(utc, ...parts), end: partsToTime(utc, ...next) };
     }
+    // Not a prefix: a full ISO instant or nothing (`parseDateValue` reads no
+    // other text).
     const instant = parseDateValue(t, { utc });
     return Number.isFinite(instant) ? { start: instant, end: instant + 1 } : null;
 }
@@ -304,7 +345,9 @@ export function formatDuration(value, pattern = 'auto') {
  *
  * An operand that is not a date yet (`>20`, half typed) filters nothing. Text
  * with no operator that names no period is matched against the cell's DRAWN
- * words, so `Oct` finds October under an `MMM` pattern.
+ * words, so `Oct` finds October under an `MMM` pattern, `5 Oct` the 5th under
+ * `D MMM YYYY`, and `2026-1` (on the way to `2026-10`) whatever is drawn with
+ * it under the ISO default.
  *
  * @param {number} t          the cell's time, or NaN
  * @param {string} filterText

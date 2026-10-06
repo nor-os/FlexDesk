@@ -16,12 +16,22 @@
  *   §3  setError with rows: the rows STAY, under a banner (role="alert")
  *   §4  setError with no rows: the failure takes the empty row; an Error's
  *       message; setError(null) and setData({rows}) clear it; it ends loading
+ *   §5  setLoading on a table WITHOUT an emptyState leaves 0.4's wrapper alone:
+ *       the loading class is for the one rule that reads it
+ *   §6  THE CASCADE: the empty, failed and NULL cells are often a row's first
+ *       cell, which the time column's `td:first-child` (grey, weight 500),
+ *       `firstColumn: 'plain'` and the compact padding also reach. Each of
+ *       their rules must OUT-SPECIFY all three — a tie goes to whichever comes
+ *       later, and drew a failure grey, like an empty state, with 2px of
+ *       padding (measured in headless Edge). jsdom applies no cascade, so this
+ *       reads the selectors and compares their specificity
  *
- * Against 0.4.7, §1–§4 fail.
+ * Against 0.4.7, §1–§4 and §6 fail; against the first 0.5.0 build, §5 and §6.
  *
  *     node tests/empty_and_error.test.mjs
  */
 import { dataTableEnv } from './dt_env.mjs';
+import { compareSpecificity, specificity, stripComments } from './css_rules.mjs';
 
 const T = await dataTableEnv('empty and error');
 const { check, ok, section, mount, bodyRows, click } = T;
@@ -105,6 +115,44 @@ section('§4 setError with no rows; what clears it');
     ok('new rows are an answer: the failure is over', !host.querySelector('.twm-data-table__error')
        && table.getError() === null);
     check('…and they are drawn', bodyRows(host).length, 2);
+}
+
+section('§5 setLoading without an emptyState: the 0.4 wrapper');
+{
+    const { host, table } = mount({ headers, rows: [] });
+    const wrapper = host.querySelector('.twm-data-table-component');
+    const before = wrapper.className;
+    table.setLoading(true);
+    check('no loading class on the wrapper', wrapper.className, before);
+    ok('…the spinner is up, as in 0.4', host.querySelector('.twm-data-table__loading'));
+    table.setLoading(false);
+    check('and none after', wrapper.className, before);
+}
+
+section('§6 the cascade: these cells out-specify the first column and the density');
+{
+    // Every rule that reaches a body cell for the first column or the density.
+    const rivals = [
+        '.twm-preview-table td:first-child',
+        '.twm-preview-table.twm-dt--first-plain td:first-child',
+        '.twm-data-table-component--compact .twm-preview-table td',
+    ];
+    for (const sheet of ['base.css', 'flexdesk.css']) {
+        const text = stripComments(T.css(sheet)) + stripComments(sheet === 'base.css' ? T.css('overrides.css') : '');
+        for (const r of rivals) ok(`${sheet}: the rival ${r} exists`, text.replace(/\s+/g, ' ').includes(r));
+        const ours = [];
+        const re = /([^{}]+)\{([^{}]*)\}/g;
+        let m;
+        while ((m = re.exec(text)) !== null) {
+            for (const sel of m[1].split(',').map((x) => x.replace(/\s+/g, ' ').trim())) {
+                if (/twm-data-table__empty-cell--(state|error)|twm-dt-cell--null/.test(sel)
+                    && /(color|padding)\s*:/.test(m[2])) ours.push(sel);
+            }
+        }
+        ok(`${sheet}: the empty, failed and NULL cells' colour and padding rules are there`, ours.length >= 3);
+        const weak = ours.filter((sel) => rivals.some((r) => compareSpecificity(specificity(sel), specificity(r)) <= 0));
+        check(`${sheet}: each one beats every rival outright`, weak, []);
+    }
 }
 
 T.done();

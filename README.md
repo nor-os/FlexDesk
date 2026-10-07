@@ -47,10 +47,12 @@ manager, and neither of them should drag in a plotting engine or a code editor.
 | `@flexdesk/charts` | 26 kB | Plotly wrapper, chart types, subplot layouts, downsampling, plot windows |
 | `@flexdesk/tiles` | 67 kB | Draggable/resizable widget grid, tile base class, widget registry, layout persistence |
 | `@flexdesk/editor` | 62 kB | Monaco loader + factory, multi-file tab bar, search, split panes, undo manager |
-| `@flexdesk/canvas` | — | The canvas kernel: a pannable, zoomable surface, the edge router, a generic graph layer ([Flow editors](#flow-editors)) |
-| `@flexdesk/flow` | — | The flow-editor kit and the canvas, outline and lane editors ([Flow editors](#flow-editors)) |
+| `@flexdesk/canvas` | 14 kB | The canvas kernel: a pannable, zoomable surface, the edge router, a generic graph layer ([Flow editors](#flow-editors)) |
+| `@flexdesk/flow` | 381 kB | The flow-editor kit and the canvas, outline and lane editors ([Flow editors](#flow-editors)) |
 
-The two new entries' sizes are measured when `dist/` is next built.
+The sizes of `@flexdesk/canvas` and `@flexdesk/flow` are the entry files as
+`node build.mjs` reported them for the flow editors' integration build; like
+every entry they also import shared chunks. The other rows are older figures.
 
 They share code through chunks, so importing two of them does **not** give you two
 event buses — and therefore not two copies of every module-level singleton. A test
@@ -331,6 +333,9 @@ keep their own.
 
 ## Flow editors
 
+*Unreleased — flow editors.* Both entries are new and not yet in a published
+release; the release that carries them is named when it is cut.
+
 `@flexdesk/flow` holds three editors for flows — a graph of steps, each with
 settings — and the kit they share: a **canvas** (nodes and lines), an
 **outline** (the graph drawn as a list of blocks) and **lanes** (data flows,
@@ -475,7 +480,11 @@ so the suites (`tests/flow_kit_*.test.mjs`) assert the DOM, the events and the
 text. The rest was checked in headless Edge with real input over the DevTools
 protocol: `demo/flow_kit_probe.mjs` serves the repository, opens
 `demo/flow_kit.html` and drives it (`demo/flow_cdp.mjs` is the small driver it
-uses, for the editors' pages too). In the chip input, typing on either side of
+uses, for the editors' pages too). The demo pages load the source barrels;
+`FLOW_DIST=1 node demo/flow_<kit|canvas|outline|lanes>_probe.mjs` redirects
+`flow.js`, `canvas.js` and the three sheets to `dist/`, so the same checks run
+against the built bundle. All four probes passed both ways on the integration
+build. In the chip input, typing on either side of
 a chip, ← and → over it, one Backspace removing it, a real paste of `${a.b}`
 becoming a chip, a real copy giving the exact text, an IME composition leaving
 the text alone until it committed, and the field's own Ctrl+Z all passed. The

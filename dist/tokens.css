@@ -193,4 +193,76 @@
        to its OWN 0.4 values when a token is unset (normal: 6px 8px and an
        inherited line height; compact: 2px 6px and 1.35), and a default here
        would replace both densities' values with one. */
+
+    /* ── Flow editors (@flexdesk/flow) — TONES, not colours ───────────
+       A step-type category names a TONE (`violet`, `teal`, `amber`, `grey`,
+       `blue`, `indigo`) and these map the tone to its colours, so a consumer
+       restyles every editor's categories here and nowhere else. Each tone is:
+
+           -bg / -fg       a step's icon chip, a picker row's chip, a chip's fill
+           -line           a reference chip's border
+           -icon-bg        a lane card's icon zone
+           -text-bg        a lane card's text zone
+           -dot            a step tab's dot
+
+       New in the flow work and read by nothing older, so defining them
+       changes no existing screen. The values are the approved mocks'. */
+    --twm-flow-violet-bg:      rgba(167, 139, 250, 0.16);
+    --twm-flow-violet-fg:      #c6b4fb;
+    --twm-flow-violet-line:    rgba(167, 139, 250, 0.45);
+    --twm-flow-violet-icon-bg: #351a40;
+    --twm-flow-violet-text-bg: #261e30;
+    --twm-flow-violet-dot:     #a785e8;
+
+    --twm-flow-teal-bg:        rgba(45, 180, 165, 0.17);
+    --twm-flow-teal-fg:        #72d8c8;
+    --twm-flow-teal-line:      rgba(45, 180, 165, 0.45);
+    --twm-flow-teal-icon-bg:   #1a403a;
+    --twm-flow-teal-text-bg:   #1a2b2a;
+    --twm-flow-teal-dot:       #3fb8a6;
+
+    --twm-flow-amber-bg:       rgba(222, 150, 70, 0.17);
+    --twm-flow-amber-fg:       #ecb27a;
+    --twm-flow-amber-line:     rgba(215, 163, 74, 0.45);
+    --twm-flow-amber-icon-bg:  #3a3018;
+    --twm-flow-amber-text-bg:  #2b2518;
+    --twm-flow-amber-dot:      #d79a52;
+
+    --twm-flow-grey-bg:        rgba(255, 255, 255, 0.08);
+    --twm-flow-grey-fg:        #c4c4c4;
+    --twm-flow-grey-line:      rgba(255, 255, 255, 0.28);
+    --twm-flow-grey-icon-bg:   #333334;
+    --twm-flow-grey-text-bg:   #262627;
+    --twm-flow-grey-dot:       #9a9a9a;
+
+    --twm-flow-blue-bg:        rgba(22, 131, 196, 0.22);
+    --twm-flow-blue-fg:        #a8d4f2;
+    --twm-flow-blue-line:      rgba(80, 160, 220, 0.45);
+    --twm-flow-blue-icon-bg:   #173447;
+    --twm-flow-blue-text-bg:   #1a2630;
+    --twm-flow-blue-dot:       #4aa3dc;
+
+    --twm-flow-indigo-bg:      rgba(127, 140, 240, 0.17);
+    --twm-flow-indigo-fg:      #aab6fb;
+    --twm-flow-indigo-line:    rgba(127, 140, 240, 0.45);
+    --twm-flow-indigo-icon-bg: #252850;
+    --twm-flow-indigo-text-bg: #1e1f30;
+    --twm-flow-indigo-dot:     #7f8cf0;
+
+    /* The kit's own surfaces and signal colours (the mocks' values). The
+       focus ring is the canonical bright accent, so a consumer that restyles
+       the accent restyles it. */
+    --twm-flow-control-bg:     #2b2b2c;
+    --twm-flow-control-border: #454545;
+    --twm-flow-muted:          #a6a6a6;
+    --twm-flow-focus:          var(--accent-bright);
+    --twm-flow-error:          #f48771;
+    --twm-flow-error-bg:       rgba(244, 135, 113, 0.09);
+    --twm-flow-error-line:     rgba(244, 135, 113, 0.35);
+    --twm-flow-error-text:     #f2cfc6;
+    --twm-flow-warning:        #e2b366;
+    --twm-flow-warning-bg:     rgba(226, 179, 102, 0.09);
+    --twm-flow-warning-line:   rgba(226, 179, 102, 0.35);
+    --twm-flow-warning-text:   #f0dcb8;
+    --twm-flow-ok:             #89d185;
 }

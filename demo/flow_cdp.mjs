@@ -12,6 +12,7 @@
  * Windows' node) and a Chromium browser:
  *
  *     node demo/flow_kit_probe.mjs [out-dir]
+ *     FLOW_DIST=1 node demo/flow_kit_probe.mjs [out-dir]     (the built dist/, below)
  *
  * The browser is found at FLOW_BROWSER, else Edge's default Windows path.
  */
@@ -24,11 +25,42 @@ import { tmpdir } from 'node:os';
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css',
                 '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png' };
 
-/** Serve `root` on 127.0.0.1, on a free port. */
-export function startServer(root) {
+/**
+ * THE BUILT BUNDLE IN PLACE OF THE SOURCE, when `FLOW_DIST=1`. The demo pages
+ * load the development barrels (`../flow.js`, `../canvas.js`) and the sheets
+ * under `../css/`, so a feature branch needs no dist/. After the one dist/
+ * build (36 §2) the same pages and the same probes run against what a
+ * consumer actually loads: each path below is answered from dist/ instead. A
+ * probe that passes on the source and fails here has found a build defect — a
+ * chunk that lost a module, a barrel name the bundler dropped, a sheet not
+ * copied.
+ *
+ *     FLOW_DIST=1 node demo/flow_outline_probe.mjs [out-dir]
+ */
+const DIST_PATHS = {
+    '/flow.js': '/dist/flow.js',
+    '/canvas.js': '/dist/canvas.js',
+    '/css/flexdesk.css': '/dist/flexdesk.css',
+    '/css/tokens.css': '/dist/tokens.css',
+    '/css/reset.css': '/dist/reset.css',
+};
+const SERVE_DIST = /^(1|true|yes)$/i.test(process.env.FLOW_DIST || '');
+
+/** Serve `root` on 127.0.0.1, on a free port — the paths above from dist/ when FLOW_DIST=1. */
+export function startServer(root, { dist = SERVE_DIST } = {}) {
     const base = resolve(root);
+    if (dist) console.log('  (serving the built dist/ in place of the source barrels and sheets)');
     const server = createServer((req, res) => {
-        const path = normalize(join(base, decodeURIComponent(new URL(req.url, 'http://x').pathname)));
+        const pathname = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+        // A REDIRECT, never a rewrite: a built entry imports its chunks by a
+        // RELATIVE path (`./chunk-….js`), so it must be loaded from its own
+        // URL under /dist/ or every chunk 404s and the page never starts.
+        if (dist && DIST_PATHS[pathname]) {
+            res.writeHead(302, { location: DIST_PATHS[pathname], 'cache-control': 'no-store' });
+            res.end();
+            return;
+        }
+        const path = normalize(join(base, pathname));
         if (!path.startsWith(base) || !existsSync(path)) { res.writeHead(404); res.end('not found'); return; }
         try {
             const body = readFileSync(path);

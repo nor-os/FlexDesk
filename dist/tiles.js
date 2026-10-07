@@ -1,13 +1,4 @@
 import {
-  ActionDropdown
-} from "./chunk-O5OHMWBB.js";
-import {
-  openRawTracesWindow
-} from "./chunk-CNXP3SIN.js";
-import "./chunk-KH2GJTKR.js";
-import "./chunk-6JSOVNID.js";
-import "./chunk-FL5KFNQH.js";
-import {
   TileRegistry,
   createWidget,
   getAllWidgetTypes,
@@ -20,6 +11,15 @@ import {
   setTileLogger,
   tile_registry_exports
 } from "./chunk-FOOS3T5L.js";
+import {
+  ActionDropdown
+} from "./chunk-O5OHMWBB.js";
+import {
+  openRawTracesWindow
+} from "./chunk-CNXP3SIN.js";
+import "./chunk-KH2GJTKR.js";
+import "./chunk-6JSOVNID.js";
+import "./chunk-FL5KFNQH.js";
 import {
   __toCommonJS
 } from "./chunk-JYWURG5T.js";

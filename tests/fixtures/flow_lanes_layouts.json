@@ -1,0 +1,116 @@
+{
+  "about": "layoutLanes over a fixture set (36 §7.3, §8). Each case: the flow (types from tests/fixtures/flow_lanes_fixture.mjs), the lanes it must draw ([id, column] per step, lane by lane, top to bottom), each lane's kind and parent, the wires in connection order ([kind, from, to, toPort]) and the problem codes.",
+  "cases": [
+    {
+      "name": "the Pipeline mock",
+      "nodes": [["src", "read-system"], ["intake", "filter"], ["prog", "read-table"], ["join", "join"], ["tidy", "add-columns"], ["rename", "rename"], ["sink", "write-table"]],
+      "connections": [["c1", "src", "intake", "in"], ["c2", "intake", "join", "in"], ["c3", "prog", "join", "in_right"], ["c4", "join", "tidy", "in"], ["c5", "tidy", "rename", "in"], ["c6", "rename", "sink", "in"]],
+      "lanes": [[["src", 0], ["intake", 1], ["join", 2], ["tidy", 3], ["rename", 4], ["sink", 5]], [["prog", 1]]],
+      "kinds": [["root", null], ["feeder", 0]],
+      "wires": [["lane", "src", "intake", "in"], ["lane", "intake", "join", "in"], ["join", "prog", "join", "in_right"], ["lane", "join", "tidy", "in"], ["lane", "tidy", "rename", "in"], ["lane", "rename", "sink", "in"]],
+      "problems": []
+    },
+    {
+      "name": "the mock with the feeder source listed FIRST",
+      "nodes": [["prog", "read-table"], ["src", "read-system"], ["intake", "filter"], ["join", "join"], ["tidy", "add-columns"], ["rename", "rename"], ["sink", "write-table"]],
+      "connections": [["c3", "prog", "join", "in_right"], ["c1", "src", "intake", "in"], ["c2", "intake", "join", "in"], ["c4", "join", "tidy", "in"], ["c5", "tidy", "rename", "in"], ["c6", "rename", "sink", "in"]],
+      "lanes": [[["src", 0], ["intake", 1], ["join", 2], ["tidy", 3], ["rename", 4], ["sink", 5]], [["prog", 1]]],
+      "kinds": [["root", null], ["feeder", 0]],
+      "wires": [["join", "prog", "join", "in_right"], ["lane", "src", "intake", "in"], ["lane", "intake", "join", "in"], ["lane", "join", "tidy", "in"], ["lane", "tidy", "rename", "in"], ["lane", "rename", "sink", "in"]],
+      "problems": []
+    },
+    {
+      "name": "a fork: one output feeding two steps' lane inputs",
+      "nodes": [["s", "read-system"], ["a", "filter"], ["b", "rename"], ["w1", "write-table"], ["w2", "write-table"]],
+      "connections": [["c1", "s", "a", "in"], ["c2", "a", "b", "in"], ["c3", "a", "w2", "in"], ["c4", "b", "w1", "in"]],
+      "lanes": [[["s", 0], ["a", 1], ["b", 2], ["w1", 3]], [["w2", 2]]],
+      "kinds": [["root", null], ["fork", 0]],
+      "wires": [["lane", "s", "a", "in"], ["lane", "a", "b", "in"], ["fork", "a", "w2", "in"], ["lane", "b", "w1", "in"]],
+      "problems": []
+    },
+    {
+      "name": "nested feeders, re-settled until nothing moves",
+      "nodes": [["s1", "read-system"], ["f1", "filter"], ["f2", "rename"], ["f3", "add-columns"], ["j1", "join"], ["w", "write-table"], ["s2", "read-table"], ["j2", "join"], ["s3", "read-table"]],
+      "connections": [["c1", "s1", "f1", "in"], ["c2", "f1", "f2", "in"], ["c3", "f2", "f3", "in"], ["c4", "f3", "j1", "in"], ["c5", "j1", "w", "in"], ["c6", "s2", "j2", "in"], ["c7", "j2", "j1", "in_right"], ["c8", "s3", "j2", "in_right"]],
+      "lanes": [[["s1", 0], ["f1", 1], ["f2", 2], ["f3", 3], ["j1", 4], ["w", 5]], [["s2", 2], ["j2", 3]], [["s3", 2]]],
+      "kinds": [["root", null], ["feeder", 0], ["feeder", 1]],
+      "wires": [["lane", "s1", "f1", "in"], ["lane", "f1", "f2", "in"], ["lane", "f2", "f3", "in"], ["lane", "f3", "j1", "in"], ["lane", "j1", "w", "in"], ["lane", "s2", "j2", "in"], ["join", "j2", "j1", "in_right"], ["join", "s3", "j2", "in_right"]],
+      "problems": []
+    },
+    {
+      "name": "a feeder longer than the gap is never pulled left",
+      "nodes": [["s1", "read-system"], ["j", "join"], ["w", "write-table"], ["s2", "read-table"], ["f", "filter"], ["g", "rename"]],
+      "connections": [["c1", "s1", "j", "in"], ["c2", "j", "w", "in"], ["c3", "s2", "f", "in"], ["c4", "f", "g", "in"], ["c5", "g", "j", "in_right"]],
+      "lanes": [[["s1", 0], ["j", 3], ["w", 4]], [["s2", 0], ["f", 1], ["g", 2]]],
+      "kinds": [["root", null], ["feeder", 0]],
+      "wires": [["lane", "s1", "j", "in"], ["lane", "j", "w", "in"], ["lane", "s2", "f", "in"], ["lane", "f", "g", "in"], ["join", "g", "j", "in_right"]],
+      "problems": []
+    },
+    {
+      "name": "feeders before forks, under the lane they belong to",
+      "nodes": [["s", "read-system"], ["a", "filter"], ["j", "join"], ["w", "write-table"], ["k", "write-table"], ["s2", "read-table"]],
+      "connections": [["c1", "s", "a", "in"], ["c2", "a", "j", "in"], ["c3", "j", "w", "in"], ["c4", "a", "k", "in"], ["c5", "s2", "j", "in_right"]],
+      "lanes": [[["s", 0], ["a", 1], ["j", 2], ["w", 3]], [["s2", 1]], [["k", 2]]],
+      "kinds": [["root", null], ["feeder", 0], ["fork", 0]],
+      "wires": [["lane", "s", "a", "in"], ["lane", "a", "j", "in"], ["lane", "j", "w", "in"], ["fork", "a", "k", "in"], ["join", "s2", "j", "in_right"]],
+      "problems": []
+    },
+    {
+      "name": "an unconnected step starts a lane of its own, flagged",
+      "nodes": [["s", "read-system"], ["a", "filter"], ["w", "write-table"], ["x", "filter"], ["y", "write-table"]],
+      "connections": [["c1", "s", "a", "in"], ["c2", "a", "w", "in"], ["c3", "x", "y", "in"]],
+      "lanes": [[["s", 0], ["a", 1], ["w", 2]], [["x", 0], ["y", 1]]],
+      "kinds": [["root", null], ["root", null]],
+      "unconnected": [false, true],
+      "wires": [["lane", "s", "a", "in"], ["lane", "a", "w", "in"], ["lane", "x", "y", "in"]],
+      "problems": []
+    },
+    {
+      "name": "a union of three lanes: one port dot a joined input, in declared order",
+      "nodes": [["s1", "read-system"], ["s2", "read-system"], ["s3", "read-table"], ["u", "union"], ["w", "write-table"]],
+      "connections": [["c1", "s1", "u", "in"], ["c2", "s3", "u", "in_3"], ["c3", "s2", "u", "in_2"], ["c4", "u", "w", "in"]],
+      "lanes": [[["s1", 0], ["u", 1], ["w", 2]], [["s2", 0]], [["s3", 0]]],
+      "kinds": [["root", null], ["feeder", 0], ["feeder", 0]],
+      "slots": {"c2": [1, 2], "c3": [0, 2]},
+      "wires": [["lane", "s1", "u", "in"], ["join", "s3", "u", "in_3"], ["join", "s2", "u", "in_2"], ["lane", "u", "w", "in"]],
+      "problems": []
+    },
+    {
+      "name": "REFUSED: two lines into one lane input",
+      "nodes": [["s1", "read-system"], ["s2", "read-system"], ["a", "filter"]],
+      "connections": [["c1", "s1", "a", "in"], ["c2", "s2", "a", "in"]],
+      "lanes": [[["s1", 0], ["a", 1]], [["s2", 0]]],
+      "kinds": [["root", null], ["feeder", 0]],
+      "wires": [["lane", "s1", "a", "in"], ["join", "s2", "a", "in"]],
+      "problems": [["lanes_two_inputs", "a"]]
+    },
+    {
+      "name": "REFUSED: a cycle, broken for drawing at its first step",
+      "nodes": [["s", "read-system"], ["u", "union"], ["b", "filter"]],
+      "connections": [["c1", "s", "u", "in"], ["c2", "u", "b", "in"], ["c3", "b", "u", "in_2"]],
+      "lanes": [[["s", 0], ["u", 1], ["b", 2]]],
+      "kinds": [["root", null]],
+      "wires": [["lane", "s", "u", "in"], ["lane", "u", "b", "in"], ["join", "b", "u", "in_2"]],
+      "cycle": ["c3"],
+      "problems": [["lanes_cycle", "u"]]
+    },
+    {
+      "name": "REFUSED: two steps with one id",
+      "nodes": [["s", "read-system"], ["a", "filter"], ["a", "rename"]],
+      "connections": [["c1", "s", "a", "in"]],
+      "lanes": [[["s", 0], ["a", 1]]],
+      "kinds": [["root", null]],
+      "wires": [["lane", "s", "a", "in"]],
+      "problems": [["lanes_duplicate_step", "a"]]
+    },
+    {
+      "name": "an empty flow",
+      "nodes": [],
+      "connections": [],
+      "lanes": [],
+      "kinds": [],
+      "wires": [],
+      "problems": []
+    }
+  ]
+}

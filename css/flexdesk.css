@@ -9350,4 +9350,869 @@ tr:hover .twm-row-action { opacity: 1; }
 
 /* ══ FLOW · LANES ═════════════════════════════════════════════════════ */
 /* Owned by the lanes agent (D) (36 §2): the lane editor (twm-flow-lanes). */
+/*
+ * The lane editor: a data flow drawn as lanes, left to right. Every class is
+ * set by src/flow/lanes/editor.js, and every one it sets has a rule here
+ * (tests/flow_lanes_css.test.mjs).
+ *
+ * THE CARD SIZES BELOW MUST MATCH `LANE_GEOMETRY` in src/flow/lanes/layout.js
+ * — the layout places cards and draws wires from those numbers, the sheet
+ * sizes and clips the cards, and the suite holds the two equal.
+ */
+.twm-flow-lanes [hidden] {
+    display: none !important;
+}
+.twm-flow-lanes {
+    --twm-lanes-wire: #5b9bd5;
+    --twm-lanes-surface: #1b1b1c;
+    --twm-lanes-ring: #1683c4;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+    background: var(--surface-0);
+    color: var(--text-body);
+    font-family: var(--font-family-sans);
+    font-size: var(--font-size-sm);
+    line-height: 1.4;
+}
+.twm-flow-lanes--regular {
+    --twm-lanes-card-w: 200px;
+    --twm-lanes-card-h: 62px;
+    --twm-lanes-notch: 12px;
+    --twm-lanes-icon-w: 50px;
+    --twm-lanes-icon-w-source: 40px;
+}
+.twm-flow-lanes--small {
+    --twm-lanes-card-w: 160px;
+    --twm-lanes-card-h: 50px;
+    --twm-lanes-notch: 10px;
+    --twm-lanes-icon-w: 42px;
+    --twm-lanes-icon-w-source: 34px;
+}
+.twm-flow-lanes--strip {
+    --twm-lanes-card-w: 92px;
+    --twm-lanes-card-h: 26px;
+    --twm-lanes-notch: 8px;
+}
+.twm-flow-lanes--auto {
+    height: auto;
+}
+.twm-flow-lanes--compact {
+    height: auto;
+    background: transparent;
+}
+.twm-flow-lanes--readonly .twm-flow-lanes__flow {
+    background: #1a1a1b;
+}
+
+/* ── read only ──────────────────────────────────────────────────────── */
+.twm-flow-lanes__readonly {
+    flex: 0 0 auto;
+    padding: 7px 12px;
+    background: var(--twm-flow-warning-bg);
+    border-bottom: 1px solid var(--twm-flow-warning-line);
+    color: var(--twm-flow-warning-text);
+}
+.twm-flow-lanes__readonly-line {
+    margin: 0;
+}
+
+/* ── the toolbar ────────────────────────────────────────────────────── */
+.twm-flow-lanes__toolbar {
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: var(--surface-1);
+    border-bottom: 1px solid var(--border-default);
+}
+.twm-flow-lanes__toolbar .twm-btn,
+.twm-flow-lanes__form .twm-btn {
+    min-height: 26px;
+    padding: 0 9px;
+    font-size: var(--font-size-sm);
+    border-radius: 3px;
+}
+.twm-flow-lanes__toolbar-slot,
+.twm-flow-lanes__actions,
+.twm-flow-lanes__action {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+.twm-flow-lanes__toolbar-sep {
+    width: 1px;
+    height: 18px;
+    margin: 0 4px;
+    background: var(--surface-3);
+}
+.twm-flow-lanes__action--busy .twm-btn {
+    cursor: progress;
+}
+.twm-flow-lanes__refusal {
+    color: var(--twm-flow-warning);
+    font-size: var(--font-size-xs);
+}
+.twm-flow-lanes__status {
+    margin-left: 8px;
+    color: #a0a0a0;
+}
+.twm-flow-lanes__spacer {
+    flex: 1 1 auto;
+}
+.twm-flow-lanes__show-label {
+    color: var(--twm-flow-muted);
+}
+.twm-flow-lanes__show {
+    display: flex;
+    border: 1px solid var(--surface-3);
+    border-radius: 3px;
+    overflow: hidden;
+}
+.twm-flow-lanes__show-btn {
+    height: 24px;
+    padding: 0 10px;
+    border: 0;
+    background: var(--surface-2);
+    color: #c8c8c8;
+    font: inherit;
+    cursor: pointer;
+}
+.twm-flow-lanes__show-btn + .twm-flow-lanes__show-btn {
+    border-left: 1px solid var(--surface-3);
+}
+.twm-flow-lanes__show-btn[aria-pressed="true"] {
+    background: #0f6fa8;
+    color: var(--text-bright);
+}
+.twm-flow-lanes__show-btn:focus-visible,
+.twm-flow-lanes__param:focus-visible,
+.twm-flow-lanes__param-add:focus-visible,
+.twm-flow-lanes__add-source:focus-visible,
+.twm-flow-lanes__tab:focus-visible,
+.twm-flow-lanes__datatab:focus-visible,
+.twm-flow-lanes__menu-item:focus-visible {
+    outline: 2px solid var(--twm-lanes-ring);
+    outline-offset: -2px;
+}
+
+/* ── parameters ─────────────────────────────────────────────────────── */
+.twm-flow-lanes__params {
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    padding: 7px 12px;
+    background: #222223;
+    border-bottom: 1px solid var(--border-default);
+}
+.twm-flow-lanes__params-title {
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: #c4c4c4;
+}
+.twm-flow-lanes__param {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 24px;
+    padding: 0 9px;
+    border: 1px solid var(--surface-3);
+    border-radius: 12px;
+    background: var(--twm-flow-control-bg);
+    color: var(--text-primary);
+    font: inherit;
+    cursor: pointer;
+}
+.twm-flow-lanes__param:hover,
+.twm-flow-lanes__param-add:hover,
+.twm-flow-lanes__add-source:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+.twm-flow-lanes__param-name {
+    font-family: var(--font-family-mono);
+    color: var(--twm-flow-violet-fg);
+}
+.twm-flow-lanes__param-line {
+    color: var(--twm-flow-muted);
+}
+.twm-flow-lanes__param-add {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    height: 24px;
+    padding: 0 8px;
+    border: 1px dashed #4a4a4a;
+    border-radius: 12px;
+    background: transparent;
+    color: #b0b0b0;
+    font: inherit;
+    font-size: var(--font-size-xs);
+    cursor: pointer;
+}
+.twm-flow-lanes__param-add .material-symbols-outlined,
+.twm-flow-lanes__add-source .material-symbols-outlined {
+    font-size: 14px;
+}
+.twm-flow-lanes__params-help {
+    color: #a0a0a0;
+    font-size: var(--font-size-xs);
+}
+
+/* ── the lanes ──────────────────────────────────────────────────────── */
+.twm-flow-lanes__flow {
+    flex: 0 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    background: var(--twm-lanes-surface);
+    border-bottom: 1px solid var(--border-default);
+}
+.twm-flow-lanes__banner {
+    margin: 8px 16px 0;
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--twm-flow-blue-bg);
+    color: var(--twm-flow-blue-fg);
+}
+.twm-flow-lanes__scroller {
+    overflow-x: auto;
+    padding: 14px 0 6px;
+}
+/* The page's own scrollbars may be light; these sit on dark surfaces. */
+.twm-flow-lanes__scroller,
+.twm-flow-lanes__flow,
+.twm-flow-lanes__settings,
+.twm-flow-lanes__databody {
+    scrollbar-color: #4a4a4a transparent;
+}
+.twm-flow-lanes__surface {
+    position: relative;
+    z-index: 0;
+    margin: 0 16px;
+}
+.twm-flow-lanes__empty {
+    margin: 0;
+    padding: 18px 16px 4px;
+    color: var(--twm-flow-muted);
+}
+/* A lane: its band is a pseudo-element, so the lane itself has no border and
+ * a card's `left`/`top` inside it are exactly the layout's numbers. */
+.twm-flow-lanes__lane {
+    position: absolute;
+    left: 0;
+    right: 0;
+}
+.twm-flow-lanes__lane::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    box-sizing: border-box;
+    border: 1px dashed #2c2c2c;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.018);
+}
+.twm-flow-lanes__lane--unconnected::before {
+    border-color: var(--twm-flow-warning-line);
+}
+.twm-flow-lanes__flag {
+    position: absolute;
+    top: -8px;
+    left: 12px;
+    padding: 0 6px;
+    font-size: 10px;
+    line-height: 16px;
+    color: var(--twm-flow-warning);
+    background: var(--twm-lanes-surface);
+}
+.twm-flow-lanes__wires {
+    position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 1;
+    overflow: visible;
+    pointer-events: none;
+}
+.twm-flow-lanes__wire {
+    fill: none;
+    stroke: var(--twm-lanes-wire);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.twm-flow-lanes__wire--cycle {
+    stroke: var(--twm-flow-error);
+    stroke-dasharray: 4 3;
+}
+.twm-flow-lanes__port {
+    fill: var(--twm-lanes-wire);
+    stroke: var(--twm-lanes-surface);
+    stroke-width: 3;
+}
+
+/* ── a card: an unclipped holder (focus, selection, "+") round a clipped body ── */
+.twm-flow-lanes__node {
+    position: absolute;
+    z-index: 2;
+    width: var(--twm-lanes-card-w);
+    height: var(--twm-lanes-card-h);
+}
+.twm-flow-lanes__node--teal,
+.twm-flow-lanes__tab--teal {
+    --twm-lanes-icon-bg: var(--twm-flow-teal-icon-bg);
+    --twm-lanes-text-bg: var(--twm-flow-teal-text-bg);
+    --twm-lanes-fg: var(--twm-flow-teal-fg);
+    --twm-lanes-dot: var(--twm-flow-teal-dot);
+}
+.twm-flow-lanes__node--indigo,
+.twm-flow-lanes__tab--indigo {
+    --twm-lanes-icon-bg: var(--twm-flow-indigo-icon-bg);
+    --twm-lanes-text-bg: var(--twm-flow-indigo-text-bg);
+    --twm-lanes-fg: var(--twm-flow-indigo-fg);
+    --twm-lanes-dot: var(--twm-flow-indigo-dot);
+}
+.twm-flow-lanes__node--violet,
+.twm-flow-lanes__tab--violet {
+    --twm-lanes-icon-bg: var(--twm-flow-violet-icon-bg);
+    --twm-lanes-text-bg: var(--twm-flow-violet-text-bg);
+    --twm-lanes-fg: var(--twm-flow-violet-fg);
+    --twm-lanes-dot: var(--twm-flow-violet-dot);
+}
+.twm-flow-lanes__node--amber,
+.twm-flow-lanes__tab--amber {
+    --twm-lanes-icon-bg: var(--twm-flow-amber-icon-bg);
+    --twm-lanes-text-bg: var(--twm-flow-amber-text-bg);
+    --twm-lanes-fg: var(--twm-flow-amber-fg);
+    --twm-lanes-dot: var(--twm-flow-amber-dot);
+}
+.twm-flow-lanes__node--blue,
+.twm-flow-lanes__tab--blue {
+    --twm-lanes-icon-bg: var(--twm-flow-blue-icon-bg);
+    --twm-lanes-text-bg: var(--twm-flow-blue-text-bg);
+    --twm-lanes-fg: var(--twm-flow-blue-fg);
+    --twm-lanes-dot: var(--twm-flow-blue-dot);
+}
+.twm-flow-lanes__node--grey,
+.twm-flow-lanes__tab--grey {
+    --twm-lanes-icon-bg: var(--twm-flow-grey-icon-bg);
+    --twm-lanes-text-bg: var(--twm-flow-grey-text-bg);
+    --twm-lanes-fg: var(--twm-flow-grey-fg);
+    --twm-lanes-dot: var(--twm-flow-grey-dot);
+}
+.twm-flow-lanes__card {
+    display: block;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    outline: none;
+}
+/* The ring is a `drop-shadow` on the unclipped holder: a clip-path cuts a
+ * box-shadow off, a filter on its parent follows the clipped shape. */
+.twm-flow-lanes__node--warning .twm-flow-lanes__card {
+    filter: drop-shadow(0 0 1px var(--twm-flow-warning)) drop-shadow(0 0 1px var(--twm-flow-warning));
+}
+.twm-flow-lanes__node--error .twm-flow-lanes__card {
+    filter: drop-shadow(0 0 1px var(--twm-flow-error)) drop-shadow(0 0 1px var(--twm-flow-error));
+}
+.twm-flow-lanes__node--selected .twm-flow-lanes__card,
+.twm-flow-lanes__card:focus-visible {
+    filter: drop-shadow(0 0 1px var(--twm-lanes-ring)) drop-shadow(0 0 1px var(--twm-lanes-ring))
+            drop-shadow(0 0 5px rgba(22, 131, 196, 0.8));
+}
+.twm-flow-lanes__card:hover .twm-flow-lanes__body {
+    filter: brightness(1.12);
+}
+.twm-flow-lanes__body {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    background: var(--twm-lanes-text-bg);
+}
+/* Three shapes: a source flat on the left, a step notched, a sink flat on the right. */
+.twm-flow-lanes__node--source .twm-flow-lanes__body {
+    clip-path: polygon(0 0, calc(100% - var(--twm-lanes-notch)) 0, 100% 50%,
+                       calc(100% - var(--twm-lanes-notch)) 100%, 0 100%);
+}
+.twm-flow-lanes__node--transform .twm-flow-lanes__body,
+.twm-flow-lanes__node--operation .twm-flow-lanes__body {
+    clip-path: polygon(0 0, calc(100% - var(--twm-lanes-notch)) 0, 100% 50%,
+                       calc(100% - var(--twm-lanes-notch)) 100%, 0 100%, var(--twm-lanes-notch) 50%);
+}
+.twm-flow-lanes__node--sink .twm-flow-lanes__body {
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, var(--twm-lanes-notch) 50%);
+}
+.twm-flow-lanes__icon {
+    flex: 0 0 var(--twm-lanes-icon-w);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    padding-left: calc(var(--twm-lanes-notch) - 2px);
+    background: var(--twm-lanes-icon-bg);
+    color: var(--twm-lanes-fg);
+    overflow: hidden;
+}
+.twm-flow-lanes__node--source .twm-flow-lanes__icon {
+    flex-basis: var(--twm-lanes-icon-w-source);
+    padding-left: 0;
+}
+.twm-flow-lanes__icon .material-symbols-outlined {
+    font-size: 18px;
+    line-height: 1;
+}
+.twm-flow-lanes__sep {
+    flex: 0 0 1px;
+    background: rgba(255, 255, 255, 0.08);
+}
+.twm-flow-lanes__text {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 1px;
+    padding: 0 18px 0 9px;
+}
+.twm-flow-lanes__title,
+.twm-flow-lanes__sub,
+.twm-flow-lanes__line {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.twm-flow-lanes__title {
+    color: #ececec;
+    font-weight: 600;
+}
+.twm-flow-lanes__sub {
+    color: #b0b0b0;
+    font-size: var(--font-size-xs);
+}
+.twm-flow-lanes__line {
+    font-size: 10px;
+}
+.twm-flow-lanes__line--ok { color: var(--twm-flow-ok); }
+.twm-flow-lanes__line--warning { color: var(--twm-flow-warning); }
+.twm-flow-lanes__line--error { color: var(--twm-flow-error); }
+.twm-flow-lanes__line--muted { color: #b0b0b0; }
+.twm-flow-lanes__line--info { color: var(--twm-flow-blue-fg); }
+/* "+" on the card's right tip: on hover, on focus and on the chosen card —
+ * never on hover alone. */
+.twm-flow-lanes__add {
+    position: absolute;
+    right: -14px;
+    top: -9px;
+    z-index: 3;
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid #4a4a4a;
+    border-radius: 9px;
+    background: var(--surface-1);
+    color: #d0d0d0;
+    cursor: pointer;
+    opacity: 0;
+}
+.twm-flow-lanes__node:hover .twm-flow-lanes__add,
+.twm-flow-lanes__node:focus-within .twm-flow-lanes__add,
+.twm-flow-lanes__node--selected .twm-flow-lanes__add {
+    opacity: 1;
+}
+.twm-flow-lanes__add:hover,
+.twm-flow-lanes__add:focus-visible {
+    background: var(--twm-lanes-ring);
+    border-color: var(--twm-lanes-ring);
+    color: var(--text-bright);
+    outline: none;
+}
+.twm-flow-lanes__add .material-symbols-outlined {
+    font-size: 14px;
+    line-height: 1;
+}
+
+/* the small cards: a title and one line */
+.twm-flow-lanes--small .twm-flow-lanes__sub {
+    display: none;
+}
+.twm-flow-lanes--small .twm-flow-lanes__text {
+    padding: 0 16px 0 8px;
+}
+.twm-flow-lanes--small .twm-flow-lanes__line {
+    font-size: 10.5px;
+}
+.twm-flow-lanes--small .twm-flow-lanes__icon .material-symbols-outlined {
+    font-size: 14px;
+}
+
+/* the compact strip: a title a card, and nothing to press */
+.twm-flow-lanes--compact .twm-flow-lanes__flow {
+    background: transparent;
+    border-bottom: 0;
+    overflow: visible;
+}
+.twm-flow-lanes--compact .twm-flow-lanes__scroller {
+    padding: 0;
+}
+.twm-flow-lanes--compact .twm-flow-lanes__surface {
+    margin: 0;
+}
+.twm-flow-lanes--strip .twm-flow-lanes__lane::before {
+    display: none;
+}
+.twm-flow-lanes--strip .twm-flow-lanes__body {
+    background: var(--twm-lanes-icon-bg);
+}
+.twm-flow-lanes--strip .twm-flow-lanes__text {
+    padding: 0 12px 0 13px;
+}
+.twm-flow-lanes--strip .twm-flow-lanes__node--source .twm-flow-lanes__text {
+    padding: 0 12px 0 8px;
+}
+.twm-flow-lanes--strip .twm-flow-lanes__node--sink .twm-flow-lanes__text {
+    padding: 0 6px 0 13px;
+}
+.twm-flow-lanes--strip .twm-flow-lanes__title {
+    color: #e6e6e6;
+    font-size: 10.5px;
+    font-weight: 400;
+}
+
+/* ── under the lanes: Add a source ──────────────────────────────────── */
+.twm-flow-lanes__foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 16px;
+    padding: 4px 16px 12px;
+}
+.twm-flow-lanes__add-source {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 12px;
+    border: 1px dashed #4a4a4a;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: #b8b8b8;
+    font: inherit;
+    cursor: pointer;
+}
+.twm-flow-lanes__hint {
+    color: #9a9a9a;
+    font-size: var(--font-size-xs);
+}
+
+/* ── a tab per step ─────────────────────────────────────────────────── */
+.twm-flow-lanes__tabs {
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 0 2px;
+    padding: 0 12px;
+    background: var(--surface-1);
+    border-bottom: 1px solid var(--border-default);
+}
+.twm-flow-lanes__tab,
+.twm-flow-lanes__datatab {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    height: 32px;
+    padding: 0 11px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: #b4b4b4;
+    font: inherit;
+    cursor: pointer;
+}
+.twm-flow-lanes__tab:hover,
+.twm-flow-lanes__datatab:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+.twm-flow-lanes__tab[aria-selected="true"],
+.twm-flow-lanes__datatab[aria-pressed="true"] {
+    border-bottom-color: var(--twm-lanes-ring);
+    color: var(--text-bright);
+}
+.twm-flow-lanes__tab-dot {
+    flex: 0 0 7px;
+    height: 7px;
+    border-radius: 4px;
+    background: var(--twm-lanes-dot);
+}
+.twm-flow-lanes__tab-label {
+    max-width: 220px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ── the dock: the settings beside what the step gives ──────────────── */
+.twm-flow-lanes__dock {
+    flex: 1 1 0;
+    min-height: 240px;
+    display: flex;
+    align-items: stretch;
+}
+.twm-flow-lanes--auto .twm-flow-lanes__dock {
+    flex: 0 0 auto;
+}
+.twm-flow-lanes__settings {
+    flex: 1 1 400px;
+    min-width: 260px;
+    min-height: 0;
+    overflow-y: auto;
+    background: #232324;
+    border-right: 1px solid var(--border-default);
+}
+.twm-flow-lanes__settings .twm-flow-panel {
+    background: transparent;
+}
+.twm-flow-lanes__settings-hint {
+    margin: 0;
+    padding: 16px 20px;
+    color: var(--twm-flow-muted);
+}
+.twm-flow-lanes__data {
+    flex: 1.2 1 440px;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+.twm-flow-lanes__datatabs {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: stretch;
+    gap: 0 2px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--border-default);
+}
+.twm-flow-lanes__datastate {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    color: #a0a0a0;
+    font-size: var(--font-size-xs);
+    white-space: nowrap;
+}
+.twm-flow-lanes__datastate-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.twm-flow-lanes__datastate-dot {
+    flex: 0 0 7px;
+    height: 7px;
+    border-radius: 4px;
+}
+.twm-flow-lanes__datastate--ok .twm-flow-lanes__datastate-dot { background: var(--twm-flow-ok); }
+.twm-flow-lanes__datastate--busy .twm-flow-lanes__datastate-dot { background: var(--twm-flow-warning); }
+.twm-flow-lanes__datastate--error .twm-flow-lanes__datastate-dot { background: var(--twm-flow-error); }
+.twm-flow-lanes__databody {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 0 14px 12px;
+    overflow: auto;
+}
+.twm-flow-lanes__caption {
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 8px 0 6px;
+    color: #b4b4b4;
+}
+/* A DataTable fills this box, so the box has a size: one with none draws a
+ * header and no rows. */
+.twm-flow-lanes__table {
+    flex: 1 1 0;
+    min-height: 120px;
+    border: 1px solid #333;
+    border-radius: 3px;
+    overflow: hidden;
+}
+.twm-flow-lanes__cell--new,
+.twm-flow-lanes__cell--changed {
+    background: rgba(22, 131, 196, 0.07);
+}
+.twm-flow-lanes__error {
+    flex: 0 0 auto;
+    margin: 8px 0 0;
+    padding: 7px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--twm-flow-error-bg);
+    border: 1px solid var(--twm-flow-error-line);
+    color: var(--twm-flow-error-text);
+}
+.twm-flow-lanes__nodata {
+    margin: 0;
+    padding: 12px 0;
+    color: var(--twm-flow-muted);
+}
+.twm-flow-lanes__columns {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px 12px;
+}
+.twm-flow-lanes__column {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+    padding: 5px 8px;
+    border-bottom: 1px solid var(--border-subtle);
+}
+.twm-flow-lanes__column--new,
+.twm-flow-lanes__column--changed {
+    background: rgba(22, 131, 196, 0.14);
+}
+.twm-flow-lanes__column-name {
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-xs);
+    color: #e6e6e6;
+}
+.twm-flow-lanes__column-type {
+    color: #9a9a9a;
+    font-size: var(--font-size-xs);
+}
+.twm-flow-lanes__column--new .twm-flow-lanes__column-type,
+.twm-flow-lanes__column--changed .twm-flow-lanes__column-type {
+    color: #9fd0f0;
+}
+.twm-flow-lanes__column-origin {
+    margin-left: auto;
+    color: #a0a0a0;
+    font-size: var(--font-size-xs);
+    text-align: right;
+}
+.twm-flow-lanes__rejects {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.twm-flow-lanes__reject {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 12px;
+    padding: 7px 10px;
+    background: var(--twm-flow-warning-bg);
+    border: 1px solid var(--twm-flow-warning-line);
+    border-radius: var(--radius-sm);
+}
+.twm-flow-lanes__reject-key {
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-xs);
+    color: #ecc788;
+}
+.twm-flow-lanes__reject-value {
+    color: var(--text-primary);
+}
+.twm-flow-lanes__reject-reason {
+    flex: 1 1 260px;
+    color: #d0c0a4;
+}
+
+/* ── a parameter's form and a card's menu, in the kit's popover ─────── */
+.twm-flow-lanes__popover {
+    min-width: 220px;
+}
+.twm-flow-lanes__form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    box-sizing: border-box;
+    width: 320px;
+    max-width: 100%;
+    padding: 12px;
+}
+.twm-flow-lanes__form-title {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.twm-flow-lanes__form-row {
+    display: grid;
+    grid-template-columns: 90px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+}
+.twm-flow-lanes__form-label {
+    color: #c8c8c8;
+}
+.twm-flow-lanes__form-control {
+    display: block;
+    min-width: 0;
+}
+.twm-flow-lanes__form-refusal {
+    margin: 0;
+    color: var(--twm-flow-error);
+}
+.twm-flow-lanes__form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+}
+.twm-flow-lanes__menu {
+    display: flex;
+    flex-direction: column;
+    min-width: 200px;
+    padding: 4px;
+}
+.twm-flow-lanes__menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 28px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text-body);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.twm-flow-lanes__menu-item:hover,
+.twm-flow-lanes__menu-item:focus-visible {
+    background: var(--state-active);
+}
+.twm-flow-lanes__menu-item:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+.twm-flow-lanes__menu-item--danger {
+    color: var(--twm-flow-error);
+}
+.twm-flow-lanes__menu-item .material-symbols-outlined {
+    font-size: 16px;
+    line-height: 1;
+}
 /* ══ end FLOW · LANES ══ */

@@ -32,6 +32,7 @@ export const OUTLINE_STRINGS = Object.freeze({
     loopLeaks: (l, y) => `The body of ‘${l}’ reaches ‘${y}’, which runs after the loop.`,
     loopEnteredByNext: (l) => `‘${l}’ is entered by its Next from outside its body.`,
     outline_cycle: (x, y) => `‘${x}’ leads back to ‘${y}’, and only a loop's Next may.`,
+    selfLine: (x) => `A line leaves ‘${x}’ and comes straight back into it; a step cannot connect to itself.`,
     outline_unknown_port: (x, port) => `‘${x}’ has no port called ${port}.`,
     outline_broken_line: (id) => `A line names ‘${id}’, which is not a step in this flow.`,
     outline_after_end: (x, y) => `‘${x}’ ends the run, and a line leaves it for ‘${y}’.`,

@@ -4236,6 +4236,7 @@ var OUTLINE_STRINGS = Object.freeze({
   loopLeaks: (l, y) => `The body of \u2018${l}\u2019 reaches \u2018${y}\u2019, which runs after the loop.`,
   loopEnteredByNext: (l) => `\u2018${l}\u2019 is entered by its Next from outside its body.`,
   outline_cycle: (x, y) => `\u2018${x}\u2019 leads back to \u2018${y}\u2019, and only a loop's Next may.`,
+  selfLine: (x) => `A line leaves \u2018${x}\u2019 and comes straight back into it; a step cannot connect to itself.`,
   outline_unknown_port: (x, port) => `\u2018${x}\u2019 has no port called ${port}.`,
   outline_broken_line: (id) => `A line names \u2018${id}\u2019, which is not a step in this flow.`,
   outline_after_end: (x, y) => `\u2018${x}\u2019 ends the run, and a line leaves it for \u2018${y}\u2019.`,
@@ -4643,7 +4644,7 @@ var Recogniser = class {
         this.extra.push(c);
         continue;
       }
-      if (s === t) this.refuse("outline_cycle", s, this.name(s), this.name(t));
+      if (s === t) this.refuseWith("outline_cycle", "selfLine", s, this.name(s));
       const edge = { source: s, target: t, sourcePort, targetPort, raw: c };
       this.flow.push(edge);
       this.out.get(s).push(edge);
@@ -7876,9 +7877,24 @@ function placeLanes(layout, geometry = "regular") {
       });
     }
   }
+  const crossesACard = (points, ends) => cards.some((c) => {
+    if (ends.includes(c.id)) return false;
+    for (let i = 1; i < points.length; i += 1) {
+      const p = points[i - 1];
+      const q = points[i];
+      const x1 = Math.min(p.x, q.x);
+      const x2 = Math.max(p.x, q.x);
+      const y1 = Math.min(p.y, q.y);
+      const y2 = Math.max(p.y, q.y);
+      if (x2 > c.x && x1 < c.x + c.w && y2 > c.y && y1 < c.y + c.h) return true;
+    }
+    return false;
+  });
+  const gapBeside = (l, side) => side > 0 ? laneTop(l) + band + g.laneGap / 2 : laneTop(l) - g.laneGap / 2;
   const wires = layout.wires.map((w) => {
     const a = layout.at[w.from];
     const b = layout.at[w.to];
+    const ends = [w.from, w.to];
     let points;
     let port = null;
     if (w.kind === "lane") {
@@ -7891,15 +7907,35 @@ function placeLanes(layout, geometry = "regular") {
       const down = b.lane > a.lane;
       const fy = down ? cardY(a.lane) + g.height : cardY(a.lane);
       points = [{ x: fx, y: fy }, { x: fx, y: mid(b.lane) }, { x: colX(b.column) + g.wireIn, y: mid(b.lane) }];
+      if (b.column > a.column && crossesACard(points, ends)) {
+        const gy = gapBeside(a.lane, down ? 1 : -1);
+        const gx = colX(b.column) - g.gap / 2;
+        points = [
+          { x: fx, y: fy },
+          { x: fx, y: gy },
+          { x: gx, y: gy },
+          { x: gx, y: mid(b.lane) },
+          { x: colX(b.column) + g.wireIn, y: mid(b.lane) }
+        ];
+      }
     } else {
       const tx = colX(b.column) + g.width * (w.slot + 1) / (w.slots + 1);
       const sx = colX(a.column) + g.width - g.tipInset;
-      if (a.lane > b.lane && tx > sx) {
-        port = { x: tx, y: cardY(b.lane) + g.height };
+      if (a.lane !== b.lane && tx > sx) {
+        const below = a.lane > b.lane;
+        port = { x: tx, y: below ? cardY(b.lane) + g.height : cardY(b.lane) };
         points = [{ x: sx, y: mid(a.lane) }, { x: tx, y: mid(a.lane) }, port];
-      } else if (a.lane < b.lane && tx > sx) {
-        port = { x: tx, y: cardY(b.lane) };
-        points = [{ x: sx, y: mid(a.lane) }, { x: tx, y: mid(a.lane) }, port];
+        if (crossesACard(points, ends)) {
+          const gx = colX(a.column) + g.width + g.gap / 2;
+          const gy = gapBeside(b.lane, below ? 1 : -1);
+          points = [
+            { x: sx, y: mid(a.lane) },
+            { x: gx, y: mid(a.lane) },
+            { x: gx, y: gy },
+            { x: tx, y: gy },
+            port
+          ];
+        }
       } else {
         const gy = laneTop(a.lane) + band + g.laneGap / 2;
         const fx = colX(a.column) + g.width / 2;

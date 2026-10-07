@@ -15,6 +15,12 @@
  *   §4  the order of the nodes array decides nothing but the roots' order:
  *       every permutation of the mock's nodes gives the same lanes
  *   §5  roundedPath: corners rounded, never past half a segment
+ *   §6  NO WIRE RUNS THROUGH A CARD that is not one of its ends, at all three
+ *       sizes, over the fixture set and the shapes that once did: a feeder
+ *       that goes on past its feed, two lanes each feeding the other’s join
+ *       (a join fed from ABOVE), a fork drawn under a feeder, the nearer of
+ *       two feeders the longer one — and a wire that needs no detour keeps
+ *       the mock's straight elbow
  *
  *     node tests/flow_lanes_layout.test.mjs        (plain node; no DOM)
  */
@@ -199,6 +205,63 @@ t.section('§5 roundedPath');
             'M0 0H4Q8 0 8 4V30');
     t.check('two corners', roundedPath([{ x: 0, y: 0 }, { x: 0, y: 40 }, { x: 60, y: 40 }, { x: 60, y: 10 }], 10),
             'M0 0V30Q0 40 10 40H50Q60 40 60 30V10');
+}
+
+
+t.section('§6 no wire runs through a card');
+{
+    let n = 0;
+    const P = (nodes, lines) => ({
+        nodes: Object.entries(nodes).map(([id, type]) => ({ id, type, config: {} })),
+        connections: lines.map((l, i) => {
+            const [a, b] = l.split('->');
+            const [targetId, targetPort = 'in'] = b.split('.');
+            return { id: `c${i + 1}`, sourceId: a, sourcePort: 'out', targetId, targetPort };
+        }),
+        parameters: {},
+    });
+    const shapes = [
+        ['a feeder that goes on past its feed', P({ a: 'read-system', f: 'filter', j: 'join', w: 'write-table',
+            b: 'read-table', bf: 'filter', bw: 'write-table' }, ['a->f', 'f->j', 'b->bf', 'bf->j.in_right', 'bf->bw', 'j->w'])],
+        ['two lanes, each feeding the other’s join (one join fed from above)', P({ b: 'read-table', a: 'read-system',
+            f: 'filter', j: 'join', w: 'write-table', bf: 'filter', j2: 'join', w2: 'write-table' },
+            ['b->bf', 'a->f', 'f->j', 'bf->j.in_right', 'j->w', 'bf->j2', 'f->j2.in_right', 'j2->w2'])],
+        ['the mock and a fork drawn under its feeder', P({ a: 'read-system', f: 'filter', j: 'join', w: 'write-table',
+            b: 'read-table', r: 'rename', w2: 'write-table' }, ['a->f', 'f->j', 'b->j.in_right', 'j->w', 'f->r', 'r->w2'])],
+        ['two feeders, the nearer one the longer', P({ a: 'read-system', j1: 'join', r: 'rename', j2: 'join',
+            w: 'write-table', b: 'read-table', bf: 'filter', bw: 'write-table', c: 'read-table' },
+            ['a->j1', 'j1->r', 'r->j2', 'b->bf', 'bf->j1.in_right', 'bf->bw', 'c->j2.in_right', 'j2->w'])],
+        ...fixture.cases.filter((c) => !c.problems.length).map((c) => [c.name, pipelineOf(c)]),
+    ];
+    const through = (placed) => {
+        const hits = [];
+        for (const w of placed.wires) {
+            for (let i = 1; i < w.points.length; i += 1) {
+                const p = w.points[i - 1];
+                const q = w.points[i];
+                for (const c of placed.cards) {
+                    if (c.id === w.from || c.id === w.to) continue;
+                    if (Math.max(p.x, q.x) > c.x && Math.min(p.x, q.x) < c.x + c.w
+                        && Math.max(p.y, q.y) > c.y && Math.min(p.y, q.y) < c.y + c.h) hits.push(`${w.from}->${w.to} through ${c.id}`);
+                }
+            }
+        }
+        return [...new Set(hits)];
+    };
+    for (const [name, pipeline] of shapes) {
+        for (const size of ['regular', 'small', 'strip']) {
+            const placed = placeLanes(layoutLanes(pipeline, catalogue), size);
+            n += 1;
+            t.check(`${name} (${size}): no wire crosses a card`, through(placed), []);
+            const joins = placed.wires.filter((w) => w.kind === 'join');
+            t.ok(`${name} (${size}): every join wire ends going straight into its port`,
+                 joins.every((w) => w.points.at(-1).x === w.points.at(-2).x), joins.map((w) => w.d).join(' | '));
+        }
+    }
+    t.ok('the shapes were all looked at', n === shapes.length * 3);
+    const mock = placeLanes(layoutLanes(MOCK_PIPELINE, catalogue), 'regular');
+    t.check('the mock’s join still takes the straight elbow (three points: right, then up)',
+            mock.wires.filter((w) => w.kind === 'join').map((w) => w.points.length), [3]);
 }
 
 t.done();

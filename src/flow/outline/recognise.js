@@ -151,7 +151,9 @@ class Recogniser {
                 this.extra.push(c);
                 continue;
             }
-            if (s === t) this.refuse('outline_cycle', s, this.name(s), this.name(t));
+            // A line from a step into itself (a loop's body straight into its own
+            // Next included) is a cycle of one, and says so in its own words.
+            if (s === t) this.refuseWith('outline_cycle', 'selfLine', s, this.name(s));
             const edge = { source: s, target: t, sourcePort, targetPort, raw: c };
             this.flow.push(edge);
             this.out.get(s).push(edge);

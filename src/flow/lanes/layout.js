@@ -35,7 +35,10 @@
  *  5. WIRES are computed from the grid, never measured from the page: `lane`,
  *     card to next card; `join`, from the feeding card right and then up into
  *     the join's bottom; `fork`, from the forking card's bottom down and then
- *     right into the new lane's first card.
+ *     right into the new lane's first card. A wire that would run through a
+ *     card that is neither of its ends (a feeder lane that goes on past its
+ *     feed, a fork drawn under a feeder) takes the gutters instead — the gap
+ *     after a column and the gap beside a lane, which hold no card.
  *
  * ══ TWO DEFECTS OF THE EARLIER LAYOUT, LEFT BEHIND ═════════════════════
  *
@@ -446,9 +449,30 @@ export function placeLanes(layout, geometry = 'regular') {
                          w: g.width, h: g.height });
         }
     }
+    // A straight wire may run through a card that is neither of its ends: a
+    // feeder lane that goes on past the card feeding a join, a join fed from
+    // the lane ABOVE whose own lane goes on, a fork whose lane is drawn under
+    // a feeder. Then the wire takes the GUTTERS instead — the gap between two
+    // columns and the gap between two lanes hold no card, by construction.
+    const crossesACard = (points, ends) => cards.some((c) => {
+        if (ends.includes(c.id)) return false;
+        for (let i = 1; i < points.length; i += 1) {
+            const p = points[i - 1];
+            const q = points[i];
+            const x1 = Math.min(p.x, q.x);
+            const x2 = Math.max(p.x, q.x);
+            const y1 = Math.min(p.y, q.y);
+            const y2 = Math.max(p.y, q.y);
+            if (x2 > c.x && x1 < c.x + c.w && y2 > c.y && y1 < c.y + c.h) return true;
+        }
+        return false;
+    });
+    /** The middle of the gap between lane `l` and the lane beside it, below (`+1`) or above (`-1`). */
+    const gapBeside = (l, side) => (side > 0 ? laneTop(l) + band + g.laneGap / 2 : laneTop(l) - g.laneGap / 2);
     const wires = layout.wires.map((w) => {
         const a = layout.at[w.from];
         const b = layout.at[w.to];
+        const ends = [w.from, w.to];
         let points;
         let port = null;
         if (w.kind === 'lane') {
@@ -459,15 +483,31 @@ export function placeLanes(layout, geometry = 'regular') {
             const down = b.lane > a.lane;
             const fy = down ? cardY(a.lane) + g.height : cardY(a.lane);
             points = [{ x: fx, y: fy }, { x: fx, y: mid(b.lane) }, { x: colX(b.column) + g.wireIn, y: mid(b.lane) }];
+            if (b.column > a.column && crossesACard(points, ends)) {
+                // Out of the forking card into the gap beside its lane, along it
+                // to the gutter before the new lane's first card, along that
+                // gutter to the new lane, and in.
+                const gy = gapBeside(a.lane, down ? 1 : -1);
+                const gx = colX(b.column) - g.gap / 2;
+                points = [{ x: fx, y: fy }, { x: fx, y: gy }, { x: gx, y: gy }, { x: gx, y: mid(b.lane) },
+                          { x: colX(b.column) + g.wireIn, y: mid(b.lane) }];
+            }
         } else {
             const tx = colX(b.column) + (g.width * (w.slot + 1)) / (w.slots + 1);
             const sx = colX(a.column) + g.width - g.tipInset;
-            if (a.lane > b.lane && tx > sx) {
-                port = { x: tx, y: cardY(b.lane) + g.height };
+            if (a.lane !== b.lane && tx > sx) {
+                const below = a.lane > b.lane;
+                port = { x: tx, y: below ? cardY(b.lane) + g.height : cardY(b.lane) };
                 points = [{ x: sx, y: mid(a.lane) }, { x: tx, y: mid(a.lane) }, port];
-            } else if (a.lane < b.lane && tx > sx) {
-                port = { x: tx, y: cardY(b.lane) };
-                points = [{ x: sx, y: mid(a.lane) }, { x: tx, y: mid(a.lane) }, port];
+                if (crossesACard(points, ends)) {
+                    // Out of the feeding card's tip into the gutter after it, along
+                    // that gutter to the gap beside the join's lane, along the gap,
+                    // and into the join's port.
+                    const gx = colX(a.column) + g.width + g.gap / 2;
+                    const gy = gapBeside(b.lane, below ? 1 : -1);
+                    points = [{ x: sx, y: mid(a.lane) }, { x: gx, y: mid(a.lane) }, { x: gx, y: gy },
+                              { x: tx, y: gy }, port];
+                }
             } else {
                 // The same lane, or a line that runs back (a cycle): under the
                 // source's lane, along the gap, and up into the join's bottom.

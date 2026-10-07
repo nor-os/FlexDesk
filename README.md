@@ -417,6 +417,14 @@ did not give it. An untouched setting stays absent, and emptying one removes it.
 A list or map entry keeps its stored type when another entry is edited. A widget
 name nobody registered is refused on screen, by name, and its value is kept.
 
+**A widget is built before it is in the document.** The panel calls the widget,
+then attaches what it returns, and a field inside a folded (`x-ui-fold`) group
+is built inside a closed `<details>`. A widget that measures itself — a Monaco
+editor registered as `expression` — must create that editor once its element is
+connected and has a size (a `ResizeObserver` on `el` will tell it), never inside
+the widget call: an editor built into a box with no size measures a zero
+character width and paints a viewport of no lines, and nothing repaints it.
+
 | Generic widget | Draws |
 |---|---|
 | `template` | Text with chips and *Insert a value*. A setting that may also be a list or an object is shown as JSON and written back as one when the text parses |
@@ -841,7 +849,7 @@ from the page. A step belongs to the lane that feeds its lane input, not to
 whichever lane reaches it first. An output that feeds two steps' lane inputs
 forks a new lane below. A feeder lane is moved right until its last card sits
 one column before the join it feeds, and never so far that the join moves.
-Under each lane come its feeders, then its forks. A step two lines feed on one
+Under each lane come its feeders, then its forks. A wire that would run through a card that is not one of its ends (a feeder that goes on past its feed, a fork drawn under a feeder) goes round by the gutters, the gaps between columns and between lanes, which hold no card. A step two lines feed on one
 input (`lanes_two_inputs`), a cycle (`lanes_cycle`) or two steps with one id
 (`lanes_duplicate_step`) cannot be drawn honestly as lanes. Such a flow opens
 read only with the sentence, is drawn as well as it can be, and is never

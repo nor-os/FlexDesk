@@ -18,6 +18,8 @@
  *       lines were drawn
  *   §7  the mapping is the consumer's: a catalogue whose roles are spelled
  *       differently is read through `role` names in the mapping
+ *   §8  a line from a step into itself — a loop's body straight into its
+ *       own Next among them — is refused `outline_cycle` in its own words
  *
  * Pure: no jsdom.   node tests/flow_outline_recognise.test.mjs
  */
@@ -164,6 +166,26 @@ t.section('§7 the roles are the mapping\'s');
     const mapped = { ...BLOCKS, branch: { ...BLOCKS.branch, role: 'decision' }, loop: { ...BLOCKS.loop, role: 'repeat' } };
     const r = outlineFromGraph(structuredClone(g), c4, mapped);
     t.ok('mapped, it is the same outline', r.ok && describeOutline(r.tree).join('\n') === entry('failing-grades').expect.tree.join('\n'));
+}
+
+t.section('§8 a line from a step into itself');
+{
+    const node = (id, type) => ({ id, type, config: {}, position: { x: 0, y: 0 } });
+    const line = (source, sourcePort, target, targetPort) => ({ source, sourcePort, target, targetPort });
+    for (const [name, nodes, lines, id] of [
+        ['a loop whose body goes straight into its own Next', [node('s', 'start'), node('l', 'loop-over-rows')],
+         [line('s', 'out', 'l', 'in'), line('l', 'body', 'l', 'next')], 'l'],
+        ['an ordinary step into itself', [node('s', 'start'), node('x', 'log')],
+         [line('s', 'out', 'x', 'in'), line('x', 'out', 'x', 'in')], 'x'],
+    ]) {
+        const graph = { nodes, connections: lines };
+        const before = JSON.stringify(graph);
+        const r = outlineFromGraph(graph, cat, BLOCKS);
+        t.check(`${name}: refused as a cycle naming the step`, r.ok ? 'accepted' : [r.code, r.node_id], ['outline_cycle', id]);
+        t.ok(`${name}: the sentence says it connects to itself, not that only a Next may lead back`,
+             !r.ok && r.message.includes('itself') && !r.message.includes('only a loop'), r.message);
+        t.ok(`${name}: never repaired`, JSON.stringify(graph) === before);
+    }
 }
 
 function CORPUS_TYPES() {

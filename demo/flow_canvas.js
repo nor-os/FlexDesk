@@ -79,13 +79,17 @@ const editor = createCanvasEditor(host, {
                     schema: { type: 'object', required: ['name'], properties: {
                         name: { type: 'string', title: 'Name' },
                         description: { type: 'string', title: 'Description', 'x-ui-multiline': true } } } },
-    values: async ({ stepId, graph, before }) => {
+    values: async ({ stepId, graph, before, arms = [] }) => {
         const loops = enclosingLoops(graph, catalogue, stepId);
         const groups = loops.map((id) => ({ id: `row:${id}`, label: 'This row', items: [{ label: 'email', ref: '${row.email}' },
                                                                                        { label: 'name', ref: '${row.name}' }] }));
+        // In a step's error arm it FAILED: its error output, never its data output.
+        const failed = new Set(arms.filter((a) => a.port === 'error').map((a) => a.head));
         for (const id of before) {
             const n = graph.nodes.find((x) => x.id === id);
-            if (n?.type === 'http-request') groups.push({ id, label: n.label, items: [{ label: 'status code', ref: `\${steps.${id}.status_code}` }] });
+            if (failed.has(id)) groups.push({ id, label: n.label, sub: 'it failed: its error only',
+                                              items: [{ label: 'error message', ref: `\${steps.${id}.error.message}` }] });
+            else if (n?.type === 'http-request') groups.push({ id, label: n.label, items: [{ label: 'status code', ref: `\${steps.${id}.status_code}` }] });
         }
         return { groups, note: 'Only steps that always run before this one are listed.' };
     },
@@ -107,7 +111,7 @@ const editor = createCanvasEditor(host, {
             });
         } },
     ],
-    slots: { toolbarEnd: (box) => { const who = document.createElement('span'); who.className = 'demo__who'; who.textContent = 'Acts as the app Admissions bot'; box.appendChild(who); } },
+    slots: { toolbarEnd: (box) => { const who = document.createElement('span'); who.className = 'demo__who'; who.textContent = 'Runs as its own identity'; box.appendChild(who); } },
     onChange: () => { changes += 1; editor.setStatus(`${changes} edit${changes === 1 ? '' : 's'} · nothing is saved: a demo`); },
 });
 editor.load({ graph: GRAPH });

@@ -80,7 +80,7 @@ if (view === 'strip') {
                   { id: 'run', label: 'Run now', icon: 'play_arrow', run: () => {} }],
         slots: {
             toolbarStart: small ? (el) => { el.innerHTML = '<span class="demo__label">Data flow</span>'; } : null,
-            toolbarEnd: (el) => { el.innerHTML = '<span class="demo__chip">Acts as the app Intake bot</span>'; },
+            toolbarEnd: (el) => { el.innerHTML = '<span class="demo__chip">Runs as its own identity</span>'; },
         },
         onChange: (c) => demo.changes.push({ action: c.action, key: c.key }),
         select: 'join',

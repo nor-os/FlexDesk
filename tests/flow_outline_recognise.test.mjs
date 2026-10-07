@@ -20,6 +20,8 @@
  *       differently is read through `role` names in the mapping
  *   §8  a line from a step into itself — a loop's body straight into its
  *       own Next among them — is refused `outline_cycle` in its own words
+ *   §9  the arms the kit tells Insert a value about (enclosingArms, 36 §3.7)
+ *       are the outline's own nesting, step by step, over the whole corpus
  *
  * Pure: no jsdom.   node tests/flow_outline_recognise.test.mjs
  */
@@ -29,6 +31,8 @@ import {
     outlineFromGraph, graphFromOutline, sameGraphAsSets, describeOutline, runOrder,
 } from '../src/flow/outline/recognise.js';
 import { createStepCatalogue } from '../src/flow/kit/catalogue.js';
+import { enclosingArms } from '../src/flow/kit/always_before.js';
+import { createBlockMapping } from '../src/flow/outline/mapping.js';
 
 const t = assertions('flow outline — the recogniser');
 const cat = catalogue();
@@ -190,6 +194,60 @@ t.section('§8 a line from a step into itself');
 
 function CORPUS_TYPES() {
     return structuredClone(JSON.parse(JSON.stringify(cat.list())));
+}
+
+t.section('§9 the arms Insert a value is told about ARE the outline\'s nesting');
+{
+    // The kit answers from the graph alone (`enclosingArms`, 36 §3.7); the
+    // outline draws its arms from the tree. Over every block-shaped graph in
+    // the corpus the two must agree for every step, innermost first — or a
+    // step drawn inside "If the request fails" would be offered the request's
+    // data output, which on a failure is empty.
+    const map = createBlockMapping(BLOCKS, cat);
+    const fromTree = (tree) => {
+        const at = new Map();
+        const seq = (s, stack) => { for (const item of s.items) place(item, stack); };
+        const arm = (head, a, stack) => seq(a.seq, [{ head, port: a.port }, ...stack]);
+        function place(item, stack) {
+            at.set(item.id, stack);
+            if (item.kind === 'fanout' && item.join) at.set(item.join.id, stack);
+            if (item.kind === 'loop' && item.body) arm(item.id, item.body, stack);
+            for (const a of item.arms || []) arm(item.id, a, stack);
+        }
+        at.set(tree.start.id, []);
+        for (const a of tree.start.arms) arm(tree.start.id, a, []);
+        seq(tree.top, []);
+        return at;
+    };
+    let compared = 0;
+    for (const g of shaped) {
+        const r = outlineFromGraph(structuredClone(g.graph), cat, BLOCKS);
+        if (!r.ok) continue;
+        const want = fromTree(r.tree);
+        const wrong = [];
+        for (const n of g.graph.nodes) {
+            const got = enclosingArms(g.graph, cat, n.id, {
+                loopPorts: map.loopPorts, kindOf: (type) => map.kindOf(type), continuePort: (x) => map.cont(x?.type),
+            });
+            compared += 1;
+            if (JSON.stringify(got) !== JSON.stringify(want.get(n.id))) {
+                wrong.push(`${n.id}: kit ${JSON.stringify(got)} / outline ${JSON.stringify(want.get(n.id))}`);
+            }
+        }
+        t.ok(`${g.name}: every step's arms are the outline's`, wrong.length === 0, wrong.join('; '));
+    }
+    t.ok('every step of every shaped graph was compared', compared >= 100, String(compared));
+    // The InsertValue mock's own case: a step under "If the request fails" is
+    // told it sits in that request's ERROR arm.
+    const sync = shaped.find((g) => g.graph.nodes.some((n) => n.type === 'http-request')
+        && g.graph.connections.some((c) => c.sourcePort === 'error'));
+    t.ok('the corpus holds a request with an error arm', sync);
+    const line = sync.graph.connections.find((c) => c.sourcePort === 'error'
+        && sync.graph.nodes.find((n) => n.id === c.source)?.type === 'http-request');
+    t.check(`${sync.name}: the step under its error arm is told so, innermost first`,
+            enclosingArms(sync.graph, cat, line.target, { loopPorts: map.loopPorts, kindOf: (type) => map.kindOf(type),
+                                                          continuePort: (x) => map.cont(x?.type) })[0],
+            { head: line.source, port: 'error' });
 }
 
 t.done();

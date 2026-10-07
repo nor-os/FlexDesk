@@ -12,7 +12,7 @@
  */
 import {
     alwaysBefore, bindFlowKeys, button, createChipInput, createFindingsStrip, createReferenceSyntax,
-    createSettingsPanel, createStepCatalogue, createWidgetRegistry, enclosingLoops, FlowHistory,
+    createSettingsPanel, createStepCatalogue, createWidgetRegistry, enclosingArms, enclosingLoops, FlowHistory,
     FORMULA_REFERENCES, openStepPicker, TEMPLATE_REFERENCES,
 } from '../flow.js';
 
@@ -89,16 +89,24 @@ const OFFERS = {
     'upsert-rows': (id) => ['inserted', 'updated', 'row_ids', 'skipped', 'quarantined']
         .map((k) => ({ label: k.replace('_', ' '), ref: `\${steps.${id}.${k}}` })),
 };
+// A step that FAILED hands on its error output and nothing else: on a failure
+// its data output is empty.
+const ERROR_OUTPUT = (id) => [{ label: 'error', ref: `\${steps.${id}.error}`, children: [
+    { label: 'code', ref: `\${steps.${id}.error.code}` },
+    { label: 'message', ref: `\${steps.${id}.error.message}` }] }];
 async function values({ stepId }) {
     const before = alwaysBefore(graph, catalogue, stepId);
     const loops = enclosingLoops(graph, catalogue, stepId);
+    // The steps whose error arm this one is in: they ran and failed (36 §3.7).
+    const failed = new Set(enclosingArms(graph, catalogue, stepId).filter((a) => a.port === 'error').map((a) => a.head));
     const groups = loops.map((loopId) => ({
         id: `row:${loopId}`, label: 'This row', sub: byId(loopId).label, layout: 'grid',
         items: ROW.map(([label, type, key]) => ({ label, type, ref: `\${row.${key}}` })) }));
     before.forEach((id, i) => {
         const n = byId(id);
-        const offer = OFFERS[n.type];
-        if (offer) groups.push({ id, label: n.label, sub: i === 0 ? 'the step before this one' : '', items: offer(id) });
+        const offer = failed.has(id) ? ERROR_OUTPUT : OFFERS[n.type];
+        const sub = failed.has(id) ? 'it failed: its error only' : i === 0 ? 'the step before this one' : '';
+        if (offer) groups.push({ id, label: n.label, sub, items: offer(id) });
     });
     if (before.includes('start')) groups.push({ id: 'run', label: 'Run input', items: [{ label: 'since', ref: '${run.since}' }] });
     groups.push({ id: 'vars', label: 'Variables', items: [], empty: 'none yet; a Set variable step makes them.' });

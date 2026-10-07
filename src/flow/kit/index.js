@@ -26,7 +26,7 @@ export {
 export { createSettingsPanel } from './settings_panel.js';
 export { openStepPicker } from './step_picker.js';
 export { openValuePicker } from './value_picker.js';
-export { alwaysBefore, enclosingLoops, flowStructure, DEFAULT_LOOP_PORTS } from './always_before.js';
+export { alwaysBefore, enclosingLoops, enclosingArms, flowStructure, DEFAULT_LOOP_PORTS } from './always_before.js';
 export {
     groupFindings, findingsList, createFindingsStrip, matchFindingField, isPathPrefix,
 } from './findings.js';

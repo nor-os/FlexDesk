@@ -16,7 +16,8 @@
  *   keys     real Alt+↑, Ctrl+D, Delete, Ctrl+Z on a row; Backspace reaches
  *            the window unprevented and removes nothing
  *   values   "{ }" by a real press: the consumer's groups, a real press inserts
- *            a chip, kept as text
+ *            a chip, kept as text; in a step's error arm that step is offered
+ *            by its error output alone
  *   drag     the grip dragged with a REAL pointer: a ghost, a drop line naming
  *            the place, one move, a `dragstart` counter that stays at 0; a
  *            refused place says why and moves nothing; Escape cancels
@@ -206,6 +207,24 @@ try {
          ['This row › Email']);
     check('…and the demo\'s validator dropped the finding: the row says its summary again', await page.evaluate(
         `!document.querySelector('${ROW('invite')} .twm-flow-outline__summary--error')`));
+    await reset();
+    // Under "If the request fails" the request ran and FAILED: it is offered
+    // by its error output alone, never its data output (36 §3.7).
+    const cf = await centre(page, `${ROW('checkfail')} .twm-flow-outline__words`);
+    await click(page, cf.x, cf.y);
+    await sleep(80);
+    const ins2 = await centre(page, '.twm-flow-panel [data-field="message"] .twm-flow-refbox__insert');
+    check('in the error arm, the Message field\'s "{ }" is the element at its centre', ins2?.hit, JSON.stringify(ins2));
+    await click(page, ins2.x, ins2.y);
+    await page.waitFor('document.querySelector(".twm-flow-popover--values")');
+    same('in the error arm, the failed request is offered by its error output alone', await page.evaluate(`(() => {
+        const g = [...document.querySelectorAll('.twm-flow-values__group')]
+            .find((x) => x.querySelector('.twm-flow-values__group-name')?.textContent === 'Check eligibility');
+        return g ? { sub: g.querySelector('.twm-flow-values__group-sub')?.textContent ?? null,
+                     options: [...g.querySelectorAll('.twm-flow-values__option')].map((o) => o.textContent) } : null; })()`),
+         { sub: 'it failed: its error only', options: ['error ›'] });
+    await page.screenshot(join(OUT, '5b-insert-a-value-error-arm.png'));
+    await key(page, 'Escape');
     await reset();
 
     console.log('\ndrag — the grip, with a real pointer');

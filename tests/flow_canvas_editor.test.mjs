@@ -698,6 +698,8 @@ t.section('§14 Insert a value asks the consumer, with what always runs before')
     await t.tick(0);
     t.check('the consumer is asked for this step and field, with the steps before it, nearest first, and its loops',
             asked.map((q) => [q.stepId, q.field, q.before, q.loops, q.graph.nodes.length]), [['read', 'message', ['each', 'start'], ['each'], 3]]);
+    t.check('…and the arms it is inside, each with its port (36 §3.7): here the loop\'s body',
+            asked[0].arms, [{ head: 'each', port: 'body' }]);
     const pop = openFlowPopover();
     t.ok('the picker is open, with the consumer\'s note', pop?.textContent.includes('Only steps that always run before'));
     t.press(pop.querySelector('[role="option"]'));

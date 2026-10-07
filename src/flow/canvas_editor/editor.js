@@ -67,7 +67,7 @@ import { createWidgetRegistry } from '../kit/widgets.js';
 import { createSettingsPanel } from '../kit/settings_panel.js';
 import { fieldsFromSchema } from '../kit/settings_schema.js';
 import { FORMULA_REFERENCES, PARAMETER_REFERENCES, TEMPLATE_REFERENCES } from '../kit/references.js';
-import { alwaysBefore, enclosingLoops, DEFAULT_LOOP_PORTS } from '../kit/always_before.js';
+import { alwaysBefore, enclosingArms, enclosingLoops, DEFAULT_LOOP_PORTS } from '../kit/always_before.js';
 import { createFindingsStrip, findingsList, groupFindings } from '../kit/findings.js';
 import { FlowHistory } from '../kit/history.js';
 import { bindFlowKeys } from '../kit/keys.js';
@@ -789,6 +789,7 @@ export function createCanvasEditor(host, options = {}) {
             before: q.stepId ? alwaysBefore(graph, catalogue, q.stepId, { loopPorts,
                                                                           ...(waitsForAll ? { waitsForAll } : {}) }) : [],
             loops: q.stepId ? enclosingLoops(graph, catalogue, q.stepId, { loopPorts }) : [],
+            arms: q.stepId ? enclosingArms(graph, catalogue, q.stepId, { loopPorts }) : [],
             parameters: null,
         }) : null,
         valuesNote,

@@ -15,11 +15,16 @@
  *   §4  arms: never a sibling arm's steps; a nested parallel inside a branch
  *   §5  the edges of the rule: an unknown step, an unreachable one, a return
  *       edge that is not a way in, no start step
+ *   §6  the arms a step is inside (enclosingArms): in a step's ERROR arm the
+ *       consumer must know that step FAILED (on failure its data output is
+ *       empty), so every arm is reported with its port, innermost first —
+ *       and never an arm the step is past: where arms meet, the Merge that
+ *       closes a parallel, the line a loop is left by
  *
  * Pure: no jsdom.   node tests/flow_kit_always_before.test.mjs
  */
 import { assertions } from './flow_env.mjs';
-import { alwaysBefore, enclosingLoops } from '../src/flow/kit/always_before.js';
+import { alwaysBefore, enclosingArms, enclosingLoops } from '../src/flow/kit/always_before.js';
 import { createStepCatalogue } from '../src/flow/kit/catalogue.js';
 
 const t = assertions('flow kit — always before');
@@ -124,6 +129,72 @@ t.check('an unknown step: nothing', alwaysBefore(g, cat, 'nope'), []);
     data.connections.push({ source: 'fetch', target: 'invite', sourcePort: 'response', targetPort: 'in' });
     t.check('a DATA edge is not a flow edge', alwaysBefore(data, cat, 'invite'),
             ['check', 'each', 'anynew', 'save', 'fetch', 'start']);
+}
+
+t.section('§6 the arms a step is inside');
+{
+    const arms = (id, opts) => enclosingArms(g, cat, id, opts);
+    t.check('in the error arm of Check eligibility: that step\'s ERROR port, then the loop\'s body, then Then',
+            arms('checkfail'), [{ head: 'check', port: 'error' }, { head: 'each', port: 'body' },
+                                { head: 'anynew', port: 'true' }]);
+    t.check('Send the invitation is on Check eligibility\'s continuation, not in an arm of it',
+            arms('invite'), [{ head: 'each', port: 'body' }, { head: 'anynew', port: 'true' }]);
+    t.check('"Stop: the portal is down" is in Fetch\'s error arm', arms('portaldown'), [{ head: 'fetch', port: 'error' }]);
+    t.check('"Stop: nothing new" is in the Otherwise arm', arms('nothing'), [{ head: 'anynew', port: 'false' }]);
+    t.check('Save is in no arm: Fetch\'s error arm ends, and Save is its continuation', arms('save'), []);
+    t.check('the other arm of "Anything new?" ENDS, so the rest of the flow is inside its live arm',
+            arms('report'), [{ head: 'anynew', port: 'true' }]);
+    t.check('a step after the loop is not in its body', arms('done').some((a) => a.head === 'each'), false);
+    t.check('a parallel\'s branch is an arm of it', arms('tell'), [{ head: 'report', port: 'out' }, { head: 'anynew', port: 'true' }]);
+    t.check('the Merge that closes it is not', arms('join'), [{ head: 'anynew', port: 'true' }]);
+    t.check('Start is in nothing; an unknown step is in nothing', [arms('start'), arms('nope')], [[], []]);
+
+    const F = (name, direction, multiple = false) => ({ name, direction, port_type: 'FLOW', multiple });
+    const c = createStepCatalogue([
+        { type_id: 'start', role: 'start', ports: [F('out', 'output')] },
+        { type_id: 'step', ports: [F('in', 'input', true), F('out', 'output')] },
+        { type_id: 'risky', ports: [F('in', 'input', true), F('ok', 'output'), F('failed', 'output')] },
+        { type_id: 'if', role: 'branch', ports: [F('in', 'input'), F('true', 'output'), F('false', 'output')] },
+        { type_id: 'par', role: 'fanout', ports: [F('in', 'input'), F('out', 'output', true)] },
+        { type_id: 'merge', role: 'join', ports: [F('in', 'input', true), F('out', 'output')] },
+    ]);
+    const node = (id, type) => ({ id, type, config: {} });
+    const e = (source, target, sourcePort = 'out', targetPort = 'in') => ({ source, target, sourcePort, targetPort });
+    const rejoin = { nodes: [node('s', 'start'), node('q', 'if'), node('t1', 'step'), node('e1', 'step'), node('after', 'step')],
+                     connections: [e('s', 'q'), e('q', 't1', 'true'), e('q', 'e1', 'false'), e('t1', 'after'), e('e1', 'after')] };
+    t.check('arms that meet: a step in one is in it', enclosingArms(rejoin, c, 't1'), [{ head: 'q', port: 'true' }]);
+    t.check('…and the step where they meet is in neither', enclosingArms(rejoin, c, 'after'), []);
+    const one = { nodes: [node('s', 'start'), node('f', 'par'), node('a', 'step'), node('j', 'merge'), node('z', 'step')],
+                  connections: [e('s', 'f'), e('f', 'a'), e('a', 'j'), e('j', 'z')] };
+    t.check('a parallel with ONE branch: its step is in it', enclosingArms(one, c, 'a'), [{ head: 'f', port: 'out' }]);
+    t.check('…but its Merge and what follows are not, though one line leads there',
+            [enclosingArms(one, c, 'j'), enclosingArms(one, c, 'z')], [[], []]);
+    const failing = { nodes: [node('s', 'start'), node('r', 'risky'), node('x', 'step'), node('y', 'step')],
+                      connections: [e('s', 'r'), e('r', 'x', 'ok'), e('r', 'y', 'failed')] };
+    t.check('a step whose outputs have no `out`: its FIRST is the continuation',
+            [enclosingArms(failing, c, 'x'), enclosingArms(failing, c, 'y')], [[], [{ head: 'r', port: 'failed' }]]);
+    t.check('the consumer names the continuation', enclosingArms(failing, c, 'x', {
+        continuePort: (n) => (n.type === 'risky' ? 'failed' : 'out') }), [{ head: 'r', port: 'ok' }]);
+    t.check('…a name for every step at once', enclosingArms(failing, c, 'x', { continuePort: 'failed' }),
+            [{ head: 'r', port: 'ok' }, { head: 's', port: 'out' }]);
+    t.check('…or reads it per step',
+            enclosingArms(failing, c, 'y', { continuePort: (n) => (n.type === 'risky' ? 'ok' : 'out') }),
+            [{ head: 'r', port: 'failed' }]);
+    t.check('the consumer\'s roles: a type read as a branch makes every output an arm',
+            enclosingArms(failing, c, 'x', { kindOf: (type) => (type === 'risky' ? 'branch' : c.role(type)) }),
+            [{ head: 'r', port: 'ok' }]);
+    const spelled = createStepCatalogue([
+        { type_id: 'start', role: 'start', ports: [F('out', 'output')] },
+        { type_id: 'step', ports: [F('in', 'input', true), F('out', 'output')] },
+        { type_id: 'rows', role: 'repeat',
+          ports: [F('in', 'input'), F('next', 'input', true), F('body', 'output'), F('done', 'output')] },
+    ]);
+    const kindOf = (type) => (type === 'rows' ? 'loop' : spelled.role(type));
+    const looped = { nodes: [node('s', 'start'), node('l', 'rows'), node('b', 'step'), node('after', 'step')],
+                     connections: [e('s', 'l'), e('l', 'b', 'body'), e('b', 'l', 'out', 'next'), e('l', 'after', 'done')] };
+    t.check('a loop the catalogue spells differently, read through `kindOf`: its body is an arm, `done` is not',
+            [enclosingArms(looped, spelled, 'b', { kindOf }), enclosingArms(looped, spelled, 'after', { kindOf })],
+            [[{ head: 'l', port: 'body' }], []]);
 }
 
 t.done();

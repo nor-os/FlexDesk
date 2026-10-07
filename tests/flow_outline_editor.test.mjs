@@ -31,7 +31,8 @@
  *   §14  folding and find
  *   §15  the grip drag: pointer events and a ghost after 4 px, a drop line
  *        naming the place or the refusal; never draggable, never captured
- *   §16  Insert a value is asked with the steps that always run before
+ *   §16  Insert a value is asked with the steps that always run before,
+ *        and the arms the step is inside — a step's error arm by its port
  *   §17  destroy leaves nothing behind
  *
  *     node tests/flow_outline_editor.test.mjs
@@ -988,6 +989,8 @@ t.section('§16 Insert a value');
             ['check', 'each', 'anynew', 'save', 'fetch', 'start']);
     t.ok('…never the step that ends the run on the other arm', !q.before.includes('portaldown') && !q.before.includes('checkfail'));
     t.check('…and the loops it is inside', q.loops, ['each']);
+    t.check('…and the arms it is inside, each with its port, innermost first — none of them an error arm', q.arms,
+            [{ head: 'each', port: 'body' }, { head: 'anynew', port: 'true' }]);
     t.check('…which field asks', q.field, 'body');
     t.ok('the picker opens with the consumer\'s groups', popover()?.querySelector('.twm-flow-values'));
     kit.closeFlowPopovers();
@@ -999,6 +1002,21 @@ t.section('§16 Insert a value');
     await t.tick();
     t.check('after the loop, nothing of its body runs before', m.log.values.at(-1).before.includes('check'), false);
     t.ok('…but the loop does', m.log.values.at(-1).before.includes('each'));
+    t.check('…and a parallel\'s branch is an arm of it', m.log.values.at(-1).arms,
+            [{ head: 'report', port: 'out' }, { head: 'anynew', port: 'true' }]);
+    kit.closeFlowPopovers();
+    // Under "If the request fails" the request ran and FAILED: the consumer is
+    // told the step sits in its error arm, so it can offer the request's error
+    // output and never its data output, which on a failure is empty (36 §3.7).
+    m.ed.select('checkfail');
+    t.press(m.panel().querySelector('[data-field="message"] button[aria-label="Insert a value"]'));
+    await t.tick();
+    await t.tick();
+    const failed = m.log.values.at(-1);
+    t.ok('in the error arm: the failed step still runs before', failed.stepId === 'checkfail' && failed.before[0] === 'check');
+    t.check('…and the innermost arm is ITS error port', failed.arms[0], { head: 'check', port: 'error' });
+    t.check('…then the loop\'s body and Then', failed.arms.slice(1),
+            [{ head: 'each', port: 'body' }, { head: 'anynew', port: 'true' }]);
     kit.closeFlowPopovers();
     m.ed.destroy();
 }

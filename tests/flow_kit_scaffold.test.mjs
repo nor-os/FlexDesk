@@ -112,7 +112,8 @@ t.section('§6 the kit\'s public API is the contract\'s');
     const CONTRACT = [
         'createStepCatalogue', 'checkSettingsSchema', 'fieldsFromSchema', 'createWidgetRegistry', 'createSettingsPanel',
         'openStepPicker', 'createReferenceSyntax', 'TEMPLATE_REFERENCES', 'FORMULA_REFERENCES', 'PARAMETER_REFERENCES',
-        'createChipInput', 'openValuePicker', 'alwaysBefore', 'groupFindings', 'createFindingsStrip', 'FlowHistory',
+        'createChipInput', 'openValuePicker', 'alwaysBefore', 'enclosingArms', 'groupFindings', 'createFindingsStrip',
+        'FlowHistory',
         'bindFlowKeys', 'ownsUndo', 'emptyGraph', 'normalise', 'serialise', 'nextId', 'addNode', 'removeNode',
         'connect', 'disconnect', 'inputNamesOf',
     ];

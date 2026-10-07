@@ -41,11 +41,15 @@ function isFlowPort(catalogue, typeId, name, direction) {
 }
 
 /** The graph's flow structure: successors and predecessors, return edges left out. */
-export function flowStructure(graph, catalogue, { loopPorts = DEFAULT_LOOP_PORTS } = {}) {
+export function flowStructure(graph, catalogue, { loopPorts = DEFAULT_LOOP_PORTS, kindOf = null } = {}) {
     const ports = { ...DEFAULT_LOOP_PORTS, ...loopPorts };
     const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
     const byId = new Map(nodes.map((n) => [n.id, n]));
-    const role = (id) => (catalogue?.role ? catalogue.role(byId.get(id)?.type) : 'step');
+    // `kindOf` (optional) reads a type's role through a consumer's mapping —
+    // an outline whose catalogue spells its roles differently (36 §6.2).
+    const role = typeof kindOf === 'function'
+        ? (id) => kindOf(byId.get(id)?.type)
+        : (id) => (catalogue?.role ? catalogue.role(byId.get(id)?.type) : 'step');
     const succ = new Map(nodes.map((n) => [n.id, []]));
     const pred = new Map(nodes.map((n) => [n.id, []]));
     const returns = [];
@@ -128,6 +132,12 @@ function loopBodies(structure) {
     return out;
 }
 
+/** The roots a flow is walked from: its start steps, else the steps nothing leads to. */
+function rootsOf(st) {
+    const roots = st.nodes.filter((n) => st.role(n.id) === 'start').map((n) => n.id);
+    return roots.length ? roots : st.nodes.filter((n) => !(st.pred.get(n.id) || []).length).map((n) => n.id);
+}
+
 /**
  * The ids of the steps that always run before `stepId`, nearest first.
  *
@@ -142,9 +152,7 @@ export function alwaysBefore(graph, catalogue, stepId, { loopPorts = DEFAULT_LOO
                                                          waitsForAll = defaultWaitsForAll } = {}) {
     const st = flowStructure(graph, catalogue, { loopPorts });
     if (!st.byId.has(stepId)) return [];
-    let roots = st.nodes.filter((n) => st.role(n.id) === 'start').map((n) => n.id);
-    if (!roots.length) roots = st.nodes.filter((n) => !(st.pred.get(n.id) || []).length).map((n) => n.id);
-    const dom = dominators(roots, st.succ, st.pred);
+    const dom = dominators(rootsOf(st), st.succ, st.pred);
     if (!dom.has(stepId)) return [];
 
     /** The nearest dominator of `id` (by `domMap`) whose role is `fanout`. */
@@ -218,4 +226,100 @@ export function enclosingLoops(graph, catalogue, stepId, { loopPorts = DEFAULT_L
         if (body.has(stepId)) around.push({ loopId, size: body.size });
     }
     return around.sort((a, b) => a.size - b.size).map((x) => x.loopId);
+}
+
+/**
+ * THE ARMS `stepId` IS INSIDE, innermost first: `[{head, port}]` (36 §3.7).
+ *
+ * *Insert a value* must know when the step being edited sits in an arm taken
+ * on its head's FAILURE: there the head ran and failed, and on failure a
+ * step's data output is empty — so the consumer offers that head by its error
+ * output alone. The kit only REPORTS the port; which port means failure is
+ * the consumer's mapping (an outline's `arms.error`).
+ *
+ * An arm is a line out of a step that is not the step's continuation: every
+ * output of a branch, every line out of a fanout, a loop's outputs but `done`
+ * (its `body` included), and an ordinary step's FLOW outputs but its continue
+ * port. `stepId` is inside the arm `(head, port)` when EVERY flow path from
+ * the start to it leaves `head` by that line (each loop's return lines set
+ * aside, as `alwaysBefore` sets them aside) and it is not past the Merge that
+ * closes the block — the run reaches it only after the head left by `port`.
+ * So a step after the place the arms meet is inside none of them, and where a
+ * branch's other arms all END, the rest of the flow is inside its live arm:
+ * what the outline draws (36 §6.3).
+ *
+ * Over a block-shaped graph this IS the outline's nesting (the recogniser
+ * suite holds the two equal over its corpus); over any other graph it is
+ * still true of every run, which is why the canvas editor passes it too.
+ *
+ * @param {object} graph       `{nodes, connections}` (the logic-graph shape)
+ * @param {object} catalogue   `createStepCatalogue`'s
+ * @param {string} stepId
+ * @param {object} [options]
+ * @param {object} [options.loopPorts]          `{entry, next, body, done}`
+ * @param {string|((node: object) => string|null)} [options.continuePort]  an ordinary step's
+ *        continuation (default: its `out` FLOW output, else its first)
+ * @param {(typeId: string) => string} [options.kindOf]  a type's role — `start`, `branch`, `fanout`,
+ *        `join`, `loop`, or anything else for an ordinary step; default the catalogue's `role`
+ */
+export function enclosingArms(graph, catalogue, stepId, { loopPorts = DEFAULT_LOOP_PORTS, continuePort = null,
+                                                         kindOf = null } = {}) {
+    const st = flowStructure(graph, catalogue, { loopPorts, kindOf });
+    if (!st.byId.has(stepId)) return [];
+    const flowOutputs = (typeId) => (catalogue?.outputs ? catalogue.outputs(typeId, { flow: true }) : [])
+        .map((p) => p.name);
+    const cont = (node) => {
+        if (typeof continuePort === 'function') return continuePort(node);
+        if (typeof continuePort === 'string') return continuePort;
+        const outs = flowOutputs(node?.type);
+        return outs.includes('out') ? 'out' : (outs[0] ?? 'out');
+    };
+    const isArm = (headId, port) => {
+        const r = st.role(headId);
+        if (r === 'branch' || r === 'fanout') return true;
+        if (r === 'loop') return port !== st.ports.done;
+        return port !== cont(st.byId.get(headId));
+    };
+
+    // Each flow line becomes a node of its own, so that a LINE can dominate a step.
+    const LINE = '\u0000line:';
+    const succ = new Map();
+    const pred = new Map();
+    const lines = new Map();
+    for (const n of st.nodes) { succ.set(n.id, []); pred.set(n.id, []); }
+    for (const n of st.nodes) {
+        for (const s of st.succ.get(n.id) || []) {
+            const key = `${LINE}${lines.size}`;
+            lines.set(key, { head: n.id, port: s.port });
+            succ.set(key, [{ id: s.id }]);
+            pred.set(key, [{ id: n.id }]);
+            succ.get(n.id).push({ id: key });
+            pred.get(s.id).push({ id: key });
+        }
+    }
+    const dom = dominators(rootsOf(st), succ, pred);
+    const mine = dom.get(stepId);
+    if (!mine) return [];
+
+    const out = [];
+    for (const key of mine) {
+        const line = lines.get(key);
+        if (!line || !isArm(line.head, line.port)) continue;
+        // Walk from the line down to the step: a Merge met with no Parallel
+        // opened below the line closes the block, and the step is past it.
+        const chain = [...mine].filter((x) => !lines.has(x) && dom.get(x).has(key))
+            .sort((a, b) => dom.get(a).size - dom.get(b).size);
+        let depth = 0;
+        let past = false;
+        for (const x of chain) {
+            const r = st.role(x);
+            if (r === 'join') {
+                if (depth === 0) { past = true; break; }
+                depth -= 1;
+            } else if (r === 'fanout' && x !== stepId) depth += 1;
+        }
+        if (past || out.some((a) => a.head === line.head && a.port === line.port)) continue;
+        out.push({ head: line.head, port: line.port, depth: dom.get(key).size });
+    }
+    return out.sort((a, b) => b.depth - a.depth).map(({ head, port }) => ({ head, port }));
 }

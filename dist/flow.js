@@ -2685,11 +2685,11 @@ function isFlowPort(catalogue, typeId, name, direction) {
   const port = catalogue?.port ? catalogue.port(typeId, name, direction) : null;
   return port ? (port.port_type || "FLOW") === "FLOW" : true;
 }
-function flowStructure(graph, catalogue, { loopPorts = DEFAULT_LOOP_PORTS } = {}) {
+function flowStructure(graph, catalogue, { loopPorts = DEFAULT_LOOP_PORTS, kindOf = null } = {}) {
   const ports = { ...DEFAULT_LOOP_PORTS, ...loopPorts };
   const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
   const byId = new Map(nodes.map((n) => [n.id, n]));
-  const role = (id) => catalogue?.role ? catalogue.role(byId.get(id)?.type) : "step";
+  const role = typeof kindOf === "function" ? (id) => kindOf(byId.get(id)?.type) : (id) => catalogue?.role ? catalogue.role(byId.get(id)?.type) : "step";
   const succ = new Map(nodes.map((n) => [n.id, []]));
   const pred = new Map(nodes.map((n) => [n.id, []]));
   const returns = [];
@@ -2760,15 +2760,17 @@ function loopBodies(structure) {
   }
   return out;
 }
+function rootsOf(st) {
+  const roots = st.nodes.filter((n) => st.role(n.id) === "start").map((n) => n.id);
+  return roots.length ? roots : st.nodes.filter((n) => !(st.pred.get(n.id) || []).length).map((n) => n.id);
+}
 function alwaysBefore(graph, catalogue, stepId, {
   loopPorts = DEFAULT_LOOP_PORTS,
   waitsForAll = defaultWaitsForAll
 } = {}) {
   const st = flowStructure(graph, catalogue, { loopPorts });
   if (!st.byId.has(stepId)) return [];
-  let roots = st.nodes.filter((n) => st.role(n.id) === "start").map((n) => n.id);
-  if (!roots.length) roots = st.nodes.filter((n) => !(st.pred.get(n.id) || []).length).map((n) => n.id);
-  const dom = dominators(roots, st.succ, st.pred);
+  const dom = dominators(rootsOf(st), st.succ, st.pred);
   if (!dom.has(stepId)) return [];
   const nearestFanout = (id, domMap) => {
     const mine = domMap.get(id);
@@ -2832,6 +2834,69 @@ function enclosingLoops(graph, catalogue, stepId, { loopPorts = DEFAULT_LOOP_POR
     if (body.has(stepId)) around.push({ loopId, size: body.size });
   }
   return around.sort((a, b) => a.size - b.size).map((x) => x.loopId);
+}
+function enclosingArms(graph, catalogue, stepId, {
+  loopPorts = DEFAULT_LOOP_PORTS,
+  continuePort = null,
+  kindOf = null
+} = {}) {
+  const st = flowStructure(graph, catalogue, { loopPorts, kindOf });
+  if (!st.byId.has(stepId)) return [];
+  const flowOutputs = (typeId) => (catalogue?.outputs ? catalogue.outputs(typeId, { flow: true }) : []).map((p) => p.name);
+  const cont = (node) => {
+    if (typeof continuePort === "function") return continuePort(node);
+    if (typeof continuePort === "string") return continuePort;
+    const outs = flowOutputs(node?.type);
+    return outs.includes("out") ? "out" : outs[0] ?? "out";
+  };
+  const isArm = (headId, port) => {
+    const r = st.role(headId);
+    if (r === "branch" || r === "fanout") return true;
+    if (r === "loop") return port !== st.ports.done;
+    return port !== cont(st.byId.get(headId));
+  };
+  const LINE = "\0line:";
+  const succ = /* @__PURE__ */ new Map();
+  const pred = /* @__PURE__ */ new Map();
+  const lines = /* @__PURE__ */ new Map();
+  for (const n of st.nodes) {
+    succ.set(n.id, []);
+    pred.set(n.id, []);
+  }
+  for (const n of st.nodes) {
+    for (const s of st.succ.get(n.id) || []) {
+      const key = `${LINE}${lines.size}`;
+      lines.set(key, { head: n.id, port: s.port });
+      succ.set(key, [{ id: s.id }]);
+      pred.set(key, [{ id: n.id }]);
+      succ.get(n.id).push({ id: key });
+      pred.get(s.id).push({ id: key });
+    }
+  }
+  const dom = dominators(rootsOf(st), succ, pred);
+  const mine = dom.get(stepId);
+  if (!mine) return [];
+  const out = [];
+  for (const key of mine) {
+    const line = lines.get(key);
+    if (!line || !isArm(line.head, line.port)) continue;
+    const chain = [...mine].filter((x) => !lines.has(x) && dom.get(x).has(key)).sort((a, b) => dom.get(a).size - dom.get(b).size);
+    let depth = 0;
+    let past = false;
+    for (const x of chain) {
+      const r = st.role(x);
+      if (r === "join") {
+        if (depth === 0) {
+          past = true;
+          break;
+        }
+        depth -= 1;
+      } else if (r === "fanout" && x !== stepId) depth += 1;
+    }
+    if (past || out.some((a) => a.head === line.head && a.port === line.port)) continue;
+    out.push({ head: line.head, port: line.port, depth: dom.get(key).size });
+  }
+  return out.sort((a, b) => b.depth - a.depth).map(({ head, port }) => ({ head, port }));
 }
 
 // src/flow/kit/history.js
@@ -3912,6 +3977,7 @@ function createCanvasEditor(host, options = {}) {
         ...waitsForAll ? { waitsForAll } : {}
       }) : [],
       loops: q.stepId ? enclosingLoops(graph, catalogue, q.stepId, { loopPorts }) : [],
+      arms: q.stepId ? enclosingArms(graph, catalogue, q.stepId, { loopPorts }) : [],
       parameters: null
     }) : null,
     valuesNote,
@@ -6157,14 +6223,19 @@ function createOutlineEditor(host, options = {}) {
   });
   function valuesFor({ stepId, field, key }) {
     const g = structuredClone(graph);
-    if (!stepId) return values({ graph: g, stepId: null, field, key, before: [], loops: [], parameters: null });
+    if (!stepId) return values({ graph: g, stepId: null, field, key, before: [], loops: [], arms: [], parameters: null });
     const loopPorts = map.loopPorts;
     const before = alwaysBefore(graph, catalogue, stepId, {
       loopPorts,
       waitsForAll: (join) => map.joinValue(join) !== "any"
     });
     const loops = enclosingLoops(graph, catalogue, stepId, { loopPorts });
-    return values({ graph: g, stepId, step: nodeOf(stepId), field, key, before, loops, parameters: null });
+    const arms = enclosingArms(graph, catalogue, stepId, {
+      loopPorts,
+      kindOf: (type) => map.kindOf(type),
+      continuePort: (n) => map.cont(n?.type)
+    });
+    return values({ graph: g, stepId, step: nodeOf(stepId), field, key, before, loops, arms, parameters: null });
   }
   const stateText = () => JSON.stringify({ graph, settings: settings ? settings.value : null });
   const history = new FlowHistory({
@@ -9897,6 +9968,7 @@ export {
   el,
   emptyGraph,
   emptyPipeline,
+  enclosingArms,
   enclosingLoops,
   enumLabel,
   fieldVisible,

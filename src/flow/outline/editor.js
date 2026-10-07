@@ -47,7 +47,7 @@ import { createStrings, say } from '../kit/strings.js';
 import { createSettingsPanel } from '../kit/settings_panel.js';
 import { fieldsFromSchema } from '../kit/settings_schema.js';
 import { openStepPicker } from '../kit/step_picker.js';
-import { alwaysBefore, enclosingLoops } from '../kit/always_before.js';
+import { alwaysBefore, enclosingArms, enclosingLoops } from '../kit/always_before.js';
 import { createFindingsStrip, findingsList, groupFindings } from '../kit/findings.js';
 import { FlowHistory } from '../kit/history.js';
 import { bindFlowKeys } from '../kit/keys.js';
@@ -229,13 +229,18 @@ export function createOutlineEditor(host, options = {}) {
 
     function valuesFor({ stepId, field, key }) {
         const g = structuredClone(graph);
-        if (!stepId) return values({ graph: g, stepId: null, field, key, before: [], loops: [], parameters: null });
+        if (!stepId) return values({ graph: g, stepId: null, field, key, before: [], loops: [], arms: [], parameters: null });
         const loopPorts = map.loopPorts;
         const before = alwaysBefore(graph, catalogue, stepId, {
             loopPorts, waitsForAll: (join) => map.joinValue(join) !== 'any',
         });
         const loops = enclosingLoops(graph, catalogue, stepId, { loopPorts });
-        return values({ graph: g, stepId, step: nodeOf(stepId), field, key, before, loops, parameters: null });
+        // The arms it is inside, each with its port: in an error arm its head
+        // FAILED, and the consumer offers it by its error output alone (36 §3.7).
+        const arms = enclosingArms(graph, catalogue, stepId, {
+            loopPorts, kindOf: (type) => map.kindOf(type), continuePort: (n) => map.cont(n?.type),
+        });
+        return values({ graph: g, stepId, step: nodeOf(stepId), field, key, before, loops, arms, parameters: null });
     }
 
     // ── history ────────────────────────────────────────────────────────

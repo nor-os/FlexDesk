@@ -230,7 +230,14 @@ const OFFERS = {
     'condition': (id) => [{ label: 'result', ref: `\${steps.${id}.result}` }],
     'loop-over-rows': (id) => [{ label: 'rows', ref: `\${steps.${id}.rows}` }, { label: 'pages', ref: `\${steps.${id}.pages}` }],
 };
-async function values({ before, loops }) {
+// A step that FAILED hands on its error output and nothing else: on a failure
+// its data output is empty.
+const ERROR_OUTPUT = (id) => [{ label: 'error', ref: `\${steps.${id}.error}`, children: [
+    { label: 'code', ref: `\${steps.${id}.error.code}` },
+    { label: 'message', ref: `\${steps.${id}.error.message}` }] }];
+async function values({ before, loops, arms = [] }) {
+    // The steps whose error arm this one is in: they ran and failed (36 §3.7).
+    const failed = new Set(arms.filter((a) => a.port === 'error').map((a) => a.head));
     const groups = loops.map((loopId) => ({
         id: `row:${loopId}`, label: 'This row', sub: nameOf(loopId), layout: 'grid',
         items: [...ROW.map(([label, type, key]) => ({ label, type, ref: `\${row.${key}}` })),
@@ -238,8 +245,9 @@ async function values({ before, loops }) {
     before.forEach((id, i) => {
         const n = byId(id);
         // A loop's own figures are read after it, never by the steps inside it.
-        const offer = loops.includes(id) ? null : OFFERS[n?.type];
-        if (offer) groups.push({ id, label: nameOf(id), sub: i === 0 ? 'the step before this one' : '', items: offer(id) });
+        const offer = loops.includes(id) ? null : failed.has(id) ? ERROR_OUTPUT : OFFERS[n?.type];
+        const sub = failed.has(id) ? 'it failed: its error only' : i === 0 ? 'the step before this one' : '';
+        if (offer) groups.push({ id, label: nameOf(id), sub, items: offer(id) });
     });
     groups.push({ id: 'run', label: 'Run input', items: [{ label: 'since', ref: '${run.since}' }] });
     groups.push({ id: 'vars', label: 'Variables', items: [], empty: 'none yet; a Set variable step makes them.' });
@@ -326,7 +334,7 @@ let folds = [];
 
 function acting(box) {
     const chip = el('span', 'demo__acts');
-    chip.append(el('span', 'material-symbols-outlined', 'person'), el('span', null, 'Acts as the app Admissions bot'));
+    chip.append(el('span', 'material-symbols-outlined', 'person'), el('span', null, 'Runs as its own identity'));
     chip.firstChild.setAttribute('aria-hidden', 'true');
     box.appendChild(chip);
 }

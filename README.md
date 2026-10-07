@@ -571,7 +571,10 @@ Its edits are the closed list `CANVAS_ACTIONS`: `flow:node:add`,
 `flow:node:remove`, `flow:node:move` (one per drag), `flow:edge:connect`,
 `flow:edge:disconnect`, `flow:node:label`, `flow:node:config`,
 `flow:settings`, `flow:arrange` (one entry for the whole layout). Typing a name
-or a setting is one entry.
+or a setting is one entry. The geometry under it is exported as well, all of it
+pure: `CANVAS_NODE`, `arrangeCanvasGraph(graph, catalogue, {loopEntry})` (where
+Arrange puts each step: a Map of id → `{x, y}` from the origin),
+`canvasPortAnchor`, `canvasNodeBottom` and `isCanvasReturnEdge`.
 
 **Gestures.** A node's header moves it. A connection is made by clicking an
 output and then an input, and Escape cancels one in progress. A line is picked

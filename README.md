@@ -488,8 +488,134 @@ search box focused, and gave the focus back to "+" on Escape.
 
 ### The canvas editor
 
-`createCanvasEditor` and the `@flexdesk/canvas` kernel (36 §4–§5). Owned by the
-canvas work; this subsection is filled when it lands.
+A flow drawn as nodes and lines: a palette of step types, a pannable canvas and
+the settings of whatever is picked, under a toolbar. It stands on the
+`@flexdesk/canvas` kernel, which is also usable on its own for any diagram.
+
+**The kernel** (`@flexdesk/canvas`).
+
+| Part | What it does |
+|---|---|
+| `new CanvasAdapter({container, gridSize = 16, onViewportChange, onBackgroundMenu, nodeSelector})` | A surface you put nodes and lines on: right-, middle- or Shift-drag pans, Ctrl + the wheel zooms about the pointer, a left press on the background draws a marquee (`onMarquee(box)`, `onSelectionChange(selection)`). Fields `root`, `surface`, `edgeLayer` (an SVG), `nodeLayer`, `marquee`, `selection`, `scale`, `tx`, `ty`, `gridSize`. Methods `clientToCanvas`, `canvasToClient`, `snap`, `setViewport`, `viewport`, `zoomAt`, `fit`, `visibleBox`, `contains`, `bringIntoView` (pans and never zooms, and does nothing when the box is already in view), `consumeRightDrag`, `clear`, `destroy`. **A node is whatever you put in `nodeLayer`**: a press inside one starts no pan and no marquee, and a right-click on one keeps your menu (or the browser's). Pass `nodeSelector` when the node layer holds other things too. `onViewportChange` fires once, synchronously, from the constructor, so declare what it reads before you build the adapter |
+| `routeEdge(from, to, {obstacles, simple})`, `selfLoop`, `returnEdge(from, to, {floor})` | SVG path data between two anchors `{x, y, side}`: a line with horizontal lead-outs (bent round obstacles up to `OBSTACLE_ROUTING_NODE_LIMIT` nodes), a node's line to itself, and a loop's line back, which runs under both nodes |
+| `crowsFoot(point, side, kind)`, `footAnchor(point, side, kind)`, `cardinality({kind, optional})` | Crow's-foot ends (`many`, `one`, `zero-or-many`, `one-or-many`, `zero-or-one`, `exactly-one`) as an SVG group `twm-edge__marker twm-edge__marker--<kind>`, where the line should start so it meets the mark, and the two ends a reference implies |
+| `arrange(nodes, edges, {columnGap, rowGap})` | A layered layout. **Two quirks, kept on purpose:** an edge points from child to parent (a node sits one column right of what it points at), and each column is sorted by `label`, which every node must have |
+| `new NodePlatform({collapsedPorts})` | The nodes and their ports: `hydrate(nodes)`, `get`, `all`, `port`, `setPosition`, `setCollapsed`, `visiblePorts(id)`, `on(event, fn)` (`hydrated`, `moved`, `collapsed`). A node is `{id, position, size, collapsed, ports, …}`; any other key is kept |
+| `new ConnectorRouter({platform, selfReference, policy, endsOf, disabledEnds, strings})` | Edges and whether a drop may become one. `canConnect(source, target, {pendingEdges})` refuses, in order, a node that is gone, a port that is gone, a disabled port (with its `disabledReason`), a self-reference (unless `selfReference`), and a port at its `maxConnections`. Only then does it ask your `policy(ctx)`, which may refuse, allow, or answer `{ok: true, offer}`. Also `hydrate`, `edges` (a Map), `edgesFor`, `stage`, `unstage`, `remapNodeConnections(nodeId, portIds)` (keeps the edges whose ports survive and reports the rest) |
+| `new HistoryService({actions, apply, onState, limit, requires, refusal})` | Undo over recorded edits (deltas), behind a closed action list: `record` throws on any action you did not declare. Nothing is recorded before `hydrated()`, and a batch (`startBatch`/`endBatch`) is one entry. Also `undo`, `redo`, `reset`, `adopt`, `undoStack`, `redoStack`, `canUndo`, `canRedo`. A missing `actions`, `apply` or anything named in `requires` throws at construction, not at the first silent no-op |
+
+A diagram with its own rules subclasses the three and passes them in. For
+example, a schema diagram's router answers the generic refusals in its own
+words and keeps its foreign-key rules in the policy:
+
+```js
+class ConnectorRouter extends Base.ConnectorRouter {
+    constructor({ platform }) {
+        super({ platform, selfReference: true, disabledEnds: ['source'],
+                endsOf: (e) => ({ from: `col:${e.from_col}`, to: `col:${e.to_col}` }),
+                strings: { nodeGone: 'That table is no longer on the diagram.' },
+                policy: (ctx) => myForeignKeyRules(ctx) });
+    }
+}
+```
+
+`tests/canvas_graph.test.mjs` §7 builds such a diagram on the generic layer.
+
+**The editor.**
+
+```js
+import { createCanvasEditor, createStepCatalogue } from '@flexdesk/flow';
+
+const editor = createCanvasEditor(host, {
+    catalogue: createStepCatalogue(types, { categories }),
+    flowSettings: { title: 'Sync', schema, value },          // the flow's own settings, shown when nothing is picked
+    actions: [{ id: 'publish', label: 'Publish', icon: 'publish', primary: true, run: (ed) => publish(ed) }],
+    onChange: ({ graph, flowSettings, text, action, key, via }) => autosave(text),
+    values: async ({ stepId, field, before, loops }) => groups,   // Insert a value
+    dataPortRead: (node, port) => `\${steps.${node.id}.${port.name}}`,
+    summariseReads: (node) => `Later steps read it as \${steps.${node.id}.…}`,
+});
+editor.load({ graph });                  // a baseline: there is nothing to undo after it
+editor.setFindings(validatorResult);     // on the nodes, under the fields, in the strip
+editor.setRunOverlay({ steps, ports, banner });
+```
+
+| Option | Meaning |
+|---|---|
+| `catalogue` | `createStepCatalogue(...)`, or the raw list of types. The palette shows them by category, except start-role types (`paletteTypes(type)` decides). A type with `unavailable` is shown greyed, with its sentence under it |
+| `widgets`, `references`, `strings`, `services` | The kit's widget registry, the reference syntaxes by name, your words (`CANVAS_STRINGS` and the kit's), and your bag, handed to every widget unchanged |
+| `values` | *Insert a value*: called with `{graph, stepId, field, key, before, loops}`, where `before` is the steps that always run before this one (`alwaysBefore`, nearest first) and `loops` the loops around it. Returns groups, or `{groups, note}` |
+| `summarise(node, type)` | A line under a node's ports. `summariseReads(node, type)` is the panel's id line |
+| `dataPortRead(node, port)` | How a data port is read, in your syntax. It is shown on the port, which cannot be connected |
+| `flowSettings` | `{title, schema, value}` — the flow's own settings, edited as `flow:settings` |
+| `readOnly` | `false`, or `{reason}`, which is shown above the editor. Every verb is then refused with that reason, and no gesture writes |
+| `actions` | Your toolbar verbs, `[{id, label, icon, primary, danger, title, run(editor)}]`, after Undo, Redo, Arrange and Fit |
+| `slots` | `toolbarEnd(el)`, `flowPanel(el, editor)` and `stepPanel(el, node, editor)`, drawn by you; `setRunOverlay` redraws the panel slots and nothing else |
+| `onChange`, `onSelect` | After every committed edit. An undo or a redo is a change too (`action: null`, `via: 'undo' \| 'redo'`), because you autosave what is undone. `onSelect({kind, id})`: `step`, `flow`, `connection` (with `connection`) or `null` |
+| `loop`, `waitsForAll` | The loop's port names (`{entry: 'in', next, body, done}`): a line into a loop-role step on any input but `entry` is its body going back round, drawn dashed under both steps. `waitsForAll(join)` goes to `alwaysBefore` |
+| `removable(node, type)` | Whether a step may be removed. By default every step except a start step |
+| `node` | `{width: 208, header: 34, row: 22}` (`CANVAS_NODE`). Lines are anchored by arithmetic over these numbers, and the stylesheet is held to them |
+| `history`, `gridSize`, `label` | `{limit, mergeMs}`, the snap grid, and the canvas's accessible name |
+
+| Method | Does |
+|---|---|
+| `load({graph, flowSettings}, {baseline = true, fit = true})` | Replaces the content. A baseline clears both stacks. With `baseline: false` the stacks are kept, and the loaded content becomes the present they undo from |
+| `getGraph()`, `serialise()`, `snapshot()`, `getFlowSettings()` | A copy of the graph; its byte-stable text; the text the history holds (graph and settings); the settings |
+| `setFindings(list)`, `setRunOverlay(overlay \| null)`, `setReadOnly(false \| {reason})` | — |
+| `setActionState(id, {disabled, reason, busy})`, `setStatus(text)`, `setMessage(text, tone)` | A verb refused in place, with its reason printed beside the toolbar; the status line; the gesture line |
+| `select(id \| 'flow' \| null)`, `repaintPanel()`, `focus()`, `undo()`, `redo()`, `arrange()`, `fit({whole})` | — |
+| `history`, `canvas` | The editor's `FlowHistory` (`keep()`, `adopt(kept, editor.snapshot())`, `baseline(editor.snapshot())` for your publish) and its `CanvasAdapter` |
+| `destroy()` | Removes every listener, the ghost of a drag and any picker it opened. It saves nothing, because the editor holds nothing |
+
+Its edits are the closed list `CANVAS_ACTIONS`: `flow:node:add`,
+`flow:node:remove`, `flow:node:move` (one per drag), `flow:edge:connect`,
+`flow:edge:disconnect`, `flow:node:label`, `flow:node:config`,
+`flow:settings`, `flow:arrange` (one entry for the whole layout). Typing a name
+or a setting is one entry. The geometry under it is exported as well, all of it
+pure: `CANVAS_NODE`, `arrangeCanvasGraph(graph, catalogue, {loopEntry})` (where
+Arrange puts each step: a Map of id → `{x, y}` from the origin),
+`canvasPortAnchor`, `canvasNodeBottom` and `isCanvasReturnEdge`.
+
+**Gestures.** A node's header moves it. A connection is made by clicking an
+output and then an input, and Escape cancels one in progress. A line is picked
+by clicking it, and Delete removes it or the picked step. A palette step is
+added by clicking it (at the centre of the view) or by dragging it onto the
+canvas (where it is dropped). The drag uses pointer events and a ghost on
+`document.body`. It never uses `draggable`, which cancels the pointer after
+about 5px, and never `setPointerCapture`, which would send the release, and so
+a second click, to the palette button. No press rebuilds a node, so a click lands
+on the node it went down on. Arrange lays the run out left to right, a branch's
+arms in their declared order, from the graph's own top-left corner. Fit frames
+the graph at natural size or smaller; pressing Fit frames all of it.
+
+**Keys** (bound on the editor's root): Ctrl/⌘+Z and Ctrl/⌘+Y or Ctrl/⌘+Shift+Z,
+stopped at the root even inside a text field; Delete; F2 renames the picked
+step; Enter on a focused node opens its settings; Escape. Backspace is never
+the editor's.
+
+**What it does not do.** It does not load, save, validate, publish or run
+anything, and it does not keep the stacks across page loads. Those belong to
+the consumer. Nor does it add anything a flow must have: a consumer whose new
+flow opens on a start step adds that step to the graph before `load`, so it is
+part of the baseline and the first Ctrl+Z does not take it away.
+
+**Where each claim was checked.** `tests/canvas_adapter.test.mjs`,
+`canvas_edge_router`, `canvas_graph`, `flow_canvas_layout`, `flow_canvas_editor`
+and `flow_canvas_css` check the DOM, the events, the geometry and the stylesheet
+as text. In headless Edge, `demo/flow_canvas_probe.mjs` drives
+`demo/flow_canvas.html` with real input:
+- `elementFromPoint` at the centre of Undo, Arrange, Fit, a consumer verb, a
+  palette item, a node's header, a port, and the panel's name box, first field
+  and Remove step returned each one, and the panel was not covered.
+- Every line began and ended within 1px of its ports' dots, measured.
+- The loop's line back ran below both of its steps.
+- A real pointer drag from the palette added exactly one step, under the
+  pointer, with a `dragstart` counter of 0. A drag ending off the canvas added
+  nothing.
+- A real click-then-click connected two steps.
+- A header drag moved its node, and a real Ctrl+Z put it back. Backspace removed
+  nothing, Delete removed the step, and the focus stayed on the canvas.
+- At 700px the canvas took the editor's whole width.
 
 ### The outline editor
 

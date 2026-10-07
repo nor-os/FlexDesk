@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>FlexDesk — the canvas editor</title>
+    <!-- The canvas editor's own page, for headless Edge (36 §8). It loads the
+         SOURCE — the development barrel `../flow.js` and the stylesheets under
+         `../css/` — so it needs no dist/ build: a feature branch never builds
+         dist/. Serve the repository root over http (ES modules do not load from
+         file://) and open /demo/flow_canvas.html. `demo/flow_canvas_probe.mjs`
+         does both and drives it. -->
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />
+    <link href="../css/tokens.css" rel="stylesheet" />
+    <link href="../css/reset.css" rel="stylesheet" />
+    <link href="../css/flexdesk.css" rel="stylesheet" />
+    <style>
+        /* The demo's own frame: a host with a height. Everything inside is the editor's. */
+        html, body { height: 100%; margin: 0; }
+        body { overflow: hidden; background: var(--surface-0); color: var(--text-body); }
+        .demo { position: absolute; inset: 0; display: flex; flex-direction: column; }
+        .demo__host { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+        .demo__who { color: var(--twm-flow-muted); font-size: 11px; }
+    </style>
+</head>
+<body>
+    <div class="demo"><div class="demo__host" id="host"></div></div>
+    <script type="module" src="./flow_canvas.js"></script>
+</body>
+</html>

@@ -5870,7 +5870,406 @@ button.twm-about-dialog__btn--close:focus {
 
 
 /* ══ FLOW · CANVAS ════════════════════════════════════════════════════ */
-/* Owned by the canvas agent (B) (36 §2): the canvas kernel (twm-canvas, twm-edge) and the canvas editor (twm-flow-graph). */
+/* Owned by the canvas agent (B) (36 §2): the canvas kernel (twm-canvas,
+ * twm-edge) and the canvas editor (twm-flow-graph). Every class here is set by
+ * a module under src/canvas/ or src/flow/canvas_editor/, and every class those
+ * modules set has a rule here — tests/flow_canvas_css.test.mjs holds both
+ * directions, and holds the node box (208 × 34 + 22 a row) to the editor's
+ * CANVAS_NODE, because the edges are anchored by arithmetic, not measured. */
+
+/* ── the kernel: the surface ────────────────────────────────────────── */
+/* The ground is SEVEN background layers, in this order, because
+ * `CanvasAdapter._apply` writes seven sizes and positions: 1. a grain, 2. a
+ * soft light from the upper left, 3–4. a coarse rule every fifth cell, 5–6. a
+ * fine grid — the unit a drag snaps to — and 7. under it all, a gradient. Only
+ * the four GRID layers follow the pan and the zoom. An embedder restyling the
+ * ground keeps seven layers, or the browser cycles a short list and layer 5
+ * takes layer 1's size. */
+.twm-canvas {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    cursor: default;
+    outline: none;
+    background-color: var(--surface-0);
+    background-image:
+        url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%27160%27%20height%3D%27160%27%3E%3Cfilter%20id%3D%27n%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%270.85%27%20numOctaves%3D%273%27%20stitchTiles%3D%27stitch%27%2F%3E%3CfeColorMatrix%20type%3D%27saturate%27%20values%3D%270%27%2F%3E%3C%2Ffilter%3E%3Crect%20width%3D%27160%27%20height%3D%27160%27%20filter%3D%27url%28%23n%29%27%20opacity%3D%270.5%27%2F%3E%3C%2Fsvg%3E"),
+        radial-gradient(120% 90% at 22% 0%, rgba(255, 255, 255, 0.055) 0%, rgba(255, 255, 255, 0) 55%),
+        linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+        linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(160deg, #2b2e33 0%, #212327 55%, #1b1d20 100%);
+    background-blend-mode: overlay, screen, normal, normal, normal, normal, normal;
+    box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.55), inset 0 0 120px rgba(0, 0, 0, 0.35);
+}
+.twm-canvas:focus-visible {
+    box-shadow: inset 0 0 0 1px var(--twm-flow-focus), inset 0 0 120px rgba(0, 0, 0, 0.35);
+}
+.twm-canvas__surface { position: absolute; transform-origin: 0 0; }
+/* The edge layer takes no pointer: a line that wants one (a hit path) opts
+ * back in with `pointer-events: stroke`. */
+.twm-canvas__edges { position: absolute; overflow: visible; pointer-events: none; }
+.twm-canvas__nodes { position: absolute; }
+.twm-canvas__marquee {
+    position: absolute;
+    pointer-events: none;
+    border: 1px solid var(--accent-bright);
+    background: rgba(0, 122, 204, 0.12);
+}
+.twm-canvas__marquee[hidden] { display: none; }
+
+/* ── the kernel: a crow's foot ──────────────────────────────────────── */
+.twm-edge__marker line { stroke: #5a7f96; stroke-width: 1.4; }
+.twm-edge__marker circle { fill: none; stroke: #5a7f96; stroke-width: 1.4; }
+
+/* ── the canvas editor ──────────────────────────────────────────────── */
+.twm-flow-graph [hidden] { display: none !important; }
+
+/* The editor fills its host: a flex column in any parent that gives it a
+ * height. `container-type: inline-size` is for the narrow layouts below, and
+ * safe here: the editor's width comes from its parent, never its contents. */
+.twm-flow-graph {
+    flex: 1 1 auto;
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    background: var(--surface-0);
+    color: var(--text-body);
+    font-family: var(--font-family-sans);
+    font-size: var(--font-size-sm);
+    container-type: inline-size;
+    container-name: twm-flow-graph;
+}
+.twm-flow-graph__toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    background: var(--surface-1);
+    border-bottom: 1px solid var(--border-default);
+}
+.twm-flow-graph .twm-flow-graph__tool {
+    min-height: 26px;
+    padding: 0 9px;
+    font-size: var(--font-size-sm);
+    border-radius: 3px;
+}
+.twm-flow-graph__tool .twm-btn__glyph.material-symbols-outlined { font-size: 16px; }
+.twm-flow-graph__tool--busy { cursor: progress; }
+.twm-flow-graph__status {
+    margin-left: auto;
+    color: var(--twm-flow-muted);
+    font-size: var(--font-size-xs);
+}
+.twm-flow-graph__toolbar-end { display: inline-flex; align-items: center; gap: 6px; }
+.twm-flow-graph__toolbar-end:empty { display: none; }
+.twm-flow-graph__why,
+.twm-flow-graph__message,
+.twm-flow-graph__readonly,
+.twm-flow-graph__banner {
+    margin: 0;
+    padding: 4px 10px;
+    font-size: var(--font-size-xs);
+    line-height: 1.4;
+}
+.twm-flow-graph__why { color: var(--twm-flow-muted); border-bottom: 1px solid var(--border-subtle); }
+.twm-flow-graph__message:empty { display: none; }
+.twm-flow-graph__message--warning { color: var(--twm-flow-warning); }
+.twm-flow-graph__message--ok { color: var(--twm-flow-ok); }
+.twm-flow-graph__readonly {
+    background: var(--twm-flow-warning-bg);
+    color: var(--twm-flow-warning-text);
+    border-bottom: 1px solid var(--twm-flow-warning-line);
+}
+.twm-flow-graph__banner {
+    background: var(--twm-flow-blue-bg);
+    color: var(--twm-flow-blue-fg);
+    border-bottom: 1px solid var(--twm-flow-blue-line);
+}
+
+/* Three columns; the CANVAS is the one that flexes — `flex: 1 1 0px` AND
+ * `min-width: 0`, or an open settings panel squeezes the palette instead. */
+.twm-flow-graph__body { flex: 1 1 0px; min-height: 0; display: flex; flex-direction: row; }
+.twm-flow-graph__palette {
+    flex: 0 0 176px;
+    min-width: 0;
+    overflow-y: auto;
+    box-sizing: border-box;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: var(--surface-1);
+    border-right: 1px solid var(--border-default);
+}
+.twm-flow-graph__palette-title { margin: 2px 0 6px; font-size: var(--font-size-sm); font-weight: 600; }
+.twm-flow-graph__palette-group {
+    margin: 10px 0 2px;
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--twm-flow-muted);
+}
+/* A press must not select the label's text, and a touch press must not pan the
+ * page instead of dragging. */
+.twm-flow-graph__palette-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    min-height: 26px;
+    padding: 3px 6px;
+    text-align: left;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    user-select: none;
+    touch-action: none;
+}
+.twm-flow-graph__palette-item:hover:not(:disabled) { background: var(--state-hover); border-color: var(--border-default); }
+.twm-flow-graph__palette-item:focus-visible { outline: none; border-color: var(--twm-flow-focus); }
+.twm-flow-graph__palette-item:disabled { opacity: 0.45; cursor: not-allowed; }
+.twm-flow-graph__palette-icon {
+    flex: 0 0 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+}
+.twm-flow-graph__palette-icon .material-symbols-outlined,
+.twm-flow-graph__node-icon .material-symbols-outlined { font-size: 15px; }
+.twm-flow-graph__palette-icon--violet, .twm-flow-graph__node-icon--violet { background: var(--twm-flow-violet-bg); color: var(--twm-flow-violet-fg); }
+.twm-flow-graph__palette-icon--teal, .twm-flow-graph__node-icon--teal { background: var(--twm-flow-teal-bg); color: var(--twm-flow-teal-fg); }
+.twm-flow-graph__palette-icon--amber, .twm-flow-graph__node-icon--amber { background: var(--twm-flow-amber-bg); color: var(--twm-flow-amber-fg); }
+.twm-flow-graph__palette-icon--grey, .twm-flow-graph__node-icon--grey { background: var(--twm-flow-grey-bg); color: var(--twm-flow-grey-fg); }
+.twm-flow-graph__palette-icon--blue, .twm-flow-graph__node-icon--blue { background: var(--twm-flow-blue-bg); color: var(--twm-flow-blue-fg); }
+.twm-flow-graph__palette-icon--indigo, .twm-flow-graph__node-icon--indigo { background: var(--twm-flow-indigo-bg); color: var(--twm-flow-indigo-fg); }
+.twm-flow-graph__palette-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.twm-flow-graph__palette-why {
+    margin: 0 0 4px 32px;
+    font-size: var(--font-size-xs);
+    color: var(--twm-flow-muted);
+}
+.twm-flow-graph__canvas { position: relative; flex: 1 1 0px; min-width: 0; min-height: 0; }
+.twm-flow-graph__canvas--drop { outline: 2px dashed var(--twm-flow-focus); outline-offset: -2px; }
+.twm-flow-graph__aside {
+    flex: 0 0 300px;
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+    background: var(--surface-1);
+    border-left: 1px solid var(--border-default);
+}
+.twm-flow-graph__connection {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 16px 20px;
+}
+.twm-flow-graph__connection-title { margin: 0; font-size: var(--font-size-md); font-weight: 600; }
+.twm-flow-graph__connection-line { margin: 0; color: var(--twm-flow-muted); overflow-wrap: anywhere; }
+.twm-flow-graph .twm-flow-graph__connection-remove { min-height: 26px; padding: 0 9px; font-size: var(--font-size-sm); }
+
+/* A narrow editor: under 900px the side columns take less, and under 740px the
+ * canvas takes the whole width on top with the palette and the settings side
+ * by side under it — a container query, on the editor's own width. */
+@container twm-flow-graph (max-width: 900px) {
+    .twm-flow-graph__palette { flex: 0 0 150px; }
+    .twm-flow-graph__aside { flex: 0 0 232px; }
+}
+@container twm-flow-graph (max-width: 740px) {
+    .twm-flow-graph__body {
+        display: grid;
+        grid-template-columns: minmax(132px, 2fr) minmax(0, 3fr);
+        grid-template-rows: minmax(220px, 11fr) minmax(0, 9fr);
+    }
+    .twm-flow-graph__canvas { grid-column: 1 / -1; grid-row: 1; min-width: 0; }
+    .twm-flow-graph__palette { grid-column: 1; grid-row: 2; min-height: 0; border-right: 0; border-top: 1px solid var(--border-default); }
+    .twm-flow-graph__aside { grid-column: 2; grid-row: 2; border-left: 0; border-top: 1px solid var(--border-default); }
+}
+
+/* ── a node ─────────────────────────────────────────────────────────── */
+/* THE BOX IS ARITHMETIC: a line meets a port at `header + row × i + row / 2`
+ * (layout.js's portAnchor), so the header and a row are exactly these heights.
+ * A consumer that passes `node: {width, header, row}` sets the three custom
+ * properties on the editor's root. */
+.twm-flow-graph__node {
+    position: absolute;
+    box-sizing: border-box;
+    width: var(--twm-canvas-node-width, 208px);
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
+    color: var(--text-body);
+    font-size: var(--font-size-xs);
+    outline: none;
+}
+.twm-flow-graph__node:focus-visible { box-shadow: 0 0 0 2px var(--twm-flow-focus), 0 2px 12px rgba(0, 0, 0, 0.55); }
+.twm-flow-graph__node--picked {
+    border-color: var(--twm-flow-focus);
+    box-shadow: 0 0 0 1px var(--twm-flow-focus), 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+.twm-flow-graph__node--connect-source { outline: 2px solid var(--twm-flow-focus); outline-offset: 1px; }
+.twm-flow-graph__node--error { border-color: var(--twm-flow-error); }
+.twm-flow-graph__node--warning { border-color: var(--twm-flow-warning); }
+.twm-flow-graph__node--skipped { opacity: 0.55; }
+.twm-flow-graph__node-head {
+    box-sizing: border-box;
+    height: var(--twm-canvas-node-header, 34px);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 8px;
+    background: var(--surface-3);
+    border-bottom: 1px solid var(--border-strong);
+    border-radius: 3px 3px 0 0;
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    user-select: none;
+    cursor: move;
+}
+.twm-flow-graph--readonly .twm-flow-graph__node-head { cursor: default; }
+.twm-flow-graph__node-icon {
+    flex: 0 0 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+}
+.twm-flow-graph__node-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* ONE LINE, and never more than half the header: a tag that wrapped squeezed
+ * the title beside it to a few letters. */
+.twm-flow-graph__node-tag {
+    margin-left: auto;
+    flex: none;
+    max-width: 50%;
+    padding: 1px 5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--font-size-xs);
+    font-weight: 500;
+    color: #b8cbe0;
+    background: rgba(127, 154, 198, 0.18);
+    border-radius: 2px;
+}
+.twm-flow-graph__node-row {
+    box-sizing: border-box;
+    height: var(--twm-canvas-node-row, 22px);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.twm-flow-graph__node-gap { flex: 1 1 auto; }
+.twm-flow-graph__node-summary,
+.twm-flow-graph__node-run {
+    margin: 0;
+    padding: 2px 8px 4px;
+    color: var(--twm-flow-muted);
+    overflow-wrap: anywhere;
+}
+.twm-flow-graph__node-summary:empty,
+.twm-flow-graph__node-run:empty { display: none; }
+.twm-flow-graph__node-findings { padding: 0 8px; }
+.twm-flow-graph__node-finding { margin: 4px 0; color: var(--twm-flow-error); overflow-wrap: anywhere; }
+.twm-flow-graph__node-finding--warning { color: var(--twm-flow-warning); }
+.twm-flow-graph__node-run[data-state="completed"], .twm-flow-graph__node-run[data-tone="ok"] { color: var(--twm-flow-ok); }
+.twm-flow-graph__node-run[data-state="failed"], .twm-flow-graph__node-run[data-tone="error"] { color: var(--twm-flow-error); }
+.twm-flow-graph__node-run[data-tone="warning"] { color: var(--twm-flow-warning); }
+.twm-flow-graph__node-run[data-state="running"] { color: var(--twm-flow-focus); }
+.twm-flow-graph__node-run[data-state="skipped"],
+.twm-flow-graph__node-run[data-state="cancelled"],
+.twm-flow-graph__node-run[data-state="not-reached"] { font-style: italic; }
+
+/* ── a port ─────────────────────────────────────────────────────────── */
+.twm-flow-graph__port {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: var(--twm-canvas-node-row, 22px);
+    padding: 0 6px;
+    background: none;
+    border: 0;
+    color: inherit;
+    font: inherit;
+    font-size: var(--font-size-xs);
+    cursor: crosshair;
+}
+.twm-flow-graph__port:disabled { cursor: default; }
+.twm-flow-graph__port:focus-visible { outline: 1px solid var(--twm-flow-focus); outline-offset: -1px; }
+.twm-flow-graph__port--in { margin-left: -6px; }
+.twm-flow-graph__port--out { flex-direction: row-reverse; margin-right: -6px; }
+.twm-flow-graph__port-dot {
+    flex: 0 0 10px;
+    width: 10px;
+    height: 10px;
+    box-sizing: border-box;
+    border-radius: 50%;
+    background: var(--surface-3);
+    border: 2px solid var(--twm-flow-focus);
+}
+.twm-flow-graph__port-label { white-space: nowrap; }
+.twm-flow-graph__port-count { color: var(--twm-flow-muted); white-space: nowrap; }
+.twm-flow-graph__port-count:empty { display: none; }
+.twm-flow-graph__port:hover:not(:disabled) .twm-flow-graph__port-dot { background: var(--twm-flow-focus); }
+.twm-flow-graph__port--data { opacity: 0.7; }
+.twm-flow-graph__port--data .twm-flow-graph__port-dot { border-color: #8a8f98; border-radius: 2px; }
+.twm-flow-graph--connecting .twm-flow-graph__port--in:not(:disabled) .twm-flow-graph__port-dot {
+    background: var(--twm-flow-focus);
+    box-shadow: 0 0 0 3px rgba(0, 122, 204, 0.35);
+}
+.twm-flow-graph__port--taken .twm-flow-graph__port-dot { border-color: var(--twm-flow-ok); background: var(--twm-flow-ok); }
+.twm-flow-graph__port--taken .twm-flow-graph__port-count { color: var(--twm-flow-ok); }
+.twm-flow-graph__port--untaken { opacity: 0.5; }
+
+/* ── a line ─────────────────────────────────────────────────────────── */
+.twm-flow-graph__edge { fill: none; stroke: #8fb4d8; stroke-width: 1.6; }
+.twm-flow-graph__edge--picked { stroke: var(--twm-flow-focus); stroke-width: 2.4; }
+/* A loop's body handing back to the loop: DASHED, and routed under both steps
+ * by the kernel's `returnEdge`, so it reads as "round again", not as one more
+ * step forward. */
+.twm-flow-graph__edge--back { stroke-dasharray: 6 4; }
+.twm-flow-graph__edge--taken { stroke: var(--twm-flow-ok); }
+.twm-flow-graph__edge--untaken { opacity: 0.35; }
+/* The 14px target a 1.6px line cannot be. It opts back into the pointer the
+ * edge layer turns off. */
+.twm-flow-graph__edge-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
+
+/* ── the palette drag's ghost ───────────────────────────────────────── */
+/* It lives on <body>, follows the pointer and never takes it — `pointer-events:
+ * none`, or the release lands on the ghost rather than on the canvas. */
+.twm-flow-graph__ghost {
+    position: fixed;
+    z-index: var(--z-toast);
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--twm-flow-focus);
+    border-radius: 3px;
+    color: var(--text-body);
+    font-family: var(--font-family-sans);
+    font-size: var(--font-size-sm);
+    opacity: 0.92;
+    box-shadow: var(--shadow-md);
+}
+.twm-flow-graph__ghost .material-symbols-outlined { font-size: 16px; }
+.twm-flow-graph__ghost-label { white-space: nowrap; }
 /* ══ end FLOW · CANVAS ══ */
 
 

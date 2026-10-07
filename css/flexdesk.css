@@ -8636,7 +8636,715 @@ tr:hover .twm-row-action { opacity: 1; }
 
 
 /* ══ FLOW · OUTLINE ═══════════════════════════════════════════════════ */
-/* Owned by the outline agent (C) (36 §2): the outline editor (twm-flow-outline). */
+/* The outline editor (36 §6, the Main, AddStep, StepMenu and Run mocks): a
+ * logic flow drawn as a list of blocks. A row is indented 22px a level
+ * (`--twm-outline-depth`, set by src/flow/outline/editor.js, whose
+ * OUTLINE_INDENT is the same number); its guides are the lines at 14px +
+ * 22px a level. Every class here is set by a module under src/flow/outline/,
+ * and every class those modules set has a rule here —
+ * tests/flow_outline_css.test.mjs holds both directions. */
+
+.twm-flow-outline[hidden],
+.twm-flow-outline [hidden],
+.twm-flow-popover--menu [hidden] {
+    display: none !important;
+}
+
+.twm-flow-outline {
+    container: twm-flow-outline / inline-size;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    box-sizing: border-box;
+    background: var(--surface-0);
+    color: var(--text-body);
+    font-family: var(--font-family-sans);
+    font-size: var(--font-size-sm);
+    line-height: 1.4;
+    outline: none;
+}
+.twm-flow-outline--dragging,
+.twm-flow-outline--dragging * {
+    cursor: grabbing !important;
+    user-select: none;
+}
+.twm-flow-outline--readonly .twm-flow-outline__keys { display: none; }
+.twm-flow-outline--run .twm-flow-outline__type { display: none; }
+
+/* ── the toolbar ────────────────────────────────────────────────────── */
+.twm-flow-outline__toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: var(--surface-1);
+    border-bottom: 1px solid var(--border-default);
+}
+.twm-flow-outline__toolbar .twm-btn {
+    min-height: 26px;
+    padding: 0 9px;
+    font-size: var(--font-size-sm);
+    border-radius: 3px;
+}
+.twm-flow-outline__tool { white-space: nowrap; }
+.twm-flow-outline__tool--busy { cursor: progress; opacity: .7; }
+.twm-flow-outline__sep {
+    width: 1px;
+    height: 18px;
+    margin: 0 4px;
+    background: var(--border-default);
+}
+.twm-flow-outline__tool-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.twm-flow-outline__refusal {
+    max-width: 260px;
+    font-size: var(--font-size-xs);
+    color: var(--twm-flow-warning);
+}
+.twm-flow-outline__status {
+    margin-left: 8px;
+    color: var(--twm-flow-muted);
+}
+.twm-flow-outline__spacer { flex: 1 1 auto; }
+.twm-flow-outline__toolbar-end {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* ── the banners: read only, and the run drawn ─────────────────────── */
+.twm-flow-outline__readonly {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 12px;
+    background: var(--twm-flow-warning-bg);
+    border-bottom: 1px solid var(--twm-flow-warning-line);
+    color: var(--twm-flow-warning-text);
+}
+.twm-flow-outline__readonly-icon {
+    flex: 0 0 auto;
+    font-size: 16px;
+    color: var(--twm-flow-warning);
+}
+.twm-flow-outline__readonly-text { min-width: 0; }
+.twm-flow-outline__banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: var(--twm-flow-blue-bg);
+    border-bottom: 1px solid var(--twm-flow-blue-line);
+    color: var(--twm-flow-blue-fg);
+}
+.twm-flow-outline__banner-icon {
+    flex: 0 0 auto;
+    font-size: 16px;
+    color: var(--twm-flow-blue-dot);
+}
+.twm-flow-outline__banner-text { min-width: 0; }
+
+/* ── the three columns ──────────────────────────────────────────────── */
+/* Side by side, each column scrolling on its own inside the editor's height —
+ * the list's keys line stays at its foot and a long panel scrolls past a
+ * short outline; in a narrow editor they wrap, one under the other, and the
+ * body scrolls as one. */
+.twm-flow-outline__body {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+}
+.twm-flow-outline__list {
+    flex: 0 1 440px;
+    min-width: 300px;
+    max-width: 100%;
+    min-height: 0;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border-default);
+}
+@container twm-flow-outline (max-width: 1000px) {
+    .twm-flow-outline__body {
+        flex-wrap: wrap;
+        overflow: auto;
+    }
+    .twm-flow-outline__list { flex: 1 1 100%; border-right: 0; }
+    .twm-flow-outline__settings,
+    .twm-flow-outline__aside { overflow: visible; }
+}
+.twm-flow-outline__settings {
+    flex: 3 1 460px;
+    min-width: 0;
+    box-sizing: border-box;
+    overflow: auto;
+    background: var(--surface-1);
+    border-right: 1px solid var(--border-default);
+}
+.twm-flow-outline__aside {
+    flex: 1 1 300px;
+    min-width: 260px;
+    box-sizing: border-box;
+    padding: 16px;
+    overflow: auto;
+}
+
+/* ── the list's head, find, the status line ─────────────────────────── */
+.twm-flow-outline__list-head {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px 8px;
+}
+.twm-flow-outline__heading {
+    margin: 0;
+    font-size: 11px;
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+.twm-flow-outline__count { color: var(--twm-flow-muted); }
+.twm-flow-outline__fold-all {
+    height: 22px;
+    padding: 0 7px;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    cursor: pointer;
+}
+.twm-flow-outline__fold-all:hover:not(:disabled) { background: var(--state-hover); }
+.twm-flow-outline__fold-all:disabled { cursor: default; opacity: .45; }
+.twm-flow-outline__find {
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    width: calc(100% - 24px);
+    height: 26px;
+    margin: 0 12px 8px;
+    padding: 0 8px;
+    background: var(--twm-flow-control-bg);
+    border: 1px solid var(--twm-flow-control-border);
+    border-radius: 3px;
+    color: var(--text-primary);
+    font: inherit;
+}
+.twm-flow-outline__find:focus {
+    outline: none;
+    border-color: var(--twm-flow-focus);
+}
+.twm-flow-outline__scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 0 8px 12px;
+}
+.twm-flow-outline__message {
+    flex: 0 0 auto;
+    margin: 0 12px 6px;
+    font-size: 11px;
+    color: var(--twm-flow-warning-text);
+}
+.twm-flow-outline__keys {
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 10px 12px;
+    border-top: 1px solid var(--border-subtle);
+    font-size: 11px;
+    color: var(--twm-flow-muted);
+}
+
+/* ── the tree and its rows ──────────────────────────────────────────── */
+.twm-flow-outline__tree {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+.twm-flow-outline__item,
+.twm-flow-outline__inside,
+.twm-flow-outline__arm {
+    display: flex;
+    flex-direction: column;
+}
+.twm-flow-outline__item { outline: none; }
+.twm-flow-outline__item:focus-visible > .twm-flow-outline__row {
+    outline: 2px solid var(--twm-flow-focus);
+    outline-offset: -2px;
+}
+.twm-flow-outline__item--flow { margin-bottom: 6px; }
+.twm-flow-outline__item--context > .twm-flow-outline__row { opacity: .55; }
+.twm-flow-outline__row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    box-sizing: border-box;
+    padding-left: calc(8px + var(--twm-outline-depth, 0) * 22px);
+    border-radius: 4px;
+}
+.twm-flow-outline__row--step { min-height: 42px; }
+.twm-flow-outline__row--step:hover,
+.twm-flow-outline__row--flow:hover { background-color: var(--state-hover); }
+.twm-flow-outline__row--flow {
+    gap: 10px;
+    padding: 8px 10px;
+    background: var(--surface-1);
+    border: 1px solid var(--border-subtle);
+}
+.twm-flow-outline__row--selected,
+.twm-flow-outline__row--selected:hover {
+    background: var(--twm-flow-blue-bg);
+    box-shadow: inset 0 0 0 1px var(--twm-flow-focus);
+}
+.twm-flow-outline__row--off .twm-flow-outline__title {
+    font-style: italic;
+    color: var(--text-dim);
+}
+.twm-flow-outline__row--off .twm-flow-outline__chip { opacity: .45; }
+.twm-flow-outline__row--dragging { opacity: .45; }
+.twm-flow-outline__guide {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: calc(14px + var(--twm-outline-guide, 0) * 22px);
+    width: 1px;
+    background: var(--border-default);
+    pointer-events: none;
+}
+
+/* an arm: its words in its tone — Then green, Otherwise grey, a failure amber */
+.twm-flow-outline__row--arm {
+    height: 24px;
+    gap: 6px;
+    padding-left: calc(24px + var(--twm-outline-depth, 0) * 22px);
+    font-size: 11px;
+    font-weight: var(--font-weight-semibold);
+    color: var(--twm-flow-muted);
+}
+.twm-flow-outline__row--then { color: var(--twm-flow-ok); }
+.twm-flow-outline__row--else { color: var(--text-secondary); }
+.twm-flow-outline__row--fail { color: var(--twm-flow-warning); }
+.twm-flow-outline__row--arm.twm-flow-outline__row--off { color: var(--text-dim); }
+.twm-flow-outline__arm-icon { font-size: 13px; }
+.twm-flow-outline__arm-label { white-space: nowrap; }
+.twm-flow-outline__arm-note {
+    margin-left: auto;
+    padding-right: 8px;
+    font-weight: var(--font-weight-regular);
+    color: var(--text-muted);
+}
+.twm-flow-outline__arm-remove {
+    width: 20px;
+    height: 20px;
+    margin-left: auto;
+    margin-right: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text-secondary);
+    opacity: .6;
+    cursor: pointer;
+}
+.twm-flow-outline__arm-note + .twm-flow-outline__arm-remove { margin-left: 0; }
+.twm-flow-outline__arm-remove .material-symbols-outlined { font-size: 14px; }
+.twm-flow-outline__row:hover > .twm-flow-outline__arm-remove,
+.twm-flow-outline__arm-remove:focus-visible { opacity: 1; }
+.twm-flow-outline__arm-remove:hover { background: var(--state-hover); }
+
+/* a foot: Next row, Go on with the next row, Then wait for every branch */
+.twm-flow-outline__row--foot {
+    height: 26px;
+    gap: 6px;
+    padding-left: calc(24px + var(--twm-outline-depth, 0) * 22px);
+    font-size: 11px;
+    color: var(--twm-flow-muted);
+}
+.twm-flow-outline__foot-icon { font-size: 13px; }
+.twm-flow-outline__foot-label { white-space: nowrap; }
+.twm-flow-outline__foot-note {
+    margin-left: auto;
+    padding-right: 8px;
+    color: var(--text-muted);
+}
+
+/* an add row: Add a step, Add a step to the loop, Add a branch */
+.twm-flow-outline__row--add { padding: 2px 8px 6px calc(24px + var(--twm-outline-depth, 0) * 22px); }
+.twm-flow-outline__row--add-top { padding-left: 8px; }
+.twm-flow-outline__row--add-top .twm-flow-outline__add { width: 100%; }
+.twm-flow-outline__add {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 26px;
+    padding: 0 9px;
+    border: 1px dashed var(--border-strong);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+}
+.twm-flow-outline__add .material-symbols-outlined { font-size: 14px; }
+.twm-flow-outline__add:hover,
+.twm-flow-outline__add:focus-visible {
+    color: var(--twm-flow-blue-fg);
+    border-color: var(--twm-flow-focus);
+    outline: none;
+}
+.twm-flow-outline__add-label { white-space: nowrap; }
+
+/* a step row's parts */
+.twm-flow-outline__grip {
+    flex: 0 0 12px;
+    display: flex;
+    color: var(--text-muted);
+    opacity: 0;
+    cursor: grab;
+    touch-action: none;
+}
+.twm-flow-outline__grip .material-symbols-outlined { font-size: 14px; }
+.twm-flow-outline__row:hover > .twm-flow-outline__grip,
+.twm-flow-outline__row--selected > .twm-flow-outline__grip { opacity: 1; }
+.twm-flow-outline__grip--off { visibility: hidden; }
+.twm-flow-outline__fold {
+    flex: 0 0 18px;
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+.twm-flow-outline__fold:hover { background: var(--state-hover); }
+.twm-flow-outline__fold .material-symbols-outlined { font-size: 16px; }
+.twm-flow-outline__fold-space { flex: 0 0 18px; }
+.twm-flow-outline__chip {
+    flex: 0 0 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 5px;
+    border-radius: 5px;
+}
+.twm-flow-outline__row--flow > .twm-flow-outline__chip { margin-left: 0; }
+.twm-flow-outline__chip .material-symbols-outlined { font-size: 15px; }
+.twm-flow-outline__chip--violet { background: var(--twm-flow-violet-bg); color: var(--twm-flow-violet-fg); }
+.twm-flow-outline__chip--teal   { background: var(--twm-flow-teal-bg);   color: var(--twm-flow-teal-fg); }
+.twm-flow-outline__chip--amber  { background: var(--twm-flow-amber-bg);  color: var(--twm-flow-amber-fg); }
+.twm-flow-outline__chip--grey   { background: var(--twm-flow-grey-bg);   color: var(--twm-flow-grey-fg); }
+.twm-flow-outline__chip--blue   { background: var(--twm-flow-blue-bg);   color: var(--twm-flow-blue-fg); }
+.twm-flow-outline__chip--indigo { background: var(--twm-flow-indigo-bg); color: var(--twm-flow-indigo-fg); }
+.twm-flow-outline__words {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 5px 4px;
+}
+.twm-flow-outline__line {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    min-width: 0;
+}
+.twm-flow-outline__title {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-weight: var(--font-weight-medium);
+    color: var(--text-primary);
+}
+.twm-flow-outline__row--flow .twm-flow-outline__title { font-weight: var(--font-weight-semibold); }
+.twm-flow-outline__type {
+    font-size: 11px;
+    white-space: nowrap;
+    color: var(--text-muted);
+}
+.twm-flow-outline__summary {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+.twm-flow-outline__summary--mono {
+    font-family: var(--font-family-mono);
+    font-size: 11px;
+}
+.twm-flow-outline__summary--error { color: var(--twm-flow-error); }
+.twm-flow-outline__summary--warning { color: var(--twm-flow-warning); }
+.twm-flow-outline__note {
+    flex: 0 0 auto;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: var(--surface-2);
+    font-size: 11px;
+    white-space: nowrap;
+    color: var(--text-secondary);
+}
+.twm-flow-outline__run {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    height: 20px;
+    padding: 0 7px;
+    border-radius: 10px;
+    font-size: 11px;
+    white-space: nowrap;
+}
+.twm-flow-outline__run--ok      { background: color-mix(in srgb, var(--twm-flow-ok) 14%, transparent); color: var(--twm-flow-ok); }
+.twm-flow-outline__run--warn    { background: var(--twm-flow-warning-bg); color: var(--twm-flow-warning); }
+.twm-flow-outline__run--fail    { background: var(--twm-flow-error-bg); color: var(--twm-flow-error); }
+.twm-flow-outline__run--skip    { background: var(--twm-flow-grey-bg); color: var(--text-muted); }
+.twm-flow-outline__run--running { background: var(--twm-flow-blue-bg); color: var(--twm-flow-blue-fg); }
+.twm-flow-outline__badge {
+    flex: 0 0 auto;
+    display: flex;
+    color: var(--twm-flow-error);
+}
+.twm-flow-outline__badge--warning { color: var(--twm-flow-warning); }
+.twm-flow-outline__badge .material-symbols-outlined { font-size: 15px; }
+.twm-flow-outline__menu {
+    flex: 0 0 24px;
+    width: 24px;
+    height: 24px;
+    margin-right: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text-secondary);
+    opacity: .6;
+    cursor: pointer;
+}
+.twm-flow-outline__menu .material-symbols-outlined { font-size: 16px; }
+.twm-flow-outline__row:hover > .twm-flow-outline__menu,
+.twm-flow-outline__row--selected > .twm-flow-outline__menu,
+.twm-flow-outline__menu:focus-visible { opacity: 1; }
+.twm-flow-outline__menu:hover { background: var(--state-hover); }
+
+/* "+" between two rows: drawn on a row's bottom edge at the indent of the
+ * list it adds to, shown on the row's hover AND on its own focus; only its
+ * circle takes the pointer, so it never covers the row below */
+.twm-flow-outline__gap {
+    position: absolute;
+    z-index: 2;
+    left: calc(8px + var(--twm-outline-depth, 0) * 22px);
+    right: 8px;
+    bottom: -7px;
+    height: 14px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    opacity: 0;
+    pointer-events: none;
+}
+.twm-flow-outline__row:hover > .twm-flow-outline__gap,
+.twm-flow-outline__gap:hover,
+.twm-flow-outline__gap:focus-visible {
+    opacity: 1;
+    outline: none;
+}
+.twm-flow-outline__gap-line {
+    position: absolute;
+    left: 10px;
+    right: 0;
+    top: 6px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--twm-flow-focus);
+}
+.twm-flow-outline__gap-plus {
+    position: absolute;
+    left: 0;
+    top: -2px;
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9px;
+    background: var(--twm-flow-focus);
+    color: #ffffff;
+    font-size: 13px;
+    pointer-events: none;
+    cursor: pointer;
+}
+/* the circle takes the pointer only while it is drawn: an invisible "+" must
+ * not catch a press meant for the top-left corner of the row below */
+.twm-flow-outline__row:hover > .twm-flow-outline__gap .twm-flow-outline__gap-plus,
+.twm-flow-outline__gap:focus-visible .twm-flow-outline__gap-plus { pointer-events: auto; }
+.twm-flow-outline__gap:focus-visible .twm-flow-outline__gap-plus { box-shadow: 0 0 0 2px var(--surface-0), 0 0 0 4px var(--twm-flow-focus); }
+
+/* the grip drag: a ghost under the pointer, and a drop line naming the place */
+.twm-flow-outline__ghost {
+    position: fixed;
+    z-index: var(--z-popover);
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-width: 200px;
+    max-width: 320px;
+    height: 40px;
+    padding: 0 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--twm-flow-focus);
+    border-radius: 4px;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.6);
+    color: var(--text-primary);
+    font-family: var(--font-family-sans);
+    font-size: var(--font-size-sm);
+    pointer-events: none;
+    transform: rotate(-1.5deg);
+}
+.twm-flow-outline__ghost .twm-flow-outline__chip { margin-left: 0; }
+.twm-flow-outline__ghost-grip { font-size: 14px; color: var(--text-secondary); }
+.twm-flow-outline__ghost-title {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-weight: var(--font-weight-medium);
+}
+.twm-flow-outline__drop {
+    position: absolute;
+    z-index: 3;
+    left: calc(8px + var(--twm-outline-depth, 0) * 22px);
+    right: 8px;
+    height: 2px;
+    margin-top: -1px;
+    border-radius: 1px;
+    background: var(--twm-flow-focus);
+    pointer-events: none;
+}
+.twm-flow-outline__drop-label {
+    position: absolute;
+    right: 8px;
+    top: -9px;
+    box-sizing: border-box;
+    max-width: calc(100% - 16px);
+    min-height: 18px;
+    display: flex;
+    align-items: center;
+    padding: 1px 7px;
+    border-radius: 3px;
+    background: var(--twm-flow-focus);
+    color: #ffffff;
+    font-size: 11px;
+    line-height: 1.35;
+}
+.twm-flow-outline__drop--refused { background: var(--twm-flow-warning); }
+.twm-flow-outline__drop--refused .twm-flow-outline__drop-label {
+    background: var(--surface-2);
+    border: 1px solid var(--twm-flow-warning-line);
+    color: var(--twm-flow-warning-text);
+}
+
+/* the step menu (StepMenu mock), in the kit's popover */
+.twm-flow-popover--menu { width: 260px; }
+.twm-flow-outline__menu-list {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    padding: 5px;
+}
+.twm-flow-outline__menu-sub {
+    position: absolute;
+    left: calc(100% - 4px);
+    z-index: 1;
+    width: 190px;
+    background: var(--surface-1);
+    border: 1px solid var(--twm-flow-control-border);
+    border-radius: var(--radius-md);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+}
+.twm-flow-outline__menu-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 26px;
+    padding: 3px 8px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.twm-flow-outline__menu-item:hover:not(:disabled),
+.twm-flow-outline__menu-item:focus-visible,
+.twm-flow-outline__menu-item--open {
+    outline: none;
+    background: var(--twm-flow-blue-bg);
+}
+.twm-flow-outline__menu-item:disabled {
+    color: var(--text-dim);
+    cursor: not-allowed;
+}
+.twm-flow-outline__menu-item--danger { color: var(--twm-flow-error); }
+.twm-flow-outline__menu-item--danger:disabled { color: var(--text-dim); }
+.twm-flow-outline__menu-words {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+.twm-flow-outline__menu-label { overflow-wrap: anywhere; }
+.twm-flow-outline__menu-key {
+    flex: 0 0 auto;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+.twm-flow-outline__menu-sep {
+    height: 1px;
+    margin: 4px 6px;
+    background: var(--border-default);
+}
+.twm-flow-outline__menu-chip {
+    flex: 0 0 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+}
+.twm-flow-outline__menu-chip .material-symbols-outlined { font-size: 14px; }
+.twm-flow-outline__menu-chip--violet { background: var(--twm-flow-violet-bg); color: var(--twm-flow-violet-fg); }
+.twm-flow-outline__menu-chip--teal   { background: var(--twm-flow-teal-bg);   color: var(--twm-flow-teal-fg); }
+.twm-flow-outline__menu-chip--amber  { background: var(--twm-flow-amber-bg);  color: var(--twm-flow-amber-fg); }
+.twm-flow-outline__menu-chip--grey   { background: var(--twm-flow-grey-bg);   color: var(--twm-flow-grey-fg); }
+.twm-flow-outline__menu-chip--blue   { background: var(--twm-flow-blue-bg);   color: var(--twm-flow-blue-fg); }
+.twm-flow-outline__menu-chip--indigo { background: var(--twm-flow-indigo-bg); color: var(--twm-flow-indigo-fg); }
 /* ══ end FLOW · OUTLINE ══ */
 
 

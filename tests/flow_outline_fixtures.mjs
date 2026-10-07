@@ -27,7 +27,7 @@ export function catalogue() {
 /** The block mapping, in the words of the mocks. */
 export const BLOCKS = Object.freeze({
     start: { role: 'start', label: 'When it runs' },
-    end: { role: 'end' },
+    end: { role: 'end', entry: { label: 'End the run', sub: 'End', description: 'Stop here, as a success or a failure.' } },
     step: { input: 'in', continue: 'out' },
     branch: { role: 'branch', arms: { true: 'Then', false: 'Otherwise' }, unconnected: 'stop',
               entry: { label: 'If … otherwise', sub: 'Condition',

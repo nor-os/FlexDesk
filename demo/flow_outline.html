@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>FlexDesk — the outline editor</title>
+    <!-- The outline editor's own page, for headless Edge (36 §8). It loads the
+         SOURCE — the development barrel `../flow.js` and the stylesheets under
+         `../css/` — so it needs no dist/ build. Serve the repository root over
+         http (ES modules do not load from file://) and open
+         /demo/flow_outline.html; `demo/flow_outline_probe.mjs` does both and
+         drives it with real input. -->
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />
+    <link href="../css/tokens.css" rel="stylesheet" />
+    <link href="../css/reset.css" rel="stylesheet" />
+    <link href="../css/flexdesk.css" rel="stylesheet" />
+    <style>
+        /* The demo's own frame. Everything inside #editor is the outline editor's. */
+        html, body { height: 100%; margin: 0; }
+        body { background: var(--surface-0); color: var(--text-body); display: flex; flex-direction: column; }
+        .demo__bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 10px;
+                     background: var(--surface-2); border-bottom: 1px solid var(--border-default); font-size: 12px; }
+        .demo__bar .twm-btn { min-height: 24px; padding: 0 8px; font-size: 12px; }
+        .demo__bar span { color: var(--twm-flow-muted); }
+        #editor { flex: 1 1 auto; min-height: 0; }
+        .demo__run { display: flex; flex-direction: column; gap: 10px; color: var(--text-body); font-size: 12px; }
+        .demo__run h2 { margin: 0; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-secondary); }
+        .demo__stats { display: flex; gap: 8px; }
+        .demo__stat { flex: 1 1 0; padding: 8px; border: 1px solid var(--border-default); border-radius: 4px; background: var(--surface-1); }
+        .demo__stat b { display: block; font-size: 16px; color: var(--text-primary); }
+        .demo__reads code { font-family: var(--font-family-mono); font-size: 11px; color: var(--twm-flow-blue-fg); }
+        .demo__acts { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: 12px;
+                      background: var(--surface-2); border: 1px solid var(--border-default); color: var(--text-secondary); }
+    </style>
+</head>
+<body>
+    <div class="demo__bar" id="bar">
+        <span>Demo:</span>
+    </div>
+    <div id="editor"></div>
+    <script type="module" src="./flow_outline.js"></script>
+</body>
+</html>

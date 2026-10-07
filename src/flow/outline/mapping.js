@@ -6,7 +6,7 @@
  *
  *     blocks: {
  *       start:  { role: 'start', label: 'When it runs' },
- *       end:    { role: 'end' },
+ *       end:    { role: 'end', entry: { label: 'End the run', sub: 'End' } },
  *       step:   { input: 'in', continue: 'out' },
  *       branch: { role: 'branch', arms: { true: 'Then', false: 'Otherwise' },
  *                 entry: { label: 'If … otherwise', sub: 'Condition' } },
@@ -43,7 +43,7 @@ const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
 
 const DEFAULTS = Object.freeze({
     start: { role: 'start', label: null },
-    end: { role: 'end' },
+    end: { role: 'end', entry: null },
     step: { input: 'in', continue: 'out' },
     branch: { role: 'branch', arms: {}, unconnected: 'stop', entry: null, note: null },
     fanout: {
@@ -191,6 +191,8 @@ export function createBlockMapping(blocks = {}, catalogue = null) {
             connected: word(setting.connected ?? DEFAULT_SETTING.connected, label, ''),
             meaning: how,
             tone: spec.tone ?? (how === 'fail' ? 'fail' : 'arm'),
+            // the schema field the setting is drawn after, or null (at the end)
+            after: setting.after ?? null,
         };
     }
 
@@ -242,7 +244,8 @@ export function createBlockMapping(blocks = {}, catalogue = null) {
         const t = typeOf(typeId);
         const k = kindOf(typeId);
         const own = override(typeId).entry;
-        const blockEntry = k === 'branch' ? branch.entry : k === 'fanout' ? fanout.entry : k === 'loop' ? loop.entry : null;
+        const blockEntry = k === 'branch' ? branch.entry : k === 'fanout' ? fanout.entry : k === 'loop' ? loop.entry
+            : k === 'end' ? end.entry : null;
         // A block's entry words belong to the block's one type; with several
         // types of one role, only a type that names its own entry gets them.
         const shared = blockEntry && catalogue?.list?.().filter((x) => kindOf(x.type_id) === k).length === 1

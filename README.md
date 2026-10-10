@@ -321,6 +321,39 @@ behaves as it did in 0.4, except for these:
   to it if it is in a cascade layer, or has zero specificity and loads before
   `flexdesk.css`. A rule for the cells, the rows or the table does not.
 
+### Comparing two tables: `diff` and `createScrollLock`
+
+A side-by-side comparison is two `DataTable`s drawn from ONE aligned row list:
+the rows as they are on one side, as they were on the other, and a gap where
+a side has no row. Both options are off until you set them.
+
+```js
+import { DataTable, createScrollLock } from '@flexdesk/widgets';
+
+const lock = createScrollLock({ axis: 'y' });   // 'x', 'y' or 'both'
+const side = (host, pick) => DataTable.mount(host, {
+    headers, rows: aligned.map((r) => pick(r) ?? blank), pagination: false,
+    scrollLock: lock,
+    diff: (_row, i) => ({ status: statusOf(aligned[i], pick), cells: changedCols(aligned[i]) }),
+});
+side(left,  (r) => r.now);
+side(right, (r) => r.then);
+lock.setEnabled(false);   // scroll each side on its own; true brings them level
+```
+
+- `diff: (row, rowIdx) => {status, cells?}` draws the row
+  `twm-dt-diff twm-dt-diff--<status>`, for `added`, `removed`, `changed`,
+  `same` or `gap`, and each column index in `cells` (an array or a Set)
+  `twm-dt-diff__cell--changed`. `null` or any other status draws the row as
+  without `diff`. A `gap` row's cells are drawn empty, whatever its values and
+  `renderCell`, so the two sides keep their rows level. `updateRow` asks again.
+- `scrollLock` takes a group from `createScrollLock()`. The table's body box
+  joins it on every render and leaves on the next render and on `dispose()`.
+  Any element can join with `lock.attach(el)`, which returns its detach. A
+  box that joins starts at the group's last position, and the echo of a
+  position the lock itself wrote moves nobody back. The lock copies pixels, so
+  it lines rows up only when both sides draw rows of the same height.
+
 ### Scrollbars
 
 `installAutoScrollbars(root)` (from `@flexdesk/widgets`) replaces the browser's

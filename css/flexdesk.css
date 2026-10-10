@@ -713,6 +713,39 @@ body.twm-dt-col-resizing {
     color: var(--text-dim, #666);
     font-style: italic;
 }
+/* 0.6.1 `diff` — one side of a comparison. A row that is NEW on this side is
+ * green, one that is GONE on this side red, a changed row carries an amber
+ * left edge and its changed cells an amber fill, and a GAP — the place a row
+ * holds on the other side — is hatched, so the eye reads it as "nothing here"
+ * rather than as an empty row. (0,3,2) and up, for `twm-dt-cell--null`'s
+ * reason above; a selected row keeps its own colour (`:not(.selected)`). */
+.twm-data-table-component .twm-preview-table tbody tr.twm-dt-diff--added:not(.selected) > td {
+    background: color-mix(in srgb, var(--color-success, #3fb950) 16%, transparent);
+}
+.twm-data-table-component .twm-preview-table tbody tr.twm-dt-diff--removed:not(.selected) > td {
+    background: color-mix(in srgb, var(--color-danger, #c74e4e) 18%, transparent);
+}
+.twm-data-table-component .twm-preview-table tbody tr.twm-dt-diff--removed > td {
+    text-decoration: line-through;
+    text-decoration-color: color-mix(in srgb, var(--color-danger, #c74e4e) 70%, transparent);
+}
+.twm-data-table-component .twm-preview-table tbody tr.twm-dt-diff--added > td:first-child {
+    box-shadow: inset 3px 0 0 0 var(--color-success, #3fb950);
+}
+.twm-data-table-component .twm-preview-table tbody tr.twm-dt-diff--removed > td:first-child {
+    box-shadow: inset 3px 0 0 0 var(--color-danger, #c74e4e);
+}
+.twm-data-table-component .twm-preview-table tbody tr.twm-dt-diff--changed > td:first-child {
+    box-shadow: inset 3px 0 0 0 var(--color-warning, #ff9800);
+}
+.twm-data-table-component .twm-preview-table tbody tr.twm-dt-diff:not(.selected) > td.twm-dt-diff__cell--changed {
+    background: color-mix(in srgb, var(--color-warning, #ff9800) 22%, transparent);
+}
+.twm-data-table-component .twm-preview-table tbody tr.twm-dt-diff--gap > td.twm-dt-diff__gap {
+    background: repeating-linear-gradient(135deg,
+        transparent 0 6px,
+        color-mix(in srgb, var(--text-muted, #888) 14%, transparent) 6px 7px);
+}
 /* `emptyState` and `setError` with no rows: the box's own words, which may
  * wrap — muted for an empty state, red for a failure, in both densities. Quiet
  * while loading — an empty table that is still loading is not empty. */

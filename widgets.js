@@ -39,6 +39,7 @@ export * from './src/ui/notification_center.js';
 export * from './src/ui/utils/auto_scrollbars.js';
 export * from './src/ui/utils/overlay_scrollbar.js';
 export * from './src/ui/utils/raf_resize_observer.js';
+export * from './src/ui/utils/scroll_lock.js';
 export * from './src/ui/utils/tooltip_service.js';
 export * from './src/help/help_modal.js';
 export * from './src/help/help_registry.js';

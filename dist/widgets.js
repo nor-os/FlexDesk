@@ -32,7 +32,7 @@ import {
   parseDatePeriod,
   parseDateValue,
   parseDuration
-} from "./chunk-KH2GJTKR.js";
+} from "./chunk-IYV5JVYB.js";
 import {
   ManagedWindow,
   ROW_CONTROL_SELECTOR,
@@ -5488,6 +5488,85 @@ function installTabsScrollbars(selectors = [".tabs"]) {
   return () => observer.disconnect();
 }
 
+// src/ui/utils/scroll_lock.js
+function createScrollLock({ axis = "y", enabled = true } = {}) {
+  const doY = axis === "y" || axis === "both";
+  const doX = axis === "x" || axis === "both";
+  const members = /* @__PURE__ */ new Map();
+  let last = { top: 0, left: 0 };
+  let on = !!enabled;
+  function copyFrom(source) {
+    last = { top: source.scrollTop, left: source.scrollLeft };
+    if (!on) return;
+    for (const [el, state] of members) {
+      if (el === source) continue;
+      const top = doY ? last.top : el.scrollTop;
+      const left = doX ? last.left : el.scrollLeft;
+      if (el.scrollTop === top && el.scrollLeft === left) continue;
+      state.wrote = { top, left };
+      if (doY) el.scrollTop = top;
+      if (doX) el.scrollLeft = left;
+    }
+  }
+  function onScroll(event) {
+    const el = event.currentTarget;
+    const state = members.get(el);
+    if (!state) return;
+    const wrote = state.wrote;
+    state.wrote = null;
+    if (wrote && Math.abs(el.scrollTop - wrote.top) < 1 && Math.abs(el.scrollLeft - wrote.left) < 1) return;
+    copyFrom(el);
+  }
+  const lock = {
+    /** Join the group. Returns the function that leaves it. */
+    attach(el) {
+      if (!el || typeof el.addEventListener !== "function") return () => {
+      };
+      if (members.has(el)) return () => lock.detach(el);
+      const state = { wrote: null };
+      members.set(el, state);
+      el.addEventListener("scroll", onScroll, { passive: true });
+      if (on && (last.top || last.left)) {
+        state.wrote = {
+          top: doY ? last.top : el.scrollTop,
+          left: doX ? last.left : el.scrollLeft
+        };
+        if (doY) el.scrollTop = last.top;
+        if (doX) el.scrollLeft = last.left;
+      }
+      return () => lock.detach(el);
+    },
+    detach(el) {
+      if (!members.has(el)) return;
+      members.delete(el);
+      el.removeEventListener("scroll", onScroll);
+    },
+    /** Lock (true) or let the members scroll freely (false). Locking again
+     *  brings every member level with the one scrolled last. */
+    setEnabled(value) {
+      const was = on;
+      on = !!value;
+      if (on && !was) {
+        const source = [...members.keys()].find(
+          (el) => el.scrollTop === last.top && el.scrollLeft === last.left
+        ) || members.keys().next().value;
+        if (source) copyFrom(source);
+      }
+    },
+    get enabled() {
+      return on;
+    },
+    /** How many boxes are in the group (for a consumer's own checks). */
+    get size() {
+      return members.size;
+    },
+    dispose() {
+      for (const el of [...members.keys()]) lock.detach(el);
+    }
+  };
+  return lock;
+}
+
 // src/ui/utils/tooltip_service.js
 var tooltipElement = null;
 var currentTarget = null;
@@ -5767,6 +5846,7 @@ export {
   attachInlineRenamer,
   createDetailHeader,
   createRafResizeObserver,
+  createScrollLock,
   createTableStateStore,
   createTreeCategory,
   createTreeItem,

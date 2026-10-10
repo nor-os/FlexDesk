@@ -37,6 +37,9 @@ export {
 
 const DEFAULT_PAGE_SIZE = 100;
 
+/** 0.6.1 — the row statuses `diff` draws. */
+const DIFF_STATUSES = new Set(['added', 'removed', 'changed', 'same', 'gap']);
+
 /** 0.5.0 — the column types that sort and filter by a value rather than by
  *  the text drawn for it. */
 const TYPED_COLUMNS = new Set(['date', 'datetime', 'duration']);
@@ -218,6 +221,8 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {Function} [rowClass] - `(row, rowIdx) => string|string[]|null`. Classes for the row's `<tr>`.
  * @property {Function} [rowAttrs] - `(row, rowIdx) => {name: value}`. Attributes for the row's `<tr>` (`null`/`false` leaves one off, `true` sets it empty).
  * @property {Function} [cellClass] - `(value, colIdx, row, rowIdx) => string|string[]|null`. Classes for a cell, after its type class.
+ * @property {Function} [diff] - 0.6.1. `(row, rowIdx) => {status, cells?}|null`. One side of a COMPARISON: `status` is 'added', 'removed', 'changed', 'same' or 'gap' and draws the row `twm-dt-diff twm-dt-diff--<status>`; `cells` (an array or Set of column indices) marks the cells that differ `twm-dt-diff__cell--changed`. A 'gap' row is the place a row holds on the OTHER side: its cells are drawn empty, whatever its values and `renderCell`, so two tables drawn from one aligned row list keep their rows level. `null` (or an unknown status) draws the row as without `diff`.
+ * @property {object} [scrollLock] - 0.6.1. A group from `createScrollLock()`: the table's body box joins it on every render and leaves it on the next render and on dispose, so tables in the same group scroll as one.
  * @property {Function} [rowIcon] - `(row, rowIdx) => string|{icon, title?, tone?}|null`. A Material Symbols icon at the start of the row's first cell; `tone` adds `twm-dt-row-icon--<tone>`. Drawn by CSS, so it is in neither the cell's text, its tooltip nor a copy.
  * @property {string|Node|Function} [emptyState] - What the box says when there are no rows: text, a node, or a function returning either (called on each render). Replaces `emptyMessage`, and is hidden while `setLoading(true)` — an empty table that is still loading is not empty.
  * @property {string} [nullDisplay] - Draw `null`/`undefined` as this text (and copy it so), with `twm-dt-cell--null` on the cell, instead of '-'.
@@ -313,6 +318,8 @@ export class DataTable {
             rowClass: null,
             rowAttrs: null,
             cellClass: null,
+            diff: null,
+            scrollLock: null,
             rowIcon: null,
             emptyState: undefined,
             nullDisplay: null,
@@ -956,6 +963,11 @@ export class DataTable {
 
         this._tableWrapEl = tableWrap;
         this.container.appendChild(this._wrapperEl);
+        // 0.6.1 `scrollLock`: THIS render's body box joins the group, and leaves
+        // it with the next render's cleanup or the dispose.
+        if (this.config.scrollLock && typeof this.config.scrollLock.attach === 'function') {
+            this._disposers.push(this.config.scrollLock.attach(tableWrap));
+        }
         // 0.5.0. Watched from here, so a table rendered again after an automatic
         // dispose (a `setData` into a re-attached host) is watched again.
         if (this.config.autoDispose) autoDisposeWatch(this);
@@ -2628,6 +2640,12 @@ export class DataTable {
         }
 
         const { cellClass, nullDisplay } = this.config;
+        // 0.6.1 `diff`.
+        const diff = this._diffOf(row, globalIdx);
+        const gap = diff?.status === 'gap';
+        const changedCells = diff?.cells
+            ? (diff.cells instanceof Set ? diff.cells : new Set(diff.cells))
+            : null;
         for (let colIdx = 0; colIdx < row.length; colIdx++) {
             const td = document.createElement('td');
             td.className = this._columnTypes[colIdx] || 'text';
@@ -2635,6 +2653,13 @@ export class DataTable {
             // Use custom cell renderer if provided
             const value = row[colIdx];
             let handled = false;
+            if (gap) {
+                // The other side's row: a place, not a value.
+                td.classList.add('twm-dt-diff__gap');
+                tr.appendChild(td);
+                continue;
+            }
+            if (changedCells?.has(colIdx)) td.classList.add('twm-dt-diff__cell--changed');
             if (this.config.renderCell) {
                 handled = !!this.config.renderCell(td, value, colIdx, globalIdx, row);
                 if (!handled) {
@@ -2961,6 +2986,15 @@ export class DataTable {
         return null;
     }
 
+    /** 0.6.1. The `diff` answer for one row, or `null` when there is none or
+     *  its status is not one this component draws. */
+    _diffOf(row, rowIdx) {
+        if (typeof this.config.diff !== 'function') return null;
+        const answer = this.config.diff(row, rowIdx);
+        if (!answer || !DIFF_STATUSES.has(answer.status)) return null;
+        return answer;
+    }
+
     /** Everything `rowClass`, `rowAttrs` and the open mark put on a `<tr>`,
      *  taken off again first — so `updateRow` cannot leave last state's class
      *  behind. */
@@ -2977,6 +3011,12 @@ export class DataTable {
             // Never take away a class this component owns.
             tr.__twmClasses = added.filter((c) => c !== 'data-preview-row' && c !== 'selected');
         }
+        // 0.6.1 `diff`: the row's status, taken off again first like `rowClass`.
+        for (const c of [...tr.classList]) {
+            if (c === 'twm-dt-diff' || c.startsWith('twm-dt-diff--')) tr.classList.remove(c);
+        }
+        const diff = this._diffOf(row, rowIdx);
+        if (diff) tr.classList.add('twm-dt-diff', `twm-dt-diff--${diff.status}`);
         if (tr.__twmAttrs) {
             for (const name of tr.__twmAttrs) tr.removeAttribute(name);
             tr.__twmAttrs = null;

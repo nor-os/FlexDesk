@@ -360,6 +360,7 @@ function matchDurationFilter(ms, filterText, shown) {
 
 // src/ui/components/data_table.js
 var DEFAULT_PAGE_SIZE = 100;
+var DIFF_STATUSES = /* @__PURE__ */ new Set(["added", "removed", "changed", "same", "gap"]);
 var TYPED_COLUMNS = /* @__PURE__ */ new Set(["date", "datetime", "duration"]);
 var DESELECTING_CLICKS = /* @__PURE__ */ new WeakSet();
 var AUTO_DISPOSE = /* @__PURE__ */ new Map();
@@ -531,6 +532,8 @@ var DataTable = class {
       rowClass: null,
       rowAttrs: null,
       cellClass: null,
+      diff: null,
+      scrollLock: null,
       rowIcon: null,
       emptyState: void 0,
       nullDisplay: null,
@@ -1009,6 +1012,9 @@ var DataTable = class {
     }
     this._tableWrapEl = tableWrap;
     this.container.appendChild(this._wrapperEl);
+    if (this.config.scrollLock && typeof this.config.scrollLock.attach === "function") {
+      this._disposers.push(this.config.scrollLock.attach(tableWrap));
+    }
     if (this.config.autoDispose) autoDisposeWatch(this);
     if (prevScroll && this._state.offset === this._renderedOffset) {
       tableWrap.scrollTop = prevScroll.top;
@@ -2411,11 +2417,20 @@ var DataTable = class {
       tr.appendChild(td);
     }
     const { cellClass, nullDisplay } = this.config;
+    const diff = this._diffOf(row, globalIdx);
+    const gap = diff?.status === "gap";
+    const changedCells = diff?.cells ? diff.cells instanceof Set ? diff.cells : new Set(diff.cells) : null;
     for (let colIdx = 0; colIdx < row.length; colIdx++) {
       const td = document.createElement("td");
       td.className = this._columnTypes[colIdx] || "text";
       const value = row[colIdx];
       let handled = false;
+      if (gap) {
+        td.classList.add("twm-dt-diff__gap");
+        tr.appendChild(td);
+        continue;
+      }
+      if (changedCells?.has(colIdx)) td.classList.add("twm-dt-diff__cell--changed");
       if (this.config.renderCell) {
         handled = !!this.config.renderCell(td, value, colIdx, globalIdx, row);
         if (!handled) {
@@ -2682,6 +2697,14 @@ var DataTable = class {
     }
     return null;
   }
+  /** 0.6.1. The `diff` answer for one row, or `null` when there is none or
+   *  its status is not one this component draws. */
+  _diffOf(row, rowIdx) {
+    if (typeof this.config.diff !== "function") return null;
+    const answer = this.config.diff(row, rowIdx);
+    if (!answer || !DIFF_STATUSES.has(answer.status)) return null;
+    return answer;
+  }
   /** Everything `rowClass`, `rowAttrs` and the open mark put on a `<tr>`,
    *  taken off again first — so `updateRow` cannot leave last state's class
    *  behind. */
@@ -2696,6 +2719,11 @@ var DataTable = class {
       const added = this._addClasses(tr, rowClass(row, rowIdx));
       tr.__twmClasses = added.filter((c) => c !== "data-preview-row" && c !== "selected");
     }
+    for (const c of [...tr.classList]) {
+      if (c === "twm-dt-diff" || c.startsWith("twm-dt-diff--")) tr.classList.remove(c);
+    }
+    const diff = this._diffOf(row, rowIdx);
+    if (diff) tr.classList.add("twm-dt-diff", `twm-dt-diff--${diff.status}`);
     if (tr.__twmAttrs) {
       for (const name of tr.__twmAttrs) tr.removeAttribute(name);
       tr.__twmAttrs = null;
@@ -3699,4 +3727,4 @@ export {
   matchDurationFilter,
   DataTable
 };
-//# sourceMappingURL=chunk-KH2GJTKR.js.map
+//# sourceMappingURL=chunk-IYV5JVYB.js.map

@@ -6,7 +6,8 @@
  *       (it was run against Tables' `check_schema` when it was written: 30 of
  *       30 alike)
  *   §2  the keyword, annotation and type sets are the server's — compared
- *       with the sibling Tables checkout's `schema.py` when there is one
+ *       with the sibling Tables checkout's when there is one (its
+ *       `dataflow_core/settings_schema.py`, or an older `schema.py`)
  *   §3  fields come in the schema's order, required marked; a title or the
  *       key in words labels each
  *   §4  `x-ui-when` draws a field only while its sibling holds one of the
@@ -34,8 +35,15 @@ for (const c of fixture.cases) t.check(c.name, checkSettingsSchema(c.schema), c.
 
 t.section('§2 the keyword sets are the server\'s');
 {
-    const py = resolvePath(t.root, '../Tables/services/tables-api/src/tables/workflow/engine/schema.py');
-    if (existsSync(py)) {
+    // Since EPIC-0180 round 2 Tables keeps ONE copy of the subset, in its
+    // shared data-flow core, and engine/schema.py only re-exports it; an older
+    // Tables checkout still defines the sets in schema.py.
+    const py = [
+        '../Tables/packages/dataflow-core/src/dataflow_core/settings_schema.py',
+        '../Tables/services/tables-api/src/tables/workflow/engine/schema.py',
+    ].map((p) => resolvePath(t.root, p))
+        .find((p) => existsSync(p) && /_KEYWORDS\s*=\s*frozenset/.test(readFileSync(p, 'utf8')));
+    if (py) {
         const text = readFileSync(py, 'utf8');
         const setOf = (name) => {
             const m = new RegExp(`${name}\\s*=\\s*frozenset\\(\\s*\\{([^}]*)\\}`).exec(text);

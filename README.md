@@ -333,8 +333,7 @@ keep their own.
 
 ## Flow editors
 
-*Unreleased — flow editors.* Both entries are new and not yet in a published
-release; the release that carries them is named when it is cut.
+*New in 0.6.0.* Both entries first ship in FlexDesk 0.6.0.
 
 `@flexdesk/flow` holds three editors for flows — a graph of steps, each with
 settings — and the kit they share: a **canvas** (nodes and lines), an

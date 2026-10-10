@@ -40,6 +40,67 @@ const DEFAULT_PAGE_SIZE = 100;
 /** 0.6.1 — the row statuses `diff` draws. */
 const DIFF_STATUSES = new Set(['added', 'removed', 'changed', 'same', 'gap']);
 
+// ── `paging`: a server's rows, in pages or as one scrolling list ────────────
+//
+// THE TWO LIMITS. A table that scrolls holds every row it has loaded, in one
+// array and (through `virtualize`) one scroll range, so how many rows it may
+// hold is a decision rather than an accident of how far somebody scrolled.
+// The SOFT limit is the consumer's (a person's preference, say): a source
+// with more rows than that is shown in pages, whatever was asked for. The HARD
+// limit is the ceiling no soft limit may exceed, and no scrolling table ever
+// holds more rows than it.
+
+/** The most rows a scrolling table holds, and the ceiling of every soft limit. */
+export const PAGING_HARD_LIMIT = 100_000;
+/** The soft limit when the consumer names none. */
+export const PAGING_SOFT_LIMIT = 10_000;
+
+/**
+ * WHICH WAY A TABLE IS SHOWN — pure, so a consumer deciding how to FETCH and
+ * the table deciding how to DRAW get the same answer from the same facts.
+ *
+ * Scroll is allowed only while the source is known to hold no more rows than
+ * the soft limit. What is known is the exact `total` when there is one, and
+ * otherwise the most the facts prove: a lower bound (`atLeast`, a capped
+ * count) or the rows already held plus one when the source says it has more.
+ * An unknown total therefore does not force pages until the rows themselves
+ * prove the source is larger than the limit.
+ *
+ * @param {object} [o]
+ * @param {'pages'|'scroll'} [o.mode='scroll'] what was asked for
+ * @param {number|null} [o.total]   the source's exact row count, if known
+ * @param {number} [o.atLeast=0]    a lower bound on it (a capped count)
+ * @param {number} [o.held=0]       rows the table holds now
+ * @param {boolean} [o.hasMore=false] the source has rows past those held
+ * @param {number} [o.softLimit=PAGING_SOFT_LIMIT]
+ * @param {number} [o.hardLimit=PAGING_HARD_LIMIT]
+ * @returns {{mode: 'pages'|'scroll', requested: 'pages'|'scroll', forced: boolean,
+ *            softLimit: number, hardLimit: number, known: number, exact: boolean}}
+ */
+export function resolvePaging({
+    mode = 'scroll', total = null, atLeast = 0, held = 0, hasMore = false,
+    softLimit = PAGING_SOFT_LIMIT, hardLimit = PAGING_HARD_LIMIT,
+} = {}) {
+    const requested = mode === 'pages' ? 'pages' : 'scroll';
+    const hard = Number.isFinite(hardLimit) && hardLimit >= 1
+        ? Math.floor(hardLimit) : PAGING_HARD_LIMIT;
+    // A soft limit above the hard one is the hard one: nothing the consumer
+    // names can let a table hold more than the ceiling.
+    const soft = Math.min(hard, Number.isFinite(softLimit) && softLimit >= 1
+        ? Math.floor(softLimit) : PAGING_SOFT_LIMIT);
+    const exact = Number.isFinite(total) && total >= 0;
+    const known = exact ? total
+        : Math.max(Number.isFinite(atLeast) ? atLeast : 0, (held || 0) + (hasMore ? 1 : 0));
+    const forced = requested === 'scroll' && known > soft;
+    return {
+        mode: forced ? 'pages' : requested, requested, forced,
+        softLimit: soft, hardLimit: hard, known, exact,
+    };
+}
+
+/** How near the bottom (px) a scrolling table asks for its next rows. */
+const PAGING_LOAD_MORE_PX = 400;
+
 /** 0.5.0 — the column types that sort and filter by a value rather than by
  *  the text drawn for it. */
 const TYPED_COLUMNS = new Set(['date', 'datetime', 'duration']);
@@ -232,6 +293,15 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {string|Function|Object|Array} [dateTimeFormat='YYYY-MM-DD HH:mm'] - The same for a 'datetime' column.
  * @property {'auto'|'clock'|Function|Object|Array} [durationFormat='auto'] - How a 'duration' column (milliseconds) is drawn: '850 ms', '3.2 s', '2m 5s' (auto) or '0:02:05' (clock).
  * @property {'local'|'UTC'} [dateTimeZone='local'] - The zone typed date columns are read and drawn in.
+ *
+ * ── `paging`, off unless asked for ────────────────────────────────────────
+ * @property {Object} [paging] - A server's rows shown IN PAGES or as ONE SCROLLING LIST, and a strip under the body that says which and lets the reader change it. The consumer holds the rows and fetches them; the table decides which way they are shown (`resolvePaging`), asks for more, and draws the strip. Set it and the old pager (`pagination`) is not drawn. Its keys:
+ *   `mode` ('pages'|'scroll', default 'scroll') — what was asked for. Scroll is refused, and pages shown, while the source holds more than `softLimit` rows.
+ *   `pageSize` — rows per page, and per load while scrolling (default `pageSize`).
+ *   `softLimit` (default 10,000) and `hardLimit` (default 100,000) — see `resolvePaging`; the soft one is clamped to the hard one, and a scrolling table never asks for rows past the hard one.
+ *   `total` — the source's exact row count, or null. `atLeast` — a lower bound when the exact count is not known (a capped count). `hasMore` — the source has rows past those held.
+ *   `offset` — in pages, where the first row held stands in the source: the strip's "Rows 1,001–2,000" and `showRowNumbers: 'position'` read it. The rows' indexes (`__rowIndex`, selection, `onRowClick`) stay those of `rows`.
+ *   `onPage(offset, limit)` — pages: show the page at `offset`. `onLoadMore()` — scroll: called when the body is scrolled within 400px of its end (`loadMorePx`), or does not fill its box, while `hasMore`. `onLoadAll()` — scroll: the strip's *Load all rows* button. `onModeChange(mode)` — the strip's Pages / Scroll switch; without it there is no switch. Each may return a Promise; until it settles no second call is made and its button shows the table is busy.
  */
 
 /** C10. When the scroll box has no layout — mounted hidden, or a DOM with no
@@ -299,6 +369,9 @@ export class DataTable {
             // promise that adding the key changed no existing layout by a
             // pixel. Only a consumer that asks for 'content' sees anything new.
             columnFit: 'container',
+            // Off unless asked for — see the typedef. With it the old pager is
+            // not drawn: the paging strip says the same and more.
+            paging: null,
             // C10. Off unless asked for — see the typedef.
             virtualize: false,
             virtualRowHeight: null,
@@ -839,8 +912,9 @@ export class DataTable {
         this._loading = false;
 
         // Pagination (top). `_createPagination` returns null when the
-        // strip would be uninformative (single page, no active filter).
-        if (pagination && rows.length > 0) {
+        // strip would be uninformative (single page, no active filter). Not
+        // with `paging`, whose own strip (under the body) replaces it.
+        if (pagination && rows.length > 0 && !this._pagingConfig()) {
             this._paginationEl = this._createPagination();
             if (this._paginationEl) this._wrapperEl.appendChild(this._paginationEl);
         }
@@ -962,6 +1036,13 @@ export class DataTable {
         }
 
         this._tableWrapEl = tableWrap;
+        // `paging`: the strip goes UNDER the body, where the reader's eye is
+        // when they reach the end of what is held.
+        this._pagingEl = null;
+        if (this._pagingConfig()) {
+            this._pagingEl = this._createPagingStrip();
+            if (this._pagingEl) this._wrapperEl.appendChild(this._pagingEl);
+        }
         this.container.appendChild(this._wrapperEl);
         // 0.6.1 `scrollLock`: THIS render's body box joins the group, and leaves
         // it with the next render's cleanup or the dispose.
@@ -988,6 +1069,18 @@ export class DataTable {
             this._disposers.push(() => tableWrap.removeEventListener('scroll', onScroll));
             this._virtMeasure();
             this._virtUpdate({ force: true, notify: false });
+        }
+
+        // `paging`, scrolling: ask for the next rows near the end — and once
+        // the layout has settled, when the rows held do not fill the box at all,
+        // since then nothing can ever be scrolled to ask for them.
+        if (this._pagingConfig()) {
+            const onScroll = () => this._pagingMaybeLoadMore();
+            tableWrap.addEventListener('scroll', onScroll, { passive: true });
+            this._disposers.push(() => tableWrap.removeEventListener('scroll', onScroll));
+            requestAnimationFrame(() => {
+                if (this._tableWrapEl === tableWrap) this._pagingMaybeLoadMore();
+            });
         }
 
         // Sync header column widths to body after layout. Two-pass: the
@@ -2046,6 +2139,238 @@ export class DataTable {
         return btn;
     }
 
+    // ── `paging` ────────────────────────────────────────────────────────────
+
+    /** The `paging` config with its defaults, or null when it is not set. */
+    _pagingConfig() {
+        const p = this.config.paging;
+        if (!p || typeof p !== 'object') return null;
+        const size = Number.isFinite(p.pageSize) && p.pageSize >= 1
+            ? Math.floor(p.pageSize) : this.config.pageSize;
+        return {
+            ...p,
+            pageSize: size,
+            offset: Number.isFinite(p.offset) && p.offset > 0 ? Math.floor(p.offset) : 0,
+            // What the table holds of the source. A consumer whose `rows` carry
+            // a row the source does not (a blank line to type into) says so.
+            held: Number.isFinite(p.held) ? p.held : (this.config.rows?.length || 0),
+            hasMore: !!p.hasMore,
+            loadMorePx: Number.isFinite(p.loadMorePx) ? p.loadMorePx : PAGING_LOAD_MORE_PX,
+        };
+    }
+
+    /**
+     * Which way the rows are shown, and why — `resolvePaging` over this
+     * table's facts. `null` without `paging`.
+     */
+    get pagingState() {
+        const p = this._pagingConfig();
+        if (!p) return null;
+        // A page's rows prove the source holds every row before them too, so
+        // what is PROVEN is the offset plus the rows held.
+        return resolvePaging({
+            mode: p.mode, total: p.total, atLeast: p.atLeast, held: p.offset + p.held,
+            hasMore: p.hasMore, softLimit: p.softLimit, hardLimit: p.hardLimit,
+        });
+    }
+
+    /**
+     * Change some `paging` facts — a count that arrived, a mode — and redraw
+     * the STRIP only. The rows are not touched: a consumer with new rows
+     * renders the table as it always has.
+     */
+    setPaging(patch = {}) {
+        if (!this.config.paging) return;
+        this.config.paging = { ...this.config.paging, ...patch };
+        this._refreshPagingStrip();
+        this._pagingMaybeLoadMore();
+    }
+
+    _refreshPagingStrip() {
+        if (!this._wrapperEl) return;
+        const next = this._pagingConfig() ? this._createPagingStrip() : null;
+        const prev = this._pagingEl;
+        if (prev && prev.parentNode === this._wrapperEl) {
+            if (next) prev.replaceWith(next); else prev.remove();
+        } else if (next) {
+            this._wrapperEl.appendChild(next);
+        }
+        this._pagingEl = next;
+    }
+
+    /**
+     * Call one of the consumer's paging callbacks. A Promise holds every other
+     * paging call back until it settles, and the strip shows the table busy —
+     * a second `onLoadMore` fired by the next scroll event would fetch the same
+     * page twice.
+     */
+    _pagingCall(kind, fn, ...args) {
+        if (typeof fn !== 'function' || this._pagingBusy) return;
+        let result;
+        try {
+            result = fn(...args);
+        } catch (err) {
+            console.error(`[DataTable] paging ${kind} threw`, err);
+            return;
+        }
+        if (result && typeof result.then === 'function') {
+            this._pagingBusy = kind;
+            this._refreshPagingStrip();
+            const settle = () => {
+                if (this._pagingBusy !== kind) return;
+                this._pagingBusy = null;
+                if (this._pagingEl?.isConnected) this._refreshPagingStrip();
+            };
+            result.then(settle, (err) => {
+                console.error(`[DataTable] paging ${kind} failed`, err);
+                settle();
+            });
+        }
+    }
+
+    /**
+     * Scrolling: ask for the next rows when the body is near its end — or does
+     * not fill its box, which no scroll can ever change. Never past the hard
+     * limit, never in pages, never with no layout (a hidden table's box is 0px
+     * tall, and "0 ≤ 0" would ask for the whole source).
+     */
+    _pagingMaybeLoadMore() {
+        const p = this._pagingConfig();
+        if (!p || !p.hasMore || this._pagingBusy) return;
+        const state = this.pagingState;
+        if (state.mode !== 'scroll' || p.held >= state.hardLimit) return;
+        const wrap = this._tableWrapEl;
+        if (!wrap?.isConnected || !(wrap.clientHeight > 0)) return;
+        const remaining = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight;
+        if (remaining >= p.loadMorePx) return;
+        this._pagingCall('more', p.onLoadMore);
+    }
+
+    /** The strip under the body, or null when it would say nothing. */
+    _createPagingStrip() {
+        const p = this._pagingConfig();
+        const state = this.pagingState;
+        const { mode, forced, exact, known } = state;
+        const busy = this._pagingBusy;
+        const n = (x) => Number(x).toLocaleString();
+        const pageSize = p.pageSize;
+        const held = p.held;
+        const total = exact ? p.total : null;
+
+        const morePages = p.offset > 0 || p.hasMore || (exact && total > held);
+        if (!forced && mode === 'scroll' && !p.hasMore && held <= pageSize) return null;
+        if (!forced && mode === 'pages' && !morePages) return null;
+
+        const el = document.createElement('div');
+        el.className = `twm-dt-paging twm-dt-paging--${mode}`;
+        el.setAttribute('role', 'navigation');
+        el.setAttribute('aria-label', 'Rows');
+        if (busy) el.classList.add('twm-dt-paging--busy');
+
+        const info = document.createElement('span');
+        info.className = 'twm-dt-paging__info';
+        el.appendChild(info);
+
+        if (mode === 'pages') {
+            const from = held ? p.offset + 1 : p.offset;
+            const to = p.offset + held;
+            let of = '';
+            if (exact) of = ` of ${n(total)}`;
+            else if (known > to) of = ` of more than ${n(known - 1)}`;
+            info.textContent = held ? `Rows ${n(from)}–${n(to)}${of}` : 'No rows on this page';
+
+            const hasPrev = p.offset > 0;
+            const hasNext = exact ? p.offset + held < total : p.hasMore;
+            const lastOffset = exact && total > 0
+                ? Math.floor((total - 1) / pageSize) * pageSize : null;
+            // A disabled button's click is ignored here too: a browser sends none,
+            // but a synthetic one (a test, a script) still reaches the listener.
+            const go = (offset) => (ev) => {
+                if (!ev?.currentTarget?.disabled) this._pagingCall('page', p.onPage, offset, pageSize);
+            };
+            const nav = document.createElement('span');
+            nav.className = 'twm-dt-paging__nav';
+            const off = !!busy || typeof p.onPage !== 'function';
+            nav.append(
+                this._createPaginationBtn('first_page', 'First page', off || !hasPrev, go(0)),
+                this._createPaginationBtn('chevron_left', 'Previous page', off || !hasPrev,
+                    go(Math.max(0, p.offset - pageSize))),
+            );
+            const page = document.createElement('span');
+            page.className = 'twm-dt-paging__page';
+            const current = Math.floor(p.offset / pageSize) + 1;
+            page.textContent = exact
+                ? `Page ${n(current)} of ${n(Math.max(1, Math.ceil(total / pageSize)))}`
+                : `Page ${n(current)}`;
+            nav.append(
+                page,
+                this._createPaginationBtn('chevron_right', 'Next page', off || !hasNext,
+                    go(p.offset + pageSize)),
+                // The last page needs the exact count: without it there is no
+                // offset to go to, and the button says so by being off.
+                this._createPaginationBtn('last_page',
+                    lastOffset === null ? 'Last page (the total is not known)' : 'Last page',
+                    off || !hasNext || lastOffset === null, go(lastOffset)),
+            );
+            el.appendChild(nav);
+        } else {
+            if (exact && total > held) info.textContent = `${n(held)} of ${n(total)} rows`;
+            else if (p.hasMore) info.textContent = `${n(held)} rows, more to come`;
+            else info.textContent = `${n(held)} rows`;
+            if (p.hasMore && typeof p.onLoadAll === 'function') {
+                const all = document.createElement('button');
+                all.type = 'button';
+                all.className = 'twm-dt-paging__all';
+                all.textContent = busy === 'all' ? 'Loading…'
+                    : exact ? `Load all ${n(total)} rows` : 'Load all rows';
+                all.disabled = !!busy;
+                all.addEventListener('click', () => {
+                    if (!all.disabled) this._pagingCall('all', p.onLoadAll);
+                });
+                el.appendChild(all);
+            }
+        }
+
+        const spacer = document.createElement('span');
+        spacer.className = 'twm-dt-paging__spacer';
+        el.appendChild(spacer);
+
+        // WHY IT IS PAGED, said on the strip — a disabled Scroll alone reads as
+        // a switch that does not work.
+        const why = forced
+            ? `More than ${n(state.softLimit)} rows, so they are shown in pages.` : null;
+        if (why) {
+            const note = document.createElement('span');
+            note.className = 'twm-dt-paging__note';
+            note.textContent = why;
+            el.appendChild(note);
+        }
+
+        if (typeof p.onModeChange === 'function') {
+            const group = document.createElement('span');
+            group.className = 'twm-dt-paging__modes';
+            group.setAttribute('role', 'group');
+            group.setAttribute('aria-label', 'Show rows');
+            for (const [value, label] of [['pages', 'Pages'], ['scroll', 'Scroll']]) {
+                const b = document.createElement('button');
+                b.type = 'button';
+                b.className = 'twm-dt-paging__mode';
+                b.dataset.mode = value;
+                b.textContent = label;
+                const pressed = mode === value;
+                b.setAttribute('aria-pressed', String(pressed));
+                b.disabled = !!busy || (value === 'scroll' && forced);
+                if (value === 'scroll' && forced) b.title = why;
+                b.addEventListener('click', () => {
+                    if (!b.disabled && mode !== value) this._pagingCall('mode', p.onModeChange, value);
+                });
+                group.appendChild(b);
+            }
+            el.appendChild(group);
+        }
+        return el;
+    }
+
     _createTable() {
         const { headers, rows, pageSize, sortable, filterable, showRowNumbers, readonly, getHeaderIcon, onPageChange, offset: configOffset } = this.config;
         const { sortColumn, sortAscending } = this._state;
@@ -2058,7 +2383,10 @@ export class DataTable {
         // NO PAGINATION MEANS NO PAGES. This used to slice to `pageSize` either
         // way, so a table built with `pagination: false` silently showed its
         // first hundred rows and offered no control to reach the rest.
-        const pageRows = isServerSide || !this.config.pagination
+        // And `paging` rows ARE the page (or everything scrolled to so far):
+        // the consumer fetched them, and slicing them again would draw a
+        // hundred of a thousand.
+        const pageRows = isServerSide || !this.config.pagination || this._pagingConfig()
             ? processedRows : processedRows.slice(offset, offset + pageSize);
 
         const table = document.createElement('table');
@@ -2156,6 +2484,10 @@ export class DataTable {
         // stands in the order SHOWN (the page's first row on a later page).
         this._positionBase = isServerSide ? (configOffset || 0)
             : (this.config.pagination ? offset : 0);
+        // `paging`: a page's rows stand at its offset in the SOURCE, which only
+        // the numbering reads — their indexes stay those of `rows`.
+        const paged = this._pagingConfig();
+        if (paged && Number.isFinite(paged.offset)) this._positionBase += paged.offset;
 
         // Body
         const tbody = document.createElement('tbody');

@@ -354,6 +354,50 @@ lock.setEnabled(false);   // scroll each side on its own; true brings them level
   position the lock itself wrote moves nobody back. The lock copies pixels, so
   it lines rows up only when both sides draw rows of the same height.
 
+### A server's rows in pages or as one list: `paging`
+
+`paging` (off unless you set it) shows rows that your code fetches from a
+server either one page at a time or as one list that loads more as the reader
+scrolls. A strip under the body shows which rows are loaded. It has the page
+buttons or a *Load all rows* button, and a Pages / Scroll switch if you pass
+`onModeChange`. Set `paging` and the old pager (`pagination`) is not drawn.
+
+```js
+new DataTable(host, {
+    headers, rows,                       // the rows you hold: one page, or all scrolled so far
+    virtualize: true,
+    paging: {
+        mode: 'scroll',                  // what was asked for: 'pages' or 'scroll'
+        pageSize: 1000,
+        softLimit: 10000,                // above this many rows the table is always paged
+        total: 22521,                    // exact count, or null if unknown
+        atLeast: 0,                      // a lower bound when the count is not known
+        offset: 0,                       // in pages: where rows[0] is in the source
+        hasMore: true,
+        onPage: (offset, limit) => fetchPage(offset),
+        onLoadMore: () => fetchNext(),   // called near the end of the scroll
+        onLoadAll: () => fetchRest(),
+        onModeChange: (mode) => remember(mode),
+    },
+});
+```
+
+Your code holds the rows and fetches them. The table decides how to show them
+with `resolvePaging`, which is exported so your code gets the same answer when
+it decides what to fetch. A source with more rows than `softLimit` is shown in
+pages even if scroll was asked for. The strip says so, and Scroll is disabled
+with the reason. `softLimit` can't be more than `hardLimit` (default and
+ceiling `PAGING_HARD_LIMIT`, 100,000), and a scrolling table never asks for rows
+past it. If no count is known, the rows already loaded count as evidence: a
+table that has loaded more than `softLimit` rows and still has more is paged.
+While scrolling, `onLoadMore` is called within 400px of the end, or after
+render when the rows don't fill the box. It is never called when the box has
+no height, for example in a hidden tab. A callback that returns a Promise
+blocks the next call until it settles, and the strip shows the table busy.
+`setPaging(patch)` redraws the strip only, for example when a count arrives.
+In pages, `showRowNumbers: 'position'` numbers rows from `offset`. Row indexes
+(`__rowIndex`, the selection, `onRowClick`) still refer to positions in `rows`.
+
 ### Scrollbars
 
 `installAutoScrollbars(root)` (from `@flexdesk/widgets`) replaces the browser's

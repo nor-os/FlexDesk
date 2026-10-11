@@ -307,7 +307,7 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {Object} [pagerLabels] - The pager's words: `{first, prev, next, last, noLast, tooDeep}`. The four buttons are drawn with their word beside the icon (`{first: 'Newest', prev: 'Newer', next: 'Older', last: 'Oldest'}` for a log read newest first); `noLast` is the refusal on Last when the total is unknown, `tooDeep` (`(max) => string`) the one past `maxJumpOffset`.
  * @property {'top'|'bottom'} [pagerPosition='top'] - Where the pager strip sits.
  * @property {number} [maxJumpOffset] - The deepest offset Last and Go-to-row will jump to. Past it the control is REFUSED, disabled with the reason on it (`data-refusal`), rather than slow.
- * @property {boolean|{interval?: number}} [follow=false] - Under `dataSource`: re-read the first page every `interval` ms (default 10000) while the table is on it and in the page, keeping the scroll position, the selection and the active row; rows not there before are drawn `twm-dt-row--new`. Paging away turns following OFF (`onFollowChange(false)`); coming back does not turn it on again. See `setFollow`, `refresh`.
+ * @property {boolean|{interval?: number}} [follow=false] - Under `dataSource`: re-read the first page every `interval` ms (default 10000) while the table is on it and in the page, keeping the scroll position, the selection and the active row; rows not there before are drawn `twm-dt-row--new`. A tick waits while text in the table is selected or the focus is inside an open detail. Paging away turns following OFF (`onFollowChange(false)`); coming back does not turn it on again. See `setFollow`, `refresh`.
  * @property {Function} [onFollowChange] - `(following) => void`.
  * @property {boolean|number} [keepWhileDetached=false] - With `autoDispose`: how long a table taken out of the page may stay out and still come back drawn. A number is a grace in ms; `true` keeps it for as long as it is out (it is disposed only by `dispose()`, and what it holds meanwhile is its own DOM — nothing on the document, and a follow timer that holds it weakly). A table put back within its grace is not disposed, however many tasks it was out.
  * @property {Object|Array|Function} [filterKinds] - FILTER CONTROLS THAT ARE NOT TEXT BOXES, per column (an object or array keyed by column index, or `(colIdx, header) => spec`). A spec is `'text'` (the 0.4 box), `{kind: 'chips', options: [{value, label, icon?, title?}], multiple?}` (one-of-N chips with counts — an option whose value is `''` or null means "no filter"), or `{create(ctx)}` / a function `create(ctx)` for the consumer's own control (a date range, a person): `ctx` is `{column, header, value, counts, setValue(v), table}`, and it returns `{el, setValue?(v), setCounts?(c), destroy?(), match?(cellValue, filterValue, row)}`. A filter's value may then be anything (an array, an object): `query.filters` forwards it as it is, and on the client the control's `match` decides (chips: equality, or membership for `multiple`). The control is built once and kept across renders.
@@ -814,6 +814,17 @@ export class DataTable {
      * @param {number} page - Page number (0-indexed)
      */
     goToPage(page) {
+        // 0.7.0 `dataSource`: the page is the SOURCE's — asked for, and drawn
+        // when it answers (the promise). Past a known total, the last page.
+        // (The release review: this set an offset nothing under a data source
+        // reads, and drew the same page again.)
+        if (this.config.dataSource) {
+            const size = Math.max(1, this.config.pageSize | 0);
+            let p = Math.max(0, Math.floor(Number(page)) || 0);
+            const total = this._source?.total;
+            if (typeof total === 'number') p = Math.min(p, Math.max(0, Math.ceil(total / size) - 1));
+            return this._sourceGoTo(p * size);
+        }
         const rowCount = this._getProcessedRows().length;
         const maxPage = Math.ceil(rowCount / this.config.pageSize) - 1;
         this._state.offset = Math.max(0, Math.min(page, maxPage)) * this.config.pageSize;
@@ -825,6 +836,11 @@ export class DataTable {
      * @param {number} rowIndex - Row index
      */
     goToRow(rowIndex) {
+        // 0.7.0 `dataSource`: the page that holds the row, from the source.
+        if (this.config.dataSource) {
+            const size = Math.max(1, this.config.pageSize | 0);
+            return this.goToPage(Math.floor(Math.max(0, Math.floor(Number(rowIndex)) || 0) / size));
+        }
         const rowCount = this._getProcessedRows().length;
         const idx = Math.max(0, Math.min(rowIndex, rowCount - 1));
         this._state.offset = Math.floor(idx / this.config.pageSize) * this.config.pageSize;
@@ -3437,6 +3453,28 @@ export class DataTable {
         const hasMore = typeof r.hasMore === 'boolean' ? r.hasMore
             : total !== null ? query.offset + rows.length < total
             : rows.length >= query.limit;
+        // WITHOUT `getRowKey`, A DETAIL IS OPEN AT A PLACE, and a place in one
+        // answer says nothing about which row stands there in the next: page 2's
+        // first row is not page 1's, and a sort or a new arrival moves every
+        // row. So an index-keyed detail stays open only where the new answer
+        // has the SAME row (equal values) at its place; `expandedRows` applies
+        // to the first answer as given. (The release review: a detail opened on
+        // page 1 opened the same place on page 2, under another row.)
+        if (src.loaded && this._detailOn() && this._expanded.size
+            && typeof this.config.getRowKey !== 'function') {
+            const before = this.config.rows || [];
+            const same = (a, b) => {
+                if (a === b) return true;
+                try { return JSON.stringify(a) === JSON.stringify(b); } catch (_) { return false; }
+            };
+            for (const k of [...this._expanded]) {
+                const i = Number(k);
+                if (!Number.isInteger(i) || i < 0 || i >= rows.length || !same(before[i], rows[i])) {
+                    this._expanded.delete(k);
+                    this._detailHeights.delete(k);
+                }
+            }
+        }
         // The page drawn — so the pager says where these rows ARE.
         src.offset = query.offset;
         src.total = total;
@@ -3618,6 +3656,7 @@ export class DataTable {
             if (!t._following || !src || src.inFlight) return;
             if ((src.offset || 0) !== 0) return;              // only on the first page
             if (!t._wrapperEl?.isConnected) return;           // not while out of the page
+            if (t._readerIsBusy()) return;                    // not under a reader (below)
             t.refresh();
         }, this._followInterval());
         this._followTimer = id;
@@ -3626,6 +3665,33 @@ export class DataTable {
     _disarmFollow() {
         if (this._followTimer) clearInterval(this._followTimer);
         this._followTimer = null;
+    }
+
+    /** A TICK WAITS FOR A READER. A refresh redraws every row and every open
+     *  detail, so a tick that came while somebody was selecting text in the
+     *  table (a stack trace to copy) or working inside an open detail took the
+     *  text out from under the selection and the focus out of the detail —
+     *  every interval, for as long as they stayed. The tick is skipped
+     *  instead, and following resumes on the next one after (the release
+     *  review). `refresh()` called by the consumer is not a tick and does not
+     *  wait. */
+    _readerIsBusy() {
+        const wrap = this._tableWrapEl;
+        const doc = wrap?.ownerDocument;
+        if (!wrap || !doc) return false;
+        const active = doc.activeElement;
+        if (active && active !== wrap && wrap.contains(active)
+            && active.closest?.('.twm-dt-detail')) return true;
+        try {
+            const sel = doc.defaultView?.getSelection?.();
+            if (sel && !sel.isCollapsed && sel.rangeCount > 0) {
+                for (let i = 0; i < sel.rangeCount; i++) {
+                    const r = sel.getRangeAt(i);
+                    if (wrap.contains(r.startContainer) || wrap.contains(r.endContainer)) return true;
+                }
+            }
+        } catch (_) { /* no selection API */ }
+        return false;
     }
 
     // ── the pager (#35) ────────────────────────────────────────────────
@@ -3963,6 +4029,24 @@ export class DataTable {
                 return { kind: 'control', colIdx, el: active, sel };
             }
         }
+        // Inside an open detail (a button in it, a field): the detail is drawn
+        // again by the render, so the same place in it — by its path under the
+        // detail's host — gets the focus back (the release review).
+        const detailHost = active.closest?.('.twm-dt-detail');
+        if (detailHost && this._tbodyEl?.contains(detailHost)) {
+            const tr = detailHost.closest('tr')?.__detailOf;
+            if (tr && tr.__rowIndex !== undefined) {
+                const path = [];
+                for (let n = active; n && n !== detailHost; n = n.parentElement) {
+                    path.unshift(Array.prototype.indexOf.call(n.parentElement.children, n));
+                }
+                let sel = null;
+                try {
+                    if (typeof active.selectionStart === 'number') sel = [active.selectionStart, active.selectionEnd];
+                } catch (_) { /* not a text field */ }
+                return { kind: 'detail', key: this._rowKey(tr.__row, tr.__rowIndex), path, tag: active.tagName, sel };
+            }
+        }
         const toggle = active.closest?.('.twm-dt-detail-toggle');
         if (toggle && this._tbodyEl?.contains(toggle)) {
             const tr = toggle.closest('tr');
@@ -3979,6 +4063,13 @@ export class DataTable {
                 if (!f.el.isConnected) return;
                 f.el.focus({ preventScroll: true });
                 if (f.sel) f.el.setSelectionRange?.(f.sel[0], f.sel[1]);
+            } else if (f.kind === 'detail' && f.key !== null) {
+                let n = this._rowElByKey(f.key)?.__detail?.[0]?.querySelector('.twm-dt-detail');
+                for (const i of f.path) n = n?.children[i];
+                if (n && n.tagName === f.tag) {
+                    n.focus({ preventScroll: true });
+                    if (f.sel) n.setSelectionRange?.(f.sel[0], f.sel[1]);
+                }
             } else if (f.kind === 'toggle' && f.key !== null) {
                 const tr = this._rowElByKey(f.key);
                 tr?.querySelector(':scope > td > .twm-dt-detail-toggle')?.focus({ preventScroll: true });

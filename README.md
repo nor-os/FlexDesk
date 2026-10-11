@@ -500,7 +500,7 @@ searchBox.oninput = () => log.reload();
 |---|---|
 | `rowDetail(row, idx, { host, key })` | Gives each row a toggle at the start of its first cell. Opening it draws a row under the row, one cell across every column; the function fills `host` or returns a node or text for it. The detail is drawn when opened and dropped when closed. Its content does not change the column widths, wraps instead of being clipped, and is not part of a copy. A click in it selects nothing, and a right-click there opens the browser's own menu. |
 | `hasRowDetail(row, idx)` | Which rows have a detail. A row without one gets no toggle. |
-| `expandedRows`, `setRowExpanded(key, open)`, `isRowExpanded(key)`, `getExpandedRows()`, `collapseAllRows()` | Which details are open, by key (`getRowKey`, or the row's index). The state survives a sort, a filter, a page, `setData` and `refresh()`. A key that is not on screen opens when its row is drawn. |
+| `expandedRows`, `setRowExpanded(key, open)`, `isRowExpanded(key)`, `getExpandedRows()`, `collapseAllRows()` | Which details are open, by key (`getRowKey`, or the row's index). The state survives a sort, a filter, a page, `setData` and `refresh()`. A key that is not on screen opens when its row is drawn. Under `dataSource`, give `getRowKey`: without it a row's index is only its place in the page drawn, so a detail stays open across a new answer only where that answer has the same row (equal values) at the same place. |
 | `onRowDetailToggle(idx, row, open, key)` | Called after a detail opens or closes. |
 | `rowDetailLabel` | The toggle's accessible name (default `'Details'`). Its state is `aria-expanded`, and `aria-controls` names the detail. |
 
@@ -521,6 +521,7 @@ and it leaves and re-enters the window with its row.
 | `onLoad(result, query)` | Called after each answer that was drawn. |
 | `reload()` | Asks again from the first page. Call it when a filter of your own, outside the table, changes. It resolves with the answer, or with `undefined` if a newer request replaced it. |
 | `getQuery()`, `getPageInfo()` | The last query sent, and `{ offset, total, hasMore }` for the page drawn. |
+| `goToPage(page)`, `goToRow(idx)` | Ask the source for that page (the one holding row `idx`), up to the last page when the total is known, and resolve when it is drawn. |
 
 While a request is out, the loading overlay shows and the empty state stays
 hidden. An empty answer under a filter keeps the filter row, so the filter can
@@ -548,7 +549,7 @@ you can go back. A table without these options keeps the 0.6 pager.
 | Option | What it does |
 |---|---|
 | `refresh()` | Reads the current page again in place. A reader at the top sees the rows that arrived. A reader scrolled down keeps the rows they were reading at the same place on screen, because new rows above move the scroll position instead of the rows. The selection is kept by key, as are the active row and the open details. Rows that the last answer did not hold are drawn `twm-dt-row--new` (a short highlight); this needs `getRowKey`. |
-| `follow: true` or `{ interval }` | Calls `refresh()` every `interval` ms (default 10 000) while the table is on its first page, in the document, and has no request out. Paging away turns following off and calls `onFollowChange(false)`. Coming back to the first page does not turn it on again. |
+| `follow: true` or `{ interval }` | Calls `refresh()` every `interval` ms (default 10 000) while the table is on its first page, in the document, and has no request out. A tick also waits while somebody is reading: while text inside the table is selected, or the focus is inside an open detail, it reads nothing, and following resumes at the next tick after. A `refresh()` you call yourself does not wait, and puts the focus back on the same place in a detail it draws again. Paging away turns following off and calls `onFollowChange(false)`. Coming back to the first page does not turn it on again. |
 | `setFollow(on)`, `isFollowing()`, `onFollowChange(on)` | Turn following on and off from your own toggle, and hear when the table turns it off. |
 
 The follow timer holds the table weakly, so it never keeps a discarded table

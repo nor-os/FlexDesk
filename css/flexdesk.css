@@ -746,6 +746,145 @@ body.twm-dt-col-resizing {
     font-size: 16px;
     line-height: 1;
 }
+/* ── 0.7.0 DataTable options. Each rule below matches only a class a 0.7.0
+ * option sets, so a table that asks for none of them is styled exactly as in
+ * 0.6. ─────────────────────────────────────────────────────────────────── */
+/* `rowDetail` — the toggle. Its chevron is drawn by CSS from the icon font
+ * (the button carries its class), so the cell's text, its clipped-cell
+ * tooltip and a copy stay the cell's own; turned down while open. Negative
+ * block margins on a line height of 1: it cannot make its row taller. */
+.twm-preview-table td .twm-dt-detail-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    margin: -2px 4px -2px -2px;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: inherit;
+    font-size: 16px;
+    line-height: 1;
+    vertical-align: top;
+    cursor: pointer;
+    opacity: 0.75;
+}
+.twm-preview-table td .twm-dt-detail-toggle-gap {
+    display: inline-block;
+    width: 18px;
+    margin: 0 4px 0 -2px;
+    vertical-align: top;
+}
+.twm-preview-table td .twm-dt-detail-toggle::before {
+    content: 'chevron_right';
+    transition: transform 0.12s ease;
+}
+.twm-preview-table td .twm-dt-detail-toggle[aria-expanded="true"]::before {
+    transform: rotate(90deg);
+}
+.twm-preview-table td .twm-dt-detail-toggle:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.08);
+}
+.twm-preview-table td .twm-dt-detail-toggle:focus-visible {
+    opacity: 1;
+    outline: 1px solid var(--accent-bright, #007acc);
+}
+/* The detail's row: one cell across every column. It is often the body's
+ * FIRST cell of its row, so the time column's rules reach it (see the note
+ * above the NULL rule) — hence (0,4,3): the wrapper and `tbody` in front. It
+ * wraps, it is not clipped, it is not a thing to press (a clickable table's
+ * pointer and hover stop at it), and its content does not set the columns'
+ * widths (`contain: inline-size`, and it is out of the measuring pass). */
+.twm-data-table-component .twm-preview-table tbody tr.twm-dt-detail-row > td.twm-dt-detail-cell,
+.twm-data-table-component .twm-preview-table tbody tr.twm-dt-detail-row:not(.twm-dt-spacer):not(.data-table__empty-row):hover > td.twm-dt-detail-cell {
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    padding: 6px 10px 8px 28px;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    font-family: inherit;
+    font-weight: normal;
+    color: inherit;
+    cursor: auto;
+    background: var(--twm-dt-detail-bg, rgba(255, 255, 255, 0.025));
+}
+.twm-dt-detail {
+    contain: inline-size;
+    overflow: auto;
+    user-select: text;
+}
+.twm-preview-table.twm-dt-measuring tr.twm-dt-detail-row {
+    display: none !important;
+}
+/* `follow` / `refresh()` — a row the last answer did not have, for a moment. */
+@keyframes twm-dt-row-new {
+    from { background: var(--twm-dt-new-bg, rgba(0, 122, 204, 0.22)); }
+    to { background: transparent; }
+}
+.twm-preview-table tbody tr.twm-dt-row--new > td {
+    animation: twm-dt-row-new 1.6s ease-out;
+}
+/* `pagerLabels` — a pager button with its word beside its glyph. */
+.twm-pagination-btn .twm-pagination-btn__label {
+    margin-left: 2px;
+    font-size: 10px;
+    white-space: nowrap;
+}
+/* `filterKinds` — a filter cell holding a control rather than the text box,
+ * and the built-in chips. Wraps rather than clipping its control. */
+.twm-preview-table th.data-table__filter-cell--control {
+    white-space: normal;
+    overflow: visible;
+}
+.twm-dt-filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 3px;
+}
+.twm-dt-filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    height: 20px;
+    padding: 0 7px 0 5px;
+    border: 1px solid var(--border-default, #3a3a3a);
+    border-radius: 10px;
+    background: transparent;
+    color: #aaa;
+    font: inherit;
+    font-size: 11px;
+    font-weight: normal;
+    line-height: 1;
+    cursor: pointer;
+}
+.twm-dt-filter-chip:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+.twm-dt-filter-chip:focus-visible {
+    outline: 1px solid var(--accent-bright, #007acc);
+}
+.twm-dt-filter-chip.twm-dt-filter-chip--on {
+    border-color: var(--accent-bright, #007acc);
+    background: rgba(0, 122, 204, 0.18);
+    color: #ddd;
+}
+.twm-dt-filter-chip.twm-dt-filter-chip--empty {
+    opacity: 0.5;
+}
+.twm-dt-filter-chip .twm-dt-filter-chip__icon {
+    font-size: 14px;
+    line-height: 1;
+}
+.twm-dt-filter-chip .twm-dt-filter-chip__count {
+    color: #888;
+    font-variant-numeric: tabular-nums;
+}
 /* Wizard mode: uniform column widths, no selection */
 .twm-preview-table-wrap--wizard .twm-preview-table {
     table-layout: auto;

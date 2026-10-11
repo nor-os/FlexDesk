@@ -779,6 +779,145 @@ body.twm-dt-col-resizing {
     font-size: 16px;
     line-height: 1;
 }
+/* ── 0.7.0 DataTable options. Each rule below matches only a class a 0.7.0
+ * option sets, so a table that asks for none of them is styled exactly as in
+ * 0.6. ─────────────────────────────────────────────────────────────────── */
+/* `rowDetail` — the toggle. Its chevron is drawn by CSS from the icon font
+ * (the button carries its class), so the cell's text, its clipped-cell
+ * tooltip and a copy stay the cell's own; turned down while open. Negative
+ * block margins on a line height of 1: it cannot make its row taller. */
+.twm-preview-table td .twm-dt-detail-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    margin: -2px 4px -2px -2px;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: inherit;
+    font-size: 16px;
+    line-height: 1;
+    vertical-align: top;
+    cursor: pointer;
+    opacity: 0.75;
+}
+.twm-preview-table td .twm-dt-detail-toggle-gap {
+    display: inline-block;
+    width: 18px;
+    margin: 0 4px 0 -2px;
+    vertical-align: top;
+}
+.twm-preview-table td .twm-dt-detail-toggle::before {
+    content: 'chevron_right';
+    transition: transform 0.12s ease;
+}
+.twm-preview-table td .twm-dt-detail-toggle[aria-expanded="true"]::before {
+    transform: rotate(90deg);
+}
+.twm-preview-table td .twm-dt-detail-toggle:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.08);
+}
+.twm-preview-table td .twm-dt-detail-toggle:focus-visible {
+    opacity: 1;
+    outline: 1px solid var(--accent-bright, #007acc);
+}
+/* The detail's row: one cell across every column. It is often the body's
+ * FIRST cell of its row, so the time column's rules reach it (see the note
+ * above the NULL rule) — hence (0,4,3): the wrapper and `tbody` in front. It
+ * wraps, it is not clipped, it is not a thing to press (a clickable table's
+ * pointer and hover stop at it), and its content does not set the columns'
+ * widths (`contain: inline-size`, and it is out of the measuring pass). */
+.twm-data-table-component .twm-preview-table tbody tr.twm-dt-detail-row > td.twm-dt-detail-cell,
+.twm-data-table-component .twm-preview-table tbody tr.twm-dt-detail-row:not(.twm-dt-spacer):not(.data-table__empty-row):hover > td.twm-dt-detail-cell {
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    padding: 6px 10px 8px 28px;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    font-family: inherit;
+    font-weight: normal;
+    color: inherit;
+    cursor: auto;
+    background: var(--twm-dt-detail-bg, rgba(255, 255, 255, 0.025));
+}
+.twm-dt-detail {
+    contain: inline-size;
+    overflow: auto;
+    user-select: text;
+}
+.twm-preview-table.twm-dt-measuring tr.twm-dt-detail-row {
+    display: none !important;
+}
+/* `follow` / `refresh()` — a row the last answer did not have, for a moment. */
+@keyframes twm-dt-row-new {
+    from { background: var(--twm-dt-new-bg, rgba(0, 122, 204, 0.22)); }
+    to { background: transparent; }
+}
+.twm-preview-table tbody tr.twm-dt-row--new > td {
+    animation: twm-dt-row-new 1.6s ease-out;
+}
+/* `pagerLabels` — a pager button with its word beside its glyph. */
+.twm-pagination-btn .twm-pagination-btn__label {
+    margin-left: 2px;
+    font-size: 10px;
+    white-space: nowrap;
+}
+/* `filterKinds` — a filter cell holding a control rather than the text box,
+ * and the built-in chips. Wraps rather than clipping its control. */
+.twm-preview-table th.data-table__filter-cell--control {
+    white-space: normal;
+    overflow: visible;
+}
+.twm-dt-filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 3px;
+}
+.twm-dt-filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    height: 20px;
+    padding: 0 7px 0 5px;
+    border: 1px solid var(--border-default, #3a3a3a);
+    border-radius: 10px;
+    background: transparent;
+    color: #aaa;
+    font: inherit;
+    font-size: 11px;
+    font-weight: normal;
+    line-height: 1;
+    cursor: pointer;
+}
+.twm-dt-filter-chip:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+.twm-dt-filter-chip:focus-visible {
+    outline: 1px solid var(--accent-bright, #007acc);
+}
+.twm-dt-filter-chip.twm-dt-filter-chip--on {
+    border-color: var(--accent-bright, #007acc);
+    background: rgba(0, 122, 204, 0.18);
+    color: #ddd;
+}
+.twm-dt-filter-chip.twm-dt-filter-chip--empty {
+    opacity: 0.5;
+}
+.twm-dt-filter-chip .twm-dt-filter-chip__icon {
+    font-size: 14px;
+    line-height: 1;
+}
+.twm-dt-filter-chip .twm-dt-filter-chip__count {
+    color: #888;
+    font-variant-numeric: tabular-nums;
+}
 /* Wizard mode: uniform column widths, no selection */
 .twm-preview-table-wrap--wizard .twm-preview-table {
     table-layout: auto;
@@ -7458,6 +7597,181 @@ tr:hover .twm-row-action { opacity: 1; }
     background: rgba(255, 255, 255, 0.45);
 }
 
+
+/* ══ RECORD LIST & FACT SHEET (0.7.0) ══════════════════════════════════
+ * `createRecordList` (src/ui/components/record_list.js) and
+ * `createFactTable` (src/ui/components/fact_table.js). Neither has a height
+ * of its own: each is exactly as tall as its records, in any parent. */
+
+/* ── the record list ── */
+.twm-record-list { display: block; min-width: 0; }
+.twm-record-list__items {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+}
+/* A record is one flex row that WRAPS: on a narrow host the pills and verbs
+ * go under the name rather than squeezing it to nothing. */
+.twm-record {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    padding: 7px 6px;
+    border-bottom: 1px solid var(--border-subtle, #2a2a2a);
+    min-width: 0;
+}
+.twm-record:last-child { border-bottom: none; }
+.twm-record__main {
+    flex: 1 1 14em;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.twm-record__name {
+    color: var(--text-primary, #e0e0e0);
+    overflow-wrap: anywhere;
+}
+.twm-record__name--mono { font-family: var(--font-family-mono, monospace); font-size: 0.95em; }
+/* The quiet line. It wraps by default; `facts: 'ellipsis'` keeps it to one
+ * line and puts the whole of it on the line's title. */
+.twm-record__facts {
+    color: var(--text-muted, #888);
+    font-size: var(--ea-font-body, 11px);
+    overflow-wrap: anywhere;
+}
+.twm-record-list--clip .twm-record__facts {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.twm-record__error {
+    color: var(--color-danger, #c74e4e);
+    font-size: var(--ea-font-body, 11px);
+    overflow-wrap: anywhere;
+}
+/* A refused verb's reason, ON the screen — never only on a tooltip. */
+.twm-record__refusals { display: flex; flex-direction: column; gap: 1px; }
+.twm-record__refusal {
+    color: var(--color-warning, #ff9800);
+    font-size: var(--ea-font-small, 10px);
+    overflow-wrap: anywhere;
+}
+.twm-record__pills,
+.twm-record__verbs {
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px 6px;
+    margin-left: auto;
+}
+.twm-record__pill {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: var(--radius-pill, 999px);
+    background: var(--surface-3, #3c3c3c);
+    color: var(--text-muted, #888);
+    font-size: var(--ea-font-small, 10px);
+    line-height: 16px;
+    white-space: nowrap;
+}
+.twm-record__pill--info    { background: rgba(33, 150, 243, 0.16); color: var(--color-info, #2196f3); }
+.twm-record__pill--success { background: rgba(63, 185, 80, 0.16);  color: var(--color-success, #3fb950); }
+.twm-record__pill--warn    { background: rgba(255, 152, 0, 0.16);  color: var(--color-warning, #ff9800); }
+.twm-record__pill--danger  { background: rgba(199, 78, 78, 0.18);  color: var(--color-danger, #c74e4e); }
+.twm-record__pill--muted   { background: transparent; color: var(--text-dim, #666); box-shadow: inset 0 0 0 1px var(--border-strong, #383838); }
+.twm-record__verb-icon.material-symbols-outlined { font-size: 14px; line-height: 1; }
+/* States. A paused or switched-off record dims its words and pills and NOT
+ * its verbs: the verb that brings it back has to stay readable. A dead or
+ * failing one carries the danger colour on its left edge. */
+.twm-record--state-paused > .twm-record__main,
+.twm-record--state-paused > .twm-record__pills,
+.twm-record--state-off > .twm-record__main,
+.twm-record--state-off > .twm-record__pills,
+.twm-record--state-dead > .twm-record__main,
+.twm-record--state-dead > .twm-record__pills { opacity: 0.55; }
+.twm-record--state-dead,
+.twm-record--state-error { box-shadow: inset 2px 0 0 0 var(--color-danger, #c74e4e); }
+/* `activeKey` — the record that is OPEN: the accent on the left edge, as
+ * DataTable's `twm-dt-row--active`. It wins over a state's edge. */
+.twm-record.twm-record--active { box-shadow: inset 2px 0 0 0 var(--accent-bright, #007acc); }
+.twm-record-list--clickable .twm-record { cursor: pointer; }
+.twm-record-list--clickable .twm-record:hover { background: var(--state-hover, rgba(255, 255, 255, 0.05)); }
+.twm-record:focus { outline: none; }
+.twm-record:focus-visible {
+    outline: 1px solid var(--accent-bright, #007acc);
+    outline-offset: -1px;
+}
+.twm-record-list__empty {
+    margin: 0;
+    padding: 12px 6px;
+    color: var(--text-muted, #888);
+    font-size: var(--ea-font-body, 11px);
+}
+
+/* ── the fact sheet ── */
+.twm-facts {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: auto;
+    font-size: var(--font-size-sm, 12px);
+}
+.twm-facts thead th {
+    text-align: left;
+    font-size: var(--ea-font-small, 10px);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-dim, #666);
+    white-space: nowrap;
+    border-bottom: 1px solid var(--border-default, #303030);
+    padding: 0 12px 6px 0;
+}
+/* Every value WRAPS and keeps its own line breaks: nothing is cut off. */
+.twm-facts tbody td,
+.twm-facts tbody th {
+    text-align: left;
+    font-weight: normal;
+    border-bottom: 1px solid var(--border-subtle, #2a2a2a);
+    padding: 6px 12px 6px 0;
+    color: var(--text-primary, #e0e0e0);
+    vertical-align: top;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+.twm-facts tbody tr:last-child > td,
+.twm-facts tbody tr:last-child > th { border-bottom: 0; }
+.twm-facts tbody th.twm-facts__label {
+    color: var(--text-muted, #888);
+    white-space: nowrap;
+}
+.twm-facts.twm-facts--wrap-labels tbody th.twm-facts__label { white-space: normal; }
+.twm-facts.twm-facts--mono tbody td.twm-facts__value,
+.twm-facts tbody td.twm-facts__mono { font-family: var(--font-family-mono, monospace); font-size: 0.95em; }
+.twm-facts .twm-facts__num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.twm-facts tbody td.twm-facts__null,
+.twm-facts tbody td.twm-facts__missing { color: var(--text-dim, #666); font-style: italic; }
+.twm-facts tbody td.twm-facts__arrow {
+    color: var(--text-dim, #666);
+    white-space: nowrap;
+    width: 1%;
+}
+.twm-facts tbody tr.twm-facts__row--changed > td.twm-facts__before { color: var(--text-muted, #888); }
+.twm-facts tbody tr.twm-facts__row--changed > td.twm-facts__arrow { color: var(--color-warning, #ff9800); }
+.twm-facts tbody tr.twm-facts__row--same > td { color: var(--text-muted, #888); }
+.twm-facts tbody tr.twm-facts__row--added > td.twm-facts__after { color: var(--color-success, #3fb950); }
+.twm-facts tbody tr.twm-facts__row--removed > td.twm-facts__before { color: var(--color-danger, #c74e4e); }
+.twm-facts tbody td.twm-facts__empty {
+    padding: 12px 0;
+    color: var(--text-muted, #888);
+    white-space: normal;
+}
+/* ══ end RECORD LIST & FACT SHEET ══ */
 
 /* ══ FLOW · KIT ═══════════════════════════════════════════════════════ */
 /* The shared flow-editor kit (36 §3, §3.12): the settings panel and its

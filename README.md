@@ -398,6 +398,269 @@ blocks the next call until it settles, and the strip shows the table busy.
 In pages, `showRowNumbers: 'position'` numbers rows from `offset`. Row indexes
 (`__rowIndex`, the selection, `onRowClick`) still refer to positions in `rows`.
 
+### Record lists and fact sheets (0.7.0)
+
+Two read-only components for the parts of an application page that are not a
+table of rows. Both are new: nothing that exists changes, and a page that does
+not call them looks as it did. Neither needs a height: each is exactly as tall
+as its contents, in any parent.
+
+**`createRecordList(host, config)`** draws a list of records, each as a name
+with a quiet line of facts under it, pills and verbs beside them, and a state.
+It is for the administration list of a few records with their own actions
+(keys, connections, deliveries, members), where a table would be the wrong
+shape.
+
+```js
+import { createRecordList } from '@flexdesk/widgets';
+
+const list = createRecordList(host, {
+    records: keys,
+    describe: (k) => ({
+        name: k.name,
+        facts: [k.key_id, k.role, k.expires ? `expires ${k.expires}` : 'never expires'],
+        pills: [k.paused ? { text: 'paused', tone: 'warn' } : { text: 'live', tone: 'success' }],
+        state: k.revoked ? 'off' : k.paused ? 'paused' : 'active',
+        verbs: [
+            { label: k.paused ? 'Resume' : 'Pause', onClick: (key) => toggle(key),
+              refusal: k.revoked ? 'This key is revoked.' : null },
+            { label: 'Revoke', danger: true, onClick: (key) => revoke(key) },
+        ],
+    }),
+    getKey: (k) => k.key_id,
+    rowAttrs: (k) => ({ 'data-key-id': k.key_id }),
+    onActivate: (k) => open(k),        // one click, or Enter
+    activeKey: openKeyId,
+    emptyState: 'No keys yet.',
+});
+list.setRecords(next);                 // focus stays on the same record's same verb
+```
+
+What `describe(record, idx)` returns (without `describe`, each record is
+this object itself):
+
+| Field | What it is |
+|---|---|
+| `name` | The first line: text or a node. `mono: true` draws it in the monospace face. |
+| `facts` | The quiet line: text, a node, or an array whose `null`, `false` and `''` parts are left out and the rest joined with `factSeparator` (`' — '`). A part may be a node. |
+| `pills` | Strings or `{ text, tone, title }`. The tones drawn are `muted`, `info`, `success`, `warn` and `danger`. |
+| `verbs` | `{ label, onClick(record, ev), refusal, danger, primary, icon, title, name }`. A verb with a `refusal` is a disabled button with the reason on its `title` and `data-refusal`, **and the reason is a line of text under the facts** (`twm-record__refusal`, named by `data-refusal-for`, which the button is `aria-describedby`). A reason shared by every verb is said once. `null` and `false` verbs are left out. |
+| `state` | A word: `data-state` and `twm-record--state-<word>` on the row. `paused`, `off` and `dead` dim the words and pills but never the verbs; `dead` and `error` mark the left edge in the danger colour. |
+| `error` | A line in the error colour under the facts. |
+| `key` | The record's key, over `getKey`. |
+
+| Option | What it does |
+|---|---|
+| `getKey(record, idx)` | The key (`data-record-key`). Defaults to `spec.key`, then `record.key`, then `record.id`, then the index. Keys compare as strings. |
+| `onActivate(record, idx, ev)` | Opens a record. It follows `DataTable`'s `onRowActivate` rule (`row_activation.js`): not for a press on a verb or any control, not for the click that ends a drag selecting text in the list, not for the second click of a double-click. Rows get a pointer and a hover. |
+| `activateOn` | `'click'`, `'dblclick'`, `'enter'`, or an array. Default `['click', 'enter']`. |
+| `keyboard` | Defaults to on exactly when `onActivate` is set. The records are then one tab stop (the last focused, else the open one, else the first), each enabled verb keeps its own, ArrowUp/ArrowDown move between records (from a record or one of its verbs), Home/End go to the ends, and Enter on a record opens it. |
+| `activeKey`, `setActiveKey(key)`, `getActiveKey()` | The record that is open: `twm-record--active` and `aria-current="true"`, drawn as an accent on the left edge. It survives `setRecords`. |
+| `rowClass(record, idx)`, `rowAttrs(record, idx)` | Classes and attributes for the record's `<li>`, as `DataTable`'s (`null`/`false` leaves an attribute off, `true` sets it empty). |
+| `emptyState` | Text, a node, or a function returning either, shown when there are no records. |
+| `facts: 'ellipsis'` | Keeps every fact line to one line and puts the whole line on its `title`. By default a long fact line wraps. |
+| `verbClass` | A class string, or `(verb) => string`, for a consumer with its own buttons. By default verbs are FlexDesk's `twm-btn`, with `--primary` and `--danger`. |
+| `label`, `className` | The list's `aria-label`; a class on the root. |
+
+Methods: `setRecords(records)` (keeps the focus on the same record's same verb,
+by key), `getRecords()`, `refresh(key)` (asks `describe` again for that record
+only; with no key, all), `getItem(key)`, `focusRecord(key)`, `dispose()`, and
+`element` (the root).
+
+**`createFactTable(host, config)`** draws a sheet of facts: a name and its
+value, row after row. A `DataTable` is the wrong tool for this, because it
+draws a header row, clips a long value to one line and needs a box with a
+height. A fact sheet has no header row, never truncates (a value wraps at
+spaces, inside a long word or URL when it must, and keeps its own line breaks),
+and is as tall as its rows. The label column stays on one line.
+
+```js
+import { createFactTable } from '@flexdesk/widgets';
+
+createFactTable(host, {
+    rows: [
+        { label: 'Server', value: 'db-main-01.internal' },
+        { label: 'Connection string', value: dsn, mono: true },
+        { label: 'Options', value: { pool: { min: 2, max: 16 } } },   // drawn as indented JSON
+        { label: 'Replica', value: null },
+    ],
+    nullDisplay: '—',
+});
+
+// Before and after:
+createFactTable(host, {
+    compare: true,
+    headers: ['Field', 'Now', 'After the restore'],
+    rows: [{ label: 'Amount', before: 1200, after: 950 }, { label: 'Reviewer', after: 'Bea Beta' }],
+});
+```
+
+| Option | What it does |
+|---|---|
+| `rows` | Objects `{ label, value }` (or `{ label, before, after }` with `compare`), with optional `mono`, `numeric`, `labelTitle` (a tooltip on the label), `key` (`data-key`) and `status`; or arrays of cells, `[label, value, …]`. A value is text, a number, a node, or an object (drawn as indented JSON). |
+| `compare: true` | Each row draws its label, its before, an arrow and its after. A row is `twm-facts__row--changed`, `--same`, `--added` (no `before`) or `--removed` (no `after`), worked out from the two sides (objects by their JSON, a node always changed) unless the row's `status` says otherwise; `data-status` says the same. An absent side reads as `missing` (`'—'`). A row with a plain `value` spans both sides. |
+| `headers` | Adds a header row (there is none by default). With `compare`, three names stand over the label, before and after columns. |
+| `numeric` | Column indices drawn in tabular numerals (`twm-facts__num`), header included. |
+| `mono` | Every value in the monospace face. A row's own `mono` does it for that row. |
+| `nullDisplay` | What `null` and `undefined` read as (`twm-facts__null`). By default the cell is empty. |
+| `labelColumn: false` | The first column is ordinary data, not a label. |
+| `wrapLabels: true` | Lets a long label wrap. |
+| `rowClass(row, idx)`, `rowAttrs(row, idx)` | Classes and attributes for each `<tr>`. |
+| `emptyState`, `label`, `className` | Shown (spanning the sheet) when there are no rows; the `aria-label`; a class on the `<table>`. |
+
+Methods: `setRows(rows)`, `getRows()`, `getRow(idx)` (the `<tr>`), `dispose()`,
+and `element` (the `<table>`).
+
+Both were measured in headless Edge with real input (`demo/records.html`,
+driven by `demo/records_probe.mjs`): no list, record, sheet or row has zero
+height and none overflows its card; a long fact line, a long URL, a connection
+string and a JSON value wrap inside their column while labels stay on one line;
+every verb, refused ones included, is what `elementFromPoint` finds at its
+centre, and a real press runs it without opening the record; real Tab,
+ArrowDown and Enter open a record; at 300px the verbs go under the record's
+words, inside the card.
+
+### DataTable options in 0.7.0: details, rows from a server, and filters that are not text
+
+0.7.0 adds what a log viewer needs: a row's detail folded under it, rows read
+page by page from a server, a pager that does not need a total, a live tail,
+and column filters that are not text boxes. Every option is off until you set
+it, and a table that sets none of them draws and behaves as in 0.6.
+
+```js
+import { DataTable } from '@flexdesk/widgets';
+
+const LEVELS = { kind: 'chips', options: [
+    { value: '', label: 'All', icon: 'list_alt' },
+    { value: 'warn', label: 'Warn', icon: 'warning' },
+    { value: 'error', label: 'Error', icon: 'error' },
+] };
+const entryOf = new WeakMap();             // each drawn row -> the entry it came from
+
+const log = DataTable.mount(host, {
+    headers: ['When', 'Level', 'Who', 'What'],
+    columnTypes: ['datetime', null, null, null],
+    getRowKey: (row) => entryOf.get(row)?.id,
+    pageSize: 100,
+    sortable: true, filterable: true,
+    filterKinds: { 1: LEVELS },
+    // Rows from the server. Only the newest answer is drawn; `signal` aborts the rest.
+    dataSource: async (query, { signal }) => {
+        const [page, facets] = await Promise.all([api.audit(query, { signal }), api.facets(query)]);
+        const rows = page.data.map((e) => {
+            const row = [e.at, e.level, e.who, e.action];
+            entryOf.set(row, e);
+            return row;
+        });
+        return { rows, total: facets.total ?? null, hasMore: page.meta.has_more,
+                 filterCounts: { 1: { '': facets.total, ...facets.levels } } };
+    },
+    pagerLabels: { first: 'Newest', prev: 'Newer', next: 'Older', last: 'Oldest' },
+    pagerPosition: 'bottom',
+    maxJumpOffset: 50_000,
+    follow: { interval: 10_000 },
+    onFollowChange: (on) => followButton.setAttribute('aria-pressed', String(on)),
+    rowDetail: (row) => {
+        const pre = document.createElement('pre');
+        pre.textContent = JSON.stringify(entryOf.get(row).detail, null, 2);
+        return pre;
+    },
+    hasRowDetail: (row) => !!entryOf.get(row)?.detail,
+});
+// Your own filters, outside the table, ask again from the first page:
+searchBox.oninput = () => log.reload();
+```
+
+**A row's detail**
+
+| Option | What it does |
+|---|---|
+| `rowDetail(row, idx, { host, key })` | Gives each row a toggle at the start of its first cell. Opening it draws a row under the row, one cell across every column; the function fills `host` or returns a node or text for it. The detail is drawn when opened and dropped when closed. Its content does not change the column widths, wraps instead of being clipped, and is not part of a copy. A click in it selects nothing, and a right-click there opens the browser's own menu. |
+| `hasRowDetail(row, idx)` | Which rows have a detail. A row without one gets no toggle. |
+| `expandedRows`, `setRowExpanded(key, open)`, `isRowExpanded(key)`, `getExpandedRows()`, `collapseAllRows()` | Which details are open, by key (`getRowKey`, or the row's index). The state survives a sort, a filter, a page, `setData` and `refresh()`. A key that is not on screen opens when its row is drawn. Under `dataSource`, give `getRowKey`: without it a row's index is only its place in the page drawn, so a detail stays open across a new answer only where that answer has the same row (equal values) at the same place. |
+| `onRowDetailToggle(idx, row, open, key)` | Called after a detail opens or closes. |
+| `rowDetailLabel` | The toggle's accessible name (default `'Details'`). Its state is `aria-expanded`, and `aria-controls` names the detail. |
+
+The toggle is a button, so Tab reaches it and Enter or Space opens it. It
+neither selects the row nor opens it (`onRowActivate`). On the focused table,
+ArrowRight opens the current row's detail and ArrowLeft closes it; the same
+keys work on a toggle. Rows under an open detail keep their stripes. Under
+`virtualize`, an open detail counts in its row's height (measured once drawn),
+and it leaves and re-enters the window with its row.
+
+**Rows from a server**
+
+| Option | What it does |
+|---|---|
+| `dataSource(query, { signal })` | Asks for a page whenever the sort, a column filter or the page changes. `query` is `{ offset, limit, sort: { column, header, ascending } \| null, filters: [{ column, header, value }], reason }`, and `reason` is `'initial'`, `'sort'`, `'filter'`, `'page'`, `'reload'` or `'refresh'`. Return `{ rows, total, hasMore, filterCounts }`, or just the rows. The answer is drawn as given, with no sort, filter or slice in the browser. |
+| Only the newest answer is drawn | A request sent while another is out aborts the older one (`signal`), and an older answer that still arrives is dropped. So is an older request's failure. |
+| A failure keeps the rows | The rows on screen stay, under `setError`'s banner with the error's message, and `onLoadError(error, query)` is called. The next answer clears it. |
+| `onLoad(result, query)` | Called after each answer that was drawn. |
+| `reload()` | Asks again from the first page. Call it when a filter of your own, outside the table, changes. It resolves with the answer, or with `undefined` if a newer request replaced it. |
+| `getQuery()`, `getPageInfo()` | The last query sent, and `{ offset, total, hasMore }` for the page drawn. |
+| `goToPage(page)`, `goToRow(idx)` | Ask the source for that page (the one holding row `idx`), up to the last page when the total is known, and resolve when it is drawn. |
+
+While a request is out, the loading overlay shows and the empty state stays
+hidden. An empty answer under a filter keeps the filter row, so the filter can
+be cleared. A filter that is still being typed when an answer arrives keeps its
+text, its focus and its pending request. Row indices (`onRowActivate`,
+`getSelection`, `updateRow`) are positions in the page drawn, so they always
+point at a row on screen. `showRowNumbers: 'position'` numbers rows from the
+page's offset.
+
+**A pager for an unknown total**
+
+| Option | What it does |
+|---|---|
+| `total: null` in the answer | The total is unknown. The pager says `Rows 101–200` and `Page 2`, with no total. Next is enabled while `hasMore` is true or, without `hasMore`, while pages come back full. Last is disabled, and the reason is on the button (`data-refusal`, and its tooltip). |
+| `hasMore` (with `onPageChange`) | The same pager for a table that pages through `onPageChange`: with `totalCount: null`, set `hasMore` to `true` or `false`. |
+| `pagerLabels` | `{ first, prev, next, last }` draw a word beside each button's icon, such as `Newest`, `Newer`, `Older` and `Oldest` for a log read newest first. `noLast` is the reason given when there is no total, and `tooDeep(max)` the reason given past `maxJumpOffset`. |
+| `maxJumpOffset` | The deepest offset that Last and Go-to-row may jump to. Past it, Last is disabled with its reason, and Go asks for nothing and marks the box `aria-invalid`, with the reason on it. Use it where a deep `OFFSET` would be slow. |
+| `pagerPosition: 'bottom'` | Puts the pager under the rows. |
+
+An empty page after the first says `Page 4 · no rows` and keeps the pager, so
+you can go back. A table without these options keeps the 0.6 pager.
+
+**Refresh and follow**
+
+| Option | What it does |
+|---|---|
+| `refresh()` | Reads the current page again in place. A reader at the top sees the rows that arrived. A reader scrolled down keeps the rows they were reading at the same place on screen, because new rows above move the scroll position instead of the rows. The selection is kept by key, as are the active row and the open details. Rows that the last answer did not hold are drawn `twm-dt-row--new` (a short highlight); this needs `getRowKey`. |
+| `follow: true` or `{ interval }` | Calls `refresh()` every `interval` ms (default 10 000) while the table is on its first page, in the document, and has no request out. A tick also waits while somebody is reading: while text inside the table is selected, or the focus is inside an open detail, it reads nothing, and following resumes at the next tick after. A `refresh()` you call yourself does not wait, and puts the focus back on the same place in a detail it draws again. Paging away turns following off and calls `onFollowChange(false)`. Coming back to the first page does not turn it on again. |
+| `setFollow(on)`, `isFollowing()`, `onFollowChange(on)` | Turn following on and off from your own toggle, and hear when the table turns it off. |
+
+The follow timer holds the table weakly, so it never keeps a discarded table
+alive, and it stops on `dispose()`.
+
+**Filters that are not text**
+
+| Option | What it does |
+|---|---|
+| `filterKinds` | A filter control per column, as an object or array keyed by column index, or a function `(colIdx, header) => spec`. `'text'` (or nothing) is the usual text box. `{ kind: 'chips', options: [{ value, label, icon, title }], multiple }` draws chips. `{ create(ctx) }`, or a function, is your own control. |
+| The chips | One chip per option, each with a count. An option whose value is `''` or `null` means no filter, and it is pressed when nothing is chosen. Pressing the chosen chip again clears the filter. With `multiple`, each chip toggles its value in a list. A chip whose count is 0 is dimmed, not hidden. `createChipsFilter(ctx, spec)` builds the same control outside a table. |
+| Your own control | `create(ctx)` receives `{ column, header, value, counts, setValue(v), table }` and returns `{ el, setValue(v), setCounts(c), destroy(), match(cell, value, row) }`. Only `el` is required. Call `ctx.setValue` with the new value, which can be anything, such as `{ from, to }` for a date range or a person's id. |
+| `setFilterCounts(colIdx, counts)` or `setFilterCounts({ [colIdx]: counts })` | Gives a column's control its counts, keyed by option value. They are kept, so a control built later starts with them. A `dataSource` answer can carry them as `filterCounts`. `getFilterCounts(colIdx)` reads them back. |
+| `setFilter(colIdx, value)`, `getFilters()`, `onFilterChange(filters)` | Set one column's filter from code (an empty value clears it), read the filters in force as `[{ column, header, value }]`, and hear every change. `clearFilters()` resets each control as well. |
+
+Under `dataSource`, a filter's value goes to the server as it is. Without a
+server, the control's `match` decides which rows pass. If it has none, the
+chips use equality (or membership, with `multiple`), a `{ from, to }` value is
+an inclusive range over dates or numbers, a list means "one of these", and text
+means "contains". A control is built once, and the same element is put back
+after every render, so its own state, the focus and the text selection inside
+it survive a redraw. It is destroyed when the columns change or the table is
+disposed.
+
+**Housekeeping**
+
+| Option | What it does |
+|---|---|
+| `keepWhileDetached` | With `autoDispose`, how long a table may be out of the document and still come back drawn. A number is a grace period in ms. `true` keeps the table for as long as it is out: it is disposed only by `dispose()`, and while out it holds nothing on the document. A table put back within its grace is not disposed, however many tasks it was out, and the grace counts from its last departure, not its first. Use it for a tab whose content you detach and attach again later. Without it, `autoDispose` gives one task's grace, as in 0.5.0. |
+
+**One change that needs no option.** `autoDispose` now cancels a pending
+dispose when the table is put back. Before 0.7.0, a table taken out, put back
+and taken out again could be disposed by the first departure's timer.
+
 ### Scrollbars
 
 `installAutoScrollbars(root)` (from `@flexdesk/widgets`) replaces the browser's

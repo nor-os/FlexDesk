@@ -24,6 +24,11 @@ import {
     matchDurationFilter, parseDateValue, parseDuration,
 } from './table_values.js';
 import { isRowActivation, isRowControl } from './row_activation.js';
+import { createChipsFilter } from './table_filter_chips.js';
+
+// 0.7.0: the built-in chips filter control, for a consumer that wants to build
+// one outside a table (the same control `filterKinds: {kind: 'chips'}` draws).
+export { createChipsFilter } from './table_filter_chips.js';
 
 // 0.5.0: the value helpers a typed column uses, and the one row-activation rule,
 // re-exported so a consumer reaches them where it reaches DataTable.
@@ -134,23 +139,41 @@ function autoDisposeSweep(entry) {
         if (!table) { entry.tables.delete(ref); continue; }
         const el = table._wrapperEl;
         if (!el) continue;
-        if (el.isConnected) { table._autoSeen = true; continue; }
+        if (el.isConnected) {
+            table._autoSeen = true;
+            // 0.7.0. BACK IN: whatever grace was running for the last time it
+            // went out is over. Without this, a table taken out, put back and
+            // taken out again was judged by the FIRST departure's clock, and
+            // disposed while it had been out for less than its grace.
+            if (table._autoPending) {
+                clearTimeout(table._autoTimer);
+                table._autoTimer = null;
+                table._autoPending = false;
+            }
+            continue;
+        }
         if (!table._autoSeen || table._autoPending) continue;
+        // 0.7.0 `keepWhileDetached: true`: out is not gone. Nothing is
+        // scheduled; the table waits to be put back (or for `dispose()`).
+        const grace = table._detachGrace();
+        if (grace === Infinity) continue;
         // NOT AT ONCE. A renderer that takes a subtree out and puts it back in
         // the same task (FlexDesk's own tile renderer re-appends every leaf in
         // tree order) has put it back by the time this microtask runs — and one
-        // that takes a turn longer still gets one task's grace. Only a table
-        // that is STILL out after that has been removed from the page.
+        // that takes a turn longer still gets one task's grace (or, 0.7.0, the
+        // `keepWhileDetached` grace). Only a table that is STILL out after that
+        // has been removed from the page.
         table._autoPending = true;
-        setTimeout(() => {
+        table._autoTimer = setTimeout(() => {
             table._autoPending = false;
+            table._autoTimer = null;
             if (!entry.tables.has(ref)) return;
             const now = table._wrapperEl;
             // `_disposeOwn`, NOT `dispose()`: by now the host may hold
             // something else — the next list mounted into it, or the pane's
             // own message — and `dispose()` empties the host.
             if (now && !now.isConnected) table._disposeOwn();
-        }, 0);
+        }, grace);
     }
     if (entry.tables.size === 0) autoDisposeRelease(entry);
 }
@@ -195,6 +218,49 @@ function perColumn(option, colIdx) {
     if (Array.isArray(option)) return option[colIdx] ?? null;
     if (typeof option === 'object') return option[colIdx] ?? null;
     return option;
+}
+
+/** 0.7.0. Ids for the detail regions a row's toggle controls. */
+const DETAIL_SEQ = { n: 0 };
+
+/** 0.7.0. How a filter control's value matches a cell when its control says
+ *  nothing (`match`): a list is "one of these", a `{from, to}` is a range
+ *  (inclusive; dates and numbers compared as such), text is "contains", and
+ *  anything else is equality as text. */
+function defaultControlMatch(cell, value) {
+    if (Array.isArray(value)) return value.some((v) => String(v ?? '') === String(cell ?? ''));
+    if (value && typeof value === 'object' && !(value instanceof Date)
+        && ('from' in value || 'to' in value)) {
+        const asNumber = (x) => {
+            if (x == null || x === '') return null;
+            if (x instanceof Date) return x.getTime();
+            if (typeof x === 'number') return x;
+            const t = parseDateValue(x);
+            if (Number.isFinite(t)) return t;
+            const n = parseFloat(x);
+            return Number.isFinite(n) ? n : null;
+        };
+        const c = asNumber(cell);
+        if (c === null) return false;
+        const lo = asNumber(value.from);
+        const hi = asNumber(value.to);
+        if (lo !== null && c < lo) return false;
+        if (hi !== null && c > hi) return false;
+        return true;
+    }
+    if (typeof value === 'string') {
+        return String(cell ?? '').toLowerCase().includes(value.toLowerCase());
+    }
+    return String(value) === String(cell ?? '');
+}
+
+/** 0.7.0. The chips' rule: the cell IS the chosen value (one of them, for
+ *  `multiple`). */
+function chipsMatch(spec) {
+    return (cell, value) => {
+        const want = Array.isArray(value) ? value : [value];
+        return want.some((v) => String(v ?? '') === String(cell ?? ''));
+    };
 }
 
 /** One sort key, comparable with `compareSortKeys`. */
@@ -302,6 +368,25 @@ const AUTOSIZE_MAX_PX = 520;
  *   `total` — the source's exact row count, or null. `atLeast` — a lower bound when the exact count is not known (a capped count). `hasMore` — the source has rows past those held.
  *   `offset` — in pages, where the first row held stands in the source: the strip's "Rows 1,001–2,000" and `showRowNumbers: 'position'` read it. The rows' indexes (`__rowIndex`, selection, `onRowClick`) stay those of `rows`.
  *   `onPage(offset, limit)` — pages: show the page at `offset`. `onLoadMore()` — scroll: called when the body is scrolled within 400px of its end (`loadMorePx`), or does not fill its box, while `hasMore`. `onLoadAll()` — scroll: the strip's *Load all rows* button. `onModeChange(mode)` — the strip's Pages / Scroll switch; without it there is no switch. Each may return a Promise; until it settles no second call is made and its button shows the table is busy.
+ *
+ * ── 0.7.0, every one of them off unless asked for ─────────────────────────
+ * @property {Function} [rowDetail] - `(row, rowIdx, {host, key, table}) => Node|string|null|void`. A row's DETAIL, folded open under it: each row (or each row `hasRowDetail` admits) gets a toggle at the start of its first cell, and opening it draws a full-width row under the row — the function fills `host` or returns what to put in it. It is drawn when opened and dropped when closed. Keyboard: the toggle is a button (Enter/Space), and on the focused table ArrowRight opens and ArrowLeft closes the current row's detail. Which rows are open is kept by KEY (`getRowKey`, else the row's index), so it survives a sort, a filter, a page and a `setData`; under `virtualize` an open detail is part of its row's height.
+ * @property {Function} [hasRowDetail] - `(row, rowIdx) => boolean`. Whether a row has a detail at all; a row without one gets no toggle. Absent: every row has one.
+ * @property {Array} [expandedRows] - The keys of the rows open at first.
+ * @property {Function} [onRowDetailToggle] - `(rowIdx, row, expanded, key) => void`, after a detail opened or closed by a gesture or by `setRowExpanded`.
+ * @property {string} [rowDetailLabel='Details'] - The toggle's accessible name (its state is `aria-expanded`).
+ * @property {Function} [dataSource] - `(query, {signal}) => Promise<{rows, total?, hasMore?, filterCounts?} | rows>`. ROWS FROM A SERVER. The table asks for a page whenever its sort, its column filters or its page change (and on `reload()`/`refresh()`), and draws the answer AS GIVEN — no client sort, filter or slice. `query` is `{offset, limit, sort: {column, header, ascending}|null, filters: [{column, header, value}], reason}`. Only the NEWEST request paints: an older answer arriving later is dropped, and its `signal` is aborted. A failure keeps the rows on screen under `setError`'s banner. `total` is the count under these filters — a number, or null when it is not known (see `hasMore`). `rowIdx` everywhere is the row's index in the page drawn.
+ * @property {Function} [onLoad] - `(result, query) => void`, after the newest answer has been drawn.
+ * @property {Function} [onLoadError] - `(error, query) => void`, when the newest request failed (an aborted one is not a failure).
+ * @property {boolean} [hasMore] - Server-side paging (`onPageChange`) with NO total: with `totalCount` null and this a boolean, the pager offers Next exactly while it is true and has no last page. Under `dataSource` the answer's `hasMore` (or, absent, a full page) says it.
+ * @property {Object} [pagerLabels] - The pager's words: `{first, prev, next, last, noLast, tooDeep}`. The four buttons are drawn with their word beside the icon (`{first: 'Newest', prev: 'Newer', next: 'Older', last: 'Oldest'}` for a log read newest first); `noLast` is the refusal on Last when the total is unknown, `tooDeep` (`(max) => string`) the one past `maxJumpOffset`.
+ * @property {'top'|'bottom'} [pagerPosition='top'] - Where the pager strip sits.
+ * @property {number} [maxJumpOffset] - The deepest offset Last and Go-to-row will jump to. Past it the control is REFUSED, disabled with the reason on it (`data-refusal`), rather than slow.
+ * @property {boolean|{interval?: number}} [follow=false] - Under `dataSource`: re-read the first page every `interval` ms (default 10000) while the table is on it and in the page, keeping the scroll position, the selection and the active row; rows not there before are drawn `twm-dt-row--new`. A tick waits while text in the table is selected or the focus is inside an open detail. Paging away turns following OFF (`onFollowChange(false)`); coming back does not turn it on again. See `setFollow`, `refresh`.
+ * @property {Function} [onFollowChange] - `(following) => void`.
+ * @property {boolean|number} [keepWhileDetached=false] - With `autoDispose`: how long a table taken out of the page may stay out and still come back drawn. A number is a grace in ms; `true` keeps it for as long as it is out (it is disposed only by `dispose()`, and what it holds meanwhile is its own DOM — nothing on the document, and a follow timer that holds it weakly). A table put back within its grace is not disposed, however many tasks it was out.
+ * @property {Object|Array|Function} [filterKinds] - FILTER CONTROLS THAT ARE NOT TEXT BOXES, per column (an object or array keyed by column index, or `(colIdx, header) => spec`). A spec is `'text'` (the 0.4 box), `{kind: 'chips', options: [{value, label, icon?, title?}], multiple?}` (one-of-N chips with counts — an option whose value is `''` or null means "no filter"), or `{create(ctx)}` / a function `create(ctx)` for the consumer's own control (a date range, a person): `ctx` is `{column, header, value, counts, setValue(v), table}`, and it returns `{el, setValue?(v), setCounts?(c), destroy?(), match?(cellValue, filterValue, row)}`. A filter's value may then be anything (an array, an object): `query.filters` forwards it as it is, and on the client the control's `match` decides (chips: equality, or membership for `multiple`). The control is built once and kept across renders.
+ * @property {Function} [onFilterChange] - `(filters) => void` with `[{column, header, value}]`, whenever a column filter changes.
  */
 
 /** C10. When the scroll box has no layout — mounted hidden, or a DOM with no
@@ -402,8 +487,39 @@ export class DataTable {
             dateTimeFormat: null,
             durationFormat: null,
             dateTimeZone: 'local',
+            // 0.7.0. Off — or exactly the 0.6 behaviour — until set. The
+            // typedef says what each does.
+            rowDetail: null,
+            hasRowDetail: null,
+            expandedRows: null,
+            onRowDetailToggle: null,
+            rowDetailLabel: 'Details',
+            dataSource: null,
+            onLoad: null,
+            onLoadError: null,
+            hasMore: undefined,
+            pagerLabels: null,
+            pagerPosition: 'top',
+            maxJumpOffset: null,
+            follow: false,
+            onFollowChange: null,
+            keepWhileDetached: false,
+            filterKinds: null,
+            onFilterChange: null,
             ...config,
         };
+
+        // 0.7.0. Open details (by key), the server's half, follow, and the
+        // filter controls that are not text boxes.
+        this._expanded = new Set((this.config.expandedRows || []).map((k) => String(k)));
+        this._detailHeights = new Map();
+        this._source = null;
+        this._following = !!this.config.follow && !!this.config.dataSource;
+        this._followTimer = null;
+        this._newKeys = null;
+        this._filterControls = new Map();
+        this._filterCounts = new Map();
+        this._pendingFilter = null;
 
         // 0.5.0. The open row's key, and the failure on show (`setError`).
         this._activeKey = this.config.activeRow == null ? null : String(this.config.activeRow);
@@ -579,6 +695,20 @@ export class DataTable {
                 this._state.filters.clear();
             }
         }
+        // 0.7.0. A filter control belongs to a column; new columns, new
+        // controls (and no counts carried onto a column they did not count).
+        if (updates.headers && (this._filterControls.size || this._filterCounts.size)) {
+            const oldHeaders = this.config.headers;
+            const newHeaders = updates.headers;
+            if (oldHeaders.length !== newHeaders.length
+                || oldHeaders.some((h, i) => h !== newHeaders[i])) {
+                this._destroyFilterControls();
+                this._filterCounts.clear();
+            }
+        }
+        if (Object.prototype.hasOwnProperty.call(updates, 'filterKinds')) {
+            this._destroyFilterControls();
+        }
 
         Object.assign(this.config, updates);
 
@@ -630,7 +760,8 @@ export class DataTable {
         // table with an `emptyState`, the one thing that reads it: a table that
         // asks for nothing new keeps 0.4's wrapper to the attribute.
         this._wrapperEl.classList.toggle('twm-data-table-component--loading',
-                                         !!on && this.config.emptyState !== undefined);
+                                         !!on && (this.config.emptyState !== undefined
+                                                  || !!this.config.dataSource));
         let overlay = this._wrapperEl.querySelector('.twm-data-table__loading');
         if (on) {
             if (!overlay) {
@@ -763,6 +894,17 @@ export class DataTable {
      * @param {number} page - Page number (0-indexed)
      */
     goToPage(page) {
+        // 0.7.0 `dataSource`: the page is the SOURCE's — asked for, and drawn
+        // when it answers (the promise). Past a known total, the last page.
+        // (The release review: this set an offset nothing under a data source
+        // reads, and drew the same page again.)
+        if (this.config.dataSource) {
+            const size = Math.max(1, this.config.pageSize | 0);
+            let p = Math.max(0, Math.floor(Number(page)) || 0);
+            const total = this._source?.total;
+            if (typeof total === 'number') p = Math.min(p, Math.max(0, Math.ceil(total / size) - 1));
+            return this._sourceGoTo(p * size);
+        }
         const rowCount = this._getProcessedRows().length;
         const maxPage = Math.ceil(rowCount / this.config.pageSize) - 1;
         this._state.offset = Math.max(0, Math.min(page, maxPage)) * this.config.pageSize;
@@ -774,6 +916,11 @@ export class DataTable {
      * @param {number} rowIndex - Row index
      */
     goToRow(rowIndex) {
+        // 0.7.0 `dataSource`: the page that holds the row, from the source.
+        if (this.config.dataSource) {
+            const size = Math.max(1, this.config.pageSize | 0);
+            return this.goToPage(Math.floor(Math.max(0, Math.floor(Number(rowIndex)) || 0) / size));
+        }
         const rowCount = this._getProcessedRows().length;
         const idx = Math.max(0, Math.min(rowIndex, rowCount - 1));
         this._state.offset = Math.floor(idx / this.config.pageSize) * this.config.pageSize;
@@ -811,6 +958,9 @@ export class DataTable {
         this._awaitWithSpinner(ret);
         this._savePersisted();
         this.render();
+        // 0.7.0 `dataSource`: a new order is a new question, from its first
+        // page. Drawn first (the arrow moves at once), asked after.
+        if (this.config.dataSource) this._sourceLoad({ offset: 0, reason: 'sort' });
     }
 
     /** Internal: if `maybePromise` is a Promise (or thenable),
@@ -829,7 +979,18 @@ export class DataTable {
         this._processedRows = null;
         this._processedIndexMap = null;
         this._state.offset = 0;
+        this._pendingFilter = null;
         this._savePersisted();
+        // 0.7.0. Each control shows "no filter", and whoever listens hears it.
+        for (const { control } of this._filterControls.values()) {
+            try { control.setValue?.(null); } catch (err) { console.error('[DataTable] filter control setValue threw', err); }
+        }
+        this._notifyFilterChange();
+        if (this.config.dataSource) {
+            if (this._wrapperEl) this.render();
+            this._sourceLoad({ offset: 0, reason: 'filter' });
+            return;
+        }
         this.render();
     }
 
@@ -854,6 +1015,12 @@ export class DataTable {
         // navigation silently died the first time the store moved.
         const doc = this.container.ownerDocument;
         const hadTableFocus = !!this._tableEl && doc?.activeElement === this._tableEl;
+        // 0.7.0. Focus inside a filter control (it is kept and re-appended,
+        // which a move would blur) or on a row's detail toggle (rebuilt): put
+        // back after the render. And a filter still being typed under
+        // `dataSource` — an answer arriving mid-word re-renders the row.
+        const focus070 = this._captureFocus070(doc);
+        const pendingFilter = this.config.dataSource ? this._pendingFilter : null;
         // SCROLL POSITION SURVIVES A RE-RENDER, for the same reason: the scroll
         // box is rebuilt too, and a new one starts at the top. Folding a tree
         // row, or any refresh, threw a reader scrolled halfway down back to row
@@ -914,9 +1081,14 @@ export class DataTable {
         // Pagination (top). `_createPagination` returns null when the
         // strip would be uninformative (single page, no active filter). Not
         // with `paging`, whose own strip (under the body) replaces it.
-        if (pagination && rows.length > 0 && !this._pagingConfig()) {
+        // 0.7.0: under `dataSource` an empty page that is not the first still
+        // needs it — it is the way back.
+        this._paginationEl = null;
+        if (pagination && (rows.length > 0 || (this._source?.offset || 0) > 0) && !this._pagingConfig()) {
             this._paginationEl = this._createPagination();
-            if (this._paginationEl) this._wrapperEl.appendChild(this._paginationEl);
+            if (this._paginationEl && this.config.pagerPosition !== 'bottom') {
+                this._wrapperEl.appendChild(this._paginationEl);
+            }
         }
 
         // ── Structural split: thead and tbody live in separate
@@ -939,7 +1111,12 @@ export class DataTable {
             this._wrapperEl.appendChild(this._createErrorBanner());
         }
 
-        if (rows.length === 0) {
+        // 0.7.0. Under `dataSource` the rows ARE the filtered answer, so an
+        // empty one must keep the filter row — or a filter that matched nothing
+        // could never be cleared. It goes through `_createTable` and gets its
+        // empty row there.
+        const keepFilterRow = rows.length === 0 && !!this.config.dataSource && this.config.filterable;
+        if (rows.length === 0 && !keepFilterRow) {
             // Empty state — render the same chrome as the data table
             // (header row in its own non-scrolling wrap) followed by a
             // single virtual row spanning every column with the empty
@@ -979,30 +1156,7 @@ export class DataTable {
             const bodyTable = document.createElement('table');
             bodyTable.className = headerTable.className;
             const tbody = document.createElement('tbody');
-            const emptyTr = document.createElement('tr');
-            emptyTr.className = 'data-preview-row data-table__empty-row';
-            const colCount = headers.length + (showRowNumbers ? 1 : 0);
-            const emptyTd = document.createElement('td');
-            emptyTd.colSpan = colCount;
-            if (this._error) {
-                // 0.5.0. Nothing to keep: the failure takes the empty row.
-                emptyTd.className = 'twm-data-table__empty-cell twm-data-table__empty-cell--error';
-                emptyTd.setAttribute('role', 'alert');
-                this._appendStateContent(emptyTd, this._errorContent());
-            } else if (this.config.emptyState !== undefined) {
-                // 0.5.0. The consumer's own words (or node), styled by class
-                // rather than inline, and quiet while the table is loading.
-                emptyTd.className = 'twm-data-table__empty-cell twm-data-table__empty-cell--state';
-                const state = typeof this.config.emptyState === 'function'
-                    ? this.config.emptyState() : this.config.emptyState;
-                this._appendStateContent(emptyTd, state);
-            } else {
-                emptyTd.style.cssText
-                    = 'text-align:center; font-style:italic; color:#888; padding:16px;';
-                emptyTd.textContent = emptyMessage;
-            }
-            emptyTr.appendChild(emptyTd);
-            tbody.appendChild(emptyTr);
+            tbody.appendChild(this._buildEmptyRow(headers.length + (showRowNumbers ? 1 : 0), emptyMessage));
             bodyTable.appendChild(tbody);
             tableWrap.appendChild(bodyTable);
             this._wrapperEl.appendChild(tableWrap);
@@ -1031,11 +1185,24 @@ export class DataTable {
             } else {
                 this._headerTableEl = null;
             }
+            // 0.7.0 `keepFilterRow`: the header and its filters, then the
+            // empty (or failed) row the other branch would have drawn.
+            if (keepFilterRow && this._tbodyEl) {
+                const n = this.config.headers.length + (this.config.showRowNumbers ? 1 : 0);
+                this._tbodyEl.appendChild(this._buildEmptyRow(n, emptyMessage));
+            }
             tableWrap.appendChild(fullTable);
             this._wrapperEl.appendChild(tableWrap);
         }
 
         this._tableWrapEl = tableWrap;
+        // 0.7.0 `pagerPosition: 'bottom'`: under the rows.
+        if (this._paginationEl && this.config.pagerPosition === 'bottom') {
+            this._paginationEl.classList.add('twm-pagination-controls--bottom');
+            this._paginationEl.style.borderBottom = '0';
+            this._paginationEl.style.borderTop = '1px solid #2a2a2a';
+            this._wrapperEl.appendChild(this._paginationEl);
+        }
         // `paging`: the strip goes UNDER the body, where the reader's eye is
         // when they reach the end of what is held.
         this._pagingEl = null;
@@ -1119,7 +1286,8 @@ export class DataTable {
 
         // Install interactions (readonly only prevents editing, not selection/copy)
         if (rows.length > 0 && (this.config.selectable || this.config.copyable || !this.config.readonly
-                                || typeof this.config.onRowActivate === 'function')) {
+                                || typeof this.config.onRowActivate === 'function'
+                                || typeof this.config.rowDetail === 'function')) {
             this._installInteractions();
         }
 
@@ -1129,6 +1297,25 @@ export class DataTable {
         }
         else if (hadTableFocus && this._tableEl) {
             try { this._tableEl.focus({ preventScroll: true }); } catch (_) { /* detached */ }
+        }
+        else if (focus070) {
+            this._restoreFocus070(focus070);
+        }
+        // 0.7.0. The words still being typed, and their debounce, which
+        // `_cleanup` cleared.
+        if (pendingFilter) this._resumePendingFilter(pendingFilter);
+
+        // 0.7.0 `dataSource`: the first render asks for the first page; a
+        // render while a request is out keeps the overlay up; following
+        // resumes on a table drawn again.
+        if (this.config.dataSource) {
+            if (!this._source?.started) {
+                this._sourceState().started = true;
+                Promise.resolve().then(() => this._sourceLoad({ offset: 0, reason: 'initial' }));
+            } else if (this._source.inFlight) {
+                this.setLoading(true);
+            }
+            if (this._following && !this._followTimer) this._armFollow();
         }
     }
 
@@ -1257,6 +1444,19 @@ export class DataTable {
     _teardown(emptyHost) {
         autoDisposeUnwatch(this);
         this._autoSeen = false;
+        // 0.7.0. A grace still running, the follow timer, a request still out
+        // (its answer must not draw into a disposed table), and the filter
+        // controls (a picker may hang a menu on the body).
+        if (this._autoTimer) { clearTimeout(this._autoTimer); this._autoTimer = null; }
+        this._autoPending = false;
+        this._disarmFollow();
+        if (this._source) {
+            this._source.ticket++;
+            try { this._source.controller?.abort(); } catch (_) { /* gone */ }
+            this._source.controller = null;
+            this._source.inFlight = false;
+        }
+        this._destroyFilterControls();
         this._runOffs(this._activationOffs);
         this._activationOffs = [];
         this._cleanup();
@@ -1295,7 +1495,7 @@ export class DataTable {
     _getProcessedRows() {
         if (this._processedRows !== null) return this._processedRows;
 
-        const isServerSide = typeof this.config.onPageChange === 'function';
+        const isServerSide = this._isServerSide();
         let rows = this.config.rows;
         let indexMap = rows.map((_, i) => i);
 
@@ -1322,6 +1522,9 @@ export class DataTable {
         const filters = this._state.filters;
         const filteredRows = [];
         const filteredMap = [];
+        // 0.7.0: each column's control rule, asked once rather than per row.
+        const matchers = new Map();
+        for (const colIdx of filters.keys()) matchers.set(colIdx, this._filterMatcher(colIdx));
 
         for (let i = 0; i < rows.length; i++) {
             const row = rows[i];
@@ -1330,6 +1533,14 @@ export class DataTable {
             for (const [colIdx, filterText] of filters) {
                 if (!filterText) continue;
                 const value = row[colIdx];
+                // 0.7.0 `filterKinds`: a control that is not a text box decides
+                // by its own rule, over a value that need not be text.
+                const kindMatch = matchers.get(colIdx);
+                if (kindMatch) {
+                    if (this._isEmptyFilterValue(filterText)) continue;
+                    if (!kindMatch(value, filterText, row)) { pass = false; break; }
+                    continue;
+                }
                 const colType = this._valueKind(colIdx);
 
                 if (colType === 'num') {
@@ -1519,6 +1730,17 @@ export class DataTable {
         headers.forEach((header, colIdx) => {
             const th = document.createElement('th');
             th.className = 'data-table__filter-cell';
+
+            // 0.7.0 `filterKinds`: the consumer's (or the built-in chips')
+            // control in place of the text box — the SAME element every render.
+            const control = this._filterControlFor(colIdx, header);
+            if (control) {
+                th.classList.add('data-table__filter-cell--control');
+                th.addEventListener('click', (e) => e.stopPropagation());
+                if (control.el) th.appendChild(control.el);
+                tr.appendChild(th);
+                return;
+            }
 
             const wrapper = document.createElement('div');
             wrapper.className = 'twm-data-table__filter-wrapper';
@@ -1868,17 +2090,25 @@ export class DataTable {
         if (this._filterDebounceTimer) {
             clearTimeout(this._filterDebounceTimer);
         }
+        // 0.7.0. What is waiting, so a render under `dataSource` (an answer
+        // arriving mid-word) can put it back — see `_resumePendingFilter`.
+        this._pendingFilter = { colIdx, value };
         this._filterDebounceTimer = setTimeout(() => {
+            this._pendingFilter = null;
             this._onFilterInput(colIdx, value);
         }, 200);
     }
 
     _onFilterInput(colIdx, value) {
-        if (value) {
+        // 0.7.0. A filter value need not be text (a control's array, a range),
+        // and an empty one of those is no filter. Text is judged as in 0.4.
+        const empty = typeof value === 'string' ? !value : this._isEmptyFilterValue(value);
+        if (!empty) {
             this._state.filters.set(colIdx, value);
         } else {
             this._state.filters.delete(colIdx);
         }
+        this._pendingFilter = null;
 
         this._invalidateProcessedCache();
         this._state.offset = 0;
@@ -1886,7 +2116,38 @@ export class DataTable {
         this._state.anchorIndex = null;
 
         this._savePersisted();
+        // 0.7.0. The column's control shows the value, and listeners hear it.
+        const entry = this._filterControls.get(colIdx);
+        if (entry) {
+            try { entry.control.setValue?.(empty ? null : value); } catch (err) {
+                console.error('[DataTable] filter control setValue threw', err);
+            }
+        }
+        this._notifyFilterChange();
+        // 0.7.0 `dataSource`: the server filters. Nothing to redraw until it
+        // answers (the box shows what was typed); a control's own state
+        // changed, so it repaints itself.
+        if (this.config.dataSource) {
+            this._sourceLoad({ offset: 0, reason: 'filter' });
+            return;
+        }
         this.render();
+    }
+
+    /** 0.7.0. Put back a filter that was still being typed when a render
+     *  rebuilt its box: the words, and the debounce that will apply them. */
+    _resumePendingFilter({ colIdx, value }) {
+        const filterRow = this._wrapperEl?.querySelector('.twm-data-table__filter-row');
+        const cell = filterRow?.children[this.config.showRowNumbers ? colIdx + 1 : colIdx];
+        const input = cell?.querySelector('.twm-data-table__filter-input');
+        if (input && input.value !== value) {
+            const focused = input.ownerDocument?.activeElement === input;
+            input.value = value;
+            const clear = cell.querySelector('.twm-data-table__filter-clear');
+            if (clear) clear.style.display = value ? '' : 'none';
+            if (focused) input.setSelectionRange(value.length, value.length);
+        }
+        this._onFilterInputDebounced(colIdx, value);
     }
 
     _getActiveFilterColIdx() {
@@ -1992,6 +2253,10 @@ export class DataTable {
     }
 
     _createPagination() {
+        // 0.7.0. Any of the new pager's options takes the new pager, which
+        // draws the 0.6 strip's words for a known total and something honest
+        // for an unknown one. Without them, the 0.6 strip below, untouched.
+        if (this._usesPager070()) return this._createPager070();
         const { rows, pageSize, totalCount: configTotalCount, offset: configOffset, onPageChange, onJumpToRow } = this.config;
 
         // Server-side pagination uses config offset, client-side uses state offset
@@ -2377,12 +2642,17 @@ export class DataTable {
     }
 
     _createTable() {
-        const { headers, rows, pageSize, sortable, filterable, showRowNumbers, readonly, getHeaderIcon, onPageChange, offset: configOffset } = this.config;
+        const { headers, rows, pageSize, sortable, filterable, showRowNumbers, readonly, getHeaderIcon } = this.config;
         const { sortColumn, sortAscending } = this._state;
+        // 0.7.0 `dataSource`: a row's index is its place in the page drawn
+        // (`config.rows`), so every lookup by index — selection, copy,
+        // `updateRow` — reads the row it means on any page. The page's offset
+        // is the server's, and only numbers the rows.
+        const configOffset = this.config.dataSource ? 0 : this.config.offset;
 
         // Server-side pagination: rows already represent current page, use config offset for row numbering
         // Client-side pagination: use processed (filtered+sorted) rows, then slice for current page
-        const isServerSide = typeof onPageChange === 'function';
+        const isServerSide = this._isServerSide();
         const processedRows = isServerSide ? rows : this._getProcessedRows();
         const offset = isServerSide ? (configOffset || 0) : this._state.offset;
         // NO PAGINATION MEANS NO PAGES. This used to slice to `pageSize` either
@@ -2487,7 +2757,8 @@ export class DataTable {
 
         // 0.5.0 `showRowNumbers: 'position'`: where the first row drawn here
         // stands in the order SHOWN (the page's first row on a later page).
-        this._positionBase = isServerSide ? (configOffset || 0)
+        this._positionBase = this.config.dataSource ? (this._source?.offset || 0)
+            : isServerSide ? (configOffset || 0)
             : (this.config.pagination ? offset : 0);
         // `paging`: a page's rows stand at its offset in the SOURCE, which only
         // the numbering reads — their indexes stay those of `rows`.
@@ -2505,7 +2776,10 @@ export class DataTable {
             });
         } else {
             pageRows.forEach((row, localIdx) => {
-                tbody.appendChild(this._buildBodyRow(row, globalOf(localIdx), localIdx));
+                const tr = this._buildBodyRow(row, globalOf(localIdx), localIdx);
+                tbody.appendChild(tr);
+                // 0.7.0 `rowDetail`: an open detail goes in right under its row.
+                if (this._detailOn()) this._appendDetailIfOpen(tr, null);
             });
         }
 
@@ -2669,6 +2943,9 @@ export class DataTable {
         const offsets = new Float64Array(n + 1);
         const fn = typeof this.config.virtualRowHeight === 'function'
             ? this.config.virtualRowHeight : null;
+        // 0.7.0 `rowDetail`: an open detail is part of its row's height —
+        // measured once drawn, estimated until then.
+        const details = this._detailOn() && this._expanded.size > 0;
         let y = 0;
         for (let i = 0; i < n; i++) {
             let h = v.base;
@@ -2676,6 +2953,7 @@ export class DataTable {
                 const asked = fn(v.globalOf(i), v.base);
                 h = Number.isFinite(asked) && asked > 0 ? asked : 0;
             }
+            if (details && h > 0) h += this._detailHeightOf(v.rows[i], v.globalOf(i), v.base);
             heights[i] = h;
             offsets[i] = y;
             y += h;
@@ -2818,7 +3096,12 @@ export class DataTable {
         for (let i = start; i < end; i++) if (v.heights[i] > 0) want.push(i);
         const wanted = new Set(want);
         for (const [i, tr] of v.map) {
-            if (!wanted.has(i)) { tr.remove(); v.map.delete(i); removed?.push(tr); }
+            if (!wanted.has(i)) {
+                tr.remove();
+                this._removeDetailPieces(tr);   // 0.7.0: its detail goes with it
+                v.map.delete(i);
+                removed?.push(tr);
+            }
         }
         v.start = start;
         v.end = end;
@@ -2835,10 +3118,14 @@ export class DataTable {
             const tr = this._buildBodyRow(v.rows[i], v.globalOf(i), i);
             v.map.set(i, tr);
             tbody.insertBefore(tr, ref);
+            // 0.7.0: an open detail between the row and the one after it.
+            if (this._detailOn()) this._appendDetailIfOpen(tr, ref);
             ref = tr;
             added.push(tr);
         }
         added.reverse();
+        // 0.7.0: the details just drawn have a real height now.
+        if (this._detailOn() && added.length) this._virtMeasureDetails(added);
         return added;
     }
 
@@ -3054,6 +3341,9 @@ export class DataTable {
             if (colIdx === 0 && typeof this.config.rowIcon === 'function') {
                 this._prependRowIcon(td, this.config.rowIcon(row, globalIdx));
             }
+            // 0.7.0 `rowDetail`: the toggle, in front of everything in the
+            // first data cell.
+            if (colIdx === 0 && this._detailOn()) this._prependDetailToggle(td, tr, row, globalIdx);
 
             // Cell-level right-click hook (P2). Fires before the row-level
             // hook and the built-in context menu — the caller can
@@ -3173,11 +3463,1048 @@ export class DataTable {
         // 0.5.0. The row's data changed, so its classes, attributes, key and
         // open mark are asked again (a key paused, a delivery that died).
         this._decorateRow(tr, row, index);
+        // 0.7.0. An open detail is of the row's data, so it is drawn again.
+        if (this._detailOn()) this._redrawDetail(tr);
 
         if (focusedCol >= 0 && tr.children[focusedCol]) {
             tr.children[focusedCol].focus?.();
         }
         return true;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // 0.7.0 — a row's detail (#26)
+    // ─────────────────────────────────────────────────────────────────
+    //
+    // A detail is TWO rows after its row: the detail itself (one cell across
+    // every column) and a hidden filler. The filler is the stripe: rows are
+    // striped by `tr:nth-child(even)`, a question about POSITION, and one extra
+    // row would flip the stripe of every row below an open detail. Two keep
+    // the parity — the trick `_virtSpacers` already plays for the window.
+    //
+    // Neither row has a `__rowIndex`, so everything that walks the body for
+    // rows of data (selection, the open mark, `_firstBodyRow`, `getRowElement`,
+    // the activation and the copy menu) steps over them as it steps over a
+    // spacer.
+
+    _detailOn() {
+        return typeof this.config.rowDetail === 'function';
+    }
+
+    _rowHasDetail(row, rowIdx) {
+        const fn = this.config.hasRowDetail;
+        if (typeof fn !== 'function') return true;
+        try { return !!fn(row, rowIdx); } catch (err) {
+            console.error('[DataTable] hasRowDetail threw', err);
+            return false;
+        }
+    }
+
+    /** The toggle: a real `<button>` (so Enter and Space work on it, and it is
+     *  a control `onRowActivate` leaves alone), its glyph drawn by CSS so the
+     *  cell's text, its tooltip and a copy stay the cell's own. */
+    _prependDetailToggle(td, tr, row, rowIdx) {
+        if (!this._rowHasDetail(row, rowIdx)) {
+            // A row with no detail keeps the toggle's room, so its first cell's
+            // text lines up with the rows that have one.
+            const gap = document.createElement('span');
+            gap.className = 'twm-dt-detail-toggle-gap';
+            gap.setAttribute('aria-hidden', 'true');
+            td.insertBefore(gap, td.firstChild);
+            return;
+        }
+        const key = this._rowKey(row, rowIdx);
+        const open = key !== null && this._expanded.has(key);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'material-symbols-outlined twm-dt-detail-toggle';
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        btn.setAttribute('aria-label', String(this.config.rowDetailLabel || 'Details'));
+        btn.title = String(this.config.rowDetailLabel || 'Details');
+        btn.addEventListener('click', (ev) => {
+            // Its own gesture: it neither selects nor opens the row.
+            ev.preventDefault();
+            ev.stopPropagation();
+            this._setRowElExpanded(tr, btn.getAttribute('aria-expanded') !== 'true', ev);
+        });
+        td.insertBefore(btn, td.firstChild);
+        td.classList.add('twm-dt-cell--has-detail-toggle');
+        tr.classList.add('twm-dt-row--has-detail');
+    }
+
+    /** After `tr` has been placed: its open detail, in front of `ref` (the row
+     *  after it, or null for the end of the body). */
+    _appendDetailIfOpen(tr, ref) {
+        const row = tr.__row;
+        const idx = tr.__rowIndex;
+        if (!this._rowHasDetail(row, idx)) return;
+        const key = this._rowKey(row, idx);
+        if (key === null || !this._expanded.has(key)) return;
+        const pieces = this._buildDetailPieces(tr, key);
+        const parent = tr.parentNode;
+        if (!parent) return;
+        for (const p of pieces) parent.insertBefore(p, ref);
+    }
+
+    _buildDetailPieces(tr, key) {
+        const n = (this.config.headers?.length || 0) + (this.config.showRowNumbers ? 1 : 0);
+        const detailTr = document.createElement('tr');
+        detailTr.className = 'twm-dt-detail-row';
+        const td = document.createElement('td');
+        td.className = 'twm-dt-detail-cell';
+        td.colSpan = Math.max(1, n);
+        const host = document.createElement('div');
+        host.className = 'twm-dt-detail';
+        DETAIL_SEQ.n += 1;
+        host.id = `twm-dt-detail-${DETAIL_SEQ.n}`;
+        td.appendChild(host);
+        detailTr.appendChild(td);
+        const filler = document.createElement('tr');
+        filler.className = 'twm-dt-detail-filler';
+        filler.hidden = true;
+        filler.setAttribute('aria-hidden', 'true');
+        detailTr.__detailOf = tr;
+        tr.__detail = [detailTr, filler];
+        this._drawDetail(tr, host, key);
+        const btn = tr.querySelector(':scope > td > .twm-dt-detail-toggle');
+        if (btn) btn.setAttribute('aria-controls', host.id);
+        return tr.__detail;
+    }
+
+    _drawDetail(tr, host, key) {
+        host.replaceChildren();
+        let out;
+        try {
+            out = this.config.rowDetail(tr.__row, tr.__rowIndex, { host, key, table: this });
+        } catch (err) {
+            console.error('[DataTable] rowDetail threw', err);
+            out = err?.message || String(err);
+        }
+        if (out == null || out === false || out === host) return;
+        if (typeof Node !== 'undefined' && out instanceof Node) host.appendChild(out);
+        else host.textContent = String(out);
+    }
+
+    _removeDetailPieces(tr) {
+        const pieces = tr.__detail;
+        if (!pieces) return;
+        for (const p of pieces) p.remove();
+        tr.__detail = null;
+        const btn = tr.querySelector(':scope > td > .twm-dt-detail-toggle');
+        if (btn) btn.removeAttribute('aria-controls');
+    }
+
+    /** `updateRow`'s half: the detail follows the row's new data. */
+    _redrawDetail(tr) {
+        const key = this._rowKey(tr.__row, tr.__rowIndex);
+        const want = this._rowHasDetail(tr.__row, tr.__rowIndex) && key !== null && this._expanded.has(key);
+        const pieces = tr.__detail;
+        if (!want) { if (pieces) this._removeDetailPieces(tr); return; }
+        if (pieces) {
+            const host = pieces[0].querySelector('.twm-dt-detail');
+            if (host) {
+                this._drawDetail(tr, host, key);
+                const btn = tr.querySelector(':scope > td > .twm-dt-detail-toggle');
+                if (btn) btn.setAttribute('aria-controls', host.id);
+            }
+            return;
+        }
+        if (tr.parentNode) this._appendDetailIfOpen(tr, tr.nextSibling);
+    }
+
+    /** Open or close the detail of the row `tr` draws. Returns whether
+     *  anything changed. */
+    _setRowElExpanded(tr, open, ev = null) {
+        if (!this._detailOn() || tr.__rowIndex === undefined) return false;
+        if (!this._rowHasDetail(tr.__row, tr.__rowIndex)) return false;
+        const key = this._rowKey(tr.__row, tr.__rowIndex);
+        if (key === null || this._expanded.has(key) === !!open) return false;
+        if (open) this._expanded.add(key); else this._expanded.delete(key);
+        this._syncDetailOnScreen(tr, key);
+        this._afterDetailChange();
+        try { this.config.onRowDetailToggle?.(tr.__rowIndex, tr.__row, !!open, key, ev); } catch (err) {
+            console.error('[DataTable] onRowDetailToggle threw', err);
+        }
+        return true;
+    }
+
+    /** Make the row on screen agree with `_expanded` for its key. */
+    _syncDetailOnScreen(tr, key) {
+        const open = this._expanded.has(key);
+        const btn = tr.querySelector(':scope > td > .twm-dt-detail-toggle');
+        if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (open && !tr.__detail && tr.parentNode) {
+            const ref = tr.nextSibling;
+            for (const p of this._buildDetailPieces(tr, key)) tr.parentNode.insertBefore(p, ref);
+        } else if (!open && tr.__detail) {
+            this._removeDetailPieces(tr);
+        }
+    }
+
+    /** Under `virtualize` an open detail is part of its row's height. */
+    _afterDetailChange() {
+        if (!this._virt) return;
+        this._virtMeasureDetails([...this._virt.map.values()], { force: true });
+    }
+
+    /** The detail's height for row `i` of the window's list: 0 closed, the
+     *  measured height open, three rows until it has been measured. */
+    _detailHeightOf(row, rowIdx, base) {
+        if (!this._rowHasDetail(row, rowIdx)) return 0;
+        const key = this._rowKey(row, rowIdx);
+        if (key === null || !this._expanded.has(key)) return 0;
+        const h = this._detailHeights.get(key);
+        return h > 0 ? h : base * 3;
+    }
+
+    /** Measure the open details among `trs` (client pixels, the zoom divided
+     *  out, as `_virtMeasure` does), and re-lay the window if one changed. */
+    _virtMeasureDetails(trs, { force = false } = {}) {
+        const v = this._virt;
+        if (!v) return;
+        let changed = force;
+        const zoom = this._tableEl?.currentCSSZoom || 1;
+        for (const tr of trs) {
+            const d = tr?.__detail?.[0];
+            if (!d || !d.isConnected) continue;
+            const h = d.getBoundingClientRect().height / zoom;
+            if (!(h > 0)) continue;
+            const key = this._rowKey(tr.__row, tr.__rowIndex);
+            if (Math.abs((this._detailHeights.get(key) || 0) - h) > 0.5) {
+                this._detailHeights.set(key, h);
+                changed = true;
+            }
+        }
+        if (!changed) return;
+        this._virtComputeOffsets();
+        this._virtSpacers();
+    }
+
+    /**
+     * Open (or close) the detail of the row whose key is `key` (`getRowKey`,
+     * else the row's index). A row not on screen — another page, outside the
+     * window, filtered out — opens when it is drawn.
+     *
+     * @param {*} key
+     * @param {boolean} [open=true]
+     * @returns {boolean} whether anything changed
+     */
+    setRowExpanded(key, open = true) {
+        if (key == null) return false;
+        const k = String(key);
+        if (this._expanded.has(k) === !!open) return false;
+        if (open) this._expanded.add(k); else this._expanded.delete(k);
+        const tr = this._rowElByKey(k);
+        if (tr) {
+            this._syncDetailOnScreen(tr, k);
+            try { this.config.onRowDetailToggle?.(tr.__rowIndex, tr.__row, !!open, k, null); } catch (err) {
+                console.error('[DataTable] onRowDetailToggle threw', err);
+            }
+        }
+        if (this._virt) {
+            this._virtComputeOffsets();
+            this._virtSpacers();
+            this._afterDetailChange();
+        }
+        return true;
+    }
+
+    /** Whether the row whose key is `key` has its detail open. */
+    isRowExpanded(key) {
+        return key != null && this._expanded.has(String(key));
+    }
+
+    /** The keys of the rows whose detail is open, as text. */
+    getExpandedRows() {
+        return [...this._expanded];
+    }
+
+    /** Close every detail. */
+    collapseAllRows() {
+        for (const k of [...this._expanded]) this.setRowExpanded(k, false);
+    }
+
+    /** The `<tr>` on screen for a key, or null. */
+    _rowElByKey(key) {
+        const tbody = this._tbodyEl;
+        if (!tbody) return null;
+        for (const tr of tbody.children) {
+            if (tr.__rowIndex === undefined) continue;
+            if (this._rowKey(tr.__row, tr.__rowIndex) === key) return tr;
+        }
+        return null;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // 0.7.0 — rows from a server (#33), the pager for an unknown total
+    // (#35), refresh and follow (#36)
+    // ─────────────────────────────────────────────────────────────────
+    //
+    // ONE QUESTION AT A TIME, AND ONLY THE NEWEST ANSWER. Every request takes
+    // a ticket; an answer whose ticket is not the latest is dropped, and the
+    // request it answered is aborted the moment a newer one is sent. Two
+    // requests in flight from a fast typist otherwise race, and the loser
+    // painting last is a list that does not match the box above it.
+
+    /** Rows that are the current page of something larger (`onPageChange`,
+     *  or 0.7.0's `dataSource`): drawn as given, never filtered, sorted or
+     *  sliced here. */
+    _isServerSide() {
+        return typeof this.config.onPageChange === 'function' || !!this.config.dataSource;
+    }
+
+    /** `autoDispose`'s grace in ms: one task, `keepWhileDetached`'s number,
+     *  or Infinity for `true`. */
+    _detachGrace() {
+        const k = this.config.keepWhileDetached;
+        if (k === true) return Infinity;
+        if (typeof k === 'number' && Number.isFinite(k) && k > 0) return k;
+        if (k === Infinity) return Infinity;
+        return 0;
+    }
+
+    _sourceState() {
+        if (!this._source) {
+            this._source = {
+                started: false, ticket: 0, controller: null, inFlight: false,
+                offset: 0, pendingOffset: 0, total: null, hasMore: false,
+                query: null, loaded: false,
+            };
+        }
+        return this._source;
+    }
+
+    /** The column filters, as a query and `onFilterChange` carry them. */
+    _filterList() {
+        const headers = this.config.headers || [];
+        const out = [];
+        for (const [column, value] of this._state.filters) {
+            if (typeof value === 'string' ? !value : this._isEmptyFilterValue(value)) continue;
+            out.push({ column, header: headers[column], value });
+        }
+        return out.sort((a, b) => a.column - b.column);
+    }
+
+    _buildQuery(offset, reason) {
+        const col = this._state.sortColumn;
+        return {
+            offset,
+            limit: this.config.pageSize,
+            sort: col == null ? null : {
+                column: col, header: (this.config.headers || [])[col], ascending: this._state.sortAscending,
+            },
+            filters: this._filterList(),
+            reason,
+        };
+    }
+
+    /**
+     * Ask the source for the page at `offset`, and draw the answer if it is
+     * still the newest by then. Resolves with the answer drawn, or undefined
+     * when it was dropped (superseded, failed, or the table was disposed).
+     */
+    async _sourceLoad({ offset = 0, reason = 'reload', keep = false } = {}) {
+        const fetch = this.config.dataSource;
+        if (typeof fetch !== 'function') return undefined;
+        const src = this._sourceState();
+        src.started = true;
+        const ticket = ++src.ticket;
+        try { src.controller?.abort(); } catch (_) { /* gone */ }
+        const controller = typeof AbortController === 'function' ? new AbortController() : null;
+        src.controller = controller;
+        const query = this._buildQuery(Math.max(0, offset | 0), reason);
+        src.query = query;
+        src.inFlight = true;
+        src.pendingOffset = query.offset;
+        this.setLoading(true);
+        let result;
+        try {
+            result = await fetch(query, { signal: controller?.signal });
+        } catch (err) {
+            if (ticket !== src.ticket) return undefined;      // superseded or disposed
+            src.inFlight = false;
+            src.controller = null;
+            if (err?.name === 'AbortError' || controller?.signal?.aborted) {
+                this.setLoading(false);
+                return undefined;
+            }
+            // THE ROWS ON SCREEN STAY: a failed refresh does not blank a list a
+            // person was reading. `setError` keeps them under its banner.
+            this.setError(err);
+            try { this.config.onLoadError?.(err, query); } catch (e) { console.error('[DataTable] onLoadError threw', e); }
+            return undefined;
+        }
+        if (ticket !== src.ticket) return undefined;          // a newer question is out
+        src.inFlight = false;
+        src.controller = null;
+        this._applySourceResult(result, query, { keep });
+        try { this.config.onLoad?.(result, query); } catch (e) { console.error('[DataTable] onLoad threw', e); }
+        return result;
+    }
+
+    _applySourceResult(result, query, { keep = false } = {}) {
+        const src = this._sourceState();
+        const r = Array.isArray(result) ? { rows: result } : (result || {});
+        const rows = Array.isArray(r.rows) ? r.rows : [];
+        const totalRaw = r.total ?? r.totalCount;
+        const total = typeof totalRaw === 'number' && Number.isFinite(totalRaw) ? totalRaw : null;
+        const hasMore = typeof r.hasMore === 'boolean' ? r.hasMore
+            : total !== null ? query.offset + rows.length < total
+            : rows.length >= query.limit;
+        // WITHOUT `getRowKey`, A DETAIL IS OPEN AT A PLACE, and a place in one
+        // answer says nothing about which row stands there in the next: page 2's
+        // first row is not page 1's, and a sort or a new arrival moves every
+        // row. So an index-keyed detail stays open only where the new answer
+        // has the SAME row (equal values) at its place; `expandedRows` applies
+        // to the first answer as given. (The release review: a detail opened on
+        // page 1 opened the same place on page 2, under another row.)
+        if (src.loaded && this._detailOn() && this._expanded.size
+            && typeof this.config.getRowKey !== 'function') {
+            const before = this.config.rows || [];
+            const same = (a, b) => {
+                if (a === b) return true;
+                try { return JSON.stringify(a) === JSON.stringify(b); } catch (_) { return false; }
+            };
+            for (const k of [...this._expanded]) {
+                const i = Number(k);
+                if (!Number.isInteger(i) || i < 0 || i >= rows.length || !same(before[i], rows[i])) {
+                    this._expanded.delete(k);
+                    this._detailHeights.delete(k);
+                }
+            }
+        }
+        // The page drawn — so the pager says where these rows ARE.
+        src.offset = query.offset;
+        src.total = total;
+        src.hasMore = hasMore;
+        src.loaded = true;
+        if (r.filterCounts && typeof r.filterCounts === 'object') this.setFilterCounts(r.filterCounts);
+
+        const snap = keep ? this._snapshotView() : null;
+        // Rows the last answer did not hold — marked as new (only by key: an
+        // index says nothing about which row is which across two answers).
+        if (snap && snap.keys && snap.keys.size && typeof this.config.getRowKey === 'function') {
+            const fresh = new Set();
+            rows.forEach((row, i) => {
+                const k = this._rowKey(row, i);
+                if (k !== null && !snap.keys.has(k)) fresh.add(k);
+            });
+            this._newKeys = fresh.size ? fresh : null;
+        } else {
+            this._newKeys = null;
+        }
+        this.setData({ rows });
+        this._newKeys = null;
+        if (snap) this._restoreView(snap);
+        else this._scrollBodyTo(0);   // a new question starts at the top of its answer
+    }
+
+    /** What a refresh must put back: the keys on screen, the selection by
+     *  key, and the first row a reader can see with where it stood. */
+    _snapshotView() {
+        const rows = this.config.rows || [];
+        const keyed = typeof this.config.getRowKey === 'function';
+        const keys = keyed ? new Set(rows.map((row, i) => this._rowKey(row, i))) : null;
+        const selectedKeys = keyed
+            ? this.getSelection().map((i) => this._rowKey(rows[i], i)).filter((k) => k !== null)
+            : null;
+        const wrap = this._tableWrapEl;
+        let anchor = null;
+        const scrollTop = wrap?.scrollTop || 0;
+        if (wrap && scrollTop > 0 && this._tbodyEl) {
+            const zoom = this._tableEl?.currentCSSZoom || 1;
+            const top = wrap.getBoundingClientRect().top;
+            for (const tr of this._tbodyEl.children) {
+                if (tr.__rowIndex === undefined) continue;
+                const box = tr.getBoundingClientRect();
+                if (box.bottom > top + 0.5) {
+                    anchor = { key: this._rowKey(tr.__row, tr.__rowIndex), delta: (box.top - top) / zoom };
+                    break;
+                }
+            }
+        }
+        return { keys, selectedKeys, anchor, scrollTop };
+    }
+
+    _restoreView(snap) {
+        // The selection, by key: the rows a person chose are still chosen
+        // wherever the new answer put them.
+        if (snap.selectedKeys && snap.selectedKeys.length) {
+            const want = new Set(snap.selectedKeys);
+            const sel = this._state.selected;
+            (this.config.rows || []).forEach((row, i) => {
+                if (want.has(this._rowKey(row, i))) sel.add(i);
+            });
+            if (sel.size) {
+                this._state.anchorIndex = [...sel][0];
+                this._updateRowSelection();
+                this._notifySelectionChange();
+            }
+        }
+        // THE SCROLL POSITION: a reader at the top sees what arrived (that is
+        // following); a reader scrolled down keeps the rows they were reading
+        // where they were — new rows above push the scroll, not the rows.
+        const wrap = this._tableWrapEl;
+        if (!wrap || !snap.anchor || snap.anchor.key === null) return;
+        const rows = this.config.rows || [];
+        const idx = rows.findIndex((row, i) => this._rowKey(row, i) === snap.anchor.key);
+        if (idx < 0) return;
+        const zoom = this._tableEl?.currentCSSZoom || 1;
+        if (this._virt) {
+            const local = this._virtLocalOf(idx);
+            if (local < 0) return;
+            this._scrollBodyTo(Math.max(0, this._virt.offsets[local] - snap.anchor.delta));
+            return;
+        }
+        const tr = this.getRowElement(idx);
+        if (!tr) return;
+        const now = (tr.getBoundingClientRect().top - wrap.getBoundingClientRect().top) / zoom;
+        const shift = now - snap.anchor.delta;
+        if (Math.abs(shift) >= 0.5) this._scrollBodyTo(wrap.scrollTop + shift);
+    }
+
+    _scrollBodyTo(top) {
+        const wrap = this._tableWrapEl;
+        if (!wrap) return;
+        if (Math.abs((wrap.scrollTop || 0) - top) >= 0.5) wrap.scrollTop = top;
+        if (this._virt) this._virtUpdate({ force: true, top });
+    }
+
+    /** Go to the page at `offset` (paging back stops following). */
+    _sourceGoTo(offset) {
+        const next = Math.max(0, offset | 0);
+        // PAGING AWAY TURNS FOLLOWING OFF, and coming back does not turn it on
+        // again by itself: a reader who left the tail to read an old page is
+        // never pulled back to it by the next tick.
+        if (this._following && next > 0) this.setFollow(false);
+        return this._sourceLoad({ offset: next, reason: 'page' });
+    }
+
+    /**
+     * Ask the source again from its FIRST page — for a consumer whose own
+     * filters (outside the table) changed. Under `dataSource` only; resolves
+     * with the answer drawn (undefined when it was superseded or failed).
+     */
+    reload() {
+        if (!this.config.dataSource) return Promise.resolve(undefined);
+        return this._sourceLoad({ offset: 0, reason: 'reload' });
+    }
+
+    /**
+     * Read the CURRENT page again, in place: the scroll position (a reader at
+     * the top sees what arrived; one scrolled down keeps the rows they were
+     * reading where they were), the selection by key, the open row and the
+     * open details all stay; rows the last answer did not hold are drawn
+     * `twm-dt-row--new` (needs `getRowKey`). What `follow` calls on its tick.
+     * Without `dataSource`, it only draws again.
+     */
+    refresh() {
+        if (!this.config.dataSource) {
+            if (this._wrapperEl) this.render();
+            return Promise.resolve(undefined);
+        }
+        const src = this._sourceState();
+        const offset = src.inFlight ? src.pendingOffset : src.offset;
+        return this._sourceLoad({ offset, reason: 'refresh', keep: true });
+    }
+
+    /** The last query sent to `dataSource`, or null. */
+    getQuery() {
+        return this._source?.query || null;
+    }
+
+    /** What the last answer said about the whole: `{offset, total, hasMore}`. */
+    getPageInfo() {
+        const s = this._source;
+        return s ? { offset: s.offset, total: s.total, hasMore: s.hasMore } : null;
+    }
+
+    /**
+     * Turn following on or off (`follow`). On, the first page is read again
+     * every `follow.interval` ms while the table is on it and in the page.
+     */
+    setFollow(on) {
+        const next = !!on;
+        if (next === this._following) return;
+        this._following = next;
+        if (next) this._armFollow(); else this._disarmFollow();
+        try { this.config.onFollowChange?.(next); } catch (err) { console.error('[DataTable] onFollowChange threw', err); }
+    }
+
+    isFollowing() {
+        return this._following;
+    }
+
+    _followInterval() {
+        const f = this.config.follow;
+        const ms = f && typeof f === 'object' ? Number(f.interval) : NaN;
+        return Number.isFinite(ms) && ms > 0 ? ms : 10_000;
+    }
+
+    /** The tick holds the table WEAKLY: a follow timer must never be what keeps
+     *  a table nobody holds alive (`keepWhileDetached: true`). */
+    _armFollow() {
+        this._disarmFollow();
+        if (!this._following || !this.config.dataSource || !this._wrapperEl) return;
+        const ref = weakRef(this);
+        const id = setInterval(() => {
+            const t = ref.deref();
+            if (!t || t._followTimer !== id) { clearInterval(id); return; }
+            const src = t._source;
+            if (!t._following || !src || src.inFlight) return;
+            if ((src.offset || 0) !== 0) return;              // only on the first page
+            if (!t._wrapperEl?.isConnected) return;           // not while out of the page
+            if (t._readerIsBusy()) return;                    // not under a reader (below)
+            t.refresh();
+        }, this._followInterval());
+        this._followTimer = id;
+    }
+
+    _disarmFollow() {
+        if (this._followTimer) clearInterval(this._followTimer);
+        this._followTimer = null;
+    }
+
+    /** A TICK WAITS FOR A READER. A refresh redraws every row and every open
+     *  detail, so a tick that came while somebody was selecting text in the
+     *  table (a stack trace to copy) or working inside an open detail took the
+     *  text out from under the selection and the focus out of the detail —
+     *  every interval, for as long as they stayed. The tick is skipped
+     *  instead, and following resumes on the next one after (the release
+     *  review). `refresh()` called by the consumer is not a tick and does not
+     *  wait. */
+    _readerIsBusy() {
+        const wrap = this._tableWrapEl;
+        const doc = wrap?.ownerDocument;
+        if (!wrap || !doc) return false;
+        const active = doc.activeElement;
+        if (active && active !== wrap && wrap.contains(active)
+            && active.closest?.('.twm-dt-detail')) return true;
+        try {
+            const sel = doc.defaultView?.getSelection?.();
+            if (sel && !sel.isCollapsed && sel.rangeCount > 0) {
+                for (let i = 0; i < sel.rangeCount; i++) {
+                    const r = sel.getRangeAt(i);
+                    if (wrap.contains(r.startContainer) || wrap.contains(r.endContainer)) return true;
+                }
+            }
+        } catch (_) { /* no selection API */ }
+        return false;
+    }
+
+    // ── the pager (#35) ────────────────────────────────────────────────
+
+    _usesPager070() {
+        const c = this.config;
+        return !!c.dataSource || !!c.pagerLabels || c.maxJumpOffset != null
+            || (typeof c.onPageChange === 'function' && c.totalCount == null && typeof c.hasMore === 'boolean');
+    }
+
+    _pagerLabel(name) {
+        const labels = this.config.pagerLabels || {};
+        return labels[name];
+    }
+
+    _pagerRefusalTooDeep() {
+        const max = this.config.maxJumpOffset;
+        const fn = this._pagerLabel('tooDeep');
+        if (typeof fn === 'function') return String(fn(max));
+        if (typeof fn === 'string') return fn;
+        return `Past ${Number(max).toLocaleString()} rows. Narrow the filters first.`;
+    }
+
+    _pagerButton(icon, name, tip, disabled, onClick, refusal = null) {
+        const label = this._pagerLabel(name);
+        const btn = this._createPaginationBtn(icon, typeof label === 'string' ? label : tip,
+                                              disabled || !!refusal, onClick);
+        btn.dataset.pager = name;
+        if (typeof label === 'string' && label) {
+            const span = document.createElement('span');
+            span.className = 'twm-pagination-btn__label';
+            span.textContent = label;
+            btn.appendChild(span);
+            btn.classList.add('twm-pagination-btn--labelled');
+            btn.style.padding = '1px 6px 1px 3px';
+        }
+        if (refusal) {
+            // The reason is ON the control, where a person looks and a test can
+            // read it — not only in a tooltip.
+            btn.dataset.refusal = refusal;
+            btn.setAttribute('data-tooltip', refusal);
+            btn.title = refusal;
+        }
+        return btn;
+    }
+
+    /**
+     * The pager for any mode, with the two things the 0.6 strip could not do:
+     * an UNKNOWN total (no "of N", no last page, Next until a short page) and
+     * a REFUSED deep jump (`maxJumpOffset`). For a known total its words are
+     * the 0.6 strip's.
+     */
+    _createPager070() {
+        const c = this.config;
+        const { rows, pageSize } = c;
+        const source = !!c.dataSource;
+        const server = !source && typeof c.onPageChange === 'function';
+        const src = this._source || { offset: 0, total: null, hasMore: false };
+        const offset = source ? src.offset : server ? (c.offset || 0) : this._state.offset;
+        let total;
+        let hasMoreKnown;
+        if (source) {
+            total = src.total;
+            hasMoreKnown = src.hasMore;
+        } else if (server) {
+            const unknown = c.totalCount == null && typeof c.hasMore === 'boolean';
+            total = unknown ? null : (c.totalCount || rows.length);
+            hasMoreKnown = unknown ? c.hasMore : null;
+        } else {
+            total = this._getProcessedRows().length;
+            hasMoreKnown = null;
+        }
+        const known = typeof total === 'number' && Number.isFinite(total);
+        const isFiltered = !source && !server && this._state.filters.size > 0;
+        const unfilteredTotal = !source && !server ? rows.length : total;
+        const drawn = source || server ? rows.length : Math.max(0, Math.min(pageSize, total - offset));
+        const hasPrev = offset > 0;
+        const hasNext = known ? offset + pageSize < total : !!hasMoreKnown;
+        const totalPages = known ? Math.max(1, Math.ceil(total / pageSize)) : null;
+        if (known && totalPages <= 1 && !isFiltered && !hasPrev) return null;
+        if (!known && !hasPrev && !hasNext) return null;
+        const page = Math.floor(offset / pageSize) + 1;
+        const maxJump = Number.isFinite(c.maxJumpOffset) ? c.maxJumpOffset : null;
+
+        const go = (newOffset) => {
+            if (source) { this._sourceGoTo(newOffset); return; }
+            if (server) { this._awaitWithSpinner(c.onPageChange(newOffset, pageSize)); return; }
+            this._state.offset = newOffset;
+            this.render();
+        };
+
+        const el = document.createElement('div');
+        el.className = 'twm-pagination-controls';
+        if (!known) el.classList.add('twm-pagination-controls--unknown-total');
+        el.style.cssText = 'display:flex; align-items:center; gap:6px; padding:2px 8px; border-bottom:1px solid #2a2a2a; font-size:11px;';
+
+        const info = document.createElement('span');
+        info.className = 'twm-pagination-info';
+        info.style.cssText = 'color:#aaa; white-space:nowrap;';
+        const from = (offset + 1).toLocaleString();
+        const to = (offset + drawn).toLocaleString();
+        if (drawn === 0) {
+            info.textContent = hasPrev ? `Page ${page} · no rows`
+                : isFiltered ? `0 of ${unfilteredTotal.toLocaleString()} rows match` : 'No rows';
+        } else if (!known) {
+            info.textContent = `Rows ${from}–${to}`;
+        } else if (isFiltered) {
+            info.textContent = `Rows ${from}–${to} of ${total.toLocaleString()} (${unfilteredTotal.toLocaleString()} total)`;
+        } else {
+            info.textContent = `Rows ${from}–${to} of ${total.toLocaleString()}`;
+        }
+
+        const spacer = document.createElement('div');
+        spacer.style.flex = '1';
+
+        const firstBtn = this._pagerButton('first_page', 'first', 'First page', !hasPrev, () => go(0));
+        const prevBtn = this._pagerButton('chevron_left', 'prev', 'Previous page', !hasPrev,
+                                          () => go(Math.max(0, offset - pageSize)));
+        const pageInfo = document.createElement('span');
+        pageInfo.className = 'twm-pagination-page';
+        pageInfo.style.cssText = 'color:#aaa; font-size:10px; min-width:72px; text-align:center;';
+        pageInfo.textContent = known ? `Page ${page} of ${totalPages.toLocaleString()}` : `Page ${page}`;
+        const nextBtn = this._pagerButton('chevron_right', 'next', 'Next page', !hasNext,
+                                          () => go(offset + pageSize));
+        let lastRefusal = null;
+        let lastOffset = null;
+        if (!known) {
+            const words = this._pagerLabel('noLast');
+            lastRefusal = typeof words === 'string' ? words : 'The total is not known, so there is no last page.';
+        } else {
+            lastOffset = Math.floor(Math.max(0, total - 1) / pageSize) * pageSize;
+            if (maxJump !== null && lastOffset > maxJump) lastRefusal = this._pagerRefusalTooDeep();
+        }
+        const lastBtn = this._pagerButton('last_page', 'last', 'Last page',
+                                          !hasNext || lastOffset === offset, () => {
+                                              if (lastOffset !== null) go(lastOffset);
+                                          }, lastRefusal);
+
+        const jumpInput = document.createElement('input');
+        jumpInput.type = 'number';
+        jumpInput.className = 'twm-pagination-input';
+        jumpInput.style.cssText = 'width:54px; padding:1px 4px; border:1px solid #444; background:#2a2a2a; color:#ccc; font-size:10px;';
+        jumpInput.min = '1';
+        if (known) jumpInput.max = String(total);
+        jumpInput.placeholder = 'Row #';
+        const jumpBtn = this._createPaginationBtn(null, 'Go to row', false, () => {
+            const target = Math.floor(Number(jumpInput.value));
+            if (!Number.isFinite(target) || target < 1) return;
+            const row = known ? Math.min(target, Math.max(1, total)) : target;
+            const newOffset = Math.floor((row - 1) / pageSize) * pageSize;
+            if (maxJump !== null && newOffset > maxJump) {
+                // Refused, and says so where the person is looking.
+                const why = this._pagerRefusalTooDeep();
+                jumpInput.setAttribute('aria-invalid', 'true');
+                jumpInput.title = why;
+                jumpInput.dataset.refusal = why;
+                return;
+            }
+            jumpInput.removeAttribute('aria-invalid');
+            delete jumpInput.dataset.refusal;
+            if (server && typeof c.onJumpToRow === 'function') { c.onJumpToRow(row - 1); return; }
+            go(newOffset);
+        }, 'Go');
+        jumpBtn.dataset.pager = 'go';
+
+        el.append(info, spacer, firstBtn, prevBtn, pageInfo, nextBtn, lastBtn, jumpInput, jumpBtn);
+        if (c.showExportButton) {
+            el.appendChild(this._createPaginationBtn('download', 'Download visible rows as CSV', false,
+                                                     () => this.downloadCSV('data.csv')));
+        }
+        return el;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // 0.7.0 — filter controls that are not text boxes (#37)
+    // ─────────────────────────────────────────────────────────────────
+
+    /** The spec for a column, normalised: null for the 0.4 text box. */
+    _filterKindFor(colIdx, header) {
+        const fk = this.config.filterKinds;
+        if (fk == null) return null;
+        let spec;
+        if (typeof fk === 'function') {
+            try { spec = fk(colIdx, header); } catch (err) {
+                console.error('[DataTable] filterKinds threw', err);
+                spec = null;
+            }
+        } else {
+            spec = perColumn(fk, colIdx);
+        }
+        if (spec == null || spec === 'text' || spec === false) return null;
+        if (typeof spec === 'function') return { kind: 'custom', create: spec };
+        if (typeof spec === 'object') {
+            if (spec.kind === 'text') return null;
+            if (spec.kind === 'chips') return spec;
+            if (typeof spec.create === 'function') return { ...spec, kind: spec.kind || 'custom' };
+        }
+        if (spec === 'chips') return null;   // chips need options
+        return null;
+    }
+
+    /** The column's control — built once, then the same element every render. */
+    _filterControlFor(colIdx, header) {
+        const spec = this._filterKindFor(colIdx, header);
+        if (!spec) return null;
+        const have = this._filterControls.get(colIdx);
+        if (have && have.kind === spec.kind && have.specKey === (spec.options || spec.create)) {
+            return have.control;
+        }
+        if (have) this._destroyOneControl(have.control);
+        const value = this._state.filters.get(colIdx) ?? null;
+        const ctx = {
+            column: colIdx,
+            header,
+            value,
+            counts: this._filterCounts.get(colIdx) ?? null,
+            table: this,
+            setValue: (v) => this.setFilter(colIdx, v),
+        };
+        let control = null;
+        try {
+            control = spec.kind === 'chips' ? createChipsFilter(ctx, spec) : spec.create(ctx);
+        } catch (err) {
+            console.error('[DataTable] filter control threw while being built', err);
+            control = null;
+        }
+        if (typeof Node !== 'undefined' && control instanceof Node) control = { el: control };
+        if (!control || !control.el) return null;
+        control.el.classList?.add('twm-dt-filter-control');
+        this._filterControls.set(colIdx, {
+            kind: spec.kind, specKey: spec.options || spec.create, control,
+            match: typeof control.match === 'function' ? control.match
+                : spec.kind === 'chips' ? chipsMatch(spec) : null,
+        });
+        return control;
+    }
+
+    /** The client-side rule for a column with a control, or null. */
+    _filterMatcher(colIdx) {
+        if (!this._filterControls.size && this.config.filterKinds == null) return null;
+        const entry = this._filterControls.get(colIdx);
+        if (entry) return entry.match || defaultControlMatch;
+        // A control not yet built (no render yet, a restore): the spec decides.
+        const spec = this._filterKindFor(colIdx, (this.config.headers || [])[colIdx]);
+        if (!spec) return null;
+        return spec.kind === 'chips' ? chipsMatch(spec) : (spec.match || defaultControlMatch);
+    }
+
+    _isEmptyFilterValue(v) {
+        if (v == null || v === '' || v === false) return true;
+        if (Array.isArray(v)) return v.length === 0;
+        if (typeof v === 'object' && !(v instanceof Date)) {
+            return Object.values(v).every((x) => x == null || x === '');
+        }
+        return false;
+    }
+
+    _destroyOneControl(control) {
+        try { control?.destroy?.(); } catch (err) { console.error('[DataTable] filter control destroy threw', err); }
+        control?.el?.remove?.();
+    }
+
+    _destroyFilterControls() {
+        for (const { control } of this._filterControls.values()) this._destroyOneControl(control);
+        this._filterControls.clear();
+    }
+
+    _notifyFilterChange() {
+        if (typeof this.config.onFilterChange !== 'function') return;
+        try { this.config.onFilterChange(this._filterList()); } catch (err) {
+            console.error('[DataTable] onFilterChange threw', err);
+        }
+    }
+
+    /** The column filters in force: `[{column, header, value}]`. */
+    getFilters() {
+        return this._filterList();
+    }
+
+    /**
+     * Set one column's filter (`null`, `''` or an empty array clears it). The
+     * value is whatever the column's control works in — text for the 0.4 box.
+     */
+    setFilter(colIdx, value) {
+        const textBox = !this._filterKindFor(colIdx, (this.config.headers || [])[colIdx]);
+        const v = textBox && value != null && typeof value !== 'string' ? String(value) : value;
+        if (textBox) {
+            const filterRow = this._wrapperEl?.querySelector('.twm-data-table__filter-row');
+            const cell = filterRow?.children[this.config.showRowNumbers ? colIdx + 1 : colIdx];
+            const input = cell?.querySelector('.twm-data-table__filter-input');
+            if (input) input.value = v || '';
+        }
+        this._onFilterInput(colIdx, v ?? '');
+    }
+
+    /**
+     * Counts for a column's filter control — chips draw them beside each
+     * option (keyed by the option's value; `''` is "no filter"), a dimmed
+     * chip at zero. `setFilterCounts(colIdx, counts)`, or
+     * `setFilterCounts({[colIdx]: counts})` for several. They are kept, so a
+     * control built later starts with them.
+     */
+    setFilterCounts(colIdx, counts) {
+        if (colIdx && typeof colIdx === 'object' && counts === undefined) {
+            for (const [k, c] of Object.entries(colIdx)) this.setFilterCounts(Number(k), c);
+            return;
+        }
+        const col = Number(colIdx);
+        if (!Number.isInteger(col)) return;
+        if (counts == null) this._filterCounts.delete(col); else this._filterCounts.set(col, counts);
+        const entry = this._filterControls.get(col);
+        if (entry) {
+            try { entry.control.setCounts?.(counts ?? null); } catch (err) {
+                console.error('[DataTable] filter control setCounts threw', err);
+            }
+        }
+    }
+
+    /** What `setFilterCounts` last gave a column, or null. */
+    getFilterCounts(colIdx) {
+        return this._filterCounts.get(Number(colIdx)) ?? null;
+    }
+
+    // ── focus across a render ──────────────────────────────────────────
+
+    _captureFocus070(doc) {
+        const active = doc?.activeElement;
+        if (!active || active === doc.body) return null;
+        for (const [colIdx, { control }] of this._filterControls) {
+            if (control.el?.contains?.(active)) {
+                let sel = null;
+                try {
+                    if (typeof active.selectionStart === 'number') sel = [active.selectionStart, active.selectionEnd];
+                } catch (_) { /* not a text field */ }
+                return { kind: 'control', colIdx, el: active, sel };
+            }
+        }
+        // Inside an open detail (a button in it, a field): the detail is drawn
+        // again by the render, so the same place in it — by its path under the
+        // detail's host — gets the focus back (the release review).
+        const detailHost = active.closest?.('.twm-dt-detail');
+        if (detailHost && this._tbodyEl?.contains(detailHost)) {
+            const tr = detailHost.closest('tr')?.__detailOf;
+            if (tr && tr.__rowIndex !== undefined) {
+                const path = [];
+                for (let n = active; n && n !== detailHost; n = n.parentElement) {
+                    path.unshift(Array.prototype.indexOf.call(n.parentElement.children, n));
+                }
+                let sel = null;
+                try {
+                    if (typeof active.selectionStart === 'number') sel = [active.selectionStart, active.selectionEnd];
+                } catch (_) { /* not a text field */ }
+                return { kind: 'detail', key: this._rowKey(tr.__row, tr.__rowIndex), path, tag: active.tagName, sel };
+            }
+        }
+        const toggle = active.closest?.('.twm-dt-detail-toggle');
+        if (toggle && this._tbodyEl?.contains(toggle)) {
+            const tr = toggle.closest('tr');
+            if (tr && tr.__rowIndex !== undefined) {
+                return { kind: 'toggle', key: this._rowKey(tr.__row, tr.__rowIndex) };
+            }
+        }
+        return null;
+    }
+
+    _restoreFocus070(f) {
+        try {
+            if (f.kind === 'control') {
+                if (!f.el.isConnected) return;
+                f.el.focus({ preventScroll: true });
+                if (f.sel) f.el.setSelectionRange?.(f.sel[0], f.sel[1]);
+            } else if (f.kind === 'detail' && f.key !== null) {
+                let n = this._rowElByKey(f.key)?.__detail?.[0]?.querySelector('.twm-dt-detail');
+                for (const i of f.path) n = n?.children[i];
+                if (n && n.tagName === f.tag) {
+                    n.focus({ preventScroll: true });
+                    if (f.sel) n.setSelectionRange?.(f.sel[0], f.sel[1]);
+                }
+            } else if (f.kind === 'toggle' && f.key !== null) {
+                const tr = this._rowElByKey(f.key);
+                tr?.querySelector(':scope > td > .twm-dt-detail-toggle')?.focus({ preventScroll: true });
+            }
+        } catch (_) { /* detached */ }
+    }
+
+    /** The one row spanning every column that says there are no rows (or why
+     *  they could not be read). Under `dataSource` the plain message is drawn
+     *  by class, so it is quiet while the first answer is on its way. */
+    _buildEmptyRow(colCount, emptyMessage) {
+        const emptyTr = document.createElement('tr');
+        emptyTr.className = 'data-preview-row data-table__empty-row';
+        const emptyTd = document.createElement('td');
+        emptyTd.colSpan = colCount;
+        if (this._error) {
+            // 0.5.0. Nothing to keep: the failure takes the empty row.
+            emptyTd.className = 'twm-data-table__empty-cell twm-data-table__empty-cell--error';
+            emptyTd.setAttribute('role', 'alert');
+            this._appendStateContent(emptyTd, this._errorContent());
+        } else if (this.config.emptyState !== undefined) {
+            // 0.5.0. The consumer's own words (or node), styled by class
+            // rather than inline, and quiet while the table is loading.
+            emptyTd.className = 'twm-data-table__empty-cell twm-data-table__empty-cell--state';
+            const state = typeof this.config.emptyState === 'function'
+                ? this.config.emptyState() : this.config.emptyState;
+            this._appendStateContent(emptyTd, state);
+        } else if (this.config.dataSource) {
+            emptyTd.className = 'twm-data-table__empty-cell twm-data-table__empty-cell--state';
+            emptyTd.textContent = emptyMessage;
+        } else {
+            emptyTd.style.cssText
+                = 'text-align:center; font-style:italic; color:#888; padding:16px;';
+            emptyTd.textContent = emptyMessage;
+        }
+        emptyTr.appendChild(emptyTd);
+        return emptyTr;
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -3412,6 +4739,10 @@ export class DataTable {
             tr.__rowKey = this._rowKey(row, rowIdx);
         }
         this._paintActive(tr);
+        // 0.7.0 `follow`/`refresh`: a row the last answer did not have.
+        if (this._newKeys) {
+            tr.classList.toggle('twm-dt-row--new', this._newKeys.has(this._rowKey(row, rowIdx)));
+        }
     }
 
     /** The open mark on one row, from `_activeKey`. */
@@ -4296,6 +5627,9 @@ export class DataTable {
             : bodyTable.querySelectorAll('tbody td');
         cells.forEach((td) => {
             if (td.parentElement?.classList.contains('twm-dt-spacer')) return;
+            // 0.7.0: a row's detail — and anything drawn inside it — is not a
+            // clipped cell of the table.
+            if (td.closest?.('.twm-dt-detail-row')) return;
             const clipped = td.scrollWidth > td.clientWidth + 1;
             if (clipped) {
                 if (!td.title) td.title = td.textContent;
@@ -4360,10 +5694,35 @@ export class DataTable {
             this._installActivation(tbody, table);
         }
 
+        // 0.7.0 `rowDetail` from the keyboard: on the focused table (or a row's
+        // toggle), ArrowRight opens the current row's detail and ArrowLeft
+        // closes it — the tree-grid keys. The toggle itself is a button, so
+        // Enter and Space work on it as on any button.
+        if (this._detailOn()) {
+            const onDetailKey = (ev) => {
+                if (ev.key !== 'ArrowRight' && ev.key !== 'ArrowLeft') return;
+                if (ev.ctrlKey || ev.metaKey || ev.altKey || ev.shiftKey) return;
+                const toggle = ev.target?.closest?.('.twm-dt-detail-toggle');
+                let tr = null;
+                if (toggle && table.contains(toggle)) tr = toggle.closest('tr');
+                else if (ev.target === table) tr = this._currentRowEl();
+                if (!tr || tr.__rowIndex === undefined) return;
+                if (this._setRowElExpanded(tr, ev.key === 'ArrowRight', ev)) ev.preventDefault();
+            };
+            table.addEventListener('keydown', onDetailKey);
+            this._disposers.push(() => table.removeEventListener('keydown', onDetailKey));
+        }
+
         if (copyable) {
             const handleContextMenu = (event) => {
                 const rowEl = event.target.closest('tr');
                 if (!rowEl) {
+                    this._hideContextMenu();
+                    return;
+                }
+                // 0.7.0: inside a row's detail, the page's own menu (copy the
+                // text a person selected there), not the table's.
+                if (rowEl.closest('.twm-dt-detail-row')) {
                     this._hideContextMenu();
                     return;
                 }

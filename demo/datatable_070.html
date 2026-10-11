@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>FlexDesk — DataTable 0.7.0</title>
+    <!-- DataTable's 0.7.0 options in a real browser, for headless Edge. It loads
+         the SOURCE (the development barrel `../widgets.js` and the sheets under
+         `../css/`), so it needs no dist/ build; `FLOW_DIST=1` serves the built
+         ones instead (see demo/flow_cdp.mjs). `demo/datatable_070_probe.mjs`
+         serves the repository and drives it.
+
+           datatable_070.html?view=detail   a log over a fake server: row details,
+                                            Level chips with counts, and a second,
+                                            virtual table with a detail
+           datatable_070.html?view=pager    an unknown total: Newest / Newer /
+                                            Older / Oldest at the bottom, a
+                                            refused Oldest and a refused jump
+           datatable_070.html?view=follow   a feed that grows: refresh and follow,
+                                            keeping the rows a reader is reading -->
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />
+    <link href="../css/tokens.css" rel="stylesheet" />
+    <link href="../css/reset.css" rel="stylesheet" />
+    <link href="../css/flexdesk.css" rel="stylesheet" />
+    <style>
+        html, body { height: 100%; margin: 0; }
+        body { background: var(--surface-0); color: var(--text-body); font-family: var(--font-family-sans); }
+        .demo { display: flex; flex-direction: column; height: 100%; }
+        .demo__title { display: flex; align-items: center; gap: 12px; height: 32px; padding: 0 12px; flex: 0 0 auto;
+                       background: var(--surface-1); border-bottom: 1px solid var(--border-default); font-size: 12px; }
+        .demo__row { display: flex; gap: 12px; flex: 1 1 0; min-height: 0; padding: 12px; }
+        .demo__box { flex: 1 1 0; min-width: 0; height: 520px; border: 1px solid var(--border-default);
+                     display: flex; flex-direction: column; }
+        .demo__box > .demo__host { flex: 1 1 0; min-height: 0; }
+        .demo__cap { font-size: 11px; color: #9a9a9a; padding: 4px 6px; border-bottom: 1px solid var(--border-default); }
+        .demo__status { font-size: 11px; color: #7fd1c8; }
+        pre.detail { margin: 0; font-family: "Cascadia Mono", Consolas, monospace; font-size: 11px; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+<div class="demo">
+    <div class="demo__title"><strong>DataTable 0.7.0</strong><span id="status" class="demo__status"></span></div>
+    <div class="demo__row" id="row"></div>
+</div>
+<script type="module">
+    // `?dist=1`: the built bundle a consumer loads, in place of the source.
+    const fromDist = new URLSearchParams(location.search).get('dist') === '1';
+    const { DataTable } = await import(fromDist ? '../dist/widgets.js' : '../widgets.js');
+
+    const view = new URLSearchParams(location.search).get('view') || 'detail';
+    const row = document.getElementById('row');
+    const status = document.getElementById('status');
+    const box = (caption) => {
+        const b = document.createElement('div');
+        b.className = 'demo__box';
+        const cap = document.createElement('div');
+        cap.className = 'demo__cap';
+        cap.textContent = caption;
+        const host = document.createElement('div');
+        host.className = 'demo__host';
+        b.append(cap, host);
+        row.appendChild(b);
+        return host;
+    };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const LEVELS = ['info', 'warn', 'error'];
+
+    /** A fake audit log, newest first, that can grow. */
+    function makeLog(n) {
+        const entries = [];
+        const push = (i) => entries.unshift({
+            id: `e${i}`,
+            at: new Date(Date.UTC(2026, 9, 1, 8, 0, 0) + i * 61_000).toISOString(),
+            level: LEVELS[(i * 7) % 3],
+            who: ['ann@acme', 'bob@acme', 'root, as system'][i % 3],
+            action: ['auth.login', 'grant.add', 'table.create', 'apikey.mint'][i % 4],
+            detail: i % 5 === 0 ? null : { trace_id: `t-${(i * 2654435761 % 1e9).toString(16)}`, project_id: `p${i % 7}`,
+                                           detail: { reason: 'a long reason '.repeat(12).trim(), keys: ['table:row:read', 'view:view:read'] } },
+        });
+        for (let i = 1; i <= n; i++) push(i);
+        let next = n;
+        return {
+            entries,
+            grow(k) { for (let i = 0; i < k; i++) push(++next); },
+        };
+    }
+    const entryOf = new WeakMap();
+    const asRows = (list) => list.map((e) => {
+        const r = [e.at, e.level, e.who, e.action];
+        entryOf.set(r, e);
+        return r;
+    });
+    const fold = (row) => {
+        const e = entryOf.get(row);
+        const pre = document.createElement('pre');
+        pre.className = 'detail';
+        pre.textContent = [`trace_id: ${e.detail.trace_id}`, `project_id: ${e.detail.project_id}`,
+                           JSON.stringify(e.detail.detail, null, 2)].join('\n');
+        return pre;
+    };
+    const LEVEL_KIND = { kind: 'chips', options: [
+        { value: '', label: 'All', icon: 'list_alt' }, { value: 'info', label: 'Info', icon: 'info' },
+        { value: 'warn', label: 'Warn', icon: 'warning' }, { value: 'error', label: 'Error', icon: 'error' },
+    ] };
+
+    /** The server: filters by level, pages, counts; answers after `delay`. */
+    function serve(log, { delay = 30, unknownTotal = false } = {}) {
+        return async (q) => {
+            await sleep(delay);
+            const level = q.filters.find((f) => f.column === 1)?.value || '';
+            const all = log.entries.filter((e) => !level || e.level === level);
+            const page = all.slice(q.offset, q.offset + q.limit);
+            const counts = { '': log.entries.length };
+            for (const l of LEVELS) counts[l] = log.entries.filter((e) => e.level === l).length;
+            return { rows: asRows(page), total: unknownTotal ? null : all.length,
+                     filterCounts: { 1: counts } };
+        };
+    }
+
+    window.probe = { view, DataTable };
+
+    if (view === 'detail') {
+        const log = makeLog(240);
+        const host = box('A log over a server: details, Level chips with counts');
+        window.probe.log = DataTable.mount(host, {
+            headers: ['When', 'Level', 'Who', 'What'],
+            columnTypes: ['datetime', null, null, null],
+            firstColumn: 'plain', mode: 'compact', sortable: true, filterable: true,
+            getRowKey: (r) => entryOf.get(r)?.id,
+            dataSource: serve(log),
+            filterKinds: { 1: LEVEL_KIND },
+            rowDetail: fold,
+            hasRowDetail: (r) => !!entryOf.get(r)?.detail,
+            onRowActivate: (i, r) => { status.textContent = `opened ${entryOf.get(r).id}`; },
+        });
+        const many = makeLog(5000);
+        const host2 = box('5,000 rows, virtual, with a detail');
+        window.probe.virtual = DataTable.mount(host2, {
+            headers: ['When', 'Level', 'Who', 'What'],
+            rows: asRows(many.entries), pagination: false, firstColumn: 'plain', mode: 'compact',
+            getRowKey: (r) => entryOf.get(r)?.id,
+            virtualize: { overscan: 10 },
+            rowDetail: fold, hasRowDetail: (r) => !!entryOf.get(r)?.detail,
+        });
+    } else if (view === 'pager') {
+        const log = makeLog(250);
+        const host = box('An unknown total: Newest / Newer / Older / Oldest');
+        window.probe.pager = DataTable.mount(host, {
+            headers: ['When', 'Level', 'Who', 'What'],
+            firstColumn: 'plain', mode: 'compact', filterable: true,
+            dataSource: serve(log, { unknownTotal: true }),
+            filterKinds: { 1: LEVEL_KIND },
+            pagerLabels: { first: 'Newest', prev: 'Newer', next: 'Older', last: 'Oldest',
+                           noLast: 'No total, so no last page.',
+                           tooDeep: (max) => `Past ${max.toLocaleString()} rows. Narrow the filters first.` },
+            pagerPosition: 'bottom', maxJumpOffset: 50_000,
+        });
+        const big = { entries: Array.from({ length: 300 }, (_, i) => ({ id: `b${i}`, at: '2026-10-01T00:00:00Z', level: 'info', who: 'x', action: 'y', detail: null })) };
+        const host2 = box('A known total of 1,000,000: Oldest past 50,000 is refused');
+        window.probe.deep = DataTable.mount(host2, {
+            headers: ['When', 'Level', 'Who', 'What'], firstColumn: 'plain', mode: 'compact',
+            dataSource: async (q) => ({ rows: asRows(big.entries.slice(0, q.limit)), total: 1_000_000 }),
+            pagerLabels: { first: 'Newest', prev: 'Newer', next: 'Older', last: 'Oldest',
+                           tooDeep: (max) => `Past ${max.toLocaleString()} rows. Narrow the filters first.` },
+            pagerPosition: 'bottom', maxJumpOffset: 50_000,
+        });
+    } else if (view === 'follow') {
+        const log = makeLog(300);
+        window.probe.feed = log;
+        const host = box('A feed that grows: follow keeps the rows you are reading');
+        window.probe.follow = DataTable.mount(host, {
+            headers: ['When', 'Level', 'Who', 'What'],
+            firstColumn: 'plain', mode: 'compact', columnTypes: ['datetime', null, null, null],
+            getRowKey: (r) => entryOf.get(r)?.id,
+            dataSource: serve(log, { delay: 10 }),
+            pagerLabels: { first: 'Newest', prev: 'Newer', next: 'Older', last: 'Oldest' },
+            pagerPosition: 'bottom',
+            follow: { interval: 400 },
+            onFollowChange: (on) => { status.textContent = `following: ${on}`; },
+            rowDetail: fold, hasRowDetail: (r) => !!entryOf.get(r)?.detail,
+        });
+        status.textContent = 'following: true';
+    }
+    window.probe.ready = true;
+</script>
+</body>
+</html>

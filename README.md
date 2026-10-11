@@ -507,6 +507,7 @@ createFactTable(host, {
 | `nullDisplay` | What `null` and `undefined` read as (`twm-facts__null`). By default the cell is empty. |
 | `labelColumn: false` | The first column is ordinary data, not a label. |
 | `wrapLabels: true` | Lets a long label wrap. |
+| `wrap` | How a value wraps. `'anywhere'` (the default) wraps at spaces, and inside a long word or URL when it must. `'words'` wraps at spaces only, so a long word stays whole and the sheet grows wider; use it inside a sideways scroller. `'none'` keeps only the value's own line breaks. |
 | `rowClass(row, idx)`, `rowAttrs(row, idx)` | Classes and attributes for each `<tr>`. |
 | `emptyState`, `label`, `className` | Shown (spanning the sheet) when there are no rows; the `aria-label`; a class on the `<table>`. |
 
@@ -620,7 +621,7 @@ page's offset.
 |---|---|
 | `total: null` in the answer | The total is unknown. The pager says `Rows 101–200` and `Page 2`, with no total. Next is enabled while `hasMore` is true or, without `hasMore`, while pages come back full. Last is disabled, and the reason is on the button (`data-refusal`, and its tooltip). |
 | `hasMore` (with `onPageChange`) | The same pager for a table that pages through `onPageChange`: with `totalCount: null`, set `hasMore` to `true` or `false`. |
-| `pagerLabels` | `{ first, prev, next, last }` draw a word beside each button's icon, such as `Newest`, `Newer`, `Older` and `Oldest` for a log read newest first. `noLast` is the reason given when there is no total, and `tooDeep(max)` the reason given past `maxJumpOffset`. |
+| `pagerLabels` | `{ first, prev, next, last }` draw a word beside each button's icon, such as `Newest`, `Newer`, `Older` and `Oldest` for a log read newest first; a labelled button is never narrower than its word. `noLast` is the reason given when there is no total, and `tooDeep(max)` the reason given past `maxJumpOffset`. |
 | `maxJumpOffset` | The deepest offset that Last and Go-to-row may jump to. Past it, Last is disabled with its reason, and Go asks for nothing and marks the box `aria-invalid`, with the reason on it. Use it where a deep `OFFSET` would be slow. |
 | `pagerPosition: 'bottom'` | Puts the pager under the rows. |
 
@@ -690,7 +691,7 @@ alive, and it stops on `dispose()`.
 
 | Option | What it does |
 |---|---|
-| `filterKinds` | A filter control per column, as an object or array keyed by column index, or a function `(colIdx, header) => spec`. `'text'` (or nothing) is the usual text box. `{ kind: 'chips', options: [{ value, label, icon, title }], multiple }` draws chips. `{ create(ctx) }`, or a function, is your own control. |
+| `filterKinds` | A filter control per column, as an object or array keyed by column index, or a function `(colIdx, header) => spec`. `'text'` (or nothing) is the usual text box. `{ kind: 'chips', options: [{ value, label, icon, title }], multiple }` draws chips. `{ create(ctx) }`, or a function, is your own control. A column is never narrower than its control at its narrowest (for chips, the widest chip); above that the cell wraps the control. |
 | The chips | One chip per option, each with a count. An option whose value is `''` or `null` means no filter, and it is pressed when nothing is chosen. Pressing the chosen chip again clears the filter. With `multiple`, each chip toggles its value in a list. A chip whose count is 0 is dimmed, not hidden. `createChipsFilter(ctx, spec)` builds the same control outside a table. |
 | Your own control | `create(ctx)` receives `{ column, header, value, counts, setValue(v), table }` and returns `{ el, setValue(v), setCounts(c), destroy(), match(cell, value, row) }`. Only `el` is required. Call `ctx.setValue` with the new value, which can be anything, such as `{ from, to }` for a date range or a person's id. |
 | `setFilterCounts(colIdx, counts)` or `setFilterCounts({ [colIdx]: counts })` | Gives a column's control its counts, keyed by option value. They are kept, so a control built later starts with them. A `dataSource` answer can carry them as `filterCounts`. `getFilterCounts(colIdx)` reads them back. |

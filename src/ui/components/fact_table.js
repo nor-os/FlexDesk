@@ -21,7 +21,9 @@
  *    sheet whose first column is ordinary data);
  *  - every value WRAPS — at spaces, and inside a long word or URL when it must
  *    (`overflow-wrap: anywhere`) — and keeps its own line breaks, so a
- *    pretty-printed JSON value reads as one;
+ *    pretty-printed JSON value reads as one; `wrap: 'words'` wraps at spaces
+ *    only and keeps a long word whole (the sheet grows wider, for a sideways
+ *    scroller around it), and `wrap: 'none'` keeps only the value's own breaks;
  *  - a value is text, a number or a NODE (a pill, a link, a button); an
  *    object or array is drawn as indented JSON; `null` is an empty cell, or
  *    `nullDisplay`;
@@ -63,6 +65,11 @@ const isNode = (v) => typeof Node !== 'undefined' && v instanceof Node;
  * @property {boolean} [compare=false] - A before and an after column.
  * @property {boolean} [labelColumn=true] - The first column is a label.
  * @property {boolean} [wrapLabels=false] - Let a long label wrap.
+ * @property {'anywhere'|'words'|'none'} [wrap='anywhere'] - How a value wraps:
+ *   at spaces and inside a long word when it must (the default), at spaces
+ *   only (`'words'`: a long word stays whole and the sheet grows wider — for a
+ *   sheet inside a sideways scroller), or not at all beyond its own line
+ *   breaks (`'none'`).
  * @property {boolean} [mono=false] - Every value in the monospace face.
  * @property {number[]} [numeric=[]] - Column indices drawn in tabular numerals.
  * @property {string} [nullDisplay=''] - What `null`/`undefined` reads as.
@@ -86,6 +93,7 @@ export class FactTable {
             compare: false,
             labelColumn: true,
             wrapLabels: false,
+            wrap: 'anywhere',
             mono: false,
             numeric: [],
             nullDisplay: '',
@@ -104,6 +112,8 @@ export class FactTable {
             + (this.config.compare ? ' twm-facts--compare' : '')
             + (this.config.labelColumn ? '' : ' twm-facts--no-label')
             + (this.config.wrapLabels ? ' twm-facts--wrap-labels' : '')
+            + (this.config.wrap === 'words' ? ' twm-facts--wrap-words'
+                : this.config.wrap === 'none' ? ' twm-facts--wrap-none' : '')
             + (this.config.mono ? ' twm-facts--mono' : '')
             + (this.config.className ? ` ${this.config.className}` : '');
         if (this.config.label) table.setAttribute('aria-label', this.config.label);

@@ -3,7 +3,7 @@ import {
 } from "./chunk-6NG7YVBG.js";
 import {
   DataTable
-} from "./chunk-YBNDDFUG.js";
+} from "./chunk-JLCJWCRS.js";
 import "./chunk-6JSOVNID.js";
 import "./chunk-FL5KFNQH.js";
 import {
@@ -6487,7 +6487,7 @@ function createOutlineEditor(host, options = {}) {
     if (fs.length) row.appendChild(badge(fs));
     item.appendChild(row);
     item.setAttribute("aria-label", [map.startLabel(S), sum].filter(Boolean).join(", "));
-    row.addEventListener("click", () => select("flow", { focus: true }));
+    row.addEventListener("click", () => select("flow", { focus: true, picked: true }));
     if (filter) item.classList.add("twm-flow-outline__item--context");
     itemEls.set("flow", item);
     return item;
@@ -6614,7 +6614,7 @@ function createOutlineEditor(host, options = {}) {
         openMenu(item.id, menu);
       });
     }
-    row.addEventListener("click", () => select(item.id, { focus: true }));
+    row.addEventListener("click", () => select(item.id, { focus: true, picked: true }));
     return { row, label: [name, type?.label !== name ? type?.label : null, summary].filter(Boolean).join(", ") };
   }
   const offArm = /* @__PURE__ */ new Set();
@@ -6789,7 +6789,7 @@ function createOutlineEditor(host, options = {}) {
       b.tabIndex = current && b.closest('[role="treeitem"]') === current ? 0 : -1;
     }
   }
-  function select(id, { focus = false, silent = false } = {}) {
+  function select(id, { focus = false, silent = false, picked = false } = {}) {
     const next = id === null || id === void 0 ? "flow" : id;
     const changed = next !== selected;
     selected = next;
@@ -6800,7 +6800,18 @@ function createOutlineEditor(host, options = {}) {
     }
     void silent;
     if (focus) itemEls.get(selected)?.focus({ preventScroll: false });
+    if (picked) revealSettings();
     if (changed) onSelect?.({ kind: selected === "flow" ? "flow" : "step", id: selected === "flow" ? null : selected });
+  }
+  function revealSettings() {
+    if (destroyed) return;
+    const box = body.getBoundingClientRect();
+    if (!box.height) return;
+    const r = settingsHost.getBoundingClientRect();
+    const inside = r.top >= box.top - 1 && r.bottom <= box.bottom + 1;
+    const covers = r.top <= box.top + 1 && r.bottom >= box.bottom - 1;
+    if (inside || covers) return;
+    settingsHost.scrollIntoView?.({ block: "nearest" });
   }
   function focusSelected() {
     const li = itemEls.get(selected) ?? itemEls.get("flow");
@@ -7187,7 +7198,7 @@ function createOutlineEditor(host, options = {}) {
     return apply(r, "flow:step:remove");
   }
   function rename(id) {
-    select(id);
+    select(id, { picked: true });
     const input = settingsHost.querySelector("[data-twm-flow-title]");
     if (input) {
       input.focus({ preventScroll: true });
@@ -7203,7 +7214,7 @@ function createOutlineEditor(host, options = {}) {
   function goTo(f) {
     const id = f?.node_id && nodeOf(f.node_id) ? f.node_id : "flow";
     if (reveal(id)) render();
-    select(id, { focus: true });
+    select(id, { focus: true, picked: true });
     if (f?.field) panel.focusField(f.field);
   }
   function setFolds(ids) {
@@ -7240,6 +7251,7 @@ function createOutlineEditor(host, options = {}) {
     open: (ev) => {
       if (!inTree(ev) || ev.target.closest("button")) return false;
       const f = settingsHost.querySelector('.twm-flow-panel__fields input, .twm-flow-panel__fields select, .twm-flow-panel__fields textarea, .twm-flow-panel__fields [contenteditable="true"], .twm-flow-panel__fields button') || settingsHost.querySelector("[data-twm-flow-title]");
+      if (f) revealSettings();
       f?.focus({ preventScroll: false });
       return Boolean(f);
     },
@@ -7527,11 +7539,15 @@ function createOutlineEditor(host, options = {}) {
     setStatus(text) {
       statusEl.textContent = text ?? "";
     },
-    /** Select a step (unfolding the blocks around it, so it is on the screen), the flow, or nothing. */
+    /**
+     * Select a step (unfolding the blocks around it, so it is on the
+     * screen), the flow, or nothing — and, in a narrow editor whose panel
+     * is scrolled off, bring its settings on screen as a press does.
+     */
     select(id) {
       const want = id === null || id === void 0 ? "flow" : id;
       if (want !== "flow" && reveal(want)) render();
-      select(want);
+      select(want, { picked: true });
     },
     focus() {
       focusSelected();

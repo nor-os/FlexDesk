@@ -24,6 +24,8 @@
  *   §8  new headers: the controls are destroyed and rebuilt
  *   §9  `filterKinds` as a function, and a control's own `match`
  *   §10 `createChipsFilter` on its own
+ *   §11 a control is in the column-width measure; its narrowest width is the
+ *       column's floor in the fit pass
  *
  * Against 0.6.0 every column draws the text box: §1 fails at once.
  *
@@ -268,6 +270,23 @@ section('§10 createChipsFilter on its own');
     c.setValue('error');
     check('setValue', c.getValue(), 'error');
     c.el.remove();
+}
+
+section('§11 a control is in the width measure, and its narrowest width is a floor');
+{
+    const { host, table } = mount({ headers, rows, filterable: true, filterKinds: { 1: LEVELS } });
+    ok('the row holding a control is marked for the measure',
+       host.querySelector('.twm-data-table__filter-row')?.classList.contains('twm-data-table__filter-row--controls'));
+    // The fit pass: three columns of 200px wanted in 300px, the middle one
+    // floored at 150 (its widest chip) — it keeps 150, the others shrink.
+    const w = table._fitColumnWidths([200, 200, 200], 300, { firstIdx: 0, floors: [0, 150, 0] });
+    ok('a floored column is never squeezed under its floor', w[1] >= 150);
+    const plain = table._fitColumnWidths([200, 200, 200], 300, { firstIdx: 0 });
+    ok('without floors the squeeze is as before', plain[1] < 150);
+    table.dispose();
+    const t2 = mount({ headers, rows, filterable: true });
+    ok('no control, no mark', !t2.host.querySelector('.twm-data-table__filter-row--controls'));
+    t2.table.dispose();
 }
 
 T.done();

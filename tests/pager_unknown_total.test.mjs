@@ -117,6 +117,10 @@ section('§3 pagerLabels');
           ['first', 'prev', 'next', 'last'].map((n) => btn(host, n).querySelector('.twm-pagination-btn__label')?.textContent),
           ['Newest', 'Newer', 'Older', 'Oldest']);
     ok('labelled buttons are marked', btn(host, 'next').classList.contains('twm-pagination-btn--labelled'));
+    ok('a labelled button is never narrower than its word (beats the skins\' min-width)',
+       btn(host, 'next').style.getPropertyValue('min-width') === 'max-content'
+       && btn(host, 'next').style.getPropertyPriority('min-width') === 'important'
+       && btn(host, 'next').style.flexShrink === '0');
     check('the consumer\'s refusal', btn(host, 'last').dataset.refusal, 'No total, so no last page.');
     table.dispose();
 }

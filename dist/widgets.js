@@ -36,7 +36,7 @@ import {
   parseDateValue,
   parseDuration,
   resolvePaging
-} from "./chunk-YBNDDFUG.js";
+} from "./chunk-JLCJWCRS.js";
 import {
   ManagedWindow,
   ROW_CONTROL_SELECTOR,
@@ -2254,6 +2254,7 @@ var FactTable = class {
       compare: false,
       labelColumn: true,
       wrapLabels: false,
+      wrap: "anywhere",
       mono: false,
       numeric: [],
       nullDisplay: "",
@@ -2268,7 +2269,7 @@ var FactTable = class {
     this._rows = Array.isArray(this.config.rows) ? this.config.rows.slice() : [];
     this._id = ++SEQ;
     const table = document.createElement("table");
-    table.className = "twm-facts" + (this.config.compare ? " twm-facts--compare" : "") + (this.config.labelColumn ? "" : " twm-facts--no-label") + (this.config.wrapLabels ? " twm-facts--wrap-labels" : "") + (this.config.mono ? " twm-facts--mono" : "") + (this.config.className ? ` ${this.config.className}` : "");
+    table.className = "twm-facts" + (this.config.compare ? " twm-facts--compare" : "") + (this.config.labelColumn ? "" : " twm-facts--no-label") + (this.config.wrapLabels ? " twm-facts--wrap-labels" : "") + (this.config.wrap === "words" ? " twm-facts--wrap-words" : this.config.wrap === "none" ? " twm-facts--wrap-none" : "") + (this.config.mono ? " twm-facts--mono" : "") + (this.config.className ? ` ${this.config.className}` : "");
     if (this.config.label) table.setAttribute("aria-label", this.config.label);
     this.element = table;
     this._draw();

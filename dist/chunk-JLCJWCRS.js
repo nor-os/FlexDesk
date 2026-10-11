@@ -1694,6 +1694,7 @@ var DataTable = class {
       const control = this._filterControlFor(colIdx, header);
       if (control) {
         th.classList.add("data-table__filter-cell--control");
+        tr.classList.add("twm-data-table__filter-row--controls");
         th.addEventListener("click", (e) => e.stopPropagation());
         if (control.el) th.appendChild(control.el);
         tr.appendChild(th);
@@ -3909,6 +3910,8 @@ var DataTable = class {
       btn.appendChild(span);
       btn.classList.add("twm-pagination-btn--labelled");
       btn.style.padding = "1px 6px 1px 3px";
+      btn.style.setProperty("min-width", "max-content", "important");
+      btn.style.flexShrink = "0";
     }
     if (refusal) {
       btn.dataset.refusal = refusal;
@@ -4686,6 +4689,21 @@ var DataTable = class {
       const head = labelRow && labelRow.children[i] ? labelRow.children[i].getBoundingClientRect().width / zoom : 0;
       natural[i] = Math.max(body, head);
     }
+    const floors = new Array(cols).fill(0);
+    const filterRow = headerTable.querySelector("thead > tr.twm-data-table__filter-row--controls");
+    if (filterRow) {
+      for (let i = 0; i < cols && i < filterRow.children.length; i++) {
+        const th = filterRow.children[i];
+        if (!th.classList.contains("data-table__filter-cell--control")) continue;
+        const el = th.firstElementChild;
+        if (!el) continue;
+        const cs = getComputedStyle(th);
+        const pad2 = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) + (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.borderRightWidth) || 0);
+        floors[i] = Math.ceil(el.getBoundingClientRect().width / zoom + pad2);
+        natural[i] = Math.max(natural[i], floors[i]);
+      }
+    }
+    this._filterFloors = floors;
     for (const tr of sampled) tr.remove();
     headerTable.classList.remove("twm-dt-measuring");
     bodyTable.classList.remove("twm-dt-measuring");
@@ -4843,7 +4861,8 @@ var DataTable = class {
     const widths = this._fitColumnWidths(natural, avail, {
       firstIdx,
       overrides: this._colWidths,
-      fit: this.config.columnFit
+      fit: this.config.columnFit,
+      floors: this._filterFloors
     });
     const total = widths.reduce((a, b) => a + b, 0);
     headerRows.forEach((tr) => {
@@ -4913,6 +4932,8 @@ var DataTable = class {
     const n = natural.length;
     const firstIdx = opts.firstIdx ?? 0;
     const overrides = opts.overrides || {};
+    const floors = Array.isArray(opts.floors) ? opts.floors : [];
+    const floorOf = (i) => Math.max(FLOOR, Math.ceil(floors[i] || 0));
     const toContent = opts.fit === "content";
     const desired = new Array(n);
     const pinned = new Array(n).fill(false);
@@ -4953,7 +4974,7 @@ var DataTable = class {
     }
     const budget = avail - protectedSum;
     if (budget < shrinkable.length * FLOOR) {
-      for (const i of shrinkable) widths[i] = FLOOR;
+      for (const i of shrinkable) widths[i] = floorOf(i);
       return widths;
     }
     shrinkable.sort((a, b) => desired[a] - desired[b]);
@@ -4968,7 +4989,7 @@ var DataTable = class {
       } else {
         const level = Math.max(FLOOR, fair);
         for (let j = k; j < shrinkable.length; j++) {
-          widths[shrinkable[j]] = level;
+          widths[shrinkable[j]] = Math.max(level, floorOf(shrinkable[j]));
         }
         const leftover = remaining - colsLeft * level;
         if (leftover > 0) widths[shrinkable[shrinkable.length - 1]] += leftover;
@@ -5535,4 +5556,4 @@ export {
   resolvePaging,
   DataTable
 };
-//# sourceMappingURL=chunk-YBNDDFUG.js.map
+//# sourceMappingURL=chunk-JLCJWCRS.js.map

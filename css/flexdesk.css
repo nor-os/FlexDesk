@@ -555,6 +555,18 @@ body.twm-dt-col-resizing {
 .twm-preview-table.twm-dt-measuring .twm-data-table__filter-row {
     display: none !important;
 }
+/* 0.7.0 `filterKinds`: a filter row holding a CONTROL stays in the measure,
+ * its text boxes out of it, and each control at its NARROWEST (the widest
+ * chip) — so a column is never narrower than one of its chips. */
+.twm-preview-table.twm-dt-measuring .twm-data-table__filter-row.twm-data-table__filter-row--controls {
+    display: table-row !important;
+}
+.twm-preview-table.twm-dt-measuring .twm-data-table__filter-row--controls .twm-data-table__filter-wrapper {
+    display: none !important;
+}
+.twm-preview-table.twm-dt-measuring th.data-table__filter-cell--control > * {
+    width: min-content !important;
+}
 /* ── C10. The virtual window (`DataTable` with `virtualize`) ─────────────
  * The column track is a `<colgroup>` (see `_createTable`), so it is the
  * `<col>` widths the measuring pass has to lift — the same `!important` it
@@ -7751,6 +7763,13 @@ tr:hover .twm-row-action { opacity: 1; }
     white-space: nowrap;
 }
 .twm-facts.twm-facts--wrap-labels tbody th.twm-facts__label { white-space: normal; }
+/* `wrap: 'words'` — a value wraps at spaces only, and a long word stays
+ * whole: the sheet grows wider and a sideways scroller around it scrolls.
+ * `wrap: 'none'` — a value keeps its own line breaks and no others. */
+.twm-facts.twm-facts--wrap-words tbody td,
+.twm-facts.twm-facts--wrap-words tbody th { overflow-wrap: normal; word-break: normal; }
+.twm-facts.twm-facts--wrap-none tbody td,
+.twm-facts.twm-facts--wrap-none tbody th { white-space: pre; overflow-wrap: normal; word-break: normal; }
 .twm-facts.twm-facts--mono tbody td.twm-facts__value,
 .twm-facts tbody td.twm-facts__mono { font-family: var(--font-family-mono, monospace); font-size: 0.95em; }
 .twm-facts .twm-facts__num { font-variant-numeric: tabular-nums; white-space: nowrap; }

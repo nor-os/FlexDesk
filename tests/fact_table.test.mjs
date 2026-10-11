@@ -22,6 +22,7 @@
  *       overflow-wrap: anywhere) and nothing in the sheet ellipsises, hides
  *       overflow or sets a height; labels stay on one line unless wrapLabels;
  *       the header row's look is not the row headers' look
+ *   §8  `wrap: 'words'` / `'none'`: the class and its rule
  *
  *     node tests/fact_table.test.mjs
  */
@@ -208,6 +209,21 @@ section('§7 the stylesheet');
     ok('mono reads the token', /font-family-mono/.test(ruleBody(base, '.twm-facts.twm-facts--mono tbody td.twm-facts__value, .twm-facts tbody td.twm-facts__mono') || ''));
     ok('the table is full width and collapses its borders', /width:\s*100%/.test(ruleBody(base, '.twm-facts') || '')
         && /border-collapse:\s*collapse/.test(ruleBody(base, '.twm-facts') || ''));
+}
+
+section('§8 wrap: words and none');
+{
+    const cls = (cfg) => createFactTable(null, { rows: [{ label: 'a', value: 'b' }], ...cfg }).element.classList;
+    ok('the default adds no wrap class', !cls({}).contains('twm-facts--wrap-words') && !cls({}).contains('twm-facts--wrap-none'));
+    ok("wrap: 'words'", cls({ wrap: 'words' }).contains('twm-facts--wrap-words'));
+    ok("wrap: 'none'", cls({ wrap: 'none' }).contains('twm-facts--wrap-none'));
+    const odd = cls({ wrap: 'sideways' });
+    ok('an unknown wrap is the default', !odd.contains('twm-facts--wrap-words') && !odd.contains('twm-facts--wrap-none'));
+    const base = css('base.css');
+    ok('words: a long word stays whole',
+        /overflow-wrap:\s*normal/.test(ruleBody(base, '.twm-facts.twm-facts--wrap-words tbody td, .twm-facts.twm-facts--wrap-words tbody th') || ''));
+    ok('none: only its own line breaks',
+        /white-space:\s*pre;/.test(ruleBody(base, '.twm-facts.twm-facts--wrap-none tbody td, .twm-facts.twm-facts--wrap-none tbody th') || ''));
 }
 
 done();

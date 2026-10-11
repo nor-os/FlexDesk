@@ -380,13 +380,13 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {Function} [onLoad] - `(result, query) => void`, after the newest answer has been drawn.
  * @property {Function} [onLoadError] - `(error, query) => void`, when the newest request failed (an aborted one is not a failure).
  * @property {boolean} [hasMore] - Server-side paging (`onPageChange`) with NO total: with `totalCount` null and this a boolean, the pager offers Next exactly while it is true and has no last page. Under `dataSource` the answer's `hasMore` (or, absent, a full page) says it.
- * @property {Object} [pagerLabels] - The pager's words: `{first, prev, next, last, noLast, tooDeep}`. The four buttons are drawn with their word beside the icon (`{first: 'Newest', prev: 'Newer', next: 'Older', last: 'Oldest'}` for a log read newest first); `noLast` is the refusal on Last when the total is unknown, `tooDeep` (`(max) => string`) the one past `maxJumpOffset`.
+ * @property {Object} [pagerLabels] - The pager's words: `{first, prev, next, last, noLast, tooDeep}`. The four buttons are drawn with their word beside the icon, never narrower than it (`{first: 'Newest', prev: 'Newer', next: 'Older', last: 'Oldest'}` for a log read newest first); `noLast` is the refusal on Last when the total is unknown, `tooDeep` (`(max) => string`) the one past `maxJumpOffset`.
  * @property {'top'|'bottom'} [pagerPosition='top'] - Where the pager strip sits.
  * @property {number} [maxJumpOffset] - The deepest offset Last and Go-to-row will jump to. Past it the control is REFUSED, disabled with the reason on it (`data-refusal`), rather than slow.
  * @property {boolean|{interval?: number}} [follow=false] - Under `dataSource`: re-read the first page every `interval` ms (default 10000) while the table is on it and in the page, keeping the scroll position, the selection and the active row; rows not there before are drawn `twm-dt-row--new`. A tick waits while text in the table is selected or the focus is inside an open detail. Paging away turns following OFF (`onFollowChange(false)`); coming back does not turn it on again. See `setFollow`, `refresh`.
  * @property {Function} [onFollowChange] - `(following) => void`.
  * @property {boolean|number} [keepWhileDetached=false] - With `autoDispose`: how long a table taken out of the page may stay out and still come back drawn. A number is a grace in ms; `true` keeps it for as long as it is out (it is disposed only by `dispose()`, and what it holds meanwhile is its own DOM — nothing on the document, and a follow timer that holds it weakly). A table put back within its grace is not disposed, however many tasks it was out.
- * @property {Object|Array|Function} [filterKinds] - FILTER CONTROLS THAT ARE NOT TEXT BOXES, per column (an object or array keyed by column index, or `(colIdx, header) => spec`). A spec is `'text'` (the 0.4 box), `{kind: 'chips', options: [{value, label, icon?, title?}], multiple?}` (one-of-N chips with counts — an option whose value is `''` or null means "no filter"), or `{create(ctx)}` / a function `create(ctx)` for the consumer's own control (a date range, a person): `ctx` is `{column, header, value, counts, setValue(v), table}`, and it returns `{el, setValue?(v), setCounts?(c), destroy?(), match?(cellValue, filterValue, row)}`. A filter's value may then be anything (an array, an object): `query.filters` forwards it as it is, and on the client the control's `match` decides (chips: equality, or membership for `multiple`). The control is built once and kept across renders.
+ * @property {Object|Array|Function} [filterKinds] - FILTER CONTROLS THAT ARE NOT TEXT BOXES, per column (an object or array keyed by column index, or `(colIdx, header) => spec`). A spec is `'text'` (the 0.4 box), `{kind: 'chips', options: [{value, label, icon?, title?}], multiple?}` (one-of-N chips with counts — an option whose value is `''` or null means "no filter"), or `{create(ctx)}` / a function `create(ctx)` for the consumer's own control (a date range, a person): `ctx` is `{column, header, value, counts, setValue(v), table}`, and it returns `{el, setValue?(v), setCounts?(c), destroy?(), match?(cellValue, filterValue, row)}`. A filter's value may then be anything (an array, an object): `query.filters` forwards it as it is, and on the client the control's `match` decides (chips: equality, or membership for `multiple`). The control is built once and kept across renders, and is in the column-width measure: a column is never narrower than its control at its narrowest (the widest chip), and the cell wraps the rest.
  * @property {Function} [onFilterChange] - `(filters) => void` with `[{column, header, value}]`, whenever a column filter changes.
  */
 
@@ -1737,6 +1737,9 @@ export class DataTable {
             const control = this._filterControlFor(colIdx, header);
             if (control) {
                 th.classList.add('data-table__filter-cell--control');
+                // The measuring pass keeps a row holding a control (its text
+                // boxes stay out): see `_measureNaturalWidths`.
+                tr.classList.add('twm-data-table__filter-row--controls');
                 th.addEventListener('click', (e) => e.stopPropagation());
                 if (control.el) th.appendChild(control.el);
                 tr.appendChild(th);
@@ -4287,6 +4290,13 @@ export class DataTable {
             btn.appendChild(span);
             btn.classList.add('twm-pagination-btn--labelled');
             btn.style.padding = '1px 6px 1px 3px';
+            // NEVER NARROWER THAN ITS WORD. The pager's buttons carry a
+            // `min-width` sized for a glyph (22px, `!important` in the compact
+            // skin), and in a narrow tile the flex row shrank a labelled one
+            // to it and clipped its word. Inline and `important`, because it
+            // is the one declaration that must beat both skins.
+            btn.style.setProperty('min-width', 'max-content', 'important');
+            btn.style.flexShrink = '0';
         }
         if (refusal) {
             // The reason is ON the control, where a person looks and a test can
@@ -5132,6 +5142,30 @@ export class DataTable {
                 : 0;
             natural[i] = Math.max(body, head);
         }
+        // 0.7.0 `filterKinds`: A FILTER CONTROL IS IN THE MEASURE. The text
+        // boxes stay out (an `<input>`'s default width would set every
+        // column), but a control — the Level chips with their counts — is
+        // drawn at its NARROWEST (`min-content`: the widest chip) for this
+        // reflow, so the label row's width above already spans it, and that
+        // narrowest width is kept as the column's FLOOR for the fit pass,
+        // which would otherwise squeeze the column under one chip in a narrow
+        // tile and cut it off. Above the floor the cell wraps its chips.
+        const floors = new Array(cols).fill(0);
+        const filterRow = headerTable.querySelector('thead > tr.twm-data-table__filter-row--controls');
+        if (filterRow) {
+            for (let i = 0; i < cols && i < filterRow.children.length; i++) {
+                const th = filterRow.children[i];
+                if (!th.classList.contains('data-table__filter-cell--control')) continue;
+                const el = th.firstElementChild;
+                if (!el) continue;
+                const cs = getComputedStyle(th);
+                const pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
+                    + (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.borderRightWidth) || 0);
+                floors[i] = Math.ceil(el.getBoundingClientRect().width / zoom + pad);
+                natural[i] = Math.max(natural[i], floors[i]);
+            }
+        }
+        this._filterFloors = floors;
 
         for (const tr of sampled) tr.remove();
         headerTable.classList.remove('twm-dt-measuring');
@@ -5320,6 +5354,7 @@ export class DataTable {
             firstIdx,
             overrides: this._colWidths,
             fit: this.config.columnFit,
+            floors: this._filterFloors,
         });
         const total = widths.reduce((a, b) => a + b, 0);
 
@@ -5429,6 +5464,11 @@ export class DataTable {
         const n = natural.length;
         const firstIdx = opts.firstIdx ?? 0;
         const overrides = opts.overrides || {};
+        // 0.7.0: a column's own floor (its filter control's narrowest width,
+        // `_measureNaturalWidths`) — never squeezed below it, even when the
+        // table then scrolls sideways.
+        const floors = Array.isArray(opts.floors) ? opts.floors : [];
+        const floorOf = (i) => Math.max(FLOOR, Math.ceil(floors[i] || 0));
         // Anything that is not the literal opt-in is the historical behaviour.
         // Read once, so an embedder that passes a typo gets the old layout
         // rather than half of each.
@@ -5509,7 +5549,7 @@ export class DataTable {
         const budget = avail - protectedSum;
         if (budget < shrinkable.length * FLOOR) {
             // Even at the floor we overflow → let the body scroll sideways.
-            for (const i of shrinkable) widths[i] = FLOOR;
+            for (const i of shrinkable) widths[i] = floorOf(i);
             return widths;
         }
         // Max-min fair allocation: the narrow columns keep their content,
@@ -5526,7 +5566,7 @@ export class DataTable {
             } else {
                 const level = Math.max(FLOOR, fair);
                 for (let j = k; j < shrinkable.length; j++) {
-                    widths[shrinkable[j]] = level;
+                    widths[shrinkable[j]] = Math.max(level, floorOf(shrinkable[j]));
                 }
                 // Dump any rounding remainder onto the widest column.
                 const leftover = remaining - colsLeft * level;

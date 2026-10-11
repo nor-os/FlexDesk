@@ -1192,6 +1192,14 @@ grip drag drew its ghost and a drop line naming the place, moved the step as
 one edit and started no native drag (a `dragstart` counter at 0). A refused
 place said why and moved nothing, and Escape cancelled the drag.
 
+**In a narrow editor** (under 1000px the list, the settings and the aside are
+stacked and the body scrolls as one), a step picked with the mouse, with Enter,
+with *Go to it* or with `select()` scrolls its settings on screen (`'nearest'`)
+when they lie outside the body's visible box. ↑ and ↓ leave the list where it
+is, and side by side nothing scrolls. `demo/flow_outline_narrow_probe.mjs`
+pressed a step at a 900px viewport and found the panel's first field with
+`elementFromPoint`. At 1440px the same press moved no scroll position.
+
 ### The lane editor
 
 `createLaneEditor(host, options)` draws a data flow as lanes, left to right.

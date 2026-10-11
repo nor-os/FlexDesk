@@ -361,6 +361,34 @@ function matchDurationFilter(ms, filterText, shown) {
 // src/ui/components/data_table.js
 var DEFAULT_PAGE_SIZE = 100;
 var DIFF_STATUSES = /* @__PURE__ */ new Set(["added", "removed", "changed", "same", "gap"]);
+var PAGING_HARD_LIMIT = 1e5;
+var PAGING_SOFT_LIMIT = 1e4;
+function resolvePaging({
+  mode = "scroll",
+  total = null,
+  atLeast = 0,
+  held = 0,
+  hasMore = false,
+  softLimit = PAGING_SOFT_LIMIT,
+  hardLimit = PAGING_HARD_LIMIT
+} = {}) {
+  const requested = mode === "pages" ? "pages" : "scroll";
+  const hard = Number.isFinite(hardLimit) && hardLimit >= 1 ? Math.floor(hardLimit) : PAGING_HARD_LIMIT;
+  const soft = Math.min(hard, Number.isFinite(softLimit) && softLimit >= 1 ? Math.floor(softLimit) : PAGING_SOFT_LIMIT);
+  const exact = Number.isFinite(total) && total >= 0;
+  const known = exact ? total : Math.max(Number.isFinite(atLeast) ? atLeast : 0, (held || 0) + (hasMore ? 1 : 0));
+  const forced = requested === "scroll" && known > soft;
+  return {
+    mode: forced ? "pages" : requested,
+    requested,
+    forced,
+    softLimit: soft,
+    hardLimit: hard,
+    known,
+    exact
+  };
+}
+var PAGING_LOAD_MORE_PX = 400;
 var TYPED_COLUMNS = /* @__PURE__ */ new Set(["date", "datetime", "duration"]);
 var DESELECTING_CLICKS = /* @__PURE__ */ new WeakSet();
 var AUTO_DISPOSE = /* @__PURE__ */ new Map();
@@ -513,6 +541,9 @@ var DataTable = class {
       // promise that adding the key changed no existing layout by a
       // pixel. Only a consumer that asks for 'content' sees anything new.
       columnFit: "container",
+      // Off unless asked for — see the typedef. With it the old pager is
+      // not drawn: the paging strip says the same and more.
+      paging: null,
       // C10. Off unless asked for — see the typedef.
       virtualize: false,
       virtualRowHeight: null,
@@ -925,7 +956,7 @@ var DataTable = class {
       this._wrapperEl.style.cssText = "display:flex; flex-direction:column; height:100%; min-height:0;";
     }
     this._loading = false;
-    if (pagination && rows.length > 0) {
+    if (pagination && rows.length > 0 && !this._pagingConfig()) {
       this._paginationEl = this._createPagination();
       if (this._paginationEl) this._wrapperEl.appendChild(this._paginationEl);
     }
@@ -1011,6 +1042,11 @@ var DataTable = class {
       this._wrapperEl.appendChild(tableWrap);
     }
     this._tableWrapEl = tableWrap;
+    this._pagingEl = null;
+    if (this._pagingConfig()) {
+      this._pagingEl = this._createPagingStrip();
+      if (this._pagingEl) this._wrapperEl.appendChild(this._pagingEl);
+    }
     this.container.appendChild(this._wrapperEl);
     if (this.config.scrollLock && typeof this.config.scrollLock.attach === "function") {
       this._disposers.push(this.config.scrollLock.attach(tableWrap));
@@ -1027,6 +1063,14 @@ var DataTable = class {
       this._disposers.push(() => tableWrap.removeEventListener("scroll", onScroll));
       this._virtMeasure();
       this._virtUpdate({ force: true, notify: false });
+    }
+    if (this._pagingConfig()) {
+      const onScroll = () => this._pagingMaybeLoadMore();
+      tableWrap.addEventListener("scroll", onScroll, { passive: true });
+      this._disposers.push(() => tableWrap.removeEventListener("scroll", onScroll));
+      requestAnimationFrame(() => {
+        if (this._tableWrapEl === tableWrap) this._pagingMaybeLoadMore();
+      });
     }
     if (this._headerTableEl && this._tableEl) {
       requestAnimationFrame(() => this._syncHeaderWidths());
@@ -1890,13 +1934,234 @@ var DataTable = class {
     btn.addEventListener("click", onClick);
     return btn;
   }
+  // ── `paging` ────────────────────────────────────────────────────────────
+  /** The `paging` config with its defaults, or null when it is not set. */
+  _pagingConfig() {
+    const p = this.config.paging;
+    if (!p || typeof p !== "object") return null;
+    const size = Number.isFinite(p.pageSize) && p.pageSize >= 1 ? Math.floor(p.pageSize) : this.config.pageSize;
+    return {
+      ...p,
+      pageSize: size,
+      offset: Number.isFinite(p.offset) && p.offset > 0 ? Math.floor(p.offset) : 0,
+      // What the table holds of the source. A consumer whose `rows` carry
+      // a row the source does not (a blank line to type into) says so.
+      held: Number.isFinite(p.held) ? p.held : this.config.rows?.length || 0,
+      hasMore: !!p.hasMore,
+      loadMorePx: Number.isFinite(p.loadMorePx) ? p.loadMorePx : PAGING_LOAD_MORE_PX
+    };
+  }
+  /**
+   * Which way the rows are shown, and why — `resolvePaging` over this
+   * table's facts. `null` without `paging`.
+   */
+  get pagingState() {
+    const p = this._pagingConfig();
+    if (!p) return null;
+    return resolvePaging({
+      mode: p.mode,
+      total: p.total,
+      atLeast: p.atLeast,
+      held: p.offset + p.held,
+      hasMore: p.hasMore,
+      softLimit: p.softLimit,
+      hardLimit: p.hardLimit
+    });
+  }
+  /**
+   * Change some `paging` facts — a count that arrived, a mode — and redraw
+   * the STRIP only. The rows are not touched: a consumer with new rows
+   * renders the table as it always has.
+   */
+  setPaging(patch = {}) {
+    if (!this.config.paging) return;
+    this.config.paging = { ...this.config.paging, ...patch };
+    this._refreshPagingStrip();
+    this._pagingMaybeLoadMore();
+  }
+  _refreshPagingStrip() {
+    if (!this._wrapperEl) return;
+    const next = this._pagingConfig() ? this._createPagingStrip() : null;
+    const prev = this._pagingEl;
+    if (prev && prev.parentNode === this._wrapperEl) {
+      if (next) prev.replaceWith(next);
+      else prev.remove();
+    } else if (next) {
+      this._wrapperEl.appendChild(next);
+    }
+    this._pagingEl = next;
+  }
+  /**
+   * Call one of the consumer's paging callbacks. A Promise holds every other
+   * paging call back until it settles, and the strip shows the table busy —
+   * a second `onLoadMore` fired by the next scroll event would fetch the same
+   * page twice.
+   */
+  _pagingCall(kind, fn, ...args) {
+    if (typeof fn !== "function" || this._pagingBusy) return;
+    let result;
+    try {
+      result = fn(...args);
+    } catch (err) {
+      console.error(`[DataTable] paging ${kind} threw`, err);
+      return;
+    }
+    if (result && typeof result.then === "function") {
+      this._pagingBusy = kind;
+      this._refreshPagingStrip();
+      const settle = () => {
+        if (this._pagingBusy !== kind) return;
+        this._pagingBusy = null;
+        if (this._pagingEl?.isConnected) this._refreshPagingStrip();
+      };
+      result.then(settle, (err) => {
+        console.error(`[DataTable] paging ${kind} failed`, err);
+        settle();
+      });
+    }
+  }
+  /**
+   * Scrolling: ask for the next rows when the body is near its end — or does
+   * not fill its box, which no scroll can ever change. Never past the hard
+   * limit, never in pages, never with no layout (a hidden table's box is 0px
+   * tall, and "0 ≤ 0" would ask for the whole source).
+   */
+  _pagingMaybeLoadMore() {
+    const p = this._pagingConfig();
+    if (!p || !p.hasMore || this._pagingBusy) return;
+    const state = this.pagingState;
+    if (state.mode !== "scroll" || p.held >= state.hardLimit) return;
+    const wrap = this._tableWrapEl;
+    if (!wrap?.isConnected || !(wrap.clientHeight > 0)) return;
+    const remaining = wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight;
+    if (remaining >= p.loadMorePx) return;
+    this._pagingCall("more", p.onLoadMore);
+  }
+  /** The strip under the body, or null when it would say nothing. */
+  _createPagingStrip() {
+    const p = this._pagingConfig();
+    const state = this.pagingState;
+    const { mode, forced, exact, known } = state;
+    const busy = this._pagingBusy;
+    const n = (x) => Number(x).toLocaleString();
+    const pageSize = p.pageSize;
+    const held = p.held;
+    const total = exact ? p.total : null;
+    const morePages = p.offset > 0 || p.hasMore || exact && total > held;
+    if (!forced && mode === "scroll" && !p.hasMore && held <= pageSize) return null;
+    if (!forced && mode === "pages" && !morePages) return null;
+    const el = document.createElement("div");
+    el.className = `twm-dt-paging twm-dt-paging--${mode}`;
+    el.setAttribute("role", "navigation");
+    el.setAttribute("aria-label", "Rows");
+    if (busy) el.classList.add("twm-dt-paging--busy");
+    const info = document.createElement("span");
+    info.className = "twm-dt-paging__info";
+    el.appendChild(info);
+    if (mode === "pages") {
+      const from = held ? p.offset + 1 : p.offset;
+      const to = p.offset + held;
+      let of = "";
+      if (exact) of = ` of ${n(total)}`;
+      else if (known > to) of = ` of more than ${n(known - 1)}`;
+      info.textContent = held ? `Rows ${n(from)}\u2013${n(to)}${of}` : "No rows on this page";
+      const hasPrev = p.offset > 0;
+      const hasNext = exact ? p.offset + held < total : p.hasMore;
+      const lastOffset = exact && total > 0 ? Math.floor((total - 1) / pageSize) * pageSize : null;
+      const go = (offset) => (ev) => {
+        if (!ev?.currentTarget?.disabled) this._pagingCall("page", p.onPage, offset, pageSize);
+      };
+      const nav = document.createElement("span");
+      nav.className = "twm-dt-paging__nav";
+      const off = !!busy || typeof p.onPage !== "function";
+      nav.append(
+        this._createPaginationBtn("first_page", "First page", off || !hasPrev, go(0)),
+        this._createPaginationBtn(
+          "chevron_left",
+          "Previous page",
+          off || !hasPrev,
+          go(Math.max(0, p.offset - pageSize))
+        )
+      );
+      const page = document.createElement("span");
+      page.className = "twm-dt-paging__page";
+      const current = Math.floor(p.offset / pageSize) + 1;
+      page.textContent = exact ? `Page ${n(current)} of ${n(Math.max(1, Math.ceil(total / pageSize)))}` : `Page ${n(current)}`;
+      nav.append(
+        page,
+        this._createPaginationBtn(
+          "chevron_right",
+          "Next page",
+          off || !hasNext,
+          go(p.offset + pageSize)
+        ),
+        // The last page needs the exact count: without it there is no
+        // offset to go to, and the button says so by being off.
+        this._createPaginationBtn(
+          "last_page",
+          lastOffset === null ? "Last page (the total is not known)" : "Last page",
+          off || !hasNext || lastOffset === null,
+          go(lastOffset)
+        )
+      );
+      el.appendChild(nav);
+    } else {
+      if (exact && total > held) info.textContent = `${n(held)} of ${n(total)} rows`;
+      else if (p.hasMore) info.textContent = `${n(held)} rows, more to come`;
+      else info.textContent = `${n(held)} rows`;
+      if (p.hasMore && typeof p.onLoadAll === "function") {
+        const all = document.createElement("button");
+        all.type = "button";
+        all.className = "twm-dt-paging__all";
+        all.textContent = busy === "all" ? "Loading\u2026" : exact ? `Load all ${n(total)} rows` : "Load all rows";
+        all.disabled = !!busy;
+        all.addEventListener("click", () => {
+          if (!all.disabled) this._pagingCall("all", p.onLoadAll);
+        });
+        el.appendChild(all);
+      }
+    }
+    const spacer = document.createElement("span");
+    spacer.className = "twm-dt-paging__spacer";
+    el.appendChild(spacer);
+    const why = forced ? `More than ${n(state.softLimit)} rows, so they are shown in pages.` : null;
+    if (why) {
+      const note = document.createElement("span");
+      note.className = "twm-dt-paging__note";
+      note.textContent = why;
+      el.appendChild(note);
+    }
+    if (typeof p.onModeChange === "function") {
+      const group = document.createElement("span");
+      group.className = "twm-dt-paging__modes";
+      group.setAttribute("role", "group");
+      group.setAttribute("aria-label", "Show rows");
+      for (const [value, label] of [["pages", "Pages"], ["scroll", "Scroll"]]) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "twm-dt-paging__mode";
+        b.dataset.mode = value;
+        b.textContent = label;
+        const pressed = mode === value;
+        b.setAttribute("aria-pressed", String(pressed));
+        b.disabled = !!busy || value === "scroll" && forced;
+        if (value === "scroll" && forced) b.title = why;
+        b.addEventListener("click", () => {
+          if (!b.disabled && mode !== value) this._pagingCall("mode", p.onModeChange, value);
+        });
+        group.appendChild(b);
+      }
+      el.appendChild(group);
+    }
+    return el;
+  }
   _createTable() {
     const { headers, rows, pageSize, sortable, filterable, showRowNumbers, readonly, getHeaderIcon, onPageChange, offset: configOffset } = this.config;
     const { sortColumn, sortAscending } = this._state;
     const isServerSide = typeof onPageChange === "function";
     const processedRows = isServerSide ? rows : this._getProcessedRows();
     const offset = isServerSide ? configOffset || 0 : this._state.offset;
-    const pageRows = isServerSide || !this.config.pagination ? processedRows : processedRows.slice(offset, offset + pageSize);
+    const pageRows = isServerSide || !this.config.pagination || this._pagingConfig() ? processedRows : processedRows.slice(offset, offset + pageSize);
     const table = document.createElement("table");
     table.className = this._tableClassName();
     table.tabIndex = 0;
@@ -1959,6 +2224,8 @@ var DataTable = class {
       return isServerSide ? (configOffset || 0) + localIdx : this._processedIndexMap?.[processedIdx] ?? processedIdx;
     };
     this._positionBase = isServerSide ? configOffset || 0 : this.config.pagination ? offset : 0;
+    const paged = this._pagingConfig();
+    if (paged && Number.isFinite(paged.offset)) this._positionBase += paged.offset;
     const tbody = document.createElement("tbody");
     table.appendChild(tbody);
     this._tbodyEl = tbody;
@@ -3725,6 +3992,9 @@ export {
   formatDuration,
   matchDateFilter,
   matchDurationFilter,
+  PAGING_HARD_LIMIT,
+  PAGING_SOFT_LIMIT,
+  resolvePaging,
   DataTable
 };
-//# sourceMappingURL=chunk-IYV5JVYB.js.map
+//# sourceMappingURL=chunk-CPYBQN3Q.js.map

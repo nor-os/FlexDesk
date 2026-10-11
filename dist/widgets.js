@@ -24,6 +24,8 @@ import {
   DataTable,
   ISO_DATE,
   ISO_DATETIME,
+  PAGING_HARD_LIMIT,
+  PAGING_SOFT_LIMIT,
   createRafResizeObserver,
   formatDate,
   formatDuration,
@@ -31,8 +33,9 @@ import {
   matchDurationFilter,
   parseDatePeriod,
   parseDateValue,
-  parseDuration
-} from "./chunk-IYV5JVYB.js";
+  parseDuration,
+  resolvePaging
+} from "./chunk-CPYBQN3Q.js";
 import {
   ManagedWindow,
   ROW_CONTROL_SELECTOR,
@@ -5830,6 +5833,8 @@ export {
   ManagedWindow,
   NotificationCenter,
   NotificationHistory,
+  PAGING_HARD_LIMIT,
+  PAGING_SOFT_LIMIT,
   PANEL_STATES,
   PANEL_TRANSITIONS,
   PageBase,
@@ -5880,6 +5885,7 @@ export {
   parseDuration,
   refTypesFor,
   reportBridgeError,
+  resolvePaging,
   selectItem,
   setHelpProvider,
   setModalHost,

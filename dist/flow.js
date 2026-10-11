@@ -3,7 +3,7 @@ import {
 } from "./chunk-6NG7YVBG.js";
 import {
   DataTable
-} from "./chunk-IYV5JVYB.js";
+} from "./chunk-CPYBQN3Q.js";
 import "./chunk-6JSOVNID.js";
 import "./chunk-FL5KFNQH.js";
 import {

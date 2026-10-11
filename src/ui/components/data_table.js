@@ -1088,7 +1088,12 @@ export class DataTable {
         // body's auto layout, then we lock both tables to those widths
         // via table-layout:fixed + explicit cell widths.
         if (this._headerTableEl && this._tableEl) {
-            requestAnimationFrame(() => this._syncHeaderWidths());
+            // 0.6.3: and once the widths are fixed the rows may be another
+            // height than they were measured at — so the window measures again.
+            requestAnimationFrame(() => {
+                this._syncHeaderWidths();
+                this._virtRemeasure();
+            });
             // Re-sync on container resize so columns stay aligned when
             // the parent flex / grid layout changes (window resize,
             // splitter drag, etc.).
@@ -2695,26 +2700,52 @@ export class DataTable {
         return lo;
     }
 
-    /** Measure one real row. Client pixels, so the zoom is divided back out —
-     *  `_measureNaturalWidths` explains why — and NOT `offsetHeight`, which is
-     *  rounded: 21 for a 21.19px row is a 1,100px error over 6,000 rows. */
+    /**
+     * Measure the rows that are DRAWN — the median of up to 64 of them. Client
+     * pixels, so the zoom is divided back out (`_measureNaturalWidths` explains
+     * why), and NOT `offsetHeight`, which is rounded: 21 for a 21.19px row is a
+     * 1,100px error over 6,000 rows.
+     *
+     * 0.6.3: IT USED TO MEASURE ONE ROW, ONCE, AT RENDER, and trust it for the
+     * life of the table. A row measured at a bad moment — a box not yet laid
+     * out at its width, a font not yet loaded — set every row's height: a
+     * Tables grid drawing 22.8px rows was found holding a 134px estimate, so the
+     * window took a 650px viewport for five rows, drew rows 1–35 and left the
+     * rest of the box blank spacer while the reader scrolled. Now it is asked
+     * again on every window update (`_virtUpdate`), on a resize and once the
+     * column widths are fixed, and corrects itself the first time real rows
+     * are on screen. The first measure is exact; after that a change has to be
+     * larger than half a pixel, so rows of mixed heights cannot make the
+     * offsets move under the reader on every scroll.
+     *
+     * @returns {boolean} whether the heights changed (the offsets are recomputed).
+     */
     _virtMeasure() {
         const v = this._virt;
         if (!v) return false;
+        const zoom = this._tableEl?.currentCSSZoom || 1;
+        const heights = [];
         for (const tr of v.map.values()) {
             if (!tr.isConnected || tr.hidden) continue;
-            const zoom = this._tableEl?.currentCSSZoom || 1;
             const h = tr.getBoundingClientRect().height / zoom;
-            if (!(h > 0)) return false;
-            if (Math.abs(h - v.base) > 0.01) {
-                v.base = h;
-                this._virtBase = h;
-                this._virtComputeOffsets();
-                return true;
-            }
-            return false;
+            if (h > 0) heights.push(h);
+            if (heights.length >= 64) break;
         }
-        return false;
+        if (!heights.length) return false;
+        heights.sort((a, b) => a - b);
+        const h = heights[heights.length >> 1];
+        const tolerance = v.measured ? 0.5 : 0.01;
+        v.measured = true;
+        if (Math.abs(h - v.base) <= tolerance) return false;
+        v.base = h;
+        this._virtBase = h;
+        this._virtComputeOffsets();
+        return true;
+    }
+
+    /** Measure again, and redraw the window when the heights moved. */
+    _virtRemeasure() {
+        if (this._virtMeasure()) this._virtUpdate({ force: true });
     }
 
     /**
@@ -2734,9 +2765,12 @@ export class DataTable {
      * @param {number}  [o.viewport] the viewport height, likewise.
      * @returns {HTMLElement[]} the rows added.
      */
-    _virtUpdate({ force = false, notify = true, top = null, viewport = null } = {}) {
+    _virtUpdate({ force = false, notify = true, top = null, viewport = null, measure = true } = {}) {
         const v = this._virt;
         if (!v || !v.offsets) return [];
+        // The rows on screen say how tall a row is — before the window is
+        // placed, so a stale estimate is not used to place it (`_virtMeasure`).
+        if (measure && this._virtMeasure()) force = true;
         const n = v.rows.length;
         const wrap = this._tableWrapEl;
         const view = viewport || wrap?.clientHeight || VIRTUAL_FALLBACK_VIEWPORT_PX;
@@ -2763,6 +2797,13 @@ export class DataTable {
                 try { this.config.onRowsRendered?.({ rows: added, removed }); } catch (err) {
                     console.error('[DataTable] onRowsRendered threw', err);
                 }
+            }
+            // And the rows just drawn: if they disagree with the estimate the
+            // window was placed by, place it once more by what they say.
+            if (measure && added.length && this._virtMeasure()) {
+                return added.concat(this._virtUpdate({
+                    force: true, notify, top, viewport, measure: false,
+                }));
             }
         }
         return added;

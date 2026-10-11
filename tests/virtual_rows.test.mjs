@@ -19,6 +19,7 @@
  *   §8  updateRow on a row outside the window is not lost
  *   §9  widths go on the <col>s, and measuring skips spacers
  *   §10 an explicit auto-size fits every loaded row, not only the window
+ *   §11 a stale row height corrects itself: the median of the drawn rows, again on every update
  *
  *     node tests/virtual_rows.test.mjs
  */
@@ -317,6 +318,52 @@ console.log('\n§10 an explicit auto-size fits every loaded row, not only the wi
     check('the sampled rows are gone again — the DOM is the window it was',
           bodyOf(h3).children.length, trsBefore);
     ok('…and row 3000 is still not drawn', !t3.getRowElement(3000));
+}
+
+console.log('\n§11 a stale row height corrects itself (0.6.3)');
+{
+    // A Tables grid drawing 22.8px rows was found holding a 134px estimate:
+    // measured once, at render, from a row at a bad moment, and never again —
+    // so a 650px viewport was taken for five rows, rows 1–35 were drawn, and
+    // the rest of the box was blank spacer under the reader's scroll.
+    const proto = dom.window.HTMLElement.prototype;
+    const real = proto.getBoundingClientRect;
+    let rowH = 134;
+    let odd = null;
+    proto.getBoundingClientRect = function () {
+        const h = this.tagName === 'TR' && this.__rowIndex !== undefined
+            ? (this === odd ? 134 : rowH) : 0;
+        return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: h, width: 0, height: h };
+    };
+    try {
+        const { host, table } = mount({ rows: makeRows(240), virtualize: { rowHeight: H, overscan: 30 } });
+        const geo = fakeGeometry(table, 650);
+        check('measured at render: the bad height', table._virt.base, 134);
+        rowH = 22.8;
+        geo.scrollTo(560);
+        check('the next window update measures the drawn rows again', table._virt.base, 22.8);
+        const drawn = dataRows(host).map((tr) => tr.__rowIndex);
+        const firstVisible = Math.floor(560 / 22.8);
+        const lastVisible = Math.floor((560 + 650) / 22.8);
+        ok('…and draws every row the viewport now shows',
+           drawn.includes(firstVisible) && drawn.includes(lastVisible),
+           `drawn ${drawn[0]}..${drawn.at(-1)}, viewport ${firstVisible}..${lastVisible}`);
+        check('the spacers add up to the measured rows',
+              Math.round(spacerH(host, 'top') + spacerH(host, 'bottom') + drawn.length * 22.8),
+              Math.round(240 * 22.8));
+
+        // ONE ODD ROW DOES NOT SET THE OTHERS: the median of what is drawn.
+        odd = dataRows(host)[0];
+        geo.scrollTo(600);
+        check('a single tall row leaves the estimate alone', table._virt.base, 22.8);
+
+        // NOR DOES A SUB-PIXEL WOBBLE MOVE THE OFFSETS once measured.
+        rowH = 23.1;
+        geo.scrollTo(640);
+        check('a change under half a pixel is not chased', table._virt.base, 22.8);
+    } finally {
+        proto.getBoundingClientRect = real;
+    }
 }
 
 console.log(failures ? `\n${failures} assertion(s) FAILED` : '\nall assertions passed');

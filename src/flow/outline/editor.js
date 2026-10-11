@@ -27,7 +27,9 @@
  * ══ GESTURES ════════════════════════════════════════════════════════════
  *
  * A press SELECTS — it toggles classes and fills the settings panel, and
- * rebuilds no row, so the click lands on the node the press went down on.
+ * rebuilds no row, so the click lands on the node the press went down on. In
+ * a narrow editor, where the panel is stacked under the list, a press (like
+ * Enter, Go to it and `select()`) scrolls the panel on screen when it is off it.
  * "+" between rows (on hover AND on focus), the add rows and a row's menu
  * open the step picker and the step menu, both the kit's popovers. A step is
  * dragged by its grip with POINTER EVENTS and a ghost on `document.body`
@@ -528,7 +530,7 @@ export function createOutlineEditor(host, options = {}) {
         if (fs.length) row.appendChild(badge(fs));
         item.appendChild(row);
         item.setAttribute('aria-label', [map.startLabel(S), sum].filter(Boolean).join(', '));
-        row.addEventListener('click', () => select('flow', { focus: true }));
+        row.addEventListener('click', () => select('flow', { focus: true, picked: true }));
         if (filter) item.classList.add('twm-flow-outline__item--context');
         itemEls.set('flow', item);
         return item;
@@ -645,7 +647,7 @@ export function createOutlineEditor(host, options = {}) {
             row.appendChild(menu);
             row.addEventListener('contextmenu', (ev) => { ev.preventDefault(); select(item.id); openMenu(item.id, menu); });
         }
-        row.addEventListener('click', () => select(item.id, { focus: true }));
+        row.addEventListener('click', () => select(item.id, { focus: true, picked: true }));
         return { row, label: [name, type?.label !== name ? type?.label : null, summary].filter(Boolean).join(', ') };
     }
 
@@ -836,7 +838,13 @@ export function createOutlineEditor(host, options = {}) {
         }
     }
 
-    function select(id, { focus = false, silent = false } = {}) {
+    /**
+     * `picked`: the step was PICKED — a press on its row, Go to it, `select()`
+     * — so its settings are what the person looks at next, and they are
+     * brought on screen (`revealSettings`). ↑ ↓ ← → only move the selection
+     * through the list and leave the list where it is.
+     */
+    function select(id, { focus = false, silent = false, picked = false } = {}) {
         const next = id === null || id === undefined ? 'flow' : id;
         const changed = next !== selected;
         selected = next;
@@ -844,7 +852,31 @@ export function createOutlineEditor(host, options = {}) {
         if (changed) { showPanel(); drawAside(); }
         void silent;
         if (focus) itemEls.get(selected)?.focus({ preventScroll: false });
+        if (picked) revealSettings();
         if (changed) onSelect?.({ kind: selected === 'flow' ? 'flow' : 'step', id: selected === 'flow' ? null : selected });
+    }
+
+    /**
+     * BRING THE SETTINGS ON SCREEN when the layout has put them off it — the
+     * one rule for Enter, a press on a row, Go to it and `select()`. Under
+     * 1000px the columns wrap and the body scrolls as one (the container query
+     * in the sheet), so the panel sits under the whole list: a step picked
+     * there filled a panel ~860px below with nothing scrolled, and the press
+     * looked like it did nothing. A panel wholly inside the body's visible box
+     * — always, side by side, where the panel IS the body's height — or one
+     * that covers it is left alone, so nothing moves, the page included;
+     * otherwise it is scrolled into view, 'nearest' (all of it when it fits,
+     * its top when it does not).
+     */
+    function revealSettings() {
+        if (destroyed) return;
+        const box = body.getBoundingClientRect();
+        if (!box.height) return; // not laid out: hidden, detached
+        const r = settingsHost.getBoundingClientRect();
+        const inside = r.top >= box.top - 1 && r.bottom <= box.bottom + 1;
+        const covers = r.top <= box.top + 1 && r.bottom >= box.bottom - 1;
+        if (inside || covers) return;
+        settingsHost.scrollIntoView?.({ block: 'nearest' });
     }
 
     function focusSelected() {
@@ -1152,7 +1184,8 @@ export function createOutlineEditor(host, options = {}) {
     }
 
     function rename(id) {
-        select(id);
+        // The title is focused without scrolling, so it is brought on screen first.
+        select(id, { picked: true });
         const input = settingsHost.querySelector('[data-twm-flow-title]');
         if (input) { input.focus({ preventScroll: true }); input.select?.(); }
     }
@@ -1168,7 +1201,7 @@ export function createOutlineEditor(host, options = {}) {
     function goTo(f) {
         const id = f?.node_id && nodeOf(f.node_id) ? f.node_id : 'flow';
         if (reveal(id)) render();
-        select(id, { focus: true });
+        select(id, { focus: true, picked: true });
         if (f?.field) panel.focusField(f.field);
     }
 
@@ -1208,6 +1241,7 @@ export function createOutlineEditor(host, options = {}) {
             const f = settingsHost.querySelector('.twm-flow-panel__fields input, .twm-flow-panel__fields select, '
                 + '.twm-flow-panel__fields textarea, .twm-flow-panel__fields [contenteditable="true"], .twm-flow-panel__fields button')
                 || settingsHost.querySelector('[data-twm-flow-title]');
+            if (f) revealSettings();
             f?.focus({ preventScroll: false });
             return Boolean(f);
         },
@@ -1477,11 +1511,15 @@ export function createOutlineEditor(host, options = {}) {
             updateTools();
         },
         setStatus(text) { statusEl.textContent = text ?? ''; },
-        /** Select a step (unfolding the blocks around it, so it is on the screen), the flow, or nothing. */
+        /**
+         * Select a step (unfolding the blocks around it, so it is on the
+         * screen), the flow, or nothing — and, in a narrow editor whose panel
+         * is scrolled off, bring its settings on screen as a press does.
+         */
         select(id) {
             const want = id === null || id === undefined ? 'flow' : id;
             if (want !== 'flow' && reveal(want)) render();
-            select(want);
+            select(want, { picked: true });
         },
         focus() { focusSelected(); },
         undo() { if (editable() && history.undo()) emit('undo'); },

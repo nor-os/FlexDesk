@@ -34,6 +34,9 @@
  *   §16  Insert a value is asked with the steps that always run before,
  *        and the arms the step is inside — a step's error arm by its port
  *   §17  destroy leaves nothing behind
+ *   §18  stacked under 1000px, a press, Enter, Go to it and select() bring
+ *        the settings on screen ('nearest'); ↑ ↓ do not, and side by side
+ *        nothing ever scrolls
  *
  *     node tests/flow_outline_editor.test.mjs
  */
@@ -1033,6 +1036,100 @@ t.section('§17 destroy');
     t.ok('…and removes the editor', !host.querySelector('.twm-flow-outline'));
     m.ed.destroy();
     t.ok('a second destroy is harmless', true);
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+t.section('§18 a picked step\'s settings are brought on screen — in a narrow editor only');
+{
+    // jsdom lays nothing out, so the two layouts are stubbed: the body is the
+    // box that scrolls when the columns are stacked (under 1000px), and the
+    // panel lies where each case puts it. Whether it then scrolls is read off
+    // a spy on the panel's own scrollIntoView; what a browser does with that
+    // is the probe's (demo/flow_outline_narrow_probe.mjs).
+    const BODY = rect(0, 100, 900, 600); // 100…700 on the screen
+    const geometry = (m, panelTop, panelHeight) => {
+        const body = m.host.querySelector('.twm-flow-outline__body');
+        const settings = m.host.querySelector('.twm-flow-outline__settings');
+        body.getBoundingClientRect = () => BODY;
+        settings.getBoundingClientRect = () => rect(0, panelTop, 900, panelHeight);
+        const calls = [];
+        settings.scrollIntoView = (o) => calls.push(o);
+        return calls;
+    };
+    const STACKED = [1460, 440]; // under the whole list, ~760px below the body's foot
+    const WIDE = [100, 600];     // side by side: the panel IS the body's height
+    const pressRow = (m, id) => t.press(m.row(id).querySelector('.twm-flow-outline__words'));
+    const pressFlow = (m) => t.press(m.host.querySelector('.twm-flow-outline__row--flow .twm-flow-outline__words'));
+    const goTo = (m, id) => t.press(m.host.querySelector(`.twm-flow-strip li[data-node="${id}"] button`));
+    const URL_FINDING = [{ code: 'required', message: 'Url needs a value.', severity: 'error', node_id: 'invite', field: 'url' }];
+
+    let m = mount();
+    let calls = geometry(m, ...STACKED);
+    pressRow(m, 'check');
+    t.check('stacked: a press on a step selects it…', m.ed.selection, { kind: 'step', id: 'check' });
+    t.check('…and scrolls its settings into view, nearest', calls, [{ block: 'nearest' }]);
+    pressRow(m, 'check');
+    t.check('…a press on the step already selected does too (it is still a pick)', calls.length, 2);
+    pressFlow(m);
+    t.check('…and so does a press on the flow row', calls.length, 3);
+    m.ed.destroy();
+
+    m = mount();
+    calls = geometry(m, ...STACKED);
+    pressRow(m, 'save');
+    calls.length = 0;
+    t.key(m.item('save'), 'ArrowDown');
+    t.ok('stacked: ↓ moves the selection…', m.ed.selection.id !== 'save');
+    t.check('…and leaves the list where it is', calls.length, 0);
+    t.key(m.item(m.ed.selection.id), 'Enter');
+    t.check('stacked: Enter opens the settings by the same rule', calls, [{ block: 'nearest' }]);
+    m.ed.destroy();
+
+    m = mount();
+    calls = geometry(m, ...STACKED);
+    m.ed.select('save');
+    t.check('stacked: select() brings the settings on screen', calls, [{ block: 'nearest' }]);
+    m.ed.setFindings(URL_FINDING);
+    calls.length = 0;
+    goTo(m, 'invite');
+    await t.tick();
+    t.check('stacked: Go to it selects the step…', m.ed.selection, { kind: 'step', id: 'invite' });
+    t.check('…and brings its settings on screen', calls, [{ block: 'nearest' }]);
+    m.ed.destroy();
+
+    m = mount();
+    calls = geometry(m, 600, 440); // its head at the foot of the body, its fields below it
+    pressRow(m, 'check');
+    t.check('a panel only partly on screen is scrolled too', calls.length, 1);
+    m.ed.destroy();
+
+    m = mount();
+    calls = geometry(m, 0, 1400); // scrolled into: it covers the whole body
+    pressRow(m, 'check');
+    t.check('a panel that covers the body is left where it is', calls.length, 0);
+    m.ed.destroy();
+
+    m = mount();
+    calls = geometry(m, ...WIDE);
+    pressRow(m, 'check');
+    pressRow(m, 'save');
+    pressFlow(m);
+    m.ed.select('save');
+    t.key(m.item('save'), 'Enter');
+    m.ed.setFindings(URL_FINDING);
+    goTo(m, 'invite');
+    await t.tick();
+    t.check('side by side: the step Go to it named is selected…', m.ed.selection, { kind: 'step', id: 'invite' });
+    t.check('…and no press, select(), Enter or Go to it scrolled the panel', calls.length, 0);
+    m.ed.destroy();
+
+    m = mount();
+    let unlaid = 0;
+    m.host.querySelector('.twm-flow-outline__settings').scrollIntoView = () => { unlaid += 1; };
+    pressRow(m, 'check');
+    m.ed.select('save');
+    t.check('not laid out (no box): nothing is scrolled', unlaid, 0);
+    m.ed.destroy();
 }
 
 t.done();

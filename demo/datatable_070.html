@@ -16,7 +16,10 @@
                                             Older / Oldest at the bottom, a
                                             refused Oldest and a refused jump
            datatable_070.html?view=follow   a feed that grows: refresh and follow,
-                                            keeping the rows a reader is reading -->
+                                            keeping the rows a reader is reading
+           datatable_070.html?view=paging   0.6.2's `paging` over a `dataSource` (one
+                                            scrolling list, virtual, with details),
+                                            and 0.6.2's consumer-fetched pages -->
     <link rel="stylesheet"
           href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />
     <link href="../css/tokens.css" rel="stylesheet" />
@@ -180,6 +183,40 @@
             rowDetail: fold, hasRowDetail: (r) => !!entryOf.get(r)?.detail,
         });
         status.textContent = 'following: true';
+    } else if (view === 'paging') {
+        const log = makeLog(3000);
+        const host = box('paging over a dataSource: one list that loads more, virtual, with details');
+        window.probe.asked = [];
+        const fetchRows = serve(log, { delay: 40 });
+        window.probe.list = DataTable.mount(host, {
+            headers: ['When', 'Level', 'Who', 'What'],
+            firstColumn: 'plain', mode: 'compact', sortable: true,
+            getRowKey: (r) => entryOf.get(r)?.id,
+            dataSource: (q, o) => { window.probe.asked.push({ offset: q.offset, limit: q.limit, reason: q.reason }); return fetchRows(q, o); },
+            virtualize: { overscan: 10 },
+            paging: { mode: 'scroll', pageSize: 200, onModeChange: (m) => { status.textContent = `mode: ${m}`; } },
+            rowDetail: fold, hasRowDetail: (r) => !!entryOf.get(r)?.detail,
+        });
+        // 0.6.2 as published: the consumer holds the rows and fetches each page.
+        const all = makeLog(950);
+        const host2 = box('0.6.2: the consumer fetching pages, with details');
+        let t2;
+        const paging = {
+            mode: 'pages', pageSize: 100, total: all.entries.length, offset: 0,
+            onPage: async (offset) => {
+                await sleep(30);
+                // The facts first (setPaging redraws only the strip), then the
+                // rows, whose render numbers them from the new offset.
+                t2.setPaging({ offset });
+                t2.setData({ rows: asRows(all.entries.slice(offset, offset + 100)) });
+            },
+        };
+        t2 = window.probe.pages = DataTable.mount(host2, {
+            headers: ['When', 'Level', 'Who', 'What'], firstColumn: 'plain', mode: 'compact',
+            rows: asRows(all.entries.slice(0, 100)), getRowKey: (r) => entryOf.get(r)?.id,
+            showRowNumbers: 'position', paging,
+            rowDetail: fold, hasRowDetail: (r) => !!entryOf.get(r)?.detail,
+        });
     }
     window.probe.ready = true;
 </script>

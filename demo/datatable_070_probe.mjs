@@ -21,6 +21,13 @@
  *            reading at the same place while rows arrive above; at the top
  *            the arrivals are shown, marked new; the selection and an open
  *            detail are kept; paging away turns following off
+ *   paging   0.6.2's strip over a dataSource: the window's row height is the
+ *            rows' own (0.6.3); a real wheel to the end asks for the next rows
+ *            and draws them under the ones held without moving the reader; an
+ *            open detail stays, part of its row's height; a real press on Pages
+ *            asks again from the first row and Next pages; and 0.6.2 as
+ *            published (the consumer fetching) pages by real presses, its
+ *            numbers from the page's offset and a detail open again on return
  *
  *     node demo/datatable_070_probe.mjs [out-dir]       (Windows' node: a global WebSocket)
  *     node demo/datatable_070_probe.mjs [out-dir] --dist (the built dist/widgets.js)
@@ -283,6 +290,91 @@ try {
     await sleep(300);
     const off = await page.evaluate(`({ following: window.probe.follow.isFollowing(), status: document.getElementById('status').textContent })`);
     check('a real press on Older turns following off, and says so', !off.following && off.status === 'following: false', JSON.stringify(off));
+    page.close();
+
+    // ── paging (0.6.2's strip over 0.7.0's dataSource, on 0.6.3) ─────────
+    console.log('\npaging');
+    page = await openPage(browser.debugPort, url('paging'));
+    await page.waitFor('window.probe?.ready && document.querySelector(".demo__box:nth-child(1) .twm-dt-paging") && document.querySelectorAll(".demo__box:nth-child(1) tbody tr").length > 20');
+    await sleep(300);
+    const L = '.demo__box:nth-child(1)';
+    const lp = await page.evaluate(`(() => {
+        const root = document.querySelector('${L}');
+        const t = window.probe.list;
+        const strip = root.querySelector('.twm-dt-paging');
+        const wrap = t.scrollElement;
+        const rows = [...wrap.querySelectorAll('tbody > tr')].filter((tr) => tr.__rowIndex !== undefined).slice(0, 30)
+            .map((tr) => tr.getBoundingClientRect().height).sort((a, b) => a - b);
+        return { info: strip.querySelector('.twm-dt-paging__info').textContent,
+                 stripTop: strip.getBoundingClientRect().top, wrapBottom: wrap.getBoundingClientRect().bottom,
+                 held: t.config.rows.length, base: t._virt?.base, median: rows[rows.length >> 1],
+                 asked: window.probe.asked.slice(), total: (3000).toLocaleString() };
+    })()`);
+    check('the paging strip sits under the rows', lp.stripTop >= lp.wrapBottom - 0.5, `${lp.stripTop} vs ${lp.wrapBottom}`);
+    check('the first question is one paging.pageSize of rows', lp.asked[0]?.limit === 200 && lp.held === 200, JSON.stringify(lp.asked));
+    check('the strip counts the rows held', lp.info === `200 of ${lp.total} rows`, lp.info);
+    check('0.6.3: the window\'s row height is the rows\' own, measured', near(lp.base, lp.median, 0.6), `${lp.base} vs ${lp.median}`);
+    // Open a detail on a row near the top, then scroll to the end with a real wheel.
+    await page.evaluate(`window.probe.list.setRowExpanded('e2997', true)`);
+    await sleep(200);
+    const lb = await centre(page, `${L} .twm-preview-table-wrap`);
+    for (let i = 0; i < 12; i++) await wheel(page, lb.x, lb.y, 1200);
+    await page.waitFor(`window.probe.list.config.rows.length >= 400`, 4000).catch(() => {});
+    await sleep(300);
+    const more = await page.evaluate(`(() => { const t = window.probe.list; const wrap = t.scrollElement;
+        return { held: t.config.rows.length, asked: window.probe.asked.slice(1, 3), scrollTop: wrap.scrollTop,
+                 open: t.isRowExpanded('e2997'), measured: t._detailHeights.get('e2997'),
+                 h3: t._virt.heights[3], base: t._virt.base,
+                 overlay: !!document.querySelector('${L} .twm-data-table__loading') }; })()`);
+    check('a real wheel to the end asked for the next rows', more.asked[0]?.reason === 'more' && more.asked[0]?.offset === 200, JSON.stringify(more.asked));
+    check('…and drew them under the ones held', more.held >= 400, String(more.held));
+    check('…without throwing the reader back to the top', more.scrollTop > 2000, String(more.scrollTop));
+    check('the open detail is still open, and part of its row\'s height',
+          more.open && more.measured > 40 && near(more.h3, more.base + more.measured, 0.6), JSON.stringify(more));
+    await page.screenshot(join(OUT, 'paging-scroll.png'));
+    // A real press on Pages: the table switches and asks again from the start.
+    const pagesBtn = await centre(page, `${L} .twm-dt-paging__mode[data-mode="pages"]`);
+    check('the Pages switch is drawn and on top', pagesBtn && pagesBtn.hit, JSON.stringify(pagesBtn));
+    await click(page, pagesBtn.x, pagesBtn.y);
+    await page.waitFor(`window.probe.list.pagingState?.mode === 'pages' && window.probe.list.config.rows.length === 200`, 4000).catch(() => {});
+    await sleep(200);
+    const pages = await page.evaluate(`(() => { const root = document.querySelector('${L}');
+        return { info: root.querySelector('.twm-dt-paging__info')?.textContent, page: root.querySelector('.twm-dt-paging__page')?.textContent,
+                 last: window.probe.asked.at(-1), status: document.getElementById('status').textContent,
+                 total: (3000).toLocaleString() }; })()`);
+    check('a real press on Pages: page 1, asked again from the first row',
+          pages.info === `Rows 1–200 of ${pages.total}` && pages.page === 'Page 1 of 15' && pages.last.reason === 'mode' && pages.last.offset === 0,
+          JSON.stringify(pages));
+    check('…and the consumer was told', pages.status === 'mode: pages', pages.status);
+    const nextL = await centre(page, `${L} .twm-dt-paging [data-pager="next"]`);
+    await click(page, nextL.x, nextL.y);
+    await page.waitFor(`window.probe.asked.at(-1).reason === 'page' && !document.querySelector('${L} .twm-dt-paging--busy')`, 4000).catch(() => {});
+    await sleep(150);
+    const p2 = await page.evaluate(`({ info: document.querySelector('${L} .twm-dt-paging__info').textContent, total: (3000).toLocaleString() })`);
+    check('a real press on Next: the second page', p2.info === `Rows 201–400 of ${p2.total}`, p2.info);
+    await page.screenshot(join(OUT, 'paging-pages.png'));
+    // 0.6.2 as published: the consumer fetches; a real press pages, and a detail
+    // open on page 1 is open again when the reader comes back.
+    const R = '.demo__box:nth-child(2)';
+    await page.evaluate(`window.probe.pages.setRowExpanded('e948', true)`);
+    const nextR = await centre(page, `${R} .twm-dt-paging .twm-pagination-btn[data-tooltip="Next page"]`);
+    check('0.6.2\'s own Next is drawn and on top', nextR && nextR.hit, JSON.stringify(nextR));
+    await click(page, nextR.x, nextR.y);
+    await page.waitFor(`document.querySelector('${R} .twm-dt-paging__info').textContent.startsWith('Rows 101')`, 4000).catch(() => {});
+    const r2 = await page.evaluate(`({ info: document.querySelector('${R} .twm-dt-paging__info').textContent,
+        num: document.querySelector('${R} tbody tr td.num')?.textContent,
+        detail: !!document.querySelector('${R} .twm-dt-detail-row') })`);
+    check('a real press on 0.6.2\'s Next: the consumer\'s second page, numbered from 101',
+          r2.info.startsWith('Rows 101–200') && r2.num === '101' && !r2.detail, JSON.stringify(r2));
+    const prevR = await centre(page, `${R} .twm-dt-paging .twm-pagination-btn[data-tooltip="Previous page"]`);
+    await click(page, prevR.x, prevR.y);
+    await page.waitFor(`document.querySelector('${R} .twm-dt-paging__info').textContent.startsWith('Rows 1–')`, 4000).catch(() => {});
+    await sleep(100);
+    const r1 = await page.evaluate(`(() => { const d = document.querySelector('${R} .twm-dt-detail-row');
+        return d ? { under: d.previousElementSibling.__rowKey, h: d.getBoundingClientRect().height,
+                     top: d.getBoundingClientRect().top, rowBottom: d.previousElementSibling.getBoundingClientRect().bottom } : null; })()`);
+    check('back on page 1, the detail is open again under its row', r1 && r1.under === 'e948' && r1.h > 40 && near(r1.top, r1.rowBottom, 1), JSON.stringify(r1));
+    await page.screenshot(join(OUT, 'paging-consumer.png'));
     page.close();
 } finally {
     await browser.close();

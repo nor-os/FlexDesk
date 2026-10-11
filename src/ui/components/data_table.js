@@ -368,6 +368,7 @@ const AUTOSIZE_MAX_PX = 520;
  *   `total` — the source's exact row count, or null. `atLeast` — a lower bound when the exact count is not known (a capped count). `hasMore` — the source has rows past those held.
  *   `offset` — in pages, where the first row held stands in the source: the strip's "Rows 1,001–2,000" and `showRowNumbers: 'position'` read it. The rows' indexes (`__rowIndex`, selection, `onRowClick`) stay those of `rows`.
  *   `onPage(offset, limit)` — pages: show the page at `offset`. `onLoadMore()` — scroll: called when the body is scrolled within 400px of its end (`loadMorePx`), or does not fill its box, while `hasMore`. `onLoadAll()` — scroll: the strip's *Load all rows* button. `onModeChange(mode)` — the strip's Pages / Scroll switch; without it there is no switch. Each may return a Promise; until it settles no second call is made and its button shows the table is busy.
+ *   0.7.0: WITH `dataSource` the table fetches, and is its own `paging` consumer — `offset`, `total`, `atLeast`, `hasMore` and `held` are read from the source's answers, `onPage`/`onLoadMore`/`onLoadAll` are the table's own questions (`reason` 'page', 'more', 'all'; more rows are drawn under those held), and `onModeChange` is told after the table has switched and asked again (`reason` 'mode'). The 0.7.0 pager is not drawn; `pagerLabels` and `maxJumpOffset` apply to the strip.
  *
  * ── 0.7.0, every one of them off unless asked for ─────────────────────────
  * @property {Function} [rowDetail] - `(row, rowIdx, {host, key, table}) => Node|string|null|void`. A row's DETAIL, folded open under it: each row (or each row `hasRowDetail` admits) gets a toggle at the start of its first cell, and opening it draws a full-width row under the row — the function fills `host` or returns what to put in it. It is drawn when opened and dropped when closed. Keyboard: the toggle is a button (Enter/Space), and on the focused table ArrowRight opens and ArrowLeft closes the current row's detail. Which rows are open is kept by KEY (`getRowKey`, else the row's index), so it survives a sort, a filter, a page and a `setData`; under `virtualize` an open detail is part of its row's height.
@@ -375,7 +376,7 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {Array} [expandedRows] - The keys of the rows open at first.
  * @property {Function} [onRowDetailToggle] - `(rowIdx, row, expanded, key) => void`, after a detail opened or closed by a gesture or by `setRowExpanded`.
  * @property {string} [rowDetailLabel='Details'] - The toggle's accessible name (its state is `aria-expanded`).
- * @property {Function} [dataSource] - `(query, {signal}) => Promise<{rows, total?, hasMore?, filterCounts?} | rows>`. ROWS FROM A SERVER. The table asks for a page whenever its sort, its column filters or its page change (and on `reload()`/`refresh()`), and draws the answer AS GIVEN — no client sort, filter or slice. `query` is `{offset, limit, sort: {column, header, ascending}|null, filters: [{column, header, value}], reason}`. Only the NEWEST request paints: an older answer arriving later is dropped, and its `signal` is aborted. A failure keeps the rows on screen under `setError`'s banner. `total` is the count under these filters — a number, or null when it is not known (see `hasMore`). `rowIdx` everywhere is the row's index in the page drawn.
+ * @property {Function} [dataSource] - `(query, {signal}) => Promise<{rows, total?, hasMore?, filterCounts?} | rows>`. ROWS FROM A SERVER. The table asks for a page whenever its sort, its column filters or its page change (and on `reload()`/`refresh()`), and draws the answer AS GIVEN — no client sort, filter or slice. `query` is `{offset, limit, sort: {column, header, ascending}|null, filters: [{column, header, value}], reason}`. With `paging` the rows may be shown as one scrolling list as well as in pages — see `paging`. Only the NEWEST request paints: an older answer arriving later is dropped, and its `signal` is aborted. A failure keeps the rows on screen under `setError`'s banner. `total` is the count under these filters — a number, or null when it is not known (see `hasMore`). `rowIdx` everywhere is the row's index in the page drawn.
  * @property {Function} [onLoad] - `(result, query) => void`, after the newest answer has been drawn.
  * @property {Function} [onLoadError] - `(error, query) => void`, when the newest request failed (an aborted one is not a failure).
  * @property {boolean} [hasMore] - Server-side paging (`onPageChange`) with NO total: with `totalCount` null and this a boolean, the pager offers Next exactly while it is true and has no last page. Under `dataSource` the answer's `hasMore` (or, absent, a full page) says it.
@@ -899,7 +900,7 @@ export class DataTable {
         // (The release review: this set an offset nothing under a data source
         // reads, and drew the same page again.)
         if (this.config.dataSource) {
-            const size = Math.max(1, this.config.pageSize | 0);
+            const size = this._sourcePageSize();
             let p = Math.max(0, Math.floor(Number(page)) || 0);
             const total = this._source?.total;
             if (typeof total === 'number') p = Math.min(p, Math.max(0, Math.ceil(total / size) - 1));
@@ -918,7 +919,7 @@ export class DataTable {
     goToRow(rowIndex) {
         // 0.7.0 `dataSource`: the page that holds the row, from the source.
         if (this.config.dataSource) {
-            const size = Math.max(1, this.config.pageSize | 0);
+            const size = this._sourcePageSize();
             return this.goToPage(Math.floor(Math.max(0, Math.floor(Number(rowIndex)) || 0) / size));
         }
         const rowCount = this._getProcessedRows().length;
@@ -1312,7 +1313,7 @@ export class DataTable {
             if (!this._source?.started) {
                 this._sourceState().started = true;
                 Promise.resolve().then(() => this._sourceLoad({ offset: 0, reason: 'initial' }));
-            } else if (this._source.inFlight) {
+            } else if (this._source.inFlight && !this._source.pendingAppend) {
                 this.setLoading(true);
             }
             if (this._following && !this._followTimer) this._armFollow();
@@ -2417,6 +2418,33 @@ export class DataTable {
         if (!p || typeof p !== 'object') return null;
         const size = Number.isFinite(p.pageSize) && p.pageSize >= 1
             ? Math.floor(p.pageSize) : this.config.pageSize;
+        // 0.7.0 — `paging` OVER A `dataSource`. ONE STRIP, ONE SET OF RULES:
+        // the facts the 0.6.2 consumer hands in (`offset`, `total`, `hasMore`,
+        // the rows held) are the source's last answer here, and the four
+        // callbacks the consumer would write are the table's own — a page turn,
+        // the next rows, all of them, the other mode — so the strip, the soft
+        // and hard limits, the busy state and the load-near-the-end trigger are
+        // the same code with or without a server the table asks itself.
+        if (this.config.dataSource) {
+            const src = this._source || { offset: 0, total: null, atLeast: 0, hasMore: false };
+            return {
+                ...p,
+                pageSize: size,
+                offset: src.offset || 0,
+                held: this.config.rows?.length || 0,
+                total: src.total,
+                atLeast: src.atLeast || 0,
+                hasMore: !!src.hasMore,
+                loadMorePx: Number.isFinite(p.loadMorePx) ? p.loadMorePx : PAGING_LOAD_MORE_PX,
+                onPage: (offset) => this._sourceGoTo(offset),
+                onLoadMore: () => this._sourceLoadMore(),
+                onLoadAll: () => this._sourceLoadAll(),
+                // The switch is drawn, as in 0.6.2, only for a consumer that
+                // listens; the table switches and then tells it.
+                onModeChange: typeof p.onModeChange === 'function'
+                    ? (mode) => this._sourceSetMode(mode) : undefined,
+            };
+        }
         return {
             ...p,
             pageSize: size,
@@ -2451,7 +2479,15 @@ export class DataTable {
      */
     setPaging(patch = {}) {
         if (!this.config.paging) return;
+        const before = this.config.dataSource ? this.pagingState?.mode : null;
         this.config.paging = { ...this.config.paging, ...patch };
+        // 0.7.0: over a `dataSource` the rows held are the table's, so a patch
+        // that changes which way they are shown asks again from the start —
+        // a list scrolled to 3,000 rows is not page 1.
+        if (before && this.pagingState?.mode !== before) {
+            this._sourceLoad({ offset: 0, reason: 'mode' });
+            return;
+        }
         this._refreshPagingStrip();
         this._pagingMaybeLoadMore();
     }
@@ -2507,6 +2543,9 @@ export class DataTable {
     _pagingMaybeLoadMore() {
         const p = this._pagingConfig();
         if (!p || !p.hasMore || this._pagingBusy) return;
+        // 0.7.0: not while the source is answering another question (a sort, a
+        // filter, a refresh) — those rows are about to be replaced.
+        if (this.config.dataSource && this._source?.inFlight) return;
         const state = this.pagingState;
         if (state.mode !== 'scroll' || p.held >= state.hardLimit) return;
         const wrap = this._tableWrapEl;
@@ -2549,10 +2588,10 @@ export class DataTable {
             else if (known > to) of = ` of more than ${n(known - 1)}`;
             info.textContent = held ? `Rows ${n(from)}–${n(to)}${of}` : 'No rows on this page';
 
-            const hasPrev = p.offset > 0;
-            const hasNext = exact ? p.offset + held < total : p.hasMore;
-            const lastOffset = exact && total > 0
-                ? Math.floor((total - 1) / pageSize) * pageSize : null;
+            // The same page arithmetic as the pager above the rows (`_pageNav`).
+            const pn = this._pageNav({ offset: p.offset, held, total, hasMore: p.hasMore, pageSize });
+            const { hasPrev, hasNext } = pn;
+            const lastOffset = exact && total > 0 ? pn.lastOffset : null;
             // A disabled button's click is ignored here too: a browser sends none,
             // but a synthetic one (a test, a script) still reaches the listener.
             const go = (offset) => (ev) => {
@@ -2561,26 +2600,36 @@ export class DataTable {
             const nav = document.createElement('span');
             nav.className = 'twm-dt-paging__nav';
             const off = !!busy || typeof p.onPage !== 'function';
+            // 0.7.0: with the new pager's options (`pagerLabels`,
+            // `maxJumpOffset`, or a `dataSource`) the strip's buttons are the
+            // new pager's — words beside the icons, and a refusal said on the
+            // control. Without them, exactly the 0.6.2 buttons.
+            const words = this._usesPager070();
+            const button = (icon, name, tip, disabled, onClick, refusal = null) => (words
+                ? this._pagerButton(icon, name, tip, disabled, onClick, refusal)
+                : this._createPaginationBtn(icon, tip, disabled, onClick));
             nav.append(
-                this._createPaginationBtn('first_page', 'First page', off || !hasPrev, go(0)),
-                this._createPaginationBtn('chevron_left', 'Previous page', off || !hasPrev,
+                button('first_page', 'first', 'First page', off || !hasPrev, go(0)),
+                button('chevron_left', 'prev', 'Previous page', off || !hasPrev,
                     go(Math.max(0, p.offset - pageSize))),
             );
             const page = document.createElement('span');
             page.className = 'twm-dt-paging__page';
-            const current = Math.floor(p.offset / pageSize) + 1;
             page.textContent = exact
-                ? `Page ${n(current)} of ${n(Math.max(1, Math.ceil(total / pageSize)))}`
-                : `Page ${n(current)}`;
+                ? `Page ${n(pn.page)} of ${n(pn.pages)}`
+                : `Page ${n(pn.page)}`;
             nav.append(
                 page,
-                this._createPaginationBtn('chevron_right', 'Next page', off || !hasNext,
+                button('chevron_right', 'next', 'Next page', off || !hasNext,
                     go(p.offset + pageSize)),
                 // The last page needs the exact count: without it there is no
                 // offset to go to, and the button says so by being off.
-                this._createPaginationBtn('last_page',
-                    lastOffset === null ? 'Last page (the total is not known)' : 'Last page',
-                    off || !hasNext || lastOffset === null, go(lastOffset)),
+                words
+                    ? button('last_page', 'last', 'Last page', off || !hasNext || lastOffset === null,
+                        go(lastOffset), pn.lastRefusal)
+                    : button('last_page', 'last',
+                        lastOffset === null ? 'Last page (the total is not known)' : 'Last page',
+                        off || !hasNext || lastOffset === null, go(lastOffset)),
             );
             el.appendChild(nav);
         } else {
@@ -2761,8 +2810,9 @@ export class DataTable {
             : isServerSide ? (configOffset || 0)
             : (this.config.pagination ? offset : 0);
         // `paging`: a page's rows stand at its offset in the SOURCE, which only
-        // the numbering reads — their indexes stay those of `rows`.
-        const paged = this._pagingConfig();
+        // the numbering reads — their indexes stay those of `rows`. Over a
+        // `dataSource` that offset IS the source's, counted above once.
+        const paged = this.config.dataSource ? null : this._pagingConfig();
         if (paged && Number.isFinite(paged.offset)) this._positionBase += paged.offset;
 
         // Body
@@ -2996,6 +3046,14 @@ export class DataTable {
      * larger than half a pixel, so rows of mixed heights cannot make the
      * offsets move under the reader on every scroll.
      *
+     * 0.7.0 `rowDetail`: AN OPEN DETAIL IS PART OF ITS ROW'S HEIGHT, and is
+     * measured at the same moments. It is never one of the rows the median is
+     * taken from (the window's map holds the rows, not their details), so a
+     * tall detail cannot pass for a row; it is read on its own, into the
+     * row's height — and read again here, because a detail's height moves for
+     * the same reasons a row's does (the column widths fixed, a font), and
+     * more: it wraps across the whole table's width.
+     *
      * @returns {boolean} whether the heights changed (the offsets are recomputed).
      */
     _virtMeasure() {
@@ -3009,14 +3067,21 @@ export class DataTable {
             if (h > 0) heights.push(h);
             if (heights.length >= 64) break;
         }
-        if (!heights.length) return false;
-        heights.sort((a, b) => a - b);
-        const h = heights[heights.length >> 1];
-        const tolerance = v.measured ? 0.5 : 0.01;
-        v.measured = true;
-        if (Math.abs(h - v.base) <= tolerance) return false;
-        v.base = h;
-        this._virtBase = h;
+        const details = this._detailOn() && this._expanded.size > 0
+            && this._virtReadDetailHeights(v.map.values());
+        let base = false;
+        if (heights.length) {
+            heights.sort((a, b) => a - b);
+            const h = heights[heights.length >> 1];
+            const tolerance = v.measured ? 0.5 : 0.01;
+            v.measured = true;
+            if (Math.abs(h - v.base) > tolerance) {
+                v.base = h;
+                this._virtBase = h;
+                base = true;
+            }
+        }
+        if (!base && !details) return false;
         this._virtComputeOffsets();
         return true;
     }
@@ -3662,7 +3727,16 @@ export class DataTable {
     _virtMeasureDetails(trs, { force = false } = {}) {
         const v = this._virt;
         if (!v) return;
-        let changed = force;
+        const changed = this._virtReadDetailHeights(trs) || force;
+        if (!changed) return;
+        this._virtComputeOffsets();
+        this._virtSpacers();
+    }
+
+    /** Read the open details drawn under `trs` into `_detailHeights`; true
+     *  when one moved by more than half a pixel. Recomputes nothing. */
+    _virtReadDetailHeights(trs) {
+        let changed = false;
         const zoom = this._tableEl?.currentCSSZoom || 1;
         for (const tr of trs) {
             const d = tr?.__detail?.[0];
@@ -3675,9 +3749,7 @@ export class DataTable {
                 changed = true;
             }
         }
-        if (!changed) return;
-        this._virtComputeOffsets();
-        this._virtSpacers();
+        return changed;
     }
 
     /**
@@ -3767,8 +3839,8 @@ export class DataTable {
         if (!this._source) {
             this._source = {
                 started: false, ticket: 0, controller: null, inFlight: false,
-                offset: 0, pendingOffset: 0, total: null, hasMore: false,
-                query: null, loaded: false,
+                offset: 0, pendingOffset: 0, total: null, atLeast: 0, hasMore: false,
+                query: null, loaded: false, pendingAppend: false,
             };
         }
         return this._source;
@@ -3785,11 +3857,18 @@ export class DataTable {
         return out.sort((a, b) => a.column - b.column);
     }
 
-    _buildQuery(offset, reason) {
+    /** Rows per question: `paging.pageSize` when the source is paged, else
+     *  `pageSize` — one number for the query, `goToPage` and the pager. */
+    _sourcePageSize() {
+        const size = this._pagingConfig()?.pageSize ?? this.config.pageSize;
+        return Math.max(1, size | 0);
+    }
+
+    _buildQuery(offset, reason, limit = null) {
         const col = this._state.sortColumn;
         return {
             offset,
-            limit: this.config.pageSize,
+            limit: Number.isFinite(limit) && limit >= 1 ? Math.floor(limit) : this._sourcePageSize(),
             sort: col == null ? null : {
                 column: col, header: (this.config.headers || [])[col], ascending: this._state.sortAscending,
             },
@@ -3803,7 +3882,7 @@ export class DataTable {
      * still the newest by then. Resolves with the answer drawn, or undefined
      * when it was dropped (superseded, failed, or the table was disposed).
      */
-    async _sourceLoad({ offset = 0, reason = 'reload', keep = false } = {}) {
+    async _sourceLoad({ offset = 0, reason = 'reload', keep = false, append = false, limit = null } = {}) {
         const fetch = this.config.dataSource;
         if (typeof fetch !== 'function') return undefined;
         const src = this._sourceState();
@@ -3812,11 +3891,14 @@ export class DataTable {
         try { src.controller?.abort(); } catch (_) { /* gone */ }
         const controller = typeof AbortController === 'function' ? new AbortController() : null;
         src.controller = controller;
-        const query = this._buildQuery(Math.max(0, offset | 0), reason);
+        const query = this._buildQuery(Math.max(0, offset | 0), reason, limit);
         src.query = query;
         src.inFlight = true;
         src.pendingOffset = query.offset;
-        this.setLoading(true);
+        src.pendingAppend = append;
+        // More rows under a scrolling list are said on the paging strip (busy),
+        // not by covering the rows being read.
+        if (!append) this.setLoading(true);
         let result;
         try {
             result = await fetch(query, { signal: controller?.signal });
@@ -3824,6 +3906,7 @@ export class DataTable {
             if (ticket !== src.ticket) return undefined;      // superseded or disposed
             src.inFlight = false;
             src.controller = null;
+            src.pendingAppend = false;
             if (err?.name === 'AbortError' || controller?.signal?.aborted) {
                 this.setLoading(false);
                 return undefined;
@@ -3837,20 +3920,38 @@ export class DataTable {
         if (ticket !== src.ticket) return undefined;          // a newer question is out
         src.inFlight = false;
         src.controller = null;
-        this._applySourceResult(result, query, { keep });
+        src.pendingAppend = false;
+        this._applySourceResult(result, query, { keep, append });
         try { this.config.onLoad?.(result, query); } catch (e) { console.error('[DataTable] onLoad threw', e); }
         return result;
     }
 
-    _applySourceResult(result, query, { keep = false } = {}) {
+    _applySourceResult(result, query, { keep = false, append = false } = {}) {
         const src = this._sourceState();
         const r = Array.isArray(result) ? { rows: result } : (result || {});
-        const rows = Array.isArray(r.rows) ? r.rows : [];
+        const answered = Array.isArray(r.rows) ? r.rows : [];
         const totalRaw = r.total ?? r.totalCount;
         const total = typeof totalRaw === 'number' && Number.isFinite(totalRaw) ? totalRaw : null;
         const hasMore = typeof r.hasMore === 'boolean' ? r.hasMore
-            : total !== null ? query.offset + rows.length < total
-            : rows.length >= query.limit;
+            : total !== null ? query.offset + answered.length < total
+            : answered.length >= query.limit;
+        // `paging`, scrolling: the next rows go UNDER the ones held, and the
+        // page held still starts where it started.
+        let rows = append ? (this.config.rows || []).concat(answered) : answered;
+        let rowsOffset = append ? (src.offset || 0) : query.offset;
+        // …until the source proves it holds more than the soft limit: from then
+        // on it is shown in PAGES (`resolvePaging`), and the rows the reader had
+        // just reached ARE that page — nothing is asked again, and the reader
+        // goes on from where they were reading.
+        const pc = append ? this._pagingConfig() : null;
+        if (pc && resolvePaging({
+            mode: pc.mode, total, atLeast: r.atLeast, held: rowsOffset + rows.length, hasMore,
+            softLimit: pc.softLimit, hardLimit: pc.hardLimit,
+        }).mode === 'pages') {
+            rows = answered;
+            rowsOffset = query.offset;
+            append = false;
+        }
         // WITHOUT `getRowKey`, A DETAIL IS OPEN AT A PLACE, and a place in one
         // answer says nothing about which row stands there in the next: page 2's
         // first row is not page 1's, and a sort or a new arrival moves every
@@ -3874,13 +3975,15 @@ export class DataTable {
             }
         }
         // The page drawn — so the pager says where these rows ARE.
-        src.offset = query.offset;
+        src.offset = rowsOffset;
         src.total = total;
+        src.atLeast = Number.isFinite(r.atLeast) ? r.atLeast : 0;
         src.hasMore = hasMore;
         src.loaded = true;
         if (r.filterCounts && typeof r.filterCounts === 'object') this.setFilterCounts(r.filterCounts);
 
         const snap = keep ? this._snapshotView() : null;
+        const kept = append ? this._tableWrapEl?.scrollTop || 0 : null;
         // Rows the last answer did not hold — marked as new (only by key: an
         // index says nothing about which row is which across two answers).
         if (snap && snap.keys && snap.keys.size && typeof this.config.getRowKey === 'function') {
@@ -3893,9 +3996,18 @@ export class DataTable {
         } else {
             this._newKeys = null;
         }
+        // More rows under the same ones: the rows a person chose stay chosen.
+        const chosen = append && this._state.selected.size
+            ? { sel: [...this._state.selected], anchor: this._state.anchorIndex } : null;
         this.setData({ rows });
         this._newKeys = null;
+        if (chosen) {
+            for (const i of chosen.sel) this._state.selected.add(i);
+            this._state.anchorIndex = chosen.anchor;
+            this._updateRowSelection();
+        }
         if (snap) this._restoreView(snap);
+        else if (kept !== null) this._scrollBodyTo(kept);   // more rows: the reader stays put
         else this._scrollBodyTo(0);   // a new question starts at the top of its answer
     }
 
@@ -3981,6 +4093,45 @@ export class DataTable {
     }
 
     /**
+     * `paging` over a `dataSource`, scrolling: the rows after those held, under
+     * them — never past the hard limit. Scrolling down to ask for them is
+     * paging away, so it turns following off as a page turn does; rows asked
+     * for because the ones held do not fill the box are not (the reader is
+     * still at the top).
+     */
+    _sourceLoadMore() {
+        const held = this.config.rows?.length || 0;
+        const hard = this.pagingState?.hardLimit ?? PAGING_HARD_LIMIT;
+        const limit = Math.min(this._sourcePageSize(), hard - held);
+        if (limit < 1) return Promise.resolve(undefined);
+        if (this._following && (this._tableWrapEl?.scrollTop || 0) > 0) this.setFollow(false);
+        const offset = (this._source?.offset || 0) + held;
+        return this._sourceLoad({ offset, limit, reason: 'more', append: true });
+    }
+
+    /** The strip's *Load all rows*: ONE question for every row left under the
+     *  hard limit (`reason: 'all'`); the source answers as many as it will, and
+     *  says with `hasMore` whether there are still more. */
+    _sourceLoadAll() {
+        const held = this.config.rows?.length || 0;
+        const hard = this.pagingState?.hardLimit ?? PAGING_HARD_LIMIT;
+        if (hard - held < 1) return Promise.resolve(undefined);
+        if (this._following) this.setFollow(false);
+        const offset = (this._source?.offset || 0) + held;
+        return this._sourceLoad({ offset, limit: hard - held, reason: 'all', append: true });
+    }
+
+    /** The strip's Pages / Scroll switch: the table switches, tells the
+     *  consumer (`paging.onModeChange`), and asks again from the start. */
+    _sourceSetMode(mode) {
+        const next = mode === 'pages' ? 'pages' : 'scroll';
+        const p = this.config.paging;
+        this.config.paging = { ...p, mode: next };
+        try { p.onModeChange?.(next); } catch (err) { console.error('[DataTable] onModeChange threw', err); }
+        return this._sourceLoad({ offset: 0, reason: 'mode' });
+    }
+
+    /**
      * Ask the source again from its FIRST page — for a consumer whose own
      * filters (outside the table) changed. Under `dataSource` only; resolves
      * with the answer drawn (undefined when it was superseded or failed).
@@ -4004,7 +4155,18 @@ export class DataTable {
             return Promise.resolve(undefined);
         }
         const src = this._sourceState();
-        const offset = src.inFlight ? src.pendingOffset : src.offset;
+        // `paging`, scrolling: the rows HELD are read again, in one question
+        // from where they start — a list scrolled to row 300 is still 300 rows
+        // after the tick. (Following stops once the reader scrolls down for
+        // more, so a following list stays short.)
+        if (this.pagingState?.mode === 'scroll') {
+            const held = this.config.rows?.length || 0;
+            return this._sourceLoad({
+                offset: src.offset || 0, limit: Math.max(this._sourcePageSize(), held),
+                reason: 'refresh', keep: true,
+            });
+        }
+        const offset = src.inFlight && !src.pendingAppend ? src.pendingOffset : src.offset;
         return this._sourceLoad({ offset, reason: 'refresh', keep: true });
     }
 
@@ -4137,6 +4299,38 @@ export class DataTable {
     }
 
     /**
+     * THE PAGE ARITHMETIC, ONCE — read by the pager above the rows (0.7.0) and
+     * by the `paging` strip under them (0.6.2), which each worked it out for
+     * themselves. `held` is the rows drawn on this page; `total` a number or
+     * null (unknown, when `hasMore` says whether there is a next page).
+     *
+     * @returns {{known: boolean, hasPrev: boolean, hasNext: boolean, page: number,
+     *            pages: number|null, lastOffset: number|null, lastRefusal: string|null}}
+     */
+    _pageNav({ offset = 0, held = 0, total = null, hasMore = false, pageSize }) {
+        const size = Math.max(1, pageSize | 0);
+        const known = typeof total === 'number' && Number.isFinite(total);
+        const lastOffset = known ? Math.floor(Math.max(0, total - 1) / size) * size : null;
+        const maxJump = Number.isFinite(this.config.maxJumpOffset) ? this.config.maxJumpOffset : null;
+        let lastRefusal = null;
+        if (!known) {
+            const words = this._pagerLabel('noLast');
+            lastRefusal = typeof words === 'string' ? words : 'The total is not known, so there is no last page.';
+        } else if (maxJump !== null && lastOffset > maxJump) {
+            lastRefusal = this._pagerRefusalTooDeep();
+        }
+        return {
+            known,
+            hasPrev: offset > 0,
+            hasNext: known ? offset + held < total : !!hasMore,
+            page: Math.floor(offset / size) + 1,
+            pages: known ? Math.max(1, Math.ceil(total / size)) : null,
+            lastOffset,
+            lastRefusal,
+        };
+    }
+
+    /**
      * The pager for any mode, with the two things the 0.6 strip could not do:
      * an UNKNOWN total (no "of N", no last page, Next until a short page) and
      * a REFUSED deep jump (`maxJumpOffset`). For a known total its words are
@@ -4166,12 +4360,11 @@ export class DataTable {
         const isFiltered = !source && !server && this._state.filters.size > 0;
         const unfilteredTotal = !source && !server ? rows.length : total;
         const drawn = source || server ? rows.length : Math.max(0, Math.min(pageSize, total - offset));
-        const hasPrev = offset > 0;
-        const hasNext = known ? offset + pageSize < total : !!hasMoreKnown;
-        const totalPages = known ? Math.max(1, Math.ceil(total / pageSize)) : null;
+        const pn = this._pageNav({ offset, held: drawn, total, hasMore: hasMoreKnown, pageSize });
+        const { hasPrev, hasNext, page } = pn;
+        const totalPages = pn.pages;
         if (known && totalPages <= 1 && !isFiltered && !hasPrev) return null;
         if (!known && !hasPrev && !hasNext) return null;
-        const page = Math.floor(offset / pageSize) + 1;
         const maxJump = Number.isFinite(c.maxJumpOffset) ? c.maxJumpOffset : null;
 
         const go = (newOffset) => {
@@ -4214,15 +4407,7 @@ export class DataTable {
         pageInfo.textContent = known ? `Page ${page} of ${totalPages.toLocaleString()}` : `Page ${page}`;
         const nextBtn = this._pagerButton('chevron_right', 'next', 'Next page', !hasNext,
                                           () => go(offset + pageSize));
-        let lastRefusal = null;
-        let lastOffset = null;
-        if (!known) {
-            const words = this._pagerLabel('noLast');
-            lastRefusal = typeof words === 'string' ? words : 'The total is not known, so there is no last page.';
-        } else {
-            lastOffset = Math.floor(Math.max(0, total - 1) / pageSize) * pageSize;
-            if (maxJump !== null && lastOffset > maxJump) lastRefusal = this._pagerRefusalTooDeep();
-        }
+        const { lastOffset, lastRefusal } = pn;
         const lastBtn = this._pagerButton('last_page', 'last', 'Last page',
                                           !hasNext || lastOffset === offset, () => {
                                               if (lastOffset !== null) go(lastOffset);

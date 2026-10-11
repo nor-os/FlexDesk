@@ -397,6 +397,8 @@ blocks the next call until it settles, and the strip shows the table busy.
 `setPaging(patch)` redraws the strip only, for example when a count arrives.
 In pages, `showRowNumbers: 'position'` numbers rows from `offset`. Row indexes
 (`__rowIndex`, the selection, `onRowClick`) still refer to positions in `rows`.
+In 0.7.0 the table can fetch the rows for you: see `dataSource` with `paging`
+below.
 
 ### Record lists and fact sheets (0.7.0)
 
@@ -585,14 +587,18 @@ The toggle is a button, so Tab reaches it and Enter or Space opens it. It
 neither selects the row nor opens it (`onRowActivate`). On the focused table,
 ArrowRight opens the current row's detail and ArrowLeft closes it; the same
 keys work on a toggle. Rows under an open detail keep their stripes. Under
-`virtualize`, an open detail counts in its row's height (measured once drawn),
-and it leaves and re-enters the window with its row.
+`virtualize`, an open detail counts in its row's height, and it leaves and
+re-enters the window with its row. It is measured when it is drawn and again
+whenever the rows are (0.6.3: on every window update, on a resize and once the
+column widths are fixed), so a detail that wraps differently at the final
+widths does not leave the offsets wrong. A detail is never one of the rows the
+row height is measured from.
 
 **Rows from a server**
 
 | Option | What it does |
 |---|---|
-| `dataSource(query, { signal })` | Asks for a page whenever the sort, a column filter or the page changes. `query` is `{ offset, limit, sort: { column, header, ascending } \| null, filters: [{ column, header, value }], reason }`, and `reason` is `'initial'`, `'sort'`, `'filter'`, `'page'`, `'reload'` or `'refresh'`. Return `{ rows, total, hasMore, filterCounts }`, or just the rows. The answer is drawn as given, with no sort, filter or slice in the browser. |
+| `dataSource(query, { signal })` | Asks for a page whenever the sort, a column filter or the page changes. `query` is `{ offset, limit, sort: { column, header, ascending } \| null, filters: [{ column, header, value }], reason }`, and `reason` is `'initial'`, `'sort'`, `'filter'`, `'page'`, `'reload'` or `'refresh'` (and, with `paging`, `'more'`, `'all'` or `'mode'`). Return `{ rows, total, hasMore, filterCounts }`, or just the rows. The answer is drawn as given, with no sort, filter or slice in the browser. |
 | Only the newest answer is drawn | A request sent while another is out aborts the older one (`signal`), and an older answer that still arrives is dropped. So is an older request's failure. |
 | A failure keeps the rows | The rows on screen stay, under `setError`'s banner with the error's message, and `onLoadError(error, query)` is called. The next answer clears it. |
 | `onLoad(result, query)` | Called after each answer that was drawn. |
@@ -620,6 +626,54 @@ page's offset.
 
 An empty page after the first says `Page 4 · no rows` and keeps the pager, so
 you can go back. A table without these options keeps the 0.6 pager.
+
+**Pages or one scrolling list from a server: `dataSource` with `paging`**
+
+0.6.2's `paging` and 0.7.0's `dataSource` answer two different questions, and
+they combine. `paging` decides how the rows are shown: in pages, or as one list
+that loads more near the end, with its strip under the body and its soft and
+hard limits. `dataSource` decides who fetches them: the table. Without
+`dataSource`, your code fetches, exactly as in 0.6.2. With it, the table is its
+own `paging` consumer:
+
+```js
+DataTable.mount(host, {
+    headers, virtualize: true,
+    dataSource: (query, { signal }) => api.rows(query, { signal }),   // { rows, total, hasMore }
+    paging: { mode: 'scroll', pageSize: 1000, softLimit: 10000, onModeChange: remember },
+});
+```
+
+| `paging` key | Without `dataSource` (0.6.2) | With `dataSource` (0.7.0) |
+|---|---|---|
+| `mode`, `pageSize`, `softLimit`, `hardLimit`, `loadMorePx` | Yours | Yours. `pageSize` is also each question's `limit`. |
+| `offset`, `total`, `atLeast`, `hasMore`, `held` | Yours, kept up to date with `setPaging` | Read from the source's answers (`atLeast` may be in the answer). What you pass is ignored. |
+| `onPage(offset, limit)` | Yours: fetch the page | The table's: asks `{ offset, reason: 'page' }`. |
+| `onLoadMore()` | Yours: fetch the next rows | The table's: asks `{ offset: rows held, limit: pageSize, reason: 'more' }` and draws the answer under the rows held. |
+| `onLoadAll()` | Yours | The table's: one question, `{ limit: hardLimit − rows held, reason: 'all' }`. The source answers as many rows as it will, and `hasMore` says whether there are more. |
+| `onModeChange(mode)` | Yours: show the rows the other way | Called after the table has switched and asked again from the first row (`reason: 'mode'`). Without it there is no switch, as in 0.6.2. |
+
+So there is one strip, one set of limits and one load trigger. With `paging`
+the 0.7.0 pager is not drawn, and `pagerPosition` does nothing. `pagerLabels`
+and `maxJumpOffset` apply to the strip's page buttons.
+
+- While the source answers a sort, a filter or a refresh, the table asks for no
+  more rows. A sort or filter sent while more rows are on their way aborts that
+  request, as any newer question does. More rows do not show the loading
+  overlay; the strip shows the table is busy.
+- More rows keep the scroll position, the selection and the open details.
+- When the rows scrolled in prove the source holds more than `softLimit`, the
+  table is shown in pages from then on (`resolvePaging`, as in 0.6.2). The page
+  shown is the rows just loaded, so nothing is fetched again and the reader
+  carries on where they were.
+- `refresh()` and `follow` in scroll mode read the rows held again, in one
+  question from the first row. Scrolling down to load more turns following
+  off, the way paging away does. Rows loaded only because the first ones did not
+  fill the box do not, since the reader is still at the top.
+- `setPaging({ mode })` that changes how the rows are shown asks again from the
+  first row. Other patches only redraw the strip, as in 0.6.2.
+- `goToPage`, `goToRow` and `getPageInfo` work as they do without `paging`,
+  in `paging.pageSize` pages.
 
 **Refresh and follow**
 

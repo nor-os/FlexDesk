@@ -1,0 +1,16 @@
+# BugDesk keeps two different things in this directory, and this file is
+# what tells them apart.
+#
+# IGNORED — everything else here is YOURS: your name, your saved filters,
+# your window layout. Committing it would have two people on this repo
+# overwrite each other's identity on every pull.
+#
+# TRACKED — project.json is the SHARED roster: who can be assigned work
+# here. Everybody has to agree on that one, so it is committed, and the
+# negation below is what lets it be.
+#
+# The bug and backlog stores themselves are of course meant to be
+# committed; they live outside this directory.
+*
+!.gitignore
+!project.json

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>FlexDesk — record lists and fact sheets</title>
+    <!-- The page for 0.7.0's `createRecordList` and `createFactTable`, for
+         headless Edge. It loads the SOURCE (`../widgets.js`, `../css/`), so it
+         needs no dist/ build; `demo/records_probe.mjs` serves the repository,
+         opens it and drives it with real input (FLOW_DIST=1 serves dist/). -->
+    <link href="../css/tokens.css" rel="stylesheet" />
+    <link href="../css/reset.css" rel="stylesheet" />
+    <link href="../css/flexdesk.css" rel="stylesheet" />
+    <style>
+        /* The demo's own frame. Everything inside a .demo__card is the component's. */
+        html, body { margin: 0; }
+        body { background: var(--surface-0); color: var(--text-body); font-family: var(--font-family-sans);
+               font-size: 12px; padding: 16px; }
+        .demo__grid { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+        .demo__card { background: var(--surface-1); border: 1px solid var(--border-default); padding: 10px 12px;
+                      box-sizing: border-box; }
+        .demo__card h3 { margin: 0 0 6px; font-size: 11px; font-weight: 600; letter-spacing: .08em;
+                         text-transform: uppercase; color: var(--text-dim); }
+        #said { margin-top: 12px; color: var(--text-muted); min-height: 1em; }
+    </style>
+</head>
+<body>
+    <p><button type="button" id="start">Start here</button> (Tab from here reaches the first list)</p>
+    <div class="demo__grid">
+        <div class="demo__card" id="keys-card" style="width: 620px"><h3>Keys</h3><div id="keys"></div></div>
+        <div class="demo__card" id="narrow-card" style="width: 360px"><h3>Deliveries — a phone's width</h3><div id="narrow"></div></div>
+        <div class="demo__card" id="clip-card" style="width: 360px"><h3>Facts on one line</h3><div id="clip"></div></div>
+        <div class="demo__card" id="empty-card" style="width: 360px"><h3>Empty</h3><div id="empty"></div></div>
+        <div class="demo__card" id="facts-card" style="width: 520px"><h3>Connection</h3><div id="facts"></div></div>
+        <div class="demo__card" id="compare-card" style="width: 620px"><h3>Restore preview</h3><div id="compare"></div></div>
+        <div class="demo__card" id="columns-card" style="width: 460px"><h3>Schemas</h3><div id="columns"></div></div>
+    </div>
+    <p id="said"></p>
+    <script type="module" src="./records.js"></script>
+</body>
+</html>

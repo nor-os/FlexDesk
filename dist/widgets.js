@@ -24,6 +24,7 @@ import {
   DataTable,
   ISO_DATE,
   ISO_DATETIME,
+  createChipsFilter,
   createRafResizeObserver,
   formatDate,
   formatDuration,
@@ -32,7 +33,7 @@ import {
   parseDatePeriod,
   parseDateValue,
   parseDuration
-} from "./chunk-KH2GJTKR.js";
+} from "./chunk-HKPQZJW2.js";
 import {
   ManagedWindow,
   ROW_CONTROL_SELECTOR,
@@ -5765,6 +5766,7 @@ export {
   WindowChromeController,
   WindowTaskbar,
   attachInlineRenamer,
+  createChipsFilter,
   createDetailHeader,
   createRafResizeObserver,
   createTableStateStore,

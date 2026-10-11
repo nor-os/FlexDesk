@@ -358,6 +358,114 @@ function matchDurationFilter(ms, filterText, shown) {
   return String(shown ?? "").toLowerCase().includes(text.toLowerCase());
 }
 
+// src/ui/components/table_filter_chips.js
+var isAll = (v) => v === "" || v == null;
+function createChipsFilter(ctx = {}, spec = {}) {
+  const options = Array.isArray(spec.options) ? spec.options : [];
+  const multiple = !!spec.multiple;
+  const showCounts = spec.counts !== false;
+  const el = document.createElement("div");
+  el.className = "twm-dt-filter-chips" + (multiple ? " twm-dt-filter-chips--multiple" : "");
+  el.setAttribute("role", "group");
+  const name = spec.label || ctx.header;
+  if (name) el.setAttribute("aria-label", String(name));
+  const valueOf = /* @__PURE__ */ new Map();
+  const chips = /* @__PURE__ */ new Map();
+  let value = null;
+  const keyOf = (v) => String(v ?? "");
+  const normalise = (v) => {
+    if (multiple) {
+      const list = Array.isArray(v) ? v : isAll(v) ? [] : [v];
+      return list.filter((x) => !isAll(x)).map(keyOf);
+    }
+    if (Array.isArray(v)) v = v[0];
+    return isAll(v) ? null : keyOf(v);
+  };
+  const chosen = () => multiple ? value.length === 0 : value === null;
+  for (const opt of options) {
+    const key = keyOf(opt.value);
+    valueOf.set(key, opt.value);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "twm-dt-filter-chip";
+    btn.dataset.value = key;
+    if (opt.title) btn.title = String(opt.title);
+    if (opt.icon) {
+      const icon = document.createElement("span");
+      icon.className = "material-symbols-outlined twm-dt-filter-chip__icon";
+      icon.setAttribute("aria-hidden", "true");
+      icon.textContent = String(opt.icon);
+      btn.appendChild(icon);
+    }
+    const label = document.createElement("span");
+    label.className = "twm-dt-filter-chip__label";
+    label.textContent = String(opt.label ?? key);
+    btn.appendChild(label);
+    let count = null;
+    if (showCounts) {
+      count = document.createElement("span");
+      count.className = "twm-dt-filter-chip__count";
+      count.textContent = "\u2013";
+      btn.appendChild(count);
+    }
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      pick(key);
+    });
+    chips.set(key, { btn, count });
+    el.appendChild(btn);
+  }
+  function outward() {
+    if (multiple) return value.length ? value.map((k) => valueOf.get(k)) : null;
+    return value === null ? null : valueOf.get(value);
+  }
+  function pick(key) {
+    if (isAll(key)) value = multiple ? [] : null;
+    else if (multiple) {
+      value = value.includes(key) ? value.filter((k) => k !== key) : [...value, key];
+    } else {
+      value = value === key ? null : key;
+    }
+    paint();
+    const out = outward();
+    if (typeof ctx.setValue === "function") ctx.setValue(out);
+    try {
+      spec.onChange?.(out);
+    } catch (err) {
+      console.error("[chips filter] onChange threw", err);
+    }
+  }
+  function paint() {
+    for (const [key, { btn }] of chips) {
+      const on = isAll(key) ? chosen() : multiple ? value.includes(key) : value === key;
+      btn.classList.toggle("twm-dt-filter-chip--on", on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+    }
+  }
+  function setValue(v) {
+    value = normalise(v);
+    paint();
+  }
+  function setCounts(counts) {
+    for (const [key, { btn, count }] of chips) {
+      const n = counts == null ? void 0 : counts[key];
+      const known = typeof n === "number" && Number.isFinite(n);
+      if (count) count.textContent = known ? n.toLocaleString() : "\u2013";
+      btn.classList.toggle("twm-dt-filter-chip--empty", known && n === 0);
+    }
+  }
+  setValue(ctx.value);
+  if (ctx.counts) setCounts(ctx.counts);
+  return {
+    el,
+    setValue,
+    setCounts,
+    getValue: outward,
+    destroy() {
+    }
+  };
+}
+
 // src/ui/components/data_table.js
 var DEFAULT_PAGE_SIZE = 100;
 var DIFF_STATUSES = /* @__PURE__ */ new Set(["added", "removed", "changed", "same", "gap"]);
@@ -405,16 +513,24 @@ function autoDisposeSweep(entry) {
     if (!el) continue;
     if (el.isConnected) {
       table._autoSeen = true;
+      if (table._autoPending) {
+        clearTimeout(table._autoTimer);
+        table._autoTimer = null;
+        table._autoPending = false;
+      }
       continue;
     }
     if (!table._autoSeen || table._autoPending) continue;
+    const grace = table._detachGrace();
+    if (grace === Infinity) continue;
     table._autoPending = true;
-    setTimeout(() => {
+    table._autoTimer = setTimeout(() => {
       table._autoPending = false;
+      table._autoTimer = null;
       if (!entry.tables.has(ref)) return;
       const now = table._wrapperEl;
       if (now && !now.isConnected) table._disposeOwn();
-    }, 0);
+    }, grace);
   }
   if (entry.tables.size === 0) autoDisposeRelease(entry);
 }
@@ -459,6 +575,38 @@ function perColumn(option, colIdx) {
   if (Array.isArray(option)) return option[colIdx] ?? null;
   if (typeof option === "object") return option[colIdx] ?? null;
   return option;
+}
+var DETAIL_SEQ = { n: 0 };
+function defaultControlMatch(cell, value) {
+  if (Array.isArray(value)) return value.some((v) => String(v ?? "") === String(cell ?? ""));
+  if (value && typeof value === "object" && !(value instanceof Date) && ("from" in value || "to" in value)) {
+    const asNumber = (x) => {
+      if (x == null || x === "") return null;
+      if (x instanceof Date) return x.getTime();
+      if (typeof x === "number") return x;
+      const t = parseDateValue(x);
+      if (Number.isFinite(t)) return t;
+      const n = parseFloat(x);
+      return Number.isFinite(n) ? n : null;
+    };
+    const c = asNumber(cell);
+    if (c === null) return false;
+    const lo = asNumber(value.from);
+    const hi = asNumber(value.to);
+    if (lo !== null && c < lo) return false;
+    if (hi !== null && c > hi) return false;
+    return true;
+  }
+  if (typeof value === "string") {
+    return String(cell ?? "").toLowerCase().includes(value.toLowerCase());
+  }
+  return String(value) === String(cell ?? "");
+}
+function chipsMatch(spec) {
+  return (cell, value) => {
+    const want = Array.isArray(value) ? value : [value];
+    return want.some((v) => String(v ?? "") === String(cell ?? ""));
+  };
 }
 function normaliseSortKey(k) {
   if (k == null) return null;
@@ -574,8 +722,36 @@ var DataTable = class {
       dateTimeFormat: null,
       durationFormat: null,
       dateTimeZone: "local",
+      // 0.7.0. Off — or exactly the 0.6 behaviour — until set. The
+      // typedef says what each does.
+      rowDetail: null,
+      hasRowDetail: null,
+      expandedRows: null,
+      onRowDetailToggle: null,
+      rowDetailLabel: "Details",
+      dataSource: null,
+      onLoad: null,
+      onLoadError: null,
+      hasMore: void 0,
+      pagerLabels: null,
+      pagerPosition: "top",
+      maxJumpOffset: null,
+      follow: false,
+      onFollowChange: null,
+      keepWhileDetached: false,
+      filterKinds: null,
+      onFilterChange: null,
       ...config
     };
+    this._expanded = new Set((this.config.expandedRows || []).map((k) => String(k)));
+    this._detailHeights = /* @__PURE__ */ new Map();
+    this._source = null;
+    this._following = !!this.config.follow && !!this.config.dataSource;
+    this._followTimer = null;
+    this._newKeys = null;
+    this._filterControls = /* @__PURE__ */ new Map();
+    this._filterCounts = /* @__PURE__ */ new Map();
+    this._pendingFilter = null;
     this._activeKey = this.config.activeRow == null ? null : String(this.config.activeRow);
     this._error = null;
     this._virt = null;
@@ -709,6 +885,17 @@ var DataTable = class {
         this._state.filters.clear();
       }
     }
+    if (updates.headers && (this._filterControls.size || this._filterCounts.size)) {
+      const oldHeaders = this.config.headers;
+      const newHeaders = updates.headers;
+      if (oldHeaders.length !== newHeaders.length || oldHeaders.some((h, i) => h !== newHeaders[i])) {
+        this._destroyFilterControls();
+        this._filterCounts.clear();
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(updates, "filterKinds")) {
+      this._destroyFilterControls();
+    }
     Object.assign(this.config, updates);
     if (updates.rows) {
       this._state.selected.clear();
@@ -744,7 +931,7 @@ var DataTable = class {
     if (!this._wrapperEl) return;
     this._wrapperEl.classList.toggle(
       "twm-data-table-component--loading",
-      !!on && this.config.emptyState !== void 0
+      !!on && (this.config.emptyState !== void 0 || !!this.config.dataSource)
     );
     let overlay = this._wrapperEl.querySelector(".twm-data-table__loading");
     if (on) {
@@ -863,6 +1050,13 @@ var DataTable = class {
    * @param {number} page - Page number (0-indexed)
    */
   goToPage(page) {
+    if (this.config.dataSource) {
+      const size = this._sourcePageSize();
+      let p = Math.max(0, Math.floor(Number(page)) || 0);
+      const total = this._source?.total;
+      if (typeof total === "number") p = Math.min(p, Math.max(0, Math.ceil(total / size) - 1));
+      return this._sourceGoTo(p * size);
+    }
     const rowCount = this._getProcessedRows().length;
     const maxPage = Math.ceil(rowCount / this.config.pageSize) - 1;
     this._state.offset = Math.max(0, Math.min(page, maxPage)) * this.config.pageSize;
@@ -873,6 +1067,10 @@ var DataTable = class {
    * @param {number} rowIndex - Row index
    */
   goToRow(rowIndex) {
+    if (this.config.dataSource) {
+      const size = this._sourcePageSize();
+      return this.goToPage(Math.floor(Math.max(0, Math.floor(Number(rowIndex)) || 0) / size));
+    }
     const rowCount = this._getProcessedRows().length;
     const idx = Math.max(0, Math.min(rowIndex, rowCount - 1));
     this._state.offset = Math.floor(idx / this.config.pageSize) * this.config.pageSize;
@@ -897,6 +1095,7 @@ var DataTable = class {
     this._awaitWithSpinner(ret);
     this._savePersisted();
     this.render();
+    if (this.config.dataSource) this._sourceLoad({ offset: 0, reason: "sort" });
   }
   /** Internal: if `maybePromise` is a Promise (or thenable),
    * toggle the loading overlay around it. No-op otherwise. */
@@ -913,7 +1112,21 @@ var DataTable = class {
     this._processedRows = null;
     this._processedIndexMap = null;
     this._state.offset = 0;
+    this._pendingFilter = null;
     this._savePersisted();
+    for (const { control } of this._filterControls.values()) {
+      try {
+        control.setValue?.(null);
+      } catch (err) {
+        console.error("[DataTable] filter control setValue threw", err);
+      }
+    }
+    this._notifyFilterChange();
+    if (this.config.dataSource) {
+      if (this._wrapperEl) this.render();
+      this._sourceLoad({ offset: 0, reason: "filter" });
+      return;
+    }
     this.render();
   }
   /**
@@ -930,6 +1143,8 @@ var DataTable = class {
     const activeFilterColIdx = this._getActiveFilterColIdx();
     const doc = this.container.ownerDocument;
     const hadTableFocus = !!this._tableEl && doc?.activeElement === this._tableEl;
+    const focus070 = this._captureFocus070(doc);
+    const pendingFilter = this.config.dataSource ? this._pendingFilter : null;
     const prevWrap = this._tableWrapEl;
     const prevScroll = prevWrap?.isConnected && this._renderedOffset === this._state.offset ? { top: prevWrap.scrollTop, left: prevWrap.scrollLeft } : null;
     this._cleanup();
@@ -956,9 +1171,12 @@ var DataTable = class {
       this._wrapperEl.style.cssText = "display:flex; flex-direction:column; height:100%; min-height:0;";
     }
     this._loading = false;
-    if (pagination && rows.length > 0 && !this._pagingConfig()) {
+    this._paginationEl = null;
+    if (pagination && (rows.length > 0 || (this._source?.offset || 0) > 0) && !this._pagingConfig()) {
       this._paginationEl = this._createPagination();
-      if (this._paginationEl) this._wrapperEl.appendChild(this._paginationEl);
+      if (this._paginationEl && this.config.pagerPosition !== "bottom") {
+        this._wrapperEl.appendChild(this._paginationEl);
+      }
     }
     const tableWrap = document.createElement("div");
     tableWrap.className = this.config.readonly ? "twm-preview-table-wrap twm-preview-table-wrap--wizard" : "twm-preview-table-wrap";
@@ -966,7 +1184,8 @@ var DataTable = class {
     if (this._error && rows.length > 0) {
       this._wrapperEl.appendChild(this._createErrorBanner());
     }
-    if (rows.length === 0) {
+    const keepFilterRow = rows.length === 0 && !!this.config.dataSource && this.config.filterable;
+    if (rows.length === 0 && !keepFilterRow) {
       const { headers, showRowNumbers } = this.config;
       const headerWrap = document.createElement("div");
       headerWrap.className = "twm-preview-table-header-wrap";
@@ -996,25 +1215,7 @@ var DataTable = class {
       const bodyTable = document.createElement("table");
       bodyTable.className = headerTable.className;
       const tbody = document.createElement("tbody");
-      const emptyTr = document.createElement("tr");
-      emptyTr.className = "data-preview-row data-table__empty-row";
-      const colCount = headers.length + (showRowNumbers ? 1 : 0);
-      const emptyTd = document.createElement("td");
-      emptyTd.colSpan = colCount;
-      if (this._error) {
-        emptyTd.className = "twm-data-table__empty-cell twm-data-table__empty-cell--error";
-        emptyTd.setAttribute("role", "alert");
-        this._appendStateContent(emptyTd, this._errorContent());
-      } else if (this.config.emptyState !== void 0) {
-        emptyTd.className = "twm-data-table__empty-cell twm-data-table__empty-cell--state";
-        const state = typeof this.config.emptyState === "function" ? this.config.emptyState() : this.config.emptyState;
-        this._appendStateContent(emptyTd, state);
-      } else {
-        emptyTd.style.cssText = "text-align:center; font-style:italic; color:#888; padding:16px;";
-        emptyTd.textContent = emptyMessage;
-      }
-      emptyTr.appendChild(emptyTd);
-      tbody.appendChild(emptyTr);
+      tbody.appendChild(this._buildEmptyRow(headers.length + (showRowNumbers ? 1 : 0), emptyMessage));
       bodyTable.appendChild(tbody);
       tableWrap.appendChild(bodyTable);
       this._wrapperEl.appendChild(tableWrap);
@@ -1038,10 +1239,20 @@ var DataTable = class {
       } else {
         this._headerTableEl = null;
       }
+      if (keepFilterRow && this._tbodyEl) {
+        const n = this.config.headers.length + (this.config.showRowNumbers ? 1 : 0);
+        this._tbodyEl.appendChild(this._buildEmptyRow(n, emptyMessage));
+      }
       tableWrap.appendChild(fullTable);
       this._wrapperEl.appendChild(tableWrap);
     }
     this._tableWrapEl = tableWrap;
+    if (this._paginationEl && this.config.pagerPosition === "bottom") {
+      this._paginationEl.classList.add("twm-pagination-controls--bottom");
+      this._paginationEl.style.borderBottom = "0";
+      this._paginationEl.style.borderTop = "1px solid #2a2a2a";
+      this._wrapperEl.appendChild(this._paginationEl);
+    }
     this._pagingEl = null;
     if (this._pagingConfig()) {
       this._pagingEl = this._createPagingStrip();
@@ -1093,7 +1304,7 @@ var DataTable = class {
       this._installHeaderScrollSync();
       if (rows.length > 0) this._installColumnResizers();
     }
-    if (rows.length > 0 && (this.config.selectable || this.config.copyable || !this.config.readonly || typeof this.config.onRowActivate === "function")) {
+    if (rows.length > 0 && (this.config.selectable || this.config.copyable || !this.config.readonly || typeof this.config.onRowActivate === "function" || typeof this.config.rowDetail === "function")) {
       this._installInteractions();
     }
     if (activeFilterColIdx !== null) {
@@ -1103,6 +1314,18 @@ var DataTable = class {
         this._tableEl.focus({ preventScroll: true });
       } catch (_) {
       }
+    } else if (focus070) {
+      this._restoreFocus070(focus070);
+    }
+    if (pendingFilter) this._resumePendingFilter(pendingFilter);
+    if (this.config.dataSource) {
+      if (!this._source?.started) {
+        this._sourceState().started = true;
+        Promise.resolve().then(() => this._sourceLoad({ offset: 0, reason: "initial" }));
+      } else if (this._source.inFlight && !this._source.pendingAppend) {
+        this.setLoading(true);
+      }
+      if (this._following && !this._followTimer) this._armFollow();
     }
   }
   /**
@@ -1205,6 +1428,22 @@ var DataTable = class {
   _teardown(emptyHost) {
     autoDisposeUnwatch(this);
     this._autoSeen = false;
+    if (this._autoTimer) {
+      clearTimeout(this._autoTimer);
+      this._autoTimer = null;
+    }
+    this._autoPending = false;
+    this._disarmFollow();
+    if (this._source) {
+      this._source.ticket++;
+      try {
+        this._source.controller?.abort();
+      } catch (_) {
+      }
+      this._source.controller = null;
+      this._source.inFlight = false;
+    }
+    this._destroyFilterControls();
     this._runOffs(this._activationOffs);
     this._activationOffs = [];
     this._cleanup();
@@ -1244,7 +1483,7 @@ var DataTable = class {
   // ─────────────────────────────────────────────────────────────────
   _getProcessedRows() {
     if (this._processedRows !== null) return this._processedRows;
-    const isServerSide = typeof this.config.onPageChange === "function";
+    const isServerSide = this._isServerSide();
     let rows = this.config.rows;
     let indexMap = rows.map((_, i) => i);
     if (!isServerSide && this._state.filters.size > 0) {
@@ -1265,12 +1504,23 @@ var DataTable = class {
     const filters = this._state.filters;
     const filteredRows = [];
     const filteredMap = [];
+    const matchers = /* @__PURE__ */ new Map();
+    for (const colIdx of filters.keys()) matchers.set(colIdx, this._filterMatcher(colIdx));
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       let pass = true;
       for (const [colIdx, filterText] of filters) {
         if (!filterText) continue;
         const value = row[colIdx];
+        const kindMatch = matchers.get(colIdx);
+        if (kindMatch) {
+          if (this._isEmptyFilterValue(filterText)) continue;
+          if (!kindMatch(value, filterText, row)) {
+            pass = false;
+            break;
+          }
+          continue;
+        }
         const colType = this._valueKind(colIdx);
         if (colType === "num") {
           if (!this._matchNumericFilter(value, filterText)) {
@@ -1441,6 +1691,14 @@ var DataTable = class {
     headers.forEach((header, colIdx) => {
       const th = document.createElement("th");
       th.className = "data-table__filter-cell";
+      const control = this._filterControlFor(colIdx, header);
+      if (control) {
+        th.classList.add("data-table__filter-cell--control");
+        th.addEventListener("click", (e) => e.stopPropagation());
+        if (control.el) th.appendChild(control.el);
+        tr.appendChild(th);
+        return;
+      }
       const wrapper = document.createElement("div");
       wrapper.className = "twm-data-table__filter-wrapper";
       const input = document.createElement("input");
@@ -1711,22 +1969,54 @@ var DataTable = class {
     if (this._filterDebounceTimer) {
       clearTimeout(this._filterDebounceTimer);
     }
+    this._pendingFilter = { colIdx, value };
     this._filterDebounceTimer = setTimeout(() => {
+      this._pendingFilter = null;
       this._onFilterInput(colIdx, value);
     }, 200);
   }
   _onFilterInput(colIdx, value) {
-    if (value) {
+    const empty = typeof value === "string" ? !value : this._isEmptyFilterValue(value);
+    if (!empty) {
       this._state.filters.set(colIdx, value);
     } else {
       this._state.filters.delete(colIdx);
     }
+    this._pendingFilter = null;
     this._invalidateProcessedCache();
     this._state.offset = 0;
     this._state.selected.clear();
     this._state.anchorIndex = null;
     this._savePersisted();
+    const entry = this._filterControls.get(colIdx);
+    if (entry) {
+      try {
+        entry.control.setValue?.(empty ? null : value);
+      } catch (err) {
+        console.error("[DataTable] filter control setValue threw", err);
+      }
+    }
+    this._notifyFilterChange();
+    if (this.config.dataSource) {
+      this._sourceLoad({ offset: 0, reason: "filter" });
+      return;
+    }
     this.render();
+  }
+  /** 0.7.0. Put back a filter that was still being typed when a render
+   *  rebuilt its box: the words, and the debounce that will apply them. */
+  _resumePendingFilter({ colIdx, value }) {
+    const filterRow = this._wrapperEl?.querySelector(".twm-data-table__filter-row");
+    const cell = filterRow?.children[this.config.showRowNumbers ? colIdx + 1 : colIdx];
+    const input = cell?.querySelector(".twm-data-table__filter-input");
+    if (input && input.value !== value) {
+      const focused = input.ownerDocument?.activeElement === input;
+      input.value = value;
+      const clear = cell.querySelector(".twm-data-table__filter-clear");
+      if (clear) clear.style.display = value ? "" : "none";
+      if (focused) input.setSelectionRange(value.length, value.length);
+    }
+    this._onFilterInputDebounced(colIdx, value);
   }
   _getActiveFilterColIdx() {
     const active = document.activeElement;
@@ -1821,6 +2111,7 @@ var DataTable = class {
     return types;
   }
   _createPagination() {
+    if (this._usesPager070()) return this._createPager070();
     const { rows, pageSize, totalCount: configTotalCount, offset: configOffset, onPageChange, onJumpToRow } = this.config;
     const isServerSide = typeof onPageChange === "function";
     const offset = isServerSide ? configOffset || 0 : this._state.offset;
@@ -1943,6 +2234,25 @@ var DataTable = class {
     const p = this.config.paging;
     if (!p || typeof p !== "object") return null;
     const size = Number.isFinite(p.pageSize) && p.pageSize >= 1 ? Math.floor(p.pageSize) : this.config.pageSize;
+    if (this.config.dataSource) {
+      const src = this._source || { offset: 0, total: null, atLeast: 0, hasMore: false };
+      return {
+        ...p,
+        pageSize: size,
+        offset: src.offset || 0,
+        held: this.config.rows?.length || 0,
+        total: src.total,
+        atLeast: src.atLeast || 0,
+        hasMore: !!src.hasMore,
+        loadMorePx: Number.isFinite(p.loadMorePx) ? p.loadMorePx : PAGING_LOAD_MORE_PX,
+        onPage: (offset) => this._sourceGoTo(offset),
+        onLoadMore: () => this._sourceLoadMore(),
+        onLoadAll: () => this._sourceLoadAll(),
+        // The switch is drawn, as in 0.6.2, only for a consumer that
+        // listens; the table switches and then tells it.
+        onModeChange: typeof p.onModeChange === "function" ? (mode) => this._sourceSetMode(mode) : void 0
+      };
+    }
     return {
       ...p,
       pageSize: size,
@@ -1978,7 +2288,12 @@ var DataTable = class {
    */
   setPaging(patch = {}) {
     if (!this.config.paging) return;
+    const before = this.config.dataSource ? this.pagingState?.mode : null;
     this.config.paging = { ...this.config.paging, ...patch };
+    if (before && this.pagingState?.mode !== before) {
+      this._sourceLoad({ offset: 0, reason: "mode" });
+      return;
+    }
     this._refreshPagingStrip();
     this._pagingMaybeLoadMore();
   }
@@ -2032,6 +2347,7 @@ var DataTable = class {
   _pagingMaybeLoadMore() {
     const p = this._pagingConfig();
     if (!p || !p.hasMore || this._pagingBusy) return;
+    if (this.config.dataSource && this._source?.inFlight) return;
     const state = this.pagingState;
     if (state.mode !== "scroll" || p.held >= state.hardLimit) return;
     const wrap = this._tableWrapEl;
@@ -2068,19 +2384,22 @@ var DataTable = class {
       if (exact) of = ` of ${n(total)}`;
       else if (known > to) of = ` of more than ${n(known - 1)}`;
       info.textContent = held ? `Rows ${n(from)}\u2013${n(to)}${of}` : "No rows on this page";
-      const hasPrev = p.offset > 0;
-      const hasNext = exact ? p.offset + held < total : p.hasMore;
-      const lastOffset = exact && total > 0 ? Math.floor((total - 1) / pageSize) * pageSize : null;
+      const pn = this._pageNav({ offset: p.offset, held, total, hasMore: p.hasMore, pageSize });
+      const { hasPrev, hasNext } = pn;
+      const lastOffset = exact && total > 0 ? pn.lastOffset : null;
       const go = (offset) => (ev) => {
         if (!ev?.currentTarget?.disabled) this._pagingCall("page", p.onPage, offset, pageSize);
       };
       const nav = document.createElement("span");
       nav.className = "twm-dt-paging__nav";
       const off = !!busy || typeof p.onPage !== "function";
+      const words = this._usesPager070();
+      const button = (icon, name, tip, disabled, onClick, refusal = null) => words ? this._pagerButton(icon, name, tip, disabled, onClick, refusal) : this._createPaginationBtn(icon, tip, disabled, onClick);
       nav.append(
-        this._createPaginationBtn("first_page", "First page", off || !hasPrev, go(0)),
-        this._createPaginationBtn(
+        button("first_page", "first", "First page", off || !hasPrev, go(0)),
+        button(
           "chevron_left",
+          "prev",
           "Previous page",
           off || !hasPrev,
           go(Math.max(0, p.offset - pageSize))
@@ -2088,20 +2407,28 @@ var DataTable = class {
       );
       const page = document.createElement("span");
       page.className = "twm-dt-paging__page";
-      const current = Math.floor(p.offset / pageSize) + 1;
-      page.textContent = exact ? `Page ${n(current)} of ${n(Math.max(1, Math.ceil(total / pageSize)))}` : `Page ${n(current)}`;
+      page.textContent = exact ? `Page ${n(pn.page)} of ${n(pn.pages)}` : `Page ${n(pn.page)}`;
       nav.append(
         page,
-        this._createPaginationBtn(
+        button(
           "chevron_right",
+          "next",
           "Next page",
           off || !hasNext,
           go(p.offset + pageSize)
         ),
         // The last page needs the exact count: without it there is no
         // offset to go to, and the button says so by being off.
-        this._createPaginationBtn(
+        words ? button(
           "last_page",
+          "last",
+          "Last page",
+          off || !hasNext || lastOffset === null,
+          go(lastOffset),
+          pn.lastRefusal
+        ) : button(
+          "last_page",
+          "last",
           lastOffset === null ? "Last page (the total is not known)" : "Last page",
           off || !hasNext || lastOffset === null,
           go(lastOffset)
@@ -2159,9 +2486,10 @@ var DataTable = class {
     return el;
   }
   _createTable() {
-    const { headers, rows, pageSize, sortable, filterable, showRowNumbers, readonly, getHeaderIcon, onPageChange, offset: configOffset } = this.config;
+    const { headers, rows, pageSize, sortable, filterable, showRowNumbers, readonly, getHeaderIcon } = this.config;
     const { sortColumn, sortAscending } = this._state;
-    const isServerSide = typeof onPageChange === "function";
+    const configOffset = this.config.dataSource ? 0 : this.config.offset;
+    const isServerSide = this._isServerSide();
     const processedRows = isServerSide ? rows : this._getProcessedRows();
     const offset = isServerSide ? configOffset || 0 : this._state.offset;
     const pageRows = isServerSide || !this.config.pagination || this._pagingConfig() ? processedRows : processedRows.slice(offset, offset + pageSize);
@@ -2226,8 +2554,8 @@ var DataTable = class {
       const processedIdx = offset + localIdx;
       return isServerSide ? (configOffset || 0) + localIdx : this._processedIndexMap?.[processedIdx] ?? processedIdx;
     };
-    this._positionBase = isServerSide ? configOffset || 0 : this.config.pagination ? offset : 0;
-    const paged = this._pagingConfig();
+    this._positionBase = this.config.dataSource ? this._source?.offset || 0 : isServerSide ? configOffset || 0 : this.config.pagination ? offset : 0;
+    const paged = this.config.dataSource ? null : this._pagingConfig();
     if (paged && Number.isFinite(paged.offset)) this._positionBase += paged.offset;
     const tbody = document.createElement("tbody");
     table.appendChild(tbody);
@@ -2240,7 +2568,9 @@ var DataTable = class {
       });
     } else {
       pageRows.forEach((row, localIdx) => {
-        tbody.appendChild(this._buildBodyRow(row, globalOf(localIdx), localIdx));
+        const tr = this._buildBodyRow(row, globalOf(localIdx), localIdx);
+        tbody.appendChild(tr);
+        if (this._detailOn()) this._appendDetailIfOpen(tr, null);
       });
     }
     return table;
@@ -2384,6 +2714,7 @@ var DataTable = class {
     const heights = new Float64Array(n);
     const offsets = new Float64Array(n + 1);
     const fn = typeof this.config.virtualRowHeight === "function" ? this.config.virtualRowHeight : null;
+    const details = this._detailOn() && this._expanded.size > 0;
     let y = 0;
     for (let i = 0; i < n; i++) {
       let h = v.base;
@@ -2391,6 +2722,7 @@ var DataTable = class {
         const asked = fn(v.globalOf(i), v.base);
         h = Number.isFinite(asked) && asked > 0 ? asked : 0;
       }
+      if (details && h > 0) h += this._detailHeightOf(v.rows[i], v.globalOf(i), v.base);
       heights[i] = h;
       offsets[i] = y;
       y += h;
@@ -2432,6 +2764,14 @@ var DataTable = class {
    * larger than half a pixel, so rows of mixed heights cannot make the
    * offsets move under the reader on every scroll.
    *
+   * 0.7.0 `rowDetail`: AN OPEN DETAIL IS PART OF ITS ROW'S HEIGHT, and is
+   * measured at the same moments. It is never one of the rows the median is
+   * taken from (the window's map holds the rows, not their details), so a
+   * tall detail cannot pass for a row; it is read on its own, into the
+   * row's height — and read again here, because a detail's height moves for
+   * the same reasons a row's does (the column widths fixed, a font), and
+   * more: it wraps across the whole table's width.
+   *
    * @returns {boolean} whether the heights changed (the offsets are recomputed).
    */
   _virtMeasure() {
@@ -2441,18 +2781,24 @@ var DataTable = class {
     const heights = [];
     for (const tr of v.map.values()) {
       if (!tr.isConnected || tr.hidden) continue;
-      const h2 = tr.getBoundingClientRect().height / zoom;
-      if (h2 > 0) heights.push(h2);
+      const h = tr.getBoundingClientRect().height / zoom;
+      if (h > 0) heights.push(h);
       if (heights.length >= 64) break;
     }
-    if (!heights.length) return false;
-    heights.sort((a, b) => a - b);
-    const h = heights[heights.length >> 1];
-    const tolerance = v.measured ? 0.5 : 0.01;
-    v.measured = true;
-    if (Math.abs(h - v.base) <= tolerance) return false;
-    v.base = h;
-    this._virtBase = h;
+    const details = this._detailOn() && this._expanded.size > 0 && this._virtReadDetailHeights(v.map.values());
+    let base = false;
+    if (heights.length) {
+      heights.sort((a, b) => a - b);
+      const h = heights[heights.length >> 1];
+      const tolerance = v.measured ? 0.5 : 0.01;
+      v.measured = true;
+      if (Math.abs(h - v.base) > tolerance) {
+        v.base = h;
+        this._virtBase = h;
+        base = true;
+      }
+    }
+    if (!base && !details) return false;
     this._virtComputeOffsets();
     return true;
   }
@@ -2531,6 +2877,7 @@ var DataTable = class {
     for (const [i, tr] of v.map) {
       if (!wanted.has(i)) {
         tr.remove();
+        this._removeDetailPieces(tr);
         v.map.delete(i);
         removed?.push(tr);
       }
@@ -2550,10 +2897,12 @@ var DataTable = class {
       const tr = this._buildBodyRow(v.rows[i], v.globalOf(i), i);
       v.map.set(i, tr);
       tbody.insertBefore(tr, ref);
+      if (this._detailOn()) this._appendDetailIfOpen(tr, ref);
       ref = tr;
       added.push(tr);
     }
     added.reverse();
+    if (this._detailOn() && added.length) this._virtMeasureDetails(added);
     return added;
   }
   /**
@@ -2753,6 +3102,7 @@ var DataTable = class {
       if (colIdx === 0 && typeof this.config.rowIcon === "function") {
         this._prependRowIcon(td, this.config.rowIcon(row, globalIdx));
       }
+      if (colIdx === 0 && this._detailOn()) this._prependDetailToggle(td, tr, row, globalIdx);
       if (this.config.onCellContextMenu) {
         const cellColIdx = colIdx;
         td.addEventListener("contextmenu", (ev) => {
@@ -2837,10 +3187,1137 @@ var DataTable = class {
     }
     tr.classList.toggle("selected", this._state?.selected?.has(index) === true);
     this._decorateRow(tr, row, index);
+    if (this._detailOn()) this._redrawDetail(tr);
     if (focusedCol >= 0 && tr.children[focusedCol]) {
       tr.children[focusedCol].focus?.();
     }
     return true;
+  }
+  // ─────────────────────────────────────────────────────────────────
+  // 0.7.0 — a row's detail (#26)
+  // ─────────────────────────────────────────────────────────────────
+  //
+  // A detail is TWO rows after its row: the detail itself (one cell across
+  // every column) and a hidden filler. The filler is the stripe: rows are
+  // striped by `tr:nth-child(even)`, a question about POSITION, and one extra
+  // row would flip the stripe of every row below an open detail. Two keep
+  // the parity — the trick `_virtSpacers` already plays for the window.
+  //
+  // Neither row has a `__rowIndex`, so everything that walks the body for
+  // rows of data (selection, the open mark, `_firstBodyRow`, `getRowElement`,
+  // the activation and the copy menu) steps over them as it steps over a
+  // spacer.
+  _detailOn() {
+    return typeof this.config.rowDetail === "function";
+  }
+  _rowHasDetail(row, rowIdx) {
+    const fn = this.config.hasRowDetail;
+    if (typeof fn !== "function") return true;
+    try {
+      return !!fn(row, rowIdx);
+    } catch (err) {
+      console.error("[DataTable] hasRowDetail threw", err);
+      return false;
+    }
+  }
+  /** The toggle: a real `<button>` (so Enter and Space work on it, and it is
+   *  a control `onRowActivate` leaves alone), its glyph drawn by CSS so the
+   *  cell's text, its tooltip and a copy stay the cell's own. */
+  _prependDetailToggle(td, tr, row, rowIdx) {
+    if (!this._rowHasDetail(row, rowIdx)) {
+      const gap = document.createElement("span");
+      gap.className = "twm-dt-detail-toggle-gap";
+      gap.setAttribute("aria-hidden", "true");
+      td.insertBefore(gap, td.firstChild);
+      return;
+    }
+    const key = this._rowKey(row, rowIdx);
+    const open = key !== null && this._expanded.has(key);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "material-symbols-outlined twm-dt-detail-toggle";
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    btn.setAttribute("aria-label", String(this.config.rowDetailLabel || "Details"));
+    btn.title = String(this.config.rowDetailLabel || "Details");
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      this._setRowElExpanded(tr, btn.getAttribute("aria-expanded") !== "true", ev);
+    });
+    td.insertBefore(btn, td.firstChild);
+    td.classList.add("twm-dt-cell--has-detail-toggle");
+    tr.classList.add("twm-dt-row--has-detail");
+  }
+  /** After `tr` has been placed: its open detail, in front of `ref` (the row
+   *  after it, or null for the end of the body). */
+  _appendDetailIfOpen(tr, ref) {
+    const row = tr.__row;
+    const idx = tr.__rowIndex;
+    if (!this._rowHasDetail(row, idx)) return;
+    const key = this._rowKey(row, idx);
+    if (key === null || !this._expanded.has(key)) return;
+    const pieces = this._buildDetailPieces(tr, key);
+    const parent = tr.parentNode;
+    if (!parent) return;
+    for (const p of pieces) parent.insertBefore(p, ref);
+  }
+  _buildDetailPieces(tr, key) {
+    const n = (this.config.headers?.length || 0) + (this.config.showRowNumbers ? 1 : 0);
+    const detailTr = document.createElement("tr");
+    detailTr.className = "twm-dt-detail-row";
+    const td = document.createElement("td");
+    td.className = "twm-dt-detail-cell";
+    td.colSpan = Math.max(1, n);
+    const host = document.createElement("div");
+    host.className = "twm-dt-detail";
+    DETAIL_SEQ.n += 1;
+    host.id = `twm-dt-detail-${DETAIL_SEQ.n}`;
+    td.appendChild(host);
+    detailTr.appendChild(td);
+    const filler = document.createElement("tr");
+    filler.className = "twm-dt-detail-filler";
+    filler.hidden = true;
+    filler.setAttribute("aria-hidden", "true");
+    detailTr.__detailOf = tr;
+    tr.__detail = [detailTr, filler];
+    this._drawDetail(tr, host, key);
+    const btn = tr.querySelector(":scope > td > .twm-dt-detail-toggle");
+    if (btn) btn.setAttribute("aria-controls", host.id);
+    return tr.__detail;
+  }
+  _drawDetail(tr, host, key) {
+    host.replaceChildren();
+    let out;
+    try {
+      out = this.config.rowDetail(tr.__row, tr.__rowIndex, { host, key, table: this });
+    } catch (err) {
+      console.error("[DataTable] rowDetail threw", err);
+      out = err?.message || String(err);
+    }
+    if (out == null || out === false || out === host) return;
+    if (typeof Node !== "undefined" && out instanceof Node) host.appendChild(out);
+    else host.textContent = String(out);
+  }
+  _removeDetailPieces(tr) {
+    const pieces = tr.__detail;
+    if (!pieces) return;
+    for (const p of pieces) p.remove();
+    tr.__detail = null;
+    const btn = tr.querySelector(":scope > td > .twm-dt-detail-toggle");
+    if (btn) btn.removeAttribute("aria-controls");
+  }
+  /** `updateRow`'s half: the detail follows the row's new data. */
+  _redrawDetail(tr) {
+    const key = this._rowKey(tr.__row, tr.__rowIndex);
+    const want = this._rowHasDetail(tr.__row, tr.__rowIndex) && key !== null && this._expanded.has(key);
+    const pieces = tr.__detail;
+    if (!want) {
+      if (pieces) this._removeDetailPieces(tr);
+      return;
+    }
+    if (pieces) {
+      const host = pieces[0].querySelector(".twm-dt-detail");
+      if (host) {
+        this._drawDetail(tr, host, key);
+        const btn = tr.querySelector(":scope > td > .twm-dt-detail-toggle");
+        if (btn) btn.setAttribute("aria-controls", host.id);
+      }
+      return;
+    }
+    if (tr.parentNode) this._appendDetailIfOpen(tr, tr.nextSibling);
+  }
+  /** Open or close the detail of the row `tr` draws. Returns whether
+   *  anything changed. */
+  _setRowElExpanded(tr, open, ev = null) {
+    if (!this._detailOn() || tr.__rowIndex === void 0) return false;
+    if (!this._rowHasDetail(tr.__row, tr.__rowIndex)) return false;
+    const key = this._rowKey(tr.__row, tr.__rowIndex);
+    if (key === null || this._expanded.has(key) === !!open) return false;
+    if (open) this._expanded.add(key);
+    else this._expanded.delete(key);
+    this._syncDetailOnScreen(tr, key);
+    this._afterDetailChange();
+    try {
+      this.config.onRowDetailToggle?.(tr.__rowIndex, tr.__row, !!open, key, ev);
+    } catch (err) {
+      console.error("[DataTable] onRowDetailToggle threw", err);
+    }
+    return true;
+  }
+  /** Make the row on screen agree with `_expanded` for its key. */
+  _syncDetailOnScreen(tr, key) {
+    const open = this._expanded.has(key);
+    const btn = tr.querySelector(":scope > td > .twm-dt-detail-toggle");
+    if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open && !tr.__detail && tr.parentNode) {
+      const ref = tr.nextSibling;
+      for (const p of this._buildDetailPieces(tr, key)) tr.parentNode.insertBefore(p, ref);
+    } else if (!open && tr.__detail) {
+      this._removeDetailPieces(tr);
+    }
+  }
+  /** Under `virtualize` an open detail is part of its row's height. */
+  _afterDetailChange() {
+    if (!this._virt) return;
+    this._virtMeasureDetails([...this._virt.map.values()], { force: true });
+  }
+  /** The detail's height for row `i` of the window's list: 0 closed, the
+   *  measured height open, three rows until it has been measured. */
+  _detailHeightOf(row, rowIdx, base) {
+    if (!this._rowHasDetail(row, rowIdx)) return 0;
+    const key = this._rowKey(row, rowIdx);
+    if (key === null || !this._expanded.has(key)) return 0;
+    const h = this._detailHeights.get(key);
+    return h > 0 ? h : base * 3;
+  }
+  /** Measure the open details among `trs` (client pixels, the zoom divided
+   *  out, as `_virtMeasure` does), and re-lay the window if one changed. */
+  _virtMeasureDetails(trs, { force = false } = {}) {
+    const v = this._virt;
+    if (!v) return;
+    const changed = this._virtReadDetailHeights(trs) || force;
+    if (!changed) return;
+    this._virtComputeOffsets();
+    this._virtSpacers();
+  }
+  /** Read the open details drawn under `trs` into `_detailHeights`; true
+   *  when one moved by more than half a pixel. Recomputes nothing. */
+  _virtReadDetailHeights(trs) {
+    let changed = false;
+    const zoom = this._tableEl?.currentCSSZoom || 1;
+    for (const tr of trs) {
+      const d = tr?.__detail?.[0];
+      if (!d || !d.isConnected) continue;
+      const h = d.getBoundingClientRect().height / zoom;
+      if (!(h > 0)) continue;
+      const key = this._rowKey(tr.__row, tr.__rowIndex);
+      if (Math.abs((this._detailHeights.get(key) || 0) - h) > 0.5) {
+        this._detailHeights.set(key, h);
+        changed = true;
+      }
+    }
+    return changed;
+  }
+  /**
+   * Open (or close) the detail of the row whose key is `key` (`getRowKey`,
+   * else the row's index). A row not on screen — another page, outside the
+   * window, filtered out — opens when it is drawn.
+   *
+   * @param {*} key
+   * @param {boolean} [open=true]
+   * @returns {boolean} whether anything changed
+   */
+  setRowExpanded(key, open = true) {
+    if (key == null) return false;
+    const k = String(key);
+    if (this._expanded.has(k) === !!open) return false;
+    if (open) this._expanded.add(k);
+    else this._expanded.delete(k);
+    const tr = this._rowElByKey(k);
+    if (tr) {
+      this._syncDetailOnScreen(tr, k);
+      try {
+        this.config.onRowDetailToggle?.(tr.__rowIndex, tr.__row, !!open, k, null);
+      } catch (err) {
+        console.error("[DataTable] onRowDetailToggle threw", err);
+      }
+    }
+    if (this._virt) {
+      this._virtComputeOffsets();
+      this._virtSpacers();
+      this._afterDetailChange();
+    }
+    return true;
+  }
+  /** Whether the row whose key is `key` has its detail open. */
+  isRowExpanded(key) {
+    return key != null && this._expanded.has(String(key));
+  }
+  /** The keys of the rows whose detail is open, as text. */
+  getExpandedRows() {
+    return [...this._expanded];
+  }
+  /** Close every detail. */
+  collapseAllRows() {
+    for (const k of [...this._expanded]) this.setRowExpanded(k, false);
+  }
+  /** The `<tr>` on screen for a key, or null. */
+  _rowElByKey(key) {
+    const tbody = this._tbodyEl;
+    if (!tbody) return null;
+    for (const tr of tbody.children) {
+      if (tr.__rowIndex === void 0) continue;
+      if (this._rowKey(tr.__row, tr.__rowIndex) === key) return tr;
+    }
+    return null;
+  }
+  // ─────────────────────────────────────────────────────────────────
+  // 0.7.0 — rows from a server (#33), the pager for an unknown total
+  // (#35), refresh and follow (#36)
+  // ─────────────────────────────────────────────────────────────────
+  //
+  // ONE QUESTION AT A TIME, AND ONLY THE NEWEST ANSWER. Every request takes
+  // a ticket; an answer whose ticket is not the latest is dropped, and the
+  // request it answered is aborted the moment a newer one is sent. Two
+  // requests in flight from a fast typist otherwise race, and the loser
+  // painting last is a list that does not match the box above it.
+  /** Rows that are the current page of something larger (`onPageChange`,
+   *  or 0.7.0's `dataSource`): drawn as given, never filtered, sorted or
+   *  sliced here. */
+  _isServerSide() {
+    return typeof this.config.onPageChange === "function" || !!this.config.dataSource;
+  }
+  /** `autoDispose`'s grace in ms: one task, `keepWhileDetached`'s number,
+   *  or Infinity for `true`. */
+  _detachGrace() {
+    const k = this.config.keepWhileDetached;
+    if (k === true) return Infinity;
+    if (typeof k === "number" && Number.isFinite(k) && k > 0) return k;
+    if (k === Infinity) return Infinity;
+    return 0;
+  }
+  _sourceState() {
+    if (!this._source) {
+      this._source = {
+        started: false,
+        ticket: 0,
+        controller: null,
+        inFlight: false,
+        offset: 0,
+        pendingOffset: 0,
+        total: null,
+        atLeast: 0,
+        hasMore: false,
+        query: null,
+        loaded: false,
+        pendingAppend: false
+      };
+    }
+    return this._source;
+  }
+  /** The column filters, as a query and `onFilterChange` carry them. */
+  _filterList() {
+    const headers = this.config.headers || [];
+    const out = [];
+    for (const [column, value] of this._state.filters) {
+      if (typeof value === "string" ? !value : this._isEmptyFilterValue(value)) continue;
+      out.push({ column, header: headers[column], value });
+    }
+    return out.sort((a, b) => a.column - b.column);
+  }
+  /** Rows per question: `paging.pageSize` when the source is paged, else
+   *  `pageSize` — one number for the query, `goToPage` and the pager. */
+  _sourcePageSize() {
+    const size = this._pagingConfig()?.pageSize ?? this.config.pageSize;
+    return Math.max(1, size | 0);
+  }
+  _buildQuery(offset, reason, limit = null) {
+    const col = this._state.sortColumn;
+    return {
+      offset,
+      limit: Number.isFinite(limit) && limit >= 1 ? Math.floor(limit) : this._sourcePageSize(),
+      sort: col == null ? null : {
+        column: col,
+        header: (this.config.headers || [])[col],
+        ascending: this._state.sortAscending
+      },
+      filters: this._filterList(),
+      reason
+    };
+  }
+  /**
+   * Ask the source for the page at `offset`, and draw the answer if it is
+   * still the newest by then. Resolves with the answer drawn, or undefined
+   * when it was dropped (superseded, failed, or the table was disposed).
+   */
+  async _sourceLoad({ offset = 0, reason = "reload", keep = false, append = false, limit = null } = {}) {
+    const fetch = this.config.dataSource;
+    if (typeof fetch !== "function") return void 0;
+    const src = this._sourceState();
+    src.started = true;
+    const ticket = ++src.ticket;
+    try {
+      src.controller?.abort();
+    } catch (_) {
+    }
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    src.controller = controller;
+    const query = this._buildQuery(Math.max(0, offset | 0), reason, limit);
+    src.query = query;
+    src.inFlight = true;
+    src.pendingOffset = query.offset;
+    src.pendingAppend = append;
+    if (!append) this.setLoading(true);
+    let result;
+    try {
+      result = await fetch(query, { signal: controller?.signal });
+    } catch (err) {
+      if (ticket !== src.ticket) return void 0;
+      src.inFlight = false;
+      src.controller = null;
+      src.pendingAppend = false;
+      if (err?.name === "AbortError" || controller?.signal?.aborted) {
+        this.setLoading(false);
+        return void 0;
+      }
+      this.setError(err);
+      try {
+        this.config.onLoadError?.(err, query);
+      } catch (e) {
+        console.error("[DataTable] onLoadError threw", e);
+      }
+      return void 0;
+    }
+    if (ticket !== src.ticket) return void 0;
+    src.inFlight = false;
+    src.controller = null;
+    src.pendingAppend = false;
+    this._applySourceResult(result, query, { keep, append });
+    try {
+      this.config.onLoad?.(result, query);
+    } catch (e) {
+      console.error("[DataTable] onLoad threw", e);
+    }
+    return result;
+  }
+  _applySourceResult(result, query, { keep = false, append = false } = {}) {
+    const src = this._sourceState();
+    const r = Array.isArray(result) ? { rows: result } : result || {};
+    const answered = Array.isArray(r.rows) ? r.rows : [];
+    const totalRaw = r.total ?? r.totalCount;
+    const total = typeof totalRaw === "number" && Number.isFinite(totalRaw) ? totalRaw : null;
+    const hasMore = typeof r.hasMore === "boolean" ? r.hasMore : total !== null ? query.offset + answered.length < total : answered.length >= query.limit;
+    let rows = append ? (this.config.rows || []).concat(answered) : answered;
+    let rowsOffset = append ? src.offset || 0 : query.offset;
+    const pc = append ? this._pagingConfig() : null;
+    if (pc && resolvePaging({
+      mode: pc.mode,
+      total,
+      atLeast: r.atLeast,
+      held: rowsOffset + rows.length,
+      hasMore,
+      softLimit: pc.softLimit,
+      hardLimit: pc.hardLimit
+    }).mode === "pages") {
+      rows = answered;
+      rowsOffset = query.offset;
+      append = false;
+    }
+    if (src.loaded && this._detailOn() && this._expanded.size && typeof this.config.getRowKey !== "function") {
+      const before = this.config.rows || [];
+      const same = (a, b) => {
+        if (a === b) return true;
+        try {
+          return JSON.stringify(a) === JSON.stringify(b);
+        } catch (_) {
+          return false;
+        }
+      };
+      for (const k of [...this._expanded]) {
+        const i = Number(k);
+        if (!Number.isInteger(i) || i < 0 || i >= rows.length || !same(before[i], rows[i])) {
+          this._expanded.delete(k);
+          this._detailHeights.delete(k);
+        }
+      }
+    }
+    src.offset = rowsOffset;
+    src.total = total;
+    src.atLeast = Number.isFinite(r.atLeast) ? r.atLeast : 0;
+    src.hasMore = hasMore;
+    src.loaded = true;
+    if (r.filterCounts && typeof r.filterCounts === "object") this.setFilterCounts(r.filterCounts);
+    const snap = keep ? this._snapshotView() : null;
+    const kept = append ? this._tableWrapEl?.scrollTop || 0 : null;
+    if (snap && snap.keys && snap.keys.size && typeof this.config.getRowKey === "function") {
+      const fresh = /* @__PURE__ */ new Set();
+      rows.forEach((row, i) => {
+        const k = this._rowKey(row, i);
+        if (k !== null && !snap.keys.has(k)) fresh.add(k);
+      });
+      this._newKeys = fresh.size ? fresh : null;
+    } else {
+      this._newKeys = null;
+    }
+    const chosen = append && this._state.selected.size ? { sel: [...this._state.selected], anchor: this._state.anchorIndex } : null;
+    this.setData({ rows });
+    this._newKeys = null;
+    if (chosen) {
+      for (const i of chosen.sel) this._state.selected.add(i);
+      this._state.anchorIndex = chosen.anchor;
+      this._updateRowSelection();
+    }
+    if (snap) this._restoreView(snap);
+    else if (kept !== null) this._scrollBodyTo(kept);
+    else this._scrollBodyTo(0);
+  }
+  /** What a refresh must put back: the keys on screen, the selection by
+   *  key, and the first row a reader can see with where it stood. */
+  _snapshotView() {
+    const rows = this.config.rows || [];
+    const keyed = typeof this.config.getRowKey === "function";
+    const keys = keyed ? new Set(rows.map((row, i) => this._rowKey(row, i))) : null;
+    const selectedKeys = keyed ? this.getSelection().map((i) => this._rowKey(rows[i], i)).filter((k) => k !== null) : null;
+    const wrap = this._tableWrapEl;
+    let anchor = null;
+    const scrollTop = wrap?.scrollTop || 0;
+    if (wrap && scrollTop > 0 && this._tbodyEl) {
+      const zoom = this._tableEl?.currentCSSZoom || 1;
+      const top = wrap.getBoundingClientRect().top;
+      for (const tr of this._tbodyEl.children) {
+        if (tr.__rowIndex === void 0) continue;
+        const box = tr.getBoundingClientRect();
+        if (box.bottom > top + 0.5) {
+          anchor = { key: this._rowKey(tr.__row, tr.__rowIndex), delta: (box.top - top) / zoom };
+          break;
+        }
+      }
+    }
+    return { keys, selectedKeys, anchor, scrollTop };
+  }
+  _restoreView(snap) {
+    if (snap.selectedKeys && snap.selectedKeys.length) {
+      const want = new Set(snap.selectedKeys);
+      const sel = this._state.selected;
+      (this.config.rows || []).forEach((row, i) => {
+        if (want.has(this._rowKey(row, i))) sel.add(i);
+      });
+      if (sel.size) {
+        this._state.anchorIndex = [...sel][0];
+        this._updateRowSelection();
+        this._notifySelectionChange();
+      }
+    }
+    const wrap = this._tableWrapEl;
+    if (!wrap || !snap.anchor || snap.anchor.key === null) return;
+    const rows = this.config.rows || [];
+    const idx = rows.findIndex((row, i) => this._rowKey(row, i) === snap.anchor.key);
+    if (idx < 0) return;
+    const zoom = this._tableEl?.currentCSSZoom || 1;
+    if (this._virt) {
+      const local = this._virtLocalOf(idx);
+      if (local < 0) return;
+      this._scrollBodyTo(Math.max(0, this._virt.offsets[local] - snap.anchor.delta));
+      return;
+    }
+    const tr = this.getRowElement(idx);
+    if (!tr) return;
+    const now = (tr.getBoundingClientRect().top - wrap.getBoundingClientRect().top) / zoom;
+    const shift = now - snap.anchor.delta;
+    if (Math.abs(shift) >= 0.5) this._scrollBodyTo(wrap.scrollTop + shift);
+  }
+  _scrollBodyTo(top) {
+    const wrap = this._tableWrapEl;
+    if (!wrap) return;
+    if (Math.abs((wrap.scrollTop || 0) - top) >= 0.5) wrap.scrollTop = top;
+    if (this._virt) this._virtUpdate({ force: true, top });
+  }
+  /** Go to the page at `offset` (paging back stops following). */
+  _sourceGoTo(offset) {
+    const next = Math.max(0, offset | 0);
+    if (this._following && next > 0) this.setFollow(false);
+    return this._sourceLoad({ offset: next, reason: "page" });
+  }
+  /**
+   * `paging` over a `dataSource`, scrolling: the rows after those held, under
+   * them — never past the hard limit. Scrolling down to ask for them is
+   * paging away, so it turns following off as a page turn does; rows asked
+   * for because the ones held do not fill the box are not (the reader is
+   * still at the top).
+   */
+  _sourceLoadMore() {
+    const held = this.config.rows?.length || 0;
+    const hard = this.pagingState?.hardLimit ?? PAGING_HARD_LIMIT;
+    const limit = Math.min(this._sourcePageSize(), hard - held);
+    if (limit < 1) return Promise.resolve(void 0);
+    if (this._following && (this._tableWrapEl?.scrollTop || 0) > 0) this.setFollow(false);
+    const offset = (this._source?.offset || 0) + held;
+    return this._sourceLoad({ offset, limit, reason: "more", append: true });
+  }
+  /** The strip's *Load all rows*: ONE question for every row left under the
+   *  hard limit (`reason: 'all'`); the source answers as many as it will, and
+   *  says with `hasMore` whether there are still more. */
+  _sourceLoadAll() {
+    const held = this.config.rows?.length || 0;
+    const hard = this.pagingState?.hardLimit ?? PAGING_HARD_LIMIT;
+    if (hard - held < 1) return Promise.resolve(void 0);
+    if (this._following) this.setFollow(false);
+    const offset = (this._source?.offset || 0) + held;
+    return this._sourceLoad({ offset, limit: hard - held, reason: "all", append: true });
+  }
+  /** The strip's Pages / Scroll switch: the table switches, tells the
+   *  consumer (`paging.onModeChange`), and asks again from the start. */
+  _sourceSetMode(mode) {
+    const next = mode === "pages" ? "pages" : "scroll";
+    const p = this.config.paging;
+    this.config.paging = { ...p, mode: next };
+    try {
+      p.onModeChange?.(next);
+    } catch (err) {
+      console.error("[DataTable] onModeChange threw", err);
+    }
+    return this._sourceLoad({ offset: 0, reason: "mode" });
+  }
+  /**
+   * Ask the source again from its FIRST page — for a consumer whose own
+   * filters (outside the table) changed. Under `dataSource` only; resolves
+   * with the answer drawn (undefined when it was superseded or failed).
+   */
+  reload() {
+    if (!this.config.dataSource) return Promise.resolve(void 0);
+    return this._sourceLoad({ offset: 0, reason: "reload" });
+  }
+  /**
+   * Read the CURRENT page again, in place: the scroll position (a reader at
+   * the top sees what arrived; one scrolled down keeps the rows they were
+   * reading where they were), the selection by key, the open row and the
+   * open details all stay; rows the last answer did not hold are drawn
+   * `twm-dt-row--new` (needs `getRowKey`). What `follow` calls on its tick.
+   * Without `dataSource`, it only draws again.
+   */
+  refresh() {
+    if (!this.config.dataSource) {
+      if (this._wrapperEl) this.render();
+      return Promise.resolve(void 0);
+    }
+    const src = this._sourceState();
+    if (this.pagingState?.mode === "scroll") {
+      const held = this.config.rows?.length || 0;
+      return this._sourceLoad({
+        offset: src.offset || 0,
+        limit: Math.max(this._sourcePageSize(), held),
+        reason: "refresh",
+        keep: true
+      });
+    }
+    const offset = src.inFlight && !src.pendingAppend ? src.pendingOffset : src.offset;
+    return this._sourceLoad({ offset, reason: "refresh", keep: true });
+  }
+  /** The last query sent to `dataSource`, or null. */
+  getQuery() {
+    return this._source?.query || null;
+  }
+  /** What the last answer said about the whole: `{offset, total, hasMore}`. */
+  getPageInfo() {
+    const s = this._source;
+    return s ? { offset: s.offset, total: s.total, hasMore: s.hasMore } : null;
+  }
+  /**
+   * Turn following on or off (`follow`). On, the first page is read again
+   * every `follow.interval` ms while the table is on it and in the page.
+   */
+  setFollow(on) {
+    const next = !!on;
+    if (next === this._following) return;
+    this._following = next;
+    if (next) this._armFollow();
+    else this._disarmFollow();
+    try {
+      this.config.onFollowChange?.(next);
+    } catch (err) {
+      console.error("[DataTable] onFollowChange threw", err);
+    }
+  }
+  isFollowing() {
+    return this._following;
+  }
+  _followInterval() {
+    const f = this.config.follow;
+    const ms = f && typeof f === "object" ? Number(f.interval) : NaN;
+    return Number.isFinite(ms) && ms > 0 ? ms : 1e4;
+  }
+  /** The tick holds the table WEAKLY: a follow timer must never be what keeps
+   *  a table nobody holds alive (`keepWhileDetached: true`). */
+  _armFollow() {
+    this._disarmFollow();
+    if (!this._following || !this.config.dataSource || !this._wrapperEl) return;
+    const ref = weakRef(this);
+    const id = setInterval(() => {
+      const t = ref.deref();
+      if (!t || t._followTimer !== id) {
+        clearInterval(id);
+        return;
+      }
+      const src = t._source;
+      if (!t._following || !src || src.inFlight) return;
+      if ((src.offset || 0) !== 0) return;
+      if (!t._wrapperEl?.isConnected) return;
+      if (t._readerIsBusy()) return;
+      t.refresh();
+    }, this._followInterval());
+    this._followTimer = id;
+  }
+  _disarmFollow() {
+    if (this._followTimer) clearInterval(this._followTimer);
+    this._followTimer = null;
+  }
+  /** A TICK WAITS FOR A READER. A refresh redraws every row and every open
+   *  detail, so a tick that came while somebody was selecting text in the
+   *  table (a stack trace to copy) or working inside an open detail took the
+   *  text out from under the selection and the focus out of the detail —
+   *  every interval, for as long as they stayed. The tick is skipped
+   *  instead, and following resumes on the next one after (the release
+   *  review). `refresh()` called by the consumer is not a tick and does not
+   *  wait. */
+  _readerIsBusy() {
+    const wrap = this._tableWrapEl;
+    const doc = wrap?.ownerDocument;
+    if (!wrap || !doc) return false;
+    const active = doc.activeElement;
+    if (active && active !== wrap && wrap.contains(active) && active.closest?.(".twm-dt-detail")) return true;
+    try {
+      const sel = doc.defaultView?.getSelection?.();
+      if (sel && !sel.isCollapsed && sel.rangeCount > 0) {
+        for (let i = 0; i < sel.rangeCount; i++) {
+          const r = sel.getRangeAt(i);
+          if (wrap.contains(r.startContainer) || wrap.contains(r.endContainer)) return true;
+        }
+      }
+    } catch (_) {
+    }
+    return false;
+  }
+  // ── the pager (#35) ────────────────────────────────────────────────
+  _usesPager070() {
+    const c = this.config;
+    return !!c.dataSource || !!c.pagerLabels || c.maxJumpOffset != null || typeof c.onPageChange === "function" && c.totalCount == null && typeof c.hasMore === "boolean";
+  }
+  _pagerLabel(name) {
+    const labels = this.config.pagerLabels || {};
+    return labels[name];
+  }
+  _pagerRefusalTooDeep() {
+    const max = this.config.maxJumpOffset;
+    const fn = this._pagerLabel("tooDeep");
+    if (typeof fn === "function") return String(fn(max));
+    if (typeof fn === "string") return fn;
+    return `Past ${Number(max).toLocaleString()} rows. Narrow the filters first.`;
+  }
+  _pagerButton(icon, name, tip, disabled, onClick, refusal = null) {
+    const label = this._pagerLabel(name);
+    const btn = this._createPaginationBtn(
+      icon,
+      typeof label === "string" ? label : tip,
+      disabled || !!refusal,
+      onClick
+    );
+    btn.dataset.pager = name;
+    if (typeof label === "string" && label) {
+      const span = document.createElement("span");
+      span.className = "twm-pagination-btn__label";
+      span.textContent = label;
+      btn.appendChild(span);
+      btn.classList.add("twm-pagination-btn--labelled");
+      btn.style.padding = "1px 6px 1px 3px";
+    }
+    if (refusal) {
+      btn.dataset.refusal = refusal;
+      btn.setAttribute("data-tooltip", refusal);
+      btn.title = refusal;
+    }
+    return btn;
+  }
+  /**
+   * THE PAGE ARITHMETIC, ONCE — read by the pager above the rows (0.7.0) and
+   * by the `paging` strip under them (0.6.2), which each worked it out for
+   * themselves. `held` is the rows drawn on this page; `total` a number or
+   * null (unknown, when `hasMore` says whether there is a next page).
+   *
+   * @returns {{known: boolean, hasPrev: boolean, hasNext: boolean, page: number,
+   *            pages: number|null, lastOffset: number|null, lastRefusal: string|null}}
+   */
+  _pageNav({ offset = 0, held = 0, total = null, hasMore = false, pageSize }) {
+    const size = Math.max(1, pageSize | 0);
+    const known = typeof total === "number" && Number.isFinite(total);
+    const lastOffset = known ? Math.floor(Math.max(0, total - 1) / size) * size : null;
+    const maxJump = Number.isFinite(this.config.maxJumpOffset) ? this.config.maxJumpOffset : null;
+    let lastRefusal = null;
+    if (!known) {
+      const words = this._pagerLabel("noLast");
+      lastRefusal = typeof words === "string" ? words : "The total is not known, so there is no last page.";
+    } else if (maxJump !== null && lastOffset > maxJump) {
+      lastRefusal = this._pagerRefusalTooDeep();
+    }
+    return {
+      known,
+      hasPrev: offset > 0,
+      hasNext: known ? offset + held < total : !!hasMore,
+      page: Math.floor(offset / size) + 1,
+      pages: known ? Math.max(1, Math.ceil(total / size)) : null,
+      lastOffset,
+      lastRefusal
+    };
+  }
+  /**
+   * The pager for any mode, with the two things the 0.6 strip could not do:
+   * an UNKNOWN total (no "of N", no last page, Next until a short page) and
+   * a REFUSED deep jump (`maxJumpOffset`). For a known total its words are
+   * the 0.6 strip's.
+   */
+  _createPager070() {
+    const c = this.config;
+    const { rows, pageSize } = c;
+    const source = !!c.dataSource;
+    const server = !source && typeof c.onPageChange === "function";
+    const src = this._source || { offset: 0, total: null, hasMore: false };
+    const offset = source ? src.offset : server ? c.offset || 0 : this._state.offset;
+    let total;
+    let hasMoreKnown;
+    if (source) {
+      total = src.total;
+      hasMoreKnown = src.hasMore;
+    } else if (server) {
+      const unknown = c.totalCount == null && typeof c.hasMore === "boolean";
+      total = unknown ? null : c.totalCount || rows.length;
+      hasMoreKnown = unknown ? c.hasMore : null;
+    } else {
+      total = this._getProcessedRows().length;
+      hasMoreKnown = null;
+    }
+    const known = typeof total === "number" && Number.isFinite(total);
+    const isFiltered = !source && !server && this._state.filters.size > 0;
+    const unfilteredTotal = !source && !server ? rows.length : total;
+    const drawn = source || server ? rows.length : Math.max(0, Math.min(pageSize, total - offset));
+    const pn = this._pageNav({ offset, held: drawn, total, hasMore: hasMoreKnown, pageSize });
+    const { hasPrev, hasNext, page } = pn;
+    const totalPages = pn.pages;
+    if (known && totalPages <= 1 && !isFiltered && !hasPrev) return null;
+    if (!known && !hasPrev && !hasNext) return null;
+    const maxJump = Number.isFinite(c.maxJumpOffset) ? c.maxJumpOffset : null;
+    const go = (newOffset) => {
+      if (source) {
+        this._sourceGoTo(newOffset);
+        return;
+      }
+      if (server) {
+        this._awaitWithSpinner(c.onPageChange(newOffset, pageSize));
+        return;
+      }
+      this._state.offset = newOffset;
+      this.render();
+    };
+    const el = document.createElement("div");
+    el.className = "twm-pagination-controls";
+    if (!known) el.classList.add("twm-pagination-controls--unknown-total");
+    el.style.cssText = "display:flex; align-items:center; gap:6px; padding:2px 8px; border-bottom:1px solid #2a2a2a; font-size:11px;";
+    const info = document.createElement("span");
+    info.className = "twm-pagination-info";
+    info.style.cssText = "color:#aaa; white-space:nowrap;";
+    const from = (offset + 1).toLocaleString();
+    const to = (offset + drawn).toLocaleString();
+    if (drawn === 0) {
+      info.textContent = hasPrev ? `Page ${page} \xB7 no rows` : isFiltered ? `0 of ${unfilteredTotal.toLocaleString()} rows match` : "No rows";
+    } else if (!known) {
+      info.textContent = `Rows ${from}\u2013${to}`;
+    } else if (isFiltered) {
+      info.textContent = `Rows ${from}\u2013${to} of ${total.toLocaleString()} (${unfilteredTotal.toLocaleString()} total)`;
+    } else {
+      info.textContent = `Rows ${from}\u2013${to} of ${total.toLocaleString()}`;
+    }
+    const spacer = document.createElement("div");
+    spacer.style.flex = "1";
+    const firstBtn = this._pagerButton("first_page", "first", "First page", !hasPrev, () => go(0));
+    const prevBtn = this._pagerButton(
+      "chevron_left",
+      "prev",
+      "Previous page",
+      !hasPrev,
+      () => go(Math.max(0, offset - pageSize))
+    );
+    const pageInfo = document.createElement("span");
+    pageInfo.className = "twm-pagination-page";
+    pageInfo.style.cssText = "color:#aaa; font-size:10px; min-width:72px; text-align:center;";
+    pageInfo.textContent = known ? `Page ${page} of ${totalPages.toLocaleString()}` : `Page ${page}`;
+    const nextBtn = this._pagerButton(
+      "chevron_right",
+      "next",
+      "Next page",
+      !hasNext,
+      () => go(offset + pageSize)
+    );
+    const { lastOffset, lastRefusal } = pn;
+    const lastBtn = this._pagerButton(
+      "last_page",
+      "last",
+      "Last page",
+      !hasNext || lastOffset === offset,
+      () => {
+        if (lastOffset !== null) go(lastOffset);
+      },
+      lastRefusal
+    );
+    const jumpInput = document.createElement("input");
+    jumpInput.type = "number";
+    jumpInput.className = "twm-pagination-input";
+    jumpInput.style.cssText = "width:54px; padding:1px 4px; border:1px solid #444; background:#2a2a2a; color:#ccc; font-size:10px;";
+    jumpInput.min = "1";
+    if (known) jumpInput.max = String(total);
+    jumpInput.placeholder = "Row #";
+    const jumpBtn = this._createPaginationBtn(null, "Go to row", false, () => {
+      const target = Math.floor(Number(jumpInput.value));
+      if (!Number.isFinite(target) || target < 1) return;
+      const row = known ? Math.min(target, Math.max(1, total)) : target;
+      const newOffset = Math.floor((row - 1) / pageSize) * pageSize;
+      if (maxJump !== null && newOffset > maxJump) {
+        const why = this._pagerRefusalTooDeep();
+        jumpInput.setAttribute("aria-invalid", "true");
+        jumpInput.title = why;
+        jumpInput.dataset.refusal = why;
+        return;
+      }
+      jumpInput.removeAttribute("aria-invalid");
+      delete jumpInput.dataset.refusal;
+      if (server && typeof c.onJumpToRow === "function") {
+        c.onJumpToRow(row - 1);
+        return;
+      }
+      go(newOffset);
+    }, "Go");
+    jumpBtn.dataset.pager = "go";
+    el.append(info, spacer, firstBtn, prevBtn, pageInfo, nextBtn, lastBtn, jumpInput, jumpBtn);
+    if (c.showExportButton) {
+      el.appendChild(this._createPaginationBtn(
+        "download",
+        "Download visible rows as CSV",
+        false,
+        () => this.downloadCSV("data.csv")
+      ));
+    }
+    return el;
+  }
+  // ─────────────────────────────────────────────────────────────────
+  // 0.7.0 — filter controls that are not text boxes (#37)
+  // ─────────────────────────────────────────────────────────────────
+  /** The spec for a column, normalised: null for the 0.4 text box. */
+  _filterKindFor(colIdx, header) {
+    const fk = this.config.filterKinds;
+    if (fk == null) return null;
+    let spec;
+    if (typeof fk === "function") {
+      try {
+        spec = fk(colIdx, header);
+      } catch (err) {
+        console.error("[DataTable] filterKinds threw", err);
+        spec = null;
+      }
+    } else {
+      spec = perColumn(fk, colIdx);
+    }
+    if (spec == null || spec === "text" || spec === false) return null;
+    if (typeof spec === "function") return { kind: "custom", create: spec };
+    if (typeof spec === "object") {
+      if (spec.kind === "text") return null;
+      if (spec.kind === "chips") return spec;
+      if (typeof spec.create === "function") return { ...spec, kind: spec.kind || "custom" };
+    }
+    if (spec === "chips") return null;
+    return null;
+  }
+  /** The column's control — built once, then the same element every render. */
+  _filterControlFor(colIdx, header) {
+    const spec = this._filterKindFor(colIdx, header);
+    if (!spec) return null;
+    const have = this._filterControls.get(colIdx);
+    if (have && have.kind === spec.kind && have.specKey === (spec.options || spec.create)) {
+      return have.control;
+    }
+    if (have) this._destroyOneControl(have.control);
+    const value = this._state.filters.get(colIdx) ?? null;
+    const ctx = {
+      column: colIdx,
+      header,
+      value,
+      counts: this._filterCounts.get(colIdx) ?? null,
+      table: this,
+      setValue: (v) => this.setFilter(colIdx, v)
+    };
+    let control = null;
+    try {
+      control = spec.kind === "chips" ? createChipsFilter(ctx, spec) : spec.create(ctx);
+    } catch (err) {
+      console.error("[DataTable] filter control threw while being built", err);
+      control = null;
+    }
+    if (typeof Node !== "undefined" && control instanceof Node) control = { el: control };
+    if (!control || !control.el) return null;
+    control.el.classList?.add("twm-dt-filter-control");
+    this._filterControls.set(colIdx, {
+      kind: spec.kind,
+      specKey: spec.options || spec.create,
+      control,
+      match: typeof control.match === "function" ? control.match : spec.kind === "chips" ? chipsMatch(spec) : null
+    });
+    return control;
+  }
+  /** The client-side rule for a column with a control, or null. */
+  _filterMatcher(colIdx) {
+    if (!this._filterControls.size && this.config.filterKinds == null) return null;
+    const entry = this._filterControls.get(colIdx);
+    if (entry) return entry.match || defaultControlMatch;
+    const spec = this._filterKindFor(colIdx, (this.config.headers || [])[colIdx]);
+    if (!spec) return null;
+    return spec.kind === "chips" ? chipsMatch(spec) : spec.match || defaultControlMatch;
+  }
+  _isEmptyFilterValue(v) {
+    if (v == null || v === "" || v === false) return true;
+    if (Array.isArray(v)) return v.length === 0;
+    if (typeof v === "object" && !(v instanceof Date)) {
+      return Object.values(v).every((x) => x == null || x === "");
+    }
+    return false;
+  }
+  _destroyOneControl(control) {
+    try {
+      control?.destroy?.();
+    } catch (err) {
+      console.error("[DataTable] filter control destroy threw", err);
+    }
+    control?.el?.remove?.();
+  }
+  _destroyFilterControls() {
+    for (const { control } of this._filterControls.values()) this._destroyOneControl(control);
+    this._filterControls.clear();
+  }
+  _notifyFilterChange() {
+    if (typeof this.config.onFilterChange !== "function") return;
+    try {
+      this.config.onFilterChange(this._filterList());
+    } catch (err) {
+      console.error("[DataTable] onFilterChange threw", err);
+    }
+  }
+  /** The column filters in force: `[{column, header, value}]`. */
+  getFilters() {
+    return this._filterList();
+  }
+  /**
+   * Set one column's filter (`null`, `''` or an empty array clears it). The
+   * value is whatever the column's control works in — text for the 0.4 box.
+   */
+  setFilter(colIdx, value) {
+    const textBox = !this._filterKindFor(colIdx, (this.config.headers || [])[colIdx]);
+    const v = textBox && value != null && typeof value !== "string" ? String(value) : value;
+    if (textBox) {
+      const filterRow = this._wrapperEl?.querySelector(".twm-data-table__filter-row");
+      const cell = filterRow?.children[this.config.showRowNumbers ? colIdx + 1 : colIdx];
+      const input = cell?.querySelector(".twm-data-table__filter-input");
+      if (input) input.value = v || "";
+    }
+    this._onFilterInput(colIdx, v ?? "");
+  }
+  /**
+   * Counts for a column's filter control — chips draw them beside each
+   * option (keyed by the option's value; `''` is "no filter"), a dimmed
+   * chip at zero. `setFilterCounts(colIdx, counts)`, or
+   * `setFilterCounts({[colIdx]: counts})` for several. They are kept, so a
+   * control built later starts with them.
+   */
+  setFilterCounts(colIdx, counts) {
+    if (colIdx && typeof colIdx === "object" && counts === void 0) {
+      for (const [k, c] of Object.entries(colIdx)) this.setFilterCounts(Number(k), c);
+      return;
+    }
+    const col = Number(colIdx);
+    if (!Number.isInteger(col)) return;
+    if (counts == null) this._filterCounts.delete(col);
+    else this._filterCounts.set(col, counts);
+    const entry = this._filterControls.get(col);
+    if (entry) {
+      try {
+        entry.control.setCounts?.(counts ?? null);
+      } catch (err) {
+        console.error("[DataTable] filter control setCounts threw", err);
+      }
+    }
+  }
+  /** What `setFilterCounts` last gave a column, or null. */
+  getFilterCounts(colIdx) {
+    return this._filterCounts.get(Number(colIdx)) ?? null;
+  }
+  // ── focus across a render ──────────────────────────────────────────
+  _captureFocus070(doc) {
+    const active = doc?.activeElement;
+    if (!active || active === doc.body) return null;
+    for (const [colIdx, { control }] of this._filterControls) {
+      if (control.el?.contains?.(active)) {
+        let sel = null;
+        try {
+          if (typeof active.selectionStart === "number") sel = [active.selectionStart, active.selectionEnd];
+        } catch (_) {
+        }
+        return { kind: "control", colIdx, el: active, sel };
+      }
+    }
+    const detailHost = active.closest?.(".twm-dt-detail");
+    if (detailHost && this._tbodyEl?.contains(detailHost)) {
+      const tr = detailHost.closest("tr")?.__detailOf;
+      if (tr && tr.__rowIndex !== void 0) {
+        const path = [];
+        for (let n = active; n && n !== detailHost; n = n.parentElement) {
+          path.unshift(Array.prototype.indexOf.call(n.parentElement.children, n));
+        }
+        let sel = null;
+        try {
+          if (typeof active.selectionStart === "number") sel = [active.selectionStart, active.selectionEnd];
+        } catch (_) {
+        }
+        return { kind: "detail", key: this._rowKey(tr.__row, tr.__rowIndex), path, tag: active.tagName, sel };
+      }
+    }
+    const toggle = active.closest?.(".twm-dt-detail-toggle");
+    if (toggle && this._tbodyEl?.contains(toggle)) {
+      const tr = toggle.closest("tr");
+      if (tr && tr.__rowIndex !== void 0) {
+        return { kind: "toggle", key: this._rowKey(tr.__row, tr.__rowIndex) };
+      }
+    }
+    return null;
+  }
+  _restoreFocus070(f) {
+    try {
+      if (f.kind === "control") {
+        if (!f.el.isConnected) return;
+        f.el.focus({ preventScroll: true });
+        if (f.sel) f.el.setSelectionRange?.(f.sel[0], f.sel[1]);
+      } else if (f.kind === "detail" && f.key !== null) {
+        let n = this._rowElByKey(f.key)?.__detail?.[0]?.querySelector(".twm-dt-detail");
+        for (const i of f.path) n = n?.children[i];
+        if (n && n.tagName === f.tag) {
+          n.focus({ preventScroll: true });
+          if (f.sel) n.setSelectionRange?.(f.sel[0], f.sel[1]);
+        }
+      } else if (f.kind === "toggle" && f.key !== null) {
+        const tr = this._rowElByKey(f.key);
+        tr?.querySelector(":scope > td > .twm-dt-detail-toggle")?.focus({ preventScroll: true });
+      }
+    } catch (_) {
+    }
+  }
+  /** The one row spanning every column that says there are no rows (or why
+   *  they could not be read). Under `dataSource` the plain message is drawn
+   *  by class, so it is quiet while the first answer is on its way. */
+  _buildEmptyRow(colCount, emptyMessage) {
+    const emptyTr = document.createElement("tr");
+    emptyTr.className = "data-preview-row data-table__empty-row";
+    const emptyTd = document.createElement("td");
+    emptyTd.colSpan = colCount;
+    if (this._error) {
+      emptyTd.className = "twm-data-table__empty-cell twm-data-table__empty-cell--error";
+      emptyTd.setAttribute("role", "alert");
+      this._appendStateContent(emptyTd, this._errorContent());
+    } else if (this.config.emptyState !== void 0) {
+      emptyTd.className = "twm-data-table__empty-cell twm-data-table__empty-cell--state";
+      const state = typeof this.config.emptyState === "function" ? this.config.emptyState() : this.config.emptyState;
+      this._appendStateContent(emptyTd, state);
+    } else if (this.config.dataSource) {
+      emptyTd.className = "twm-data-table__empty-cell twm-data-table__empty-cell--state";
+      emptyTd.textContent = emptyMessage;
+    } else {
+      emptyTd.style.cssText = "text-align:center; font-style:italic; color:#888; padding:16px;";
+      emptyTd.textContent = emptyMessage;
+    }
+    emptyTr.appendChild(emptyTd);
+    return emptyTr;
   }
   // ─────────────────────────────────────────────────────────────────
   // 0.5.0 — decoration, states and the typed columns
@@ -3051,6 +4528,9 @@ var DataTable = class {
       tr.__rowKey = this._rowKey(row, rowIdx);
     }
     this._paintActive(tr);
+    if (this._newKeys) {
+      tr.classList.toggle("twm-dt-row--new", this._newKeys.has(this._rowKey(row, rowIdx)));
+    }
   }
   /** The open mark on one row, from `_activeKey`. */
   _paintActive(tr) {
@@ -3736,6 +5216,7 @@ var DataTable = class {
     const cells = rows ? rows.flatMap((tr) => [...tr.children]) : bodyTable.querySelectorAll("tbody td");
     cells.forEach((td) => {
       if (td.parentElement?.classList.contains("twm-dt-spacer")) return;
+      if (td.closest?.(".twm-dt-detail-row")) return;
       const clipped = td.scrollWidth > td.clientWidth + 1;
       if (clipped) {
         if (!td.title) td.title = td.textContent;
@@ -3788,10 +5269,28 @@ var DataTable = class {
     if (typeof this.config.onRowActivate === "function") {
       this._installActivation(tbody, table);
     }
+    if (this._detailOn()) {
+      const onDetailKey = (ev) => {
+        if (ev.key !== "ArrowRight" && ev.key !== "ArrowLeft") return;
+        if (ev.ctrlKey || ev.metaKey || ev.altKey || ev.shiftKey) return;
+        const toggle = ev.target?.closest?.(".twm-dt-detail-toggle");
+        let tr = null;
+        if (toggle && table.contains(toggle)) tr = toggle.closest("tr");
+        else if (ev.target === table) tr = this._currentRowEl();
+        if (!tr || tr.__rowIndex === void 0) return;
+        if (this._setRowElExpanded(tr, ev.key === "ArrowRight", ev)) ev.preventDefault();
+      };
+      table.addEventListener("keydown", onDetailKey);
+      this._disposers.push(() => table.removeEventListener("keydown", onDetailKey));
+    }
     if (copyable) {
       const handleContextMenu = (event) => {
         const rowEl = event.target.closest("tr");
         if (!rowEl) {
+          this._hideContextMenu();
+          return;
+        }
+        if (rowEl.closest(".twm-dt-detail-row")) {
           this._hideContextMenu();
           return;
         }
@@ -4030,9 +5529,10 @@ export {
   formatDuration,
   matchDateFilter,
   matchDurationFilter,
+  createChipsFilter,
   PAGING_HARD_LIMIT,
   PAGING_SOFT_LIMIT,
   resolvePaging,
   DataTable
 };
-//# sourceMappingURL=chunk-WLASPRGP.js.map
+//# sourceMappingURL=chunk-YBNDDFUG.js.map

@@ -26,6 +26,7 @@ import {
   ISO_DATETIME,
   PAGING_HARD_LIMIT,
   PAGING_SOFT_LIMIT,
+  createChipsFilter,
   createRafResizeObserver,
   formatDate,
   formatDuration,
@@ -35,7 +36,7 @@ import {
   parseDateValue,
   parseDuration,
   resolvePaging
-} from "./chunk-WLASPRGP.js";
+} from "./chunk-YBNDDFUG.js";
 import {
   ManagedWindow,
   ROW_CONTROL_SELECTOR,
@@ -2238,6 +2239,236 @@ function _populate(header, config) {
   }
 }
 
+// src/ui/components/fact_table.js
+var SEQ = 0;
+var isNode = (v) => typeof Node !== "undefined" && v instanceof Node;
+var FactTable = class {
+  /**
+   * @param {HTMLElement|null} host  appended to, if given
+   * @param {FactTableConfig} [config]
+   */
+  constructor(host, config = {}) {
+    this.config = {
+      rows: [],
+      headers: null,
+      compare: false,
+      labelColumn: true,
+      wrapLabels: false,
+      mono: false,
+      numeric: [],
+      nullDisplay: "",
+      missing: "\u2014",
+      rowClass: null,
+      rowAttrs: null,
+      emptyState: null,
+      label: null,
+      className: null,
+      ...config
+    };
+    this._rows = Array.isArray(this.config.rows) ? this.config.rows.slice() : [];
+    this._id = ++SEQ;
+    const table = document.createElement("table");
+    table.className = "twm-facts" + (this.config.compare ? " twm-facts--compare" : "") + (this.config.labelColumn ? "" : " twm-facts--no-label") + (this.config.wrapLabels ? " twm-facts--wrap-labels" : "") + (this.config.mono ? " twm-facts--mono" : "") + (this.config.className ? ` ${this.config.className}` : "");
+    if (this.config.label) table.setAttribute("aria-label", this.config.label);
+    this.element = table;
+    this._draw();
+    if (host) host.appendChild(table);
+  }
+  /** Replace the rows and draw them. */
+  setRows(rows) {
+    this._rows = Array.isArray(rows) ? rows.slice() : [];
+    this._draw();
+  }
+  getRows() {
+    return this._rows.slice();
+  }
+  /** The `<tr>` drawn for row `idx`, or null. */
+  getRow(idx) {
+    return this.element.tBodies[0]?.rows[idx]?.__factIndex === idx ? this.element.tBodies[0].rows[idx] : null;
+  }
+  dispose() {
+    this.element.remove();
+  }
+  // ── drawing ──────────────────────────────────────────────────────────
+  /** How many columns the sheet has. */
+  _width() {
+    const { compare, headers } = this.config;
+    if (compare) return 4;
+    let n = 2;
+    if (Array.isArray(headers)) n = Math.max(n, headers.length);
+    for (const r of this._rows) if (Array.isArray(r)) n = Math.max(n, r.length);
+    return n;
+  }
+  _draw() {
+    const table = this.element;
+    table.replaceChildren();
+    const width = this._width();
+    const { headers, compare } = this.config;
+    if (Array.isArray(headers) && headers.length) {
+      const thead = document.createElement("thead");
+      const tr = document.createElement("tr");
+      const names = compare && headers.length === 3 ? [headers[0], headers[1], "", headers[2]] : headers;
+      for (let i = 0; i < width; i++) {
+        const th = document.createElement("th");
+        th.scope = "col";
+        appendContent(th, names[i] ?? "");
+        if (this._numeric(i)) th.classList.add("twm-facts__num");
+        tr.appendChild(th);
+      }
+      thead.appendChild(tr);
+      table.appendChild(thead);
+    }
+    const tbody = document.createElement("tbody");
+    this._rows.forEach((row, idx) => tbody.appendChild(this._row(row, idx, width)));
+    if (!this._rows.length) {
+      let content = this.config.emptyState;
+      if (typeof content === "function") content = content();
+      if (content != null && content !== false && content !== "") {
+        const tr = document.createElement("tr");
+        tr.className = "twm-facts__empty-row";
+        const td = document.createElement("td");
+        td.className = "twm-facts__empty";
+        td.colSpan = width;
+        appendContent(td, content);
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+      }
+    }
+    table.classList.toggle("twm-facts--empty", this._rows.length === 0);
+    table.appendChild(tbody);
+  }
+  _numeric(col) {
+    const n = this.config.numeric;
+    return Array.isArray(n) && n.includes(col);
+  }
+  _row(row, idx, width) {
+    const tr = document.createElement("tr");
+    tr.className = "twm-facts__row";
+    tr.__factIndex = idx;
+    tr.__fact = row;
+    if (Array.isArray(row)) {
+      for (let i = 0; i < width; i++) {
+        const td = this._cell(i === 0 && this.config.labelColumn ? "label" : "value", row[i]);
+        if (this._numeric(i)) td.classList.add("twm-facts__num");
+        if (i === row.length - 1 && row.length < width) {
+          td.colSpan = width - i;
+          tr.appendChild(td);
+          break;
+        }
+        tr.appendChild(td);
+      }
+    } else {
+      const r = row && typeof row === "object" ? row : { label: row };
+      if (r.key !== void 0 && r.key !== null) tr.dataset.key = String(r.key);
+      const label = this._cell(this.config.labelColumn ? "label" : "value", r.label);
+      if (r.labelTitle) label.title = String(r.labelTitle);
+      tr.appendChild(label);
+      const tune = (td) => {
+        if (r.mono) td.classList.add("twm-facts__mono");
+        if (r.numeric) td.classList.add("twm-facts__num");
+        return td;
+      };
+      const hasBefore = Object.prototype.hasOwnProperty.call(r, "before");
+      const hasAfter = Object.prototype.hasOwnProperty.call(r, "after");
+      if (this.config.compare && (hasBefore || hasAfter)) {
+        const status = r.status || statusOf(r, hasBefore, hasAfter);
+        tr.classList.add(`twm-facts__row--${String(status).replace(/[^\w-]/g, "")}`);
+        tr.dataset.status = String(status);
+        const before = tune(hasBefore ? this._cell("value", r.before) : this._missing());
+        before.classList.add("twm-facts__before");
+        const arrow = document.createElement("td");
+        arrow.className = "twm-facts__arrow";
+        arrow.setAttribute("aria-hidden", "true");
+        arrow.textContent = "\u2192";
+        const after = tune(hasAfter ? this._cell("value", r.after) : this._missing());
+        after.classList.add("twm-facts__after");
+        tr.append(before, arrow, after);
+      } else {
+        const value = tune(this._cell("value", r.value));
+        if (width > 2) value.colSpan = width - 1;
+        tr.appendChild(value);
+      }
+    }
+    this._decorate(tr, row, idx);
+    return tr;
+  }
+  _cell(kind, content) {
+    const isLabel = kind === "label";
+    const td = document.createElement(isLabel ? "th" : "td");
+    td.className = isLabel ? "twm-facts__label" : "twm-facts__value";
+    if (isLabel) td.scope = "row";
+    if (content === null || content === void 0) {
+      const said = isLabel ? "" : this.config.nullDisplay;
+      if (said) {
+        td.textContent = String(said);
+        td.classList.add("twm-facts__null");
+      }
+    } else {
+      appendContent(td, content);
+    }
+    return td;
+  }
+  _missing() {
+    const td = document.createElement("td");
+    td.className = "twm-facts__value twm-facts__missing";
+    td.textContent = String(this.config.missing ?? "");
+    return td;
+  }
+  _decorate(tr, row, idx) {
+    const { rowClass, rowAttrs } = this.config;
+    if (typeof rowClass === "function") {
+      const c = rowClass(row, idx);
+      const list = Array.isArray(c) ? c : String(c ?? "").split(/\s+/);
+      for (const name of list) if (name) tr.classList.add(String(name));
+    }
+    if (typeof rowAttrs === "function") {
+      for (const [name, value] of Object.entries(rowAttrs(row, idx) || {})) {
+        if (value == null || value === false) continue;
+        try {
+          tr.setAttribute(name, value === true ? "" : String(value));
+        } catch (err) {
+          console.error(`[FactTable] rowAttrs: bad attribute "${name}"`, err);
+        }
+      }
+    }
+  }
+};
+function createFactTable(host, config = {}) {
+  return new FactTable(host, config);
+}
+function statusOf(r, hasBefore, hasAfter) {
+  if (!hasBefore) return "added";
+  if (!hasAfter) return "removed";
+  if (isNode(r.before) || isNode(r.after)) return "changed";
+  if (Object.is(r.before, r.after)) return "same";
+  if (r.before && r.after && typeof r.before === "object" && typeof r.after === "object") {
+    try {
+      return JSON.stringify(r.before) === JSON.stringify(r.after) ? "same" : "changed";
+    } catch {
+      return "changed";
+    }
+  }
+  return "changed";
+}
+function appendContent(el, content) {
+  if (content === null || content === void 0) return;
+  if (isNode(content)) {
+    el.appendChild(content);
+    return;
+  }
+  let text;
+  if (typeof content === "object") {
+    try {
+      text = JSON.stringify(content, null, 2);
+    } catch {
+      text = String(content);
+    }
+  } else {
+    text = String(content);
+  }
+  el.appendChild(document.createTextNode(text));
+}
+
 // src/ui/components/gallery_picker.js
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({
@@ -2528,6 +2759,440 @@ var NotificationHistory = class {
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   }
 };
+
+// src/ui/components/record_list.js
+var OWN_ARROWS = 'input, select, textarea, [contenteditable=""], [contenteditable="true"]';
+var safeWord = (s) => String(s).replace(/[^\w-]/g, "");
+var SEQ2 = 0;
+var RecordList = class {
+  /**
+   * @param {HTMLElement|null} host  appended to, if given
+   * @param {RecordListConfig} [config]
+   */
+  constructor(host, config = {}) {
+    this.config = {
+      records: [],
+      describe: null,
+      getKey: null,
+      onActivate: null,
+      activateOn: ["click", "enter"],
+      keyboard: void 0,
+      activeKey: null,
+      rowClass: null,
+      rowAttrs: null,
+      emptyState: null,
+      factSeparator: " \u2014 ",
+      facts: "wrap",
+      verbClass: null,
+      label: null,
+      className: null,
+      ...config
+    };
+    this._records = Array.isArray(this.config.records) ? this.config.records.slice() : [];
+    this._activeKey = this.config.activeKey ?? null;
+    this._tabKey = null;
+    this._items = /* @__PURE__ */ new Map();
+    this._disposed = false;
+    this._id = `twm-record-list-${++SEQ2}`;
+    const root = document.createElement("div");
+    root.className = "twm-record-list" + (this.config.facts === "ellipsis" ? " twm-record-list--clip" : "") + (this._activates() ? " twm-record-list--clickable" : "") + (this.config.className ? ` ${this.config.className}` : "");
+    const list = document.createElement("ul");
+    list.className = "twm-record-list__items";
+    if (this.config.label) list.setAttribute("aria-label", this.config.label);
+    root.appendChild(list);
+    this.element = root;
+    this.listElement = list;
+    this._onClick = (ev) => this._gesture(ev, "click");
+    this._onDblClick = (ev) => this._gesture(ev, "dblclick");
+    this._onKeyDown = (ev) => this._key(ev);
+    this._onFocusIn = (ev) => {
+      const li = this._itemOf(ev.target);
+      if (li && ev.target === li) this._setTabStop(li.__recordKey);
+    };
+    list.addEventListener("click", this._onClick);
+    list.addEventListener("dblclick", this._onDblClick);
+    list.addEventListener("keydown", this._onKeyDown);
+    list.addEventListener("focusin", this._onFocusIn);
+    this._draw();
+    if (host) host.appendChild(root);
+  }
+  // ── public ───────────────────────────────────────────────────────────
+  /** Replace the records and draw them. Focus inside the list is kept on
+   *  the same record, and on the same verb of it, when it is still there. */
+  setRecords(records) {
+    if (this._disposed) return;
+    this._records = Array.isArray(records) ? records.slice() : [];
+    this._draw();
+  }
+  /** The records, as last given. */
+  getRecords() {
+    return this._records.slice();
+  }
+  /** Draw ONE record again (`describe` asked afresh), or every one with no key. */
+  refresh(key) {
+    if (this._disposed) return;
+    if (key === void 0) {
+      this._draw();
+      return;
+    }
+    const old = this._items.get(this._norm(key));
+    if (!old) return;
+    const idx = old.__recordIndex;
+    const focus = this._focusMemo();
+    const fresh = this._item(this._records[idx], idx);
+    old.replaceWith(fresh);
+    this._items.set(fresh.__recordKey, fresh);
+    this._paintTabStop();
+    this._restoreFocus(focus);
+  }
+  /** Mark the record that is open (`null` for none). */
+  setActiveKey(key) {
+    this._activeKey = key ?? null;
+    for (const li of this._items.values()) this._paintActive(li);
+    if (this._activeKey !== null && this._items.has(this._norm(this._activeKey))) {
+      this._setTabStop(this._norm(this._activeKey));
+    }
+  }
+  getActiveKey() {
+    return this._activeKey;
+  }
+  /** The `<li>` drawn for a key, or null. */
+  getItem(key) {
+    return this._items.get(this._norm(key)) || null;
+  }
+  /** Move the keyboard focus to a record. */
+  focusRecord(key) {
+    const li = this.getItem(key);
+    if (!li) return false;
+    this._setTabStop(li.__recordKey);
+    li.focus();
+    return true;
+  }
+  dispose() {
+    if (this._disposed) return;
+    this._disposed = true;
+    const list = this.listElement;
+    list.removeEventListener("click", this._onClick);
+    list.removeEventListener("dblclick", this._onDblClick);
+    list.removeEventListener("keydown", this._onKeyDown);
+    list.removeEventListener("focusin", this._onFocusIn);
+    this._items.clear();
+    this.element.remove();
+  }
+  // ── drawing ──────────────────────────────────────────────────────────
+  _activates() {
+    return typeof this.config.onActivate === "function";
+  }
+  _keyboard() {
+    return this.config.keyboard ?? this._activates();
+  }
+  _gestures() {
+    const g = this.config.activateOn;
+    return new Set(Array.isArray(g) ? g : [g]);
+  }
+  /** Keys compare as strings: a record keyed `7` and an `activeKey` of `'7'` are one. */
+  _norm(key) {
+    return key === null || key === void 0 ? key : String(key);
+  }
+  _spec(record, idx) {
+    const { describe } = this.config;
+    const spec = typeof describe === "function" ? describe(record, idx) : record;
+    return spec && typeof spec === "object" ? spec : { name: spec };
+  }
+  _keyOf(record, idx, spec) {
+    const { getKey } = this.config;
+    let key;
+    if (spec.key !== void 0 && spec.key !== null) key = spec.key;
+    else if (typeof getKey === "function") key = getKey(record, idx);
+    else if (record && typeof record === "object" && (record.key ?? record.id) != null) key = record.key ?? record.id;
+    else key = idx;
+    return String(key);
+  }
+  _draw() {
+    const focus = this._focusMemo();
+    const list = this.listElement;
+    list.replaceChildren();
+    this._items.clear();
+    this.element.querySelector(":scope > .twm-record-list__empty")?.remove();
+    this._records.forEach((record, idx) => {
+      const li = this._item(record, idx);
+      if (this._items.has(li.__recordKey)) {
+        console.error(`[RecordList] two records share the key "${li.__recordKey}"`);
+      }
+      this._items.set(li.__recordKey, li);
+      list.appendChild(li);
+    });
+    this.element.classList.toggle("twm-record-list--empty", this._records.length === 0);
+    if (!this._records.length) this._drawEmpty();
+    this._paintTabStop();
+    this._restoreFocus(focus);
+  }
+  _drawEmpty() {
+    let content = this.config.emptyState;
+    if (typeof content === "function") content = content();
+    if (content == null || content === false || content === "") return;
+    const p = document.createElement("p");
+    p.className = "twm-record-list__empty";
+    if (typeof Node !== "undefined" && content instanceof Node) p.appendChild(content);
+    else p.textContent = String(content);
+    this.element.appendChild(p);
+  }
+  _item(record, idx) {
+    const spec = this._spec(record, idx);
+    const key = this._keyOf(record, idx, spec);
+    const li = document.createElement("li");
+    li.className = "twm-record";
+    li.__record = record;
+    li.__recordIndex = idx;
+    li.__recordKey = key;
+    li.dataset.recordKey = key;
+    if (this._keyboard()) li.tabIndex = -1;
+    if (spec.state) {
+      li.dataset.state = safeWord(spec.state);
+      li.classList.add(`twm-record--state-${safeWord(spec.state)}`);
+    }
+    const main = document.createElement("div");
+    main.className = "twm-record__main";
+    const name = document.createElement("div");
+    name.className = "twm-record__name" + (spec.mono ? " twm-record__name--mono" : "");
+    appendContent2(name, spec.name);
+    main.appendChild(name);
+    const factsText = this._facts(spec.facts);
+    if (factsText !== null) {
+      const facts = document.createElement("div");
+      facts.className = "twm-record__facts";
+      appendContent2(facts, factsText);
+      if (this.config.facts === "ellipsis") facts.title = facts.textContent;
+      main.appendChild(facts);
+    }
+    if (spec.error != null && spec.error !== false && spec.error !== "") {
+      const err = document.createElement("div");
+      err.className = "twm-record__error";
+      appendContent2(err, spec.error);
+      main.appendChild(err);
+    }
+    li.appendChild(main);
+    const pills = (spec.pills || []).filter((p) => p != null && p !== false && p !== "");
+    if (pills.length) {
+      const box = document.createElement("div");
+      box.className = "twm-record__pills";
+      for (const p of pills) box.appendChild(pill(p));
+      li.appendChild(box);
+    }
+    const verbs = (spec.verbs || []).filter(Boolean);
+    if (verbs.length) {
+      const box = document.createElement("div");
+      box.className = "twm-record__verbs";
+      const reasons = /* @__PURE__ */ new Map();
+      for (const v of verbs) {
+        const b = this._verb(v, record);
+        box.appendChild(b);
+        if (v.refusal) {
+          const said = String(v.refusal);
+          if (!reasons.has(said)) reasons.set(said, { labels: [], buttons: [] });
+          reasons.get(said).labels.push(v.label);
+          reasons.get(said).buttons.push(b);
+        }
+      }
+      li.appendChild(box);
+      if (reasons.size) {
+        const lines = document.createElement("div");
+        lines.className = "twm-record__refusals";
+        let n = 0;
+        for (const [said, { labels, buttons }] of reasons) {
+          const line = document.createElement("div");
+          line.className = "twm-record__refusal";
+          line.id = `${this._id}-r${idx}-${n++}`;
+          line.dataset.refusalFor = labels.join(", ");
+          line.textContent = labels.length === verbs.length && verbs.length > 1 ? said : `${labels.join(", ")}: ${said}`;
+          for (const b of buttons) b.setAttribute("aria-describedby", line.id);
+          lines.appendChild(line);
+        }
+        main.appendChild(lines);
+      }
+    }
+    this._decorate(li, record, idx);
+    return li;
+  }
+  _facts(facts) {
+    if (facts == null || facts === false) return null;
+    if (typeof Node !== "undefined" && facts instanceof Node) return facts;
+    if (!Array.isArray(facts)) {
+      const s = String(facts);
+      return s === "" ? null : s;
+    }
+    const parts = facts.filter((f) => f != null && f !== false && f !== "");
+    if (!parts.length) return null;
+    if (parts.every((p) => !(typeof Node !== "undefined" && p instanceof Node))) {
+      return parts.map(String).join(this.config.factSeparator);
+    }
+    const frag = document.createDocumentFragment();
+    parts.forEach((p, i) => {
+      if (i) frag.appendChild(document.createTextNode(this.config.factSeparator));
+      appendContent2(frag, p);
+    });
+    return frag;
+  }
+  _verb(v, record) {
+    const b = document.createElement("button");
+    b.type = "button";
+    const { verbClass } = this.config;
+    b.className = typeof verbClass === "function" ? String(verbClass(v) || "") : typeof verbClass === "string" ? verbClass : "twm-btn" + (v.primary ? " twm-btn--primary" : "") + (v.danger ? " twm-btn--danger" : "");
+    b.classList.add("twm-record__verb");
+    b.dataset.verb = String(v.name ?? v.label);
+    if (v.icon) {
+      const glyph = document.createElement("span");
+      glyph.className = "material-symbols-outlined twm-record__verb-icon";
+      glyph.setAttribute("aria-hidden", "true");
+      glyph.textContent = String(v.icon);
+      b.appendChild(glyph);
+    }
+    const label = document.createElement("span");
+    label.className = "twm-record__verb-label";
+    label.textContent = String(v.label ?? "");
+    b.appendChild(label);
+    if (v.refusal) {
+      b.disabled = true;
+      b.title = String(v.refusal);
+      b.dataset.refusal = String(v.refusal);
+    } else {
+      if (v.title) b.title = String(v.title);
+      if (typeof v.onClick === "function") b.addEventListener("click", (ev) => v.onClick(record, ev));
+    }
+    return b;
+  }
+  _decorate(li, record, idx) {
+    const { rowClass, rowAttrs } = this.config;
+    if (typeof rowClass === "function") {
+      const c = rowClass(record, idx);
+      const list = Array.isArray(c) ? c : String(c ?? "").split(/\s+/);
+      for (const name of list) if (name) li.classList.add(String(name));
+    }
+    if (typeof rowAttrs === "function") {
+      for (const [name, value] of Object.entries(rowAttrs(record, idx) || {})) {
+        if (value == null || value === false) continue;
+        try {
+          li.setAttribute(name, value === true ? "" : String(value));
+        } catch (err) {
+          console.error(`[RecordList] rowAttrs: bad attribute "${name}"`, err);
+        }
+      }
+    }
+    this._paintActive(li);
+  }
+  _paintActive(li) {
+    const on = this._activeKey !== null && li.__recordKey === this._norm(this._activeKey);
+    li.classList.toggle("twm-record--active", on);
+    if (on) {
+      if (li.getAttribute("aria-current") !== "true") {
+        li.setAttribute("aria-current", "true");
+        li.__twmAriaCurrent = true;
+      }
+    } else if (li.__twmAriaCurrent) {
+      li.__twmAriaCurrent = false;
+      li.removeAttribute("aria-current");
+    }
+  }
+  // ── focus ────────────────────────────────────────────────────────────
+  /** The ONE record that takes Tab: the one last focused, else the open
+   *  one, else the first. */
+  _paintTabStop() {
+    if (!this._keyboard()) return;
+    let key = this._tabKey;
+    if (key === null || !this._items.has(key)) {
+      const active = this._norm(this._activeKey);
+      key = active !== null && this._items.has(active) ? active : this._items.keys().next().value ?? null;
+    }
+    this._setTabStop(key);
+  }
+  _setTabStop(key) {
+    if (!this._keyboard()) return;
+    this._tabKey = key ?? null;
+    for (const [k, li] of this._items) li.tabIndex = k === this._tabKey ? 0 : -1;
+  }
+  _focusMemo() {
+    const doc = this.element.ownerDocument;
+    const active = doc?.activeElement;
+    if (!active || !this.listElement.contains(active)) return null;
+    const li = this._itemOf(active);
+    if (!li) return null;
+    return { key: li.__recordKey, verb: active.closest(".twm-record__verb")?.dataset.verb ?? null };
+  }
+  _restoreFocus(memo) {
+    if (!memo) return;
+    const li = this._items.get(memo.key);
+    if (!li) return;
+    if (memo.verb !== null) {
+      const b = [...li.querySelectorAll(".twm-record__verb")].find((x) => x.dataset.verb === memo.verb);
+      if (b && !b.disabled) {
+        b.focus();
+        return;
+      }
+    }
+    if (this._keyboard()) {
+      this._setTabStop(li.__recordKey);
+      li.focus();
+    }
+  }
+  _itemOf(target) {
+    const li = target?.closest?.(".twm-record");
+    return li && this.listElement.contains(li) && li.parentNode === this.listElement ? li : null;
+  }
+  // ── gestures ─────────────────────────────────────────────────────────
+  _gesture(ev, gesture) {
+    if (!this._activates() || !this._gestures().has(gesture)) return;
+    const li = this._itemOf(ev.target);
+    if (!li) return;
+    if (!isRowActivation(ev, gesture, { scope: this.listElement })) return;
+    this.config.onActivate(li.__record, li.__recordIndex, ev);
+  }
+  _key(ev) {
+    if (ev.defaultPrevented) return;
+    const li = this._itemOf(ev.target);
+    if (!li) return;
+    if (ev.key === "Enter") {
+      if (ev.target !== li || !this._activates() || !this._gestures().has("enter")) return;
+      if (ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
+      ev.preventDefault();
+      this.config.onActivate(li.__record, li.__recordIndex, ev);
+      return;
+    }
+    if (!this._keyboard()) return;
+    if (ev.target !== li && (ev.target.closest(OWN_ARROWS) || !isRowControl(ev.target, li))) return;
+    const items = [...this._items.values()];
+    const at = items.indexOf(li);
+    let next = null;
+    if (ev.key === "ArrowDown") next = items[Math.min(items.length - 1, at + 1)];
+    else if (ev.key === "ArrowUp") next = items[Math.max(0, at - 1)];
+    else if (ev.key === "Home") next = items[0];
+    else if (ev.key === "End") next = items[items.length - 1];
+    else return;
+    ev.preventDefault();
+    if (next) {
+      this._setTabStop(next.__recordKey);
+      next.focus();
+    }
+  }
+};
+function createRecordList(host, config = {}) {
+  return new RecordList(host, config);
+}
+function pill(p) {
+  const s = typeof p === "object" && !(typeof Node !== "undefined" && p instanceof Node) ? p : { text: p };
+  const span = document.createElement("span");
+  span.className = "twm-record__pill" + (s.tone ? ` twm-record__pill--${safeWord(s.tone)}` : "");
+  if (typeof Node !== "undefined" && s.text instanceof Node) span.appendChild(s.text);
+  else if (typeof Node !== "undefined" && p instanceof Node) span.appendChild(p);
+  else span.textContent = String(s.text ?? "");
+  if (s.title) span.title = String(s.title);
+  if (s.tone) span.dataset.tone = safeWord(s.tone);
+  return span;
+}
+function appendContent2(el, content) {
+  if (content == null || content === false) return;
+  if (typeof Node !== "undefined" && content instanceof Node) el.appendChild(content);
+  else el.appendChild(document.createTextNode(String(content)));
+}
 
 // src/ui/components/slide_out_panel.js
 var SlideOutPanel = class extends ComponentBase {
@@ -5827,6 +6492,7 @@ export {
   DEFAULT_TYPES,
   DataTable,
   DragReorder,
+  FactTable,
   HelpModal,
   ISO_DATE,
   ISO_DATETIME,
@@ -5840,6 +6506,7 @@ export {
   PageBase,
   PanelStateMachine,
   ROW_CONTROL_SELECTOR,
+  RecordList,
   SCALAR_TYPES,
   SlideOutPanel,
   SliderField,
@@ -5849,8 +6516,11 @@ export {
   WindowChromeController,
   WindowTaskbar,
   attachInlineRenamer,
+  createChipsFilter,
   createDetailHeader,
+  createFactTable,
   createRafResizeObserver,
+  createRecordList,
   createScrollLock,
   createTableStateStore,
   createTreeCategory,

@@ -2,17 +2,17 @@
 id: 10
 type: story
 title: "DataTable: what BugDesk's copy still adds - a right-click item list, a render hook and displayed rows, a remembered page"
-status: refined
+status: in-progress
 parent: 1
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 points: 5
 subsystem: datatable
 labels: [datatable, bugdesk-consumer]
 links: []
 created: 2026-10-12
-updated: 2026-10-12T13:05Z
+updated: 2026-10-12T13:06Z
 ---
 
 ## Description
@@ -45,3 +45,8 @@ All three are opt-in. A table that passes none behaves exactly as 0.9.1.
 - [ ] With `persistPage: true` and a `persistKey`, the client page is restored on mount with the sort and filters; without it, or after a sort while `resetPageOnSort` is on, the table opens on page 1
 - [ ] A table given none of the new options renders and behaves as in 0.9.1, which the existing suites prove
 - [ ] Each feature has a test in `tests/`, the README documents the options, `tests/run.mjs` is GREEN and `node build.mjs --check` is OK
+
+## History
+
+- 2026-10-12 · norman_agent · status: refined -> in-progress
+- 2026-10-12 · norman_agent · assignee: (unset) -> norman_agent

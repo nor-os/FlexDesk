@@ -89,6 +89,11 @@ for (const key of ['window', 'document', 'HTMLElement', 'Element', 'Node', 'Even
         globalThis[key] = dom.window[key];
     }
 }
+// Node 19+ has an `Event` and a `CustomEvent` of its own, so the guard above
+// leaves those in place — and a tile's `new CustomEvent(…)` is then refused by
+// jsdom's `dispatchEvent`, so the cogwheel's config request never arrives.
+globalThis.Event = dom.window.Event;
+globalThis.CustomEvent = dom.window.CustomEvent;
 if (globalThis.PointerEvent === undefined) globalThis.PointerEvent = dom.window.MouseEvent;
 if (globalThis.ResizeObserver === undefined) {
     globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };

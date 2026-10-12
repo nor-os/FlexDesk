@@ -2,17 +2,17 @@
 id: 14
 type: story
 title: "NotificationCenter: toasts past the visible limit collapse into one \"+N more\" toast instead of pushing the oldest out"
-status: refined
+status: in-progress
 parent:
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 points: 2
 subsystem: notifications
 labels: [notifications, bugdesk-consumer]
 links: []
 created: 2026-10-12
-updated: 2026-10-12T13:59Z
+updated: 2026-10-12T14:00Z
 ---
 
 ## Description
@@ -34,3 +34,8 @@ Opt-in: without the option, overflow behaves as in 0.10.0.
 - [ ] Clicking the summary (or a `summaryAction` callback) is reported, so a consumer can open its history; every held-back toast is in `history` as it arrives
 - [ ] Without `overflow: 'collapse'`, overflow drops the oldest as in 0.10.0, which the existing suites prove
 - [ ] A test in `tests/`, the README documents the option, `tests/run.mjs` is GREEN and `node build.mjs --check` is OK
+
+## History
+
+- 2026-10-12 · norman_agent · status: refined -> in-progress
+- 2026-10-12 · norman_agent · assignee: (unset) -> norman_agent

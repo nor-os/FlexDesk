@@ -2,17 +2,17 @@
 id: 11
 type: story
 title: "openForm: field-change hook, a picker field, a creatable select, and hidden rows that stay hidden"
-status: refined
+status: in-progress
 parent:
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 points: 3
 subsystem: widgets
 labels: [modal, bugdesk-consumer]
 links: []
 created: 2026-10-12
-updated: 2026-10-12T13:05Z
+updated: 2026-10-12T13:06Z
 ---
 
 ## Description
@@ -41,3 +41,8 @@ All four are opt-in. A form that uses none behaves as in 0.9.1.
 - [ ] A select with `create: true` accepts a typed value that is not among its options and submits it
 - [ ] A row hidden through `setVisible(name, false)` is not displayed, whatever the field type
 - [ ] A form using none of these behaves as in 0.9.1; each addition has a test in `tests/`, the README documents it, `tests/run.mjs` is GREEN and `node build.mjs --check` is OK
+
+## History
+
+- 2026-10-12 · norman_agent · status: refined -> in-progress
+- 2026-10-12 · norman_agent · assignee: (unset) -> norman_agent

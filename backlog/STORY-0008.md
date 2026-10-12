@@ -2,8 +2,8 @@
 id: 8
 type: story
 title: "Command palette: hideable chrome, grouped and highlighted results, embedder commands, an empty-query list, pick modes and drill-in scopes"
-status: draft
-parent:
+status: refined
+parent: 9
 phase:
 assignee:
 reporter: norman
@@ -12,7 +12,7 @@ subsystem: tiling
 labels: [palette, tables-consumer, additive]
 links: []
 created: 2026-10-12
-updated: 2026-10-12T10:25Z
+updated: 2026-10-12T10:37Z
 ---
 
 ## Description
@@ -37,4 +37,18 @@ and off by default**, so EcoAgent and EcoSim see no change by upgrading.
 
 ## Acceptance criteria
 
-_(not refined yet)_
+- [ ] With no new option passed, the palette's markup and behaviour are unchanged (existing suites green, and a suite asserting the old markup)
+- [ ] `chrome: {pages:false, panels:false}` leaves nothing between the input and the list
+- [ ] `group: true` renders a header per kind, ordered by best hit, capped at `groupCap` with a *Show all N* row that scopes to the kind
+- [ ] Matched characters are marked; `ord ln` finds *Order lines*; `context` is drawn but not searched, `keywords` searched but not drawn
+- [ ] `empty()` rows show before typing; `commands()` rows join the results, and `>` restricts to them
+- [ ] Enter / Ctrl+Enter / Shift+Enter hand `onPick` the modes open / split / window
+- [ ] `drill(pick)` lets Tab enter a scope whose `search(q, signal)` answers remotely, and a stale answer never overwrites a newer one
+- [ ] A second open shows the previous catalogue at once while it refreshes
+- [ ] Released to npm; `tests/run.mjs` green and `build --check` OK
+
+## History
+
+- 2026-10-12 · norman_agent · status: draft -> refined
+
+## Comments

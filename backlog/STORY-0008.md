@@ -2,10 +2,10 @@
 id: 8
 type: story
 title: "Command palette: hideable chrome, grouped and highlighted results, embedder commands, an empty-query list, pick modes and drill-in scopes"
-status: refined
+status: in-progress
 parent: 9
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 points: 5
 subsystem: tiling
@@ -50,5 +50,7 @@ and off by default**, so EcoAgent and EcoSim see no change by upgrading.
 ## History
 
 - 2026-10-12 · norman_agent · status: draft -> refined
+- 2026-10-12 · norman_agent · status: refined -> in-progress
+- 2026-10-12 · norman_agent · assignee: (none) -> norman_agent
 
 ## Comments

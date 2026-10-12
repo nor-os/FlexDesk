@@ -2,17 +2,17 @@
 id: 8
 type: story
 title: "Command palette: hideable chrome, grouped and highlighted results, embedder commands, an empty-query list, pick modes and drill-in scopes"
-status: in-progress
+status: review
 parent: 9
 phase:
-assignee: norman_agent
+assignee: norman
 reporter: norman
 points: 5
 subsystem: tiling
 labels: [palette, tables-consumer, additive]
 links: []
 created: 2026-10-12
-updated: 2026-10-12T10:37Z
+updated: 2026-10-12T12:30Z
 ---
 
 ## Description
@@ -37,20 +37,36 @@ and off by default**, so EcoAgent and EcoSim see no change by upgrading.
 
 ## Acceptance criteria
 
-- [ ] With no new option passed, the palette's markup and behaviour are unchanged (existing suites green, and a suite asserting the old markup)
-- [ ] `chrome: {pages:false, panels:false}` leaves nothing between the input and the list
-- [ ] `group: true` renders a header per kind, ordered by best hit, capped at `groupCap` with a *Show all N* row that scopes to the kind
-- [ ] Matched characters are marked; `ord ln` finds *Order lines*; `context` is drawn but not searched, `keywords` searched but not drawn
-- [ ] `empty()` rows show before typing; `commands()` rows join the results, and `>` restricts to them
-- [ ] Enter / Ctrl+Enter / Shift+Enter hand `onPick` the modes open / split / window
-- [ ] `drill(pick)` lets Tab enter a scope whose `search(q, signal)` answers remotely, and a stale answer never overwrites a newer one
-- [ ] A second open shows the previous catalogue at once while it refreshes
-- [ ] Released to npm; `tests/run.mjs` green and `build --check` OK
+- [x] With no new option passed, the palette's markup and behaviour are unchanged (existing suites green, and a suite asserting the old markup)
+- [x] `chrome: {pages:false, panels:false}` leaves nothing between the input and the list
+- [x] `group: true` renders a header per kind, ordered by best hit, capped at `groupCap` with a *Show all N* row that scopes to the kind
+- [x] Matched characters are marked; `ord ln` finds *Order lines*; `context` is drawn but not searched, `keywords` searched but not drawn
+- [x] `empty()` rows show before typing; `commands()` rows join the results, and `>` restricts to them
+- [x] Enter / Ctrl+Enter / Shift+Enter hand `onPick` the modes open / split / window
+- [x] `drill(pick)` lets Tab enter a scope whose `search(q, signal)` answers remotely, and a stale answer never overwrites a newer one
+- [x] A second open shows the previous catalogue at once while it refreshes
+- [x] Released to npm; `tests/run.mjs` green and `build --check` OK
 
 ## History
 
 - 2026-10-12 · norman_agent · status: draft -> refined
 - 2026-10-12 · norman_agent · status: refined -> in-progress
 - 2026-10-12 · norman_agent · assignee: (none) -> norman_agent
+- 2026-10-12 · norman_agent · status: in-progress -> review
+- 2026-10-12 · norman_agent · assignee: norman_agent -> norman
 
 ## Comments
+
+### 2026-10-12T12:30Z · norman_agent
+
+Released and handed back.
+
+- **0.9.0 (80a835b):** the grouped layout and every option in the table.
+- **0.9.1 (09308ec):** the last matching tier is now an abbreviation. In Tables' live app a looser tier listed *Scroll up to: 1,000 rows* for `cour`.
+- **Not in the table but added:** a row's `groupLabel`. A group is now ordered by its best row with the same tie-break as rows.
+
+`tests/command_palette_grouped.test.mjs` is new, and §1 asserts the old markup when no option is passed. `tests/run.mjs` is GREEN and `build --check` is OK.
+
+Seen in headless Edge in `demo/` at 1300 and 480 px, and in Tables on the live stack. Tables pins 0.9.1 (Tables 3f34471).
+
+Pushing is yours: `git push` to GitHub returns 403 from here, as tables-9d reported.

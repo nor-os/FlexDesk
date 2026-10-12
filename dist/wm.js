@@ -698,6 +698,7 @@ function _match(text, query) {
   const sub = t.indexOf(q);
   if (sub >= 0) return { s: 60, hits: span(sub, q.length) };
   const flat = q.replace(/\s+/g, "");
+  const startsWord = (i) => i === 0 || _WORD_BREAK.test(t[i - 1]);
   const hits = [];
   let j = 0;
   for (let i = 0; i < t.length && j < flat.length; i++) {
@@ -706,9 +707,13 @@ function _match(text, query) {
       j++;
     }
   }
-  if (j < flat.length) return null;
-  const spread = hits[hits.length - 1] - hits[0] + 1 - flat.length;
-  if (spread > 3 * flat.length + 6) return null;
+  if (j < flat.length || !startsWord(hits[0])) return null;
+  let spread = 0;
+  for (let k = 1; k < hits.length; k++) {
+    const gap = hits[k] - hits[k - 1] - 1;
+    if (gap > 0 && !startsWord(hits[k])) spread += gap;
+  }
+  if (spread > Math.floor(flat.length / 2)) return null;
   return { s: Math.max(1, 30 - spread), hits };
 }
 function _mark(text, hits) {

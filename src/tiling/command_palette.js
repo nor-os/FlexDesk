@@ -875,15 +875,27 @@ function _match(text, query) {
     const sub = t.indexOf(q);
     if (sub >= 0) return { s: 60, hits: span(sub, q.length) };
 
+    // TIGHT OR NOT AT ALL. A subsequence is for an abbreviation — "cstmr",
+    // "ord ln" — not for any label that happens to hold the letters in order:
+    // with a loose bound, "cour" found "Scroll up to: 1,000 rows" and "new"
+    // found "Below the pane", and those rows buried the ones meant. So the
+    // match starts at a word start, a jump that lands on a word start is free
+    // (that is what an abbreviation is), and every other skipped letter counts:
+    // together they may be half the query, no more.
     const flat = q.replace(/\s+/g, '');
+    const startsWord = (i) => i === 0 || _WORD_BREAK.test(t[i - 1]);
     const hits = [];
     let j = 0;
     for (let i = 0; i < t.length && j < flat.length; i++) {
         if (t[i] === flat[j]) { hits.push(i); j++; }
     }
-    if (j < flat.length) return null;
-    const spread = hits[hits.length - 1] - hits[0] + 1 - flat.length;
-    if (spread > 3 * flat.length + 6) return null;   // letters strewn across a long label
+    if (j < flat.length || !startsWord(hits[0])) return null;
+    let spread = 0;
+    for (let k = 1; k < hits.length; k++) {
+        const gap = hits[k] - hits[k - 1] - 1;
+        if (gap > 0 && !startsWord(hits[k])) spread += gap;
+    }
+    if (spread > Math.floor(flat.length / 2)) return null;
     return { s: Math.max(1, 30 - spread), hits };
 }
 

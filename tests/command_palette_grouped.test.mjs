@@ -367,11 +367,16 @@ ok('exact > prefix > words > substring > subsequence',
    matchLabel('orders', 'orders').s > matchLabel('orders', 'ord').s
    && matchLabel('orders', 'ord').s > matchLabel('order lines', 'ord li').s
    && matchLabel('order lines', 'ord li').s > matchLabel('reorder', 'order').s
-   && matchLabel('reorder', 'order').s > matchLabel('order lines', 'olns').s);
+   && matchLabel('reorder', 'order').s > matchLabel('orders', 'odrs').s);
 ok('`cust no` → customer_no', !!matchLabel('customer_no', 'cust no') && matchLabel('customer_no', 'cust no').s >= 70);
 ok('letters strewn across a long label do not match', matchLabel('a very long label about nothing', 'avln') === null
    || matchLabel('a very long label about nothing', 'avln').s <= 30);
 ok('no match → null', matchLabel('orders', 'zz') === null);
+ok('letters spread across words are not a match (the live "cour" / "new" finds)',
+   matchLabel('Scroll up to: 1,000 rows', 'cour') === null
+   && matchLabel('Tab position: Below the pane (sheet tabs)', 'new') === null
+   && matchLabel('(live check) DoD 8 vault through a runtime', 'cour') === null);
+ok('a tight abbreviation still is', !!matchLabel('customer', 'custmr'));
 
 if (failures) {
     console.log(`\ncommand palette grouped: ${failures} FAILED`);

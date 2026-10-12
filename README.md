@@ -130,7 +130,7 @@ await createShell({
 });
 ```
 
-### The palette that finds anything (0.9.0)
+### The palette that finds anything (0.9.0; matching tightened in 0.9.1)
 
 Ctrl+K's grouped layout. Every option is off unless you pass it, so a shell that
 passes none of them keeps the chip strip, the panel toggles and the flat list:
@@ -158,8 +158,10 @@ A row may carry `context` (drawn, not searched), `keywords` (searched, not
 drawn), `modes` (which of `split`/`window` its keys offer), `drillLabel` (the Tab
 hint), `boost`, `group`/`groupLabel`, `kindLabel`, `shortcut` and `verb`. A group's
 header is the taxonomy's `plural` for the kind, else its `label`. Matching ranks
-exact, prefix, word starts (`ord li` finds *Order lines*), substring, then a tight
-subsequence. A drill's `search` is debounced, and a stale answer is aborted and
+exact, prefix, word starts (`ord li` finds *Order lines*), substring, then an
+abbreviation: it starts at a word, and the letters it skips outside word starts are
+at most half the query (`cstmr` finds *customer*; `cour` does not find *Scroll up
+to*). A drill's `search` is debounced, and a stale answer is aborted and
 never drawn. `palette.invalidate()` drops the cache.
 
 **`chrome.zoom`** paints a − / track / + / readout control into the element you

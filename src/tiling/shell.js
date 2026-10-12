@@ -118,6 +118,13 @@ import { openForm } from '../ui/components/modal.js';
  *                                      whose new tab has nowhere useful to go
  *                                      passes `false`. `wm.newTab()` is there
  *                                      either way.
+ * @param {object}     [cfg.desktopBar] C40. `{ switchOnAdd?: boolean }` — the
+ *                                      bar's `+` also puts the new desktop on
+ *                                      screen. Default off: `+` only adds, as
+ *                                      it always has. Grouping and fixing
+ *                                      desktops is said on the desktops
+ *                                      themselves (`group`, `fixed` — see
+ *                                      `DesktopManager.chips`).
  * @param {object}     [cfg.chrome]     { topNav?, paletteButton?, desktops?,
  *                                        panelToggles?: { left?, right?, bottom? },
  *                                        zoom? }
@@ -147,6 +154,7 @@ export async function createShell({
     floatActiveTab = false,
     tabLayout = null,
     newTabButton = true,
+    desktopBar = {},
     chrome = {},
     // An embedder that moved its sections out of the top bar — into an icon
     // rail, say — passes the selector its own buttons match, and F1..F8 keep
@@ -217,7 +225,7 @@ export async function createShell({
     // key means absent chrome, not a crash.
     const paletteBtn = mountPaletteButton(chrome.paletteButton, palette);
     topNavEl = mountTopNav(chrome.topNav, taxonomy, wm);
-    desktopsEl = mountDesktopBar(chrome.desktops, wm);
+    desktopsEl = mountDesktopBar(chrome.desktops, wm, desktopBar || {});
     // C31. The content zoom. Painted with the rest of the chrome and, unlike the
     // rest, AWAITED before the first mount: its saved value is applied to `root`
     // as a CSS variable, and a shell that mounted first would paint every tile at
@@ -276,6 +284,12 @@ export async function createShell({
             // the same root must not inherit the old one's scale with no control on
             // screen to change it, so dispose puts the root back to 100%.
             try { zoom?.dispose(); } catch { /* ignore */ }
+            // C40. The bar's listeners close over THIS wm, and `mountDesktopBar`
+            // reuses an existing `#twm-desktops` — so a rebuilt shell would
+            // inherit them, and a `+` would add a desktop to the dead wm and
+            // persist it under the host the old shell was given. The element
+            // goes; the next shell paints its own.
+            try { desktopsEl?.remove(); } catch { /* ignore */ }
         },
     });
 }
@@ -390,7 +404,7 @@ function syncPanelToggles(map, wm) {
     }
 }
 
-function mountDesktopBar(hostEl, wm) {
+function mountDesktopBar(hostEl, wm, { switchOnAdd = false } = {}) {
     if (!hostEl) return null;
     let el = hostEl.querySelector('#twm-desktops');
     if (!el) {
@@ -403,15 +417,18 @@ function mountDesktopBar(hostEl, wm) {
         const btn = e.target.closest('[data-desktop]');
         if (!btn) return;
         const v = btn.dataset.desktop;
-        if (v === '+') { wm.addDesktop(); syncDesktopBar(el, wm); return; }
+        if (v === '+') { wm.addDesktop({ switchTo: switchOnAdd }); syncDesktopBar(el, wm); return; }
         wm.switchDesktop(Number(v));
     });
+    // C40. A fixed desktop, or a group's chip, is the embedder's: no rename,
+    // no delete. Asked of the button, which says which it is.
+    const isOwn = (btn) => btn.dataset.desktopFixed !== '1';
     // Double-click a desktop chip → inline rename. Faster than the context
     // menu's Rename… for the common case. Persists via wm._persist so the new
     // label survives a restart.
     el.addEventListener('dblclick', async (e) => {
         const btn = e.target.closest('[data-desktop]');
-        if (!btn || btn.dataset.desktop === '+') return;
+        if (!btn || btn.dataset.desktop === '+' || !isOwn(btn)) return;
         e.preventDefault();
         const idx = Number(btn.dataset.desktop);
         const d = wm.desktops.desktops[idx];
@@ -435,16 +452,19 @@ function mountDesktopBar(hostEl, wm) {
         const idx = Number(btn.dataset.desktop);
         const m = wm.desktops;
         const d = m.desktops[idx];
-        const canDelete = m.desktops.length > 1;
-        showContextMenu(e.clientX, e.clientY, [
-            { label: `Switch to ${d.label}`, icon: 'desktop_windows',
+        const own = isOwn(btn);
+        const canDelete = own && m.desktops.length > 1;
+        const name = btn.dataset.desktopLabel || d.label;
+        const items = [
+            { label: `Switch to ${name}`, icon: 'desktop_windows',
               action: 'switch', disabled: idx === m.activeIdx },
-            { label: 'Rename…',      icon: 'edit', action: 'rename' },
+            ...(own ? [{ label: 'Rename…', icon: 'edit', action: 'rename' }] : []),
             { separator: true },
             { label: 'New desktop',  icon: 'add',  action: 'add' },
-            { label: 'Delete desktop', icon: 'delete', action: 'delete',
-              danger: true, disabled: !canDelete },
-        ], async (action) => {
+            ...(own ? [{ label: 'Delete desktop', icon: 'delete', action: 'delete',
+                         danger: true, disabled: !canDelete }] : []),
+        ];
+        showContextMenu(e.clientX, e.clientY, items, async (action) => {
             if (action === 'switch') wm.switchDesktop(idx);
             else if (action === 'rename') {
                 const result = await openForm({
@@ -458,7 +478,7 @@ function mountDesktopBar(hostEl, wm) {
                 syncDesktopBar(el, wm);
                 wm._persist();
             }
-            else if (action === 'add')    { wm.addDesktop(); syncDesktopBar(el, wm); }
+            else if (action === 'add')    { wm.addDesktop({ switchTo: switchOnAdd }); syncDesktopBar(el, wm); }
             else if (action === 'delete') { wm.removeDesktop(idx); syncDesktopBar(el, wm); }
         });
     });
@@ -468,15 +488,40 @@ function mountDesktopBar(hostEl, wm) {
 function syncDesktopBar(el, wm) {
     if (!el) return;
     const m = wm.desktops;
-    el.innerHTML =
-        m.desktops.map((d, i) => `
+    // C40. Ungrouped, this is the markup it always was, byte for byte. Once a
+    // group exists the chips no longer count desktops, so the Alt+N promise
+    // goes, and a label is escaped because a group's comes from the embedder.
+    if (!m.hasGroups()) {
+        el.innerHTML =
+            m.desktops.map((d, i) => `
             <button class="twm-desk__btn${i === m.activeIdx ? ' twm-desk__btn--on' : ''}"
                     data-desktop="${i}"
                     title="Desktop ${d.label} (Alt+${i + 1}) · right-click to delete">
                 ${d.label}
             </button>`).join('')
-        + `<button class="twm-desk__btn twm-desk__btn--add"
+            + `<button class="twm-desk__btn twm-desk__btn--add"
                   data-desktop="+" title="Add desktop">+</button>`;
+        return;
+    }
+    el.innerHTML =
+        m.chips().map((c) => {
+            const label = _escapeHtml(c.label);
+            const title = c.fixed ? label : `${label} · double-click to rename · right-click for more`;
+            return `
+            <button class="twm-desk__btn${c.active ? ' twm-desk__btn--on' : ''}"
+                    data-desktop="${c.idx}"
+                    data-desktop-label="${label}"${c.fixed ? ' data-desktop-fixed="1"' : ''}
+                    title="${title}">
+                ${label}
+            </button>`;
+        }).join('')
+        + `<button class="twm-desk__btn twm-desk__btn--add"
+                  data-desktop="+" title="New desktop">+</button>`;
+}
+
+function _escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, (ch) => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 }
 
 
@@ -556,7 +601,8 @@ function _tileContextMenu(wm, leafId, x, y) {
     ];
     if (wm.desktops.desktops.length > 1 && !isPanel) {
         for (const [i, d] of wm.desktops.desktops.entries()) {
-            if (i === wm.desktops.activeIdx) continue;
+            // C40. Never onto a fixed desktop — `moveFocusedToDesktop` refuses.
+            if (i === wm.desktops.activeIdx || d.fixed) continue;
             items.push({ label: `Move to desktop ${d.label}`, icon: 'sweep',
                          action: `move:${i}` });
         }

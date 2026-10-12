@@ -2789,6 +2789,8 @@ export class WindowManager {
         const rec = this._windowToLeaf.get(windowId);
         if (!rec) return;
         if (rec.desktopIdx === targetIdx) return;
+        // C40. A fixed desktop is the embedder's, and nothing is moved onto it.
+        if (this.desktops.desktops[targetIdx]?.fixed) return;
         this.desktops.ensureCount(targetIdx + 1);
         rec.desktopIdx = targetIdx;
         if (!rec.homeContainer && rec.homeLeafId) {
@@ -2957,10 +2959,12 @@ export class WindowManager {
             const items = [
                 { label: 'Back to tile', icon: 'close_fullscreen', action: 'back' },
             ];
-            if (this.desktops.desktops.length > 1) {
+            // C40. Never onto a fixed desktop — `moveWindowToDesktop` refuses.
+            const targets = [...this.desktops.desktops.entries()]
+                .filter(([i, d]) => i !== rec.desktopIdx && !d.fixed);
+            if (targets.length) {
                 items.push({ separator: true });
-                for (const [i, d] of this.desktops.desktops.entries()) {
-                    if (i === rec.desktopIdx) continue;
+                for (const [i, d] of targets) {
                     items.push({
                         label: `Move to desktop ${d.label}`, icon: 'sweep',
                         action: `move:${i}`,
@@ -3297,21 +3301,32 @@ export class WindowManager {
         this._notifyChange();
     }
 
-    addDesktop() {
+    /** Add a desktop. C40: `{ switchTo: true }` also puts it on screen, which
+     *  is what the bar's `+` does under `createShell({ desktopBar: {
+     *  switchOnAdd: true } })`. Answers the new desktop's index. */
+    addDesktop({ switchTo = false } = {}) {
         this.desktops.addDesktop();
+        const idx = this.desktops.desktops.length - 1;
+        if (switchTo) { this.switchDesktop(idx); return idx; }
         this._notifyChange();
         this._persist();
+        return idx;
     }
 
     /** Step to the previous (-1) or next (+1) existing desktop, wrapping
      *  around. No-op with a single desktop. Iterates only desktops that
-     *  already exist — use switchDesktop(idx) to create-on-demand. */
+     *  already exist — use switchDesktop(idx) to create-on-demand.
+     *
+     *  C40. It steps between the bar's CHIPS, so a group is one stop and
+     *  lands on its member last on screen. Ungrouped, a chip is a desktop
+     *  and this is the step it always was. */
     cycleDesktop(dir) {
-        const m = this.desktops;
-        const n = m.desktops.length;
+        const chips = this.desktops.chips();
+        const n = chips.length;
         if (n <= 1) return;
-        const next = (m.activeIdx + (dir < 0 ? -1 : 1) + n) % n;
-        this.switchDesktop(next);
+        const at = chips.findIndex((c) => c.active);
+        const next = chips[(at + (dir < 0 ? -1 : 1) + n) % n];
+        this.switchDesktop(next.idx);
     }
 
     /** Cycle the focused tile's main-panel tabs (Ctrl+Tab / Ctrl+Shift+Tab).
@@ -3350,6 +3365,8 @@ export class WindowManager {
         const m = this.desktops;
         if (m.desktops.length <= 1) return false;
         if (idx < 0 || idx >= m.desktops.length) return false;
+        // C40. A fixed desktop is the embedder's to keep.
+        if (m.desktops[idx].fixed) return false;
         m.desktops.splice(idx, 1);
         // THE SPLICE MOVES THE ACTIVE DESKTOP TOO, and the clamp below never
         // said so. Removing a desktop BELOW the one you are on shifts it down
@@ -3399,13 +3416,36 @@ export class WindowManager {
         // says "Move".
         const closeChrome = this.renderer?.leafChrome?.(focused.id)?.close;
         if (closeChrome === false || closeChrome?.disabled === true) return;
-        const payload = { kind: focused.content.kind, props: focused.content.props, title: focused.title };
+        // C40. A fixed desktop is the embedder's, and nothing is moved onto it.
+        if (this.desktops.desktops[idx]?.fixed) return;
         this.desktops.ensureCount(idx + 1);
         const target = this.desktops.desktops[idx];
-        // Place into the target tree's primary leaf.
+        // C40. THE PANE'S TABS JOIN THE TARGET'S PRIMARY LEAF, ALL OF THEM. It
+        // used to `setLeafContent` the ACTIVE tab over that leaf — which threw
+        // away every other tab of the pane being moved AND whatever the target
+        // was showing, so moving a pane onto a desktop you had worked in wiped
+        // that desktop's main pane. Only a target still holding nothing but the
+        // seed it was born with is replaced, because that is a blank page.
+        const tabs = (Array.isArray(focused.tabs) && focused.tabs.length)
+            ? focused.tabs
+            : [{ kind: focused.content.kind, props: focused.content.props, title: focused.title }];
+        const activeTab = Math.max(0, Math.min(tabs.length - 1, focused.activeTabIdx || 0));
         const targetTree = target.tree;
         const primary = targetTree.primaryLeafId();
-        if (primary) targetTree.setLeafContent(primary, { kind: payload.kind, props: payload.props }, payload.title);
+        if (primary) {
+            const dest = targetTree.get(primary);
+            const seedKind = this._rootLeaf()?.content?.kind;
+            const blank = (dest.tabs || []).length <= 1 && dest.content?.kind === seedKind;
+            let first = -1;
+            tabs.forEach((tab, i) => {
+                const content = { kind: tab.kind, props: tab.props || {} };
+                const title = tab.title || tab.kind || '';
+                if (i === 0 && blank) { targetTree.setLeafContent(primary, content, title); first = 0; return; }
+                const at = targetTree.appendLeafTab(primary, content, title);
+                if (first < 0) first = at;
+            });
+            if (first >= 0) targetTree.setActiveLeafTab(primary, first + activeTab);
+        }
         // Remove from current desktop.
         tree.close(focused.id);
         if (!tree.rootId) tree.setRoot(makeLeaf(this._rootLeaf()));

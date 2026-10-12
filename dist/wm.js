@@ -1659,7 +1659,10 @@ function _makeDesktop(label, seed, panelDefaults = DEFAULT_PANEL_STATE) {
     // Boot default: whatever the embedder asked for, left + right + bottom
     // when it asked for nothing. Names are assigned by wm._canonicalize via
     // PANEL_TITLES.
-    panels: { ...panelDefaults }
+    panels: { ...panelDefaults },
+    // C40. Both unset is a desktop exactly as it always was.
+    group: null,
+    fixed: false
   };
 }
 var DesktopManager = class _DesktopManager {
@@ -1678,6 +1681,7 @@ var DesktopManager = class _DesktopManager {
     this.panelDefaults = { ...DEFAULT_PANEL_STATE, ...panelDefaults || {} };
     this.desktops = [_makeDesktop("1", seed, this.panelDefaults)];
     this.activeIdx = 0;
+    this.lastInGroup = /* @__PURE__ */ new Map();
   }
   active() {
     return this.desktops[this.activeIdx];
@@ -1686,7 +1690,75 @@ var DesktopManager = class _DesktopManager {
     if (idx < 0 || idx >= this.desktops.length) return false;
     if (idx === this.activeIdx) return false;
     this.activeIdx = idx;
+    const d = this.desktops[idx];
+    if (d.group) this.lastInGroup.set(d.group, d.id);
     return true;
+  }
+  /**
+   * ══ C40. WHAT THE DESKTOP BAR DRAWS — ONE CHIP PER GROUP ═══════════════
+   *
+   * An embedder may give desktops a `group` and mark them `fixed`. Desktops
+   * that share a group are ONE stop for the user — one chip in the bar, one
+   * step of Ctrl+Left/Right — and the chip goes back to whichever member was
+   * last on screen; which member that is, is the embedder's business (Tables
+   * keeps one desktop per page under a "Workbench" group, and the rail picks
+   * among them). A `fixed` desktop is the embedder's own: the bar offers no
+   * rename and no delete for it, and no menu offers it as a "Move to"
+   * destination.
+   *
+   * With no group set anywhere this is one chip per desktop, in order — the
+   * bar every existing embedder has.
+   *
+   * @returns {Array<{ idx: number, label: string, group: string|null,
+   *   fixed: boolean, active: boolean, members: number[] }>} `idx` is the
+   *   desktop the chip switches to.
+   */
+  chips() {
+    const out = [];
+    const byGroup = /* @__PURE__ */ new Map();
+    this.desktops.forEach((d, i) => {
+      if (!d.group) {
+        out.push({
+          idx: i,
+          label: d.label,
+          group: null,
+          fixed: !!d.fixed,
+          active: i === this.activeIdx,
+          members: [i]
+        });
+        return;
+      }
+      let chip = byGroup.get(d.group);
+      if (!chip) {
+        chip = {
+          idx: i,
+          label: d.group,
+          group: d.group,
+          fixed: true,
+          active: false,
+          members: []
+        };
+        byGroup.set(d.group, chip);
+        out.push(chip);
+      }
+      chip.members.push(i);
+      if (i === this.activeIdx) chip.active = true;
+    });
+    for (const chip of byGroup.values()) {
+      if (chip.active) {
+        chip.idx = this.activeIdx;
+        continue;
+      }
+      const last = this.lastInGroup.get(chip.group);
+      const at = last ? this.desktops.findIndex((d) => d.id === last) : -1;
+      if (at >= 0 && this.desktops[at].group === chip.group) chip.idx = at;
+    }
+    return out;
+  }
+  /** C40. Whether any desktop belongs to a group — the bar's cue to stop
+   *  promising "Alt+N" on its chips, which then no longer count desktops. */
+  hasGroups() {
+    return this.desktops.some((d) => !!d.group);
   }
   ensureCount(n) {
     while (this.desktops.length < n) {
@@ -1698,11 +1770,8 @@ var DesktopManager = class _DesktopManager {
     }
   }
   addDesktop(label = null) {
-    const d = _makeDesktop(
-      label || String(this.desktops.length + 1),
-      this.seed,
-      this.panelDefaults
-    );
+    const n = this.desktops.filter((d2) => !d2.group).length + 1;
+    const d = _makeDesktop(label || String(n), this.seed, this.panelDefaults);
     this.desktops.push(d);
     return d;
   }
@@ -1713,7 +1782,11 @@ var DesktopManager = class _DesktopManager {
         id: d.id,
         label: d.label,
         tree: d.tree.serialize(),
-        panels: { ...d.panels }
+        panels: { ...d.panels },
+        // C40. Written only when set, so a blob without them is
+        // byte-for-byte the blob it always was.
+        ...d.group ? { group: d.group } : {},
+        ...d.fixed ? { fixed: true } : {}
         // windows serialized at WM level since we don't own
         // managed-window state in this module.
       }))
@@ -1731,12 +1804,16 @@ var DesktopManager = class _DesktopManager {
       // closed that panel, and re-opening it on every reload is the bug
       // this merge order avoids. The default only fills a key the stored
       // blob predates.
-      panels: { ...m.panelDefaults, ...raw.panels || {} }
+      panels: { ...m.panelDefaults, ...raw.panels || {} },
+      group: raw.group || null,
+      fixed: !!raw.fixed
     }));
     for (const d of m.desktops) {
       if (!d.tree.rootId) d.tree.setRoot(makeLeaf(seed()));
     }
     m.activeIdx = Math.min(Math.max(0, blob.activeIdx | 0), m.desktops.length - 1);
+    const active = m.desktops[m.activeIdx];
+    if (active.group) m.lastInGroup.set(active.group, active.id);
     return m;
   }
 };
@@ -6686,6 +6763,7 @@ var WindowManager = class _WindowManager {
     const rec = this._windowToLeaf.get(windowId);
     if (!rec) return;
     if (rec.desktopIdx === targetIdx) return;
+    if (this.desktops.desktops[targetIdx]?.fixed) return;
     this.desktops.ensureCount(targetIdx + 1);
     rec.desktopIdx = targetIdx;
     if (!rec.homeContainer && rec.homeLeafId) {
@@ -6816,10 +6894,10 @@ var WindowManager = class _WindowManager {
       const items = [
         { label: "Back to tile", icon: "close_fullscreen", action: "back" }
       ];
-      if (this.desktops.desktops.length > 1) {
+      const targets = [...this.desktops.desktops.entries()].filter(([i, d]) => i !== rec.desktopIdx && !d.fixed);
+      if (targets.length) {
         items.push({ separator: true });
-        for (const [i, d] of this.desktops.desktops.entries()) {
-          if (i === rec.desktopIdx) continue;
+        for (const [i, d] of targets) {
           items.push({
             label: `Move to desktop ${d.label}`,
             icon: "sweep",
@@ -7113,20 +7191,34 @@ var WindowManager = class _WindowManager {
     this._persist();
     this._notifyChange();
   }
-  addDesktop() {
+  /** Add a desktop. C40: `{ switchTo: true }` also puts it on screen, which
+   *  is what the bar's `+` does under `createShell({ desktopBar: {
+   *  switchOnAdd: true } })`. Answers the new desktop's index. */
+  addDesktop({ switchTo = false } = {}) {
     this.desktops.addDesktop();
+    const idx = this.desktops.desktops.length - 1;
+    if (switchTo) {
+      this.switchDesktop(idx);
+      return idx;
+    }
     this._notifyChange();
     this._persist();
+    return idx;
   }
   /** Step to the previous (-1) or next (+1) existing desktop, wrapping
    *  around. No-op with a single desktop. Iterates only desktops that
-   *  already exist — use switchDesktop(idx) to create-on-demand. */
+   *  already exist — use switchDesktop(idx) to create-on-demand.
+   *
+   *  C40. It steps between the bar's CHIPS, so a group is one stop and
+   *  lands on its member last on screen. Ungrouped, a chip is a desktop
+   *  and this is the step it always was. */
   cycleDesktop(dir) {
-    const m = this.desktops;
-    const n = m.desktops.length;
+    const chips = this.desktops.chips();
+    const n = chips.length;
     if (n <= 1) return;
-    const next = (m.activeIdx + (dir < 0 ? -1 : 1) + n) % n;
-    this.switchDesktop(next);
+    const at = chips.findIndex((c) => c.active);
+    const next = chips[(at + (dir < 0 ? -1 : 1) + n) % n];
+    this.switchDesktop(next.idx);
   }
   /** Cycle the focused tile's main-panel tabs (Ctrl+Tab / Ctrl+Shift+Tab).
    *  Wraps; no-op when the focused leaf has 0 or 1 tabs. */
@@ -7163,6 +7255,7 @@ var WindowManager = class _WindowManager {
     const m = this.desktops;
     if (m.desktops.length <= 1) return false;
     if (idx < 0 || idx >= m.desktops.length) return false;
+    if (m.desktops[idx].fixed) return false;
     m.desktops.splice(idx, 1);
     if (idx < m.activeIdx) m.activeIdx -= 1;
     if (m.activeIdx >= m.desktops.length) m.activeIdx = m.desktops.length - 1;
@@ -7188,12 +7281,31 @@ var WindowManager = class _WindowManager {
     if (!focused || !focused.content) return;
     const closeChrome = this.renderer?.leafChrome?.(focused.id)?.close;
     if (closeChrome === false || closeChrome?.disabled === true) return;
-    const payload = { kind: focused.content.kind, props: focused.content.props, title: focused.title };
+    if (this.desktops.desktops[idx]?.fixed) return;
     this.desktops.ensureCount(idx + 1);
     const target = this.desktops.desktops[idx];
+    const tabs = Array.isArray(focused.tabs) && focused.tabs.length ? focused.tabs : [{ kind: focused.content.kind, props: focused.content.props, title: focused.title }];
+    const activeTab = Math.max(0, Math.min(tabs.length - 1, focused.activeTabIdx || 0));
     const targetTree = target.tree;
     const primary = targetTree.primaryLeafId();
-    if (primary) targetTree.setLeafContent(primary, { kind: payload.kind, props: payload.props }, payload.title);
+    if (primary) {
+      const dest = targetTree.get(primary);
+      const seedKind = this._rootLeaf()?.content?.kind;
+      const blank = (dest.tabs || []).length <= 1 && dest.content?.kind === seedKind;
+      let first = -1;
+      tabs.forEach((tab, i) => {
+        const content = { kind: tab.kind, props: tab.props || {} };
+        const title = tab.title || tab.kind || "";
+        if (i === 0 && blank) {
+          targetTree.setLeafContent(primary, content, title);
+          first = 0;
+          return;
+        }
+        const at = targetTree.appendLeafTab(primary, content, title);
+        if (first < 0) first = at;
+      });
+      if (first >= 0) targetTree.setActiveLeafTab(primary, first + activeTab);
+    }
     tree.close(focused.id);
     if (!tree.rootId) tree.setRoot(makeLeaf(this._rootLeaf()));
     if (!tree.leaves().some((l) => !String(l.content?.kind || "").startsWith("panel:"))) {
@@ -8163,6 +8275,7 @@ async function createShell({
   floatActiveTab = false,
   tabLayout = null,
   newTabButton = true,
+  desktopBar = {},
   chrome = {},
   // An embedder that moved its sections out of the top bar — into an icon
   // rail, say — passes the selector its own buttons match, and F1..F8 keep
@@ -8234,7 +8347,7 @@ async function createShell({
   const disposeKeymap = installKeymap({ wm, palette, navSelector });
   const paletteBtn = mountPaletteButton(chrome.paletteButton, palette);
   topNavEl = mountTopNav(chrome.topNav, taxonomy, wm);
-  desktopsEl = mountDesktopBar(chrome.desktops, wm);
+  desktopsEl = mountDesktopBar(chrome.desktops, wm, desktopBar || {});
   const zoom = mountZoomControl(chrome.zoom, { root, host });
   if (zoom) await zoom.ready;
   toggles = bindPanelToggles(chrome.panelToggles, wm);
@@ -8283,6 +8396,10 @@ async function createShell({
       }
       try {
         zoom?.dispose();
+      } catch {
+      }
+      try {
+        desktopsEl?.remove();
       } catch {
       }
     }
@@ -8359,7 +8476,7 @@ function syncPanelToggles(map, wm) {
     btn.classList.toggle("twm-panel-toggle-btn--on", wm.isPanelOpen(side));
   }
 }
-function mountDesktopBar(hostEl, wm) {
+function mountDesktopBar(hostEl, wm, { switchOnAdd = false } = {}) {
   if (!hostEl) return null;
   let el = hostEl.querySelector("#twm-desktops");
   if (!el) {
@@ -8373,15 +8490,16 @@ function mountDesktopBar(hostEl, wm) {
     if (!btn) return;
     const v = btn.dataset.desktop;
     if (v === "+") {
-      wm.addDesktop();
+      wm.addDesktop({ switchTo: switchOnAdd });
       syncDesktopBar(el, wm);
       return;
     }
     wm.switchDesktop(Number(v));
   });
+  const isOwn = (btn) => btn.dataset.desktopFixed !== "1";
   el.addEventListener("dblclick", async (e) => {
     const btn = e.target.closest("[data-desktop]");
-    if (!btn || btn.dataset.desktop === "+") return;
+    if (!btn || btn.dataset.desktop === "+" || !isOwn(btn)) return;
     e.preventDefault();
     const idx = Number(btn.dataset.desktop);
     const d = wm.desktops.desktops[idx];
@@ -8410,25 +8528,28 @@ function mountDesktopBar(hostEl, wm) {
     const idx = Number(btn.dataset.desktop);
     const m = wm.desktops;
     const d = m.desktops[idx];
-    const canDelete = m.desktops.length > 1;
-    showContextMenu(e.clientX, e.clientY, [
+    const own = isOwn(btn);
+    const canDelete = own && m.desktops.length > 1;
+    const name = btn.dataset.desktopLabel || d.label;
+    const items = [
       {
-        label: `Switch to ${d.label}`,
+        label: `Switch to ${name}`,
         icon: "desktop_windows",
         action: "switch",
         disabled: idx === m.activeIdx
       },
-      { label: "Rename\u2026", icon: "edit", action: "rename" },
+      ...own ? [{ label: "Rename\u2026", icon: "edit", action: "rename" }] : [],
       { separator: true },
       { label: "New desktop", icon: "add", action: "add" },
-      {
+      ...own ? [{
         label: "Delete desktop",
         icon: "delete",
         action: "delete",
         danger: true,
         disabled: !canDelete
-      }
-    ], async (action) => {
+      }] : []
+    ];
+    showContextMenu(e.clientX, e.clientY, items, async (action) => {
       if (action === "switch") wm.switchDesktop(idx);
       else if (action === "rename") {
         const result = await openForm({
@@ -8442,7 +8563,7 @@ function mountDesktopBar(hostEl, wm) {
         syncDesktopBar(el, wm);
         wm._persist();
       } else if (action === "add") {
-        wm.addDesktop();
+        wm.addDesktop({ switchTo: switchOnAdd });
         syncDesktopBar(el, wm);
       } else if (action === "delete") {
         wm.removeDesktop(idx);
@@ -8455,13 +8576,31 @@ function mountDesktopBar(hostEl, wm) {
 function syncDesktopBar(el, wm) {
   if (!el) return;
   const m = wm.desktops;
-  el.innerHTML = m.desktops.map((d, i) => `
+  if (!m.hasGroups()) {
+    el.innerHTML = m.desktops.map((d, i) => `
             <button class="twm-desk__btn${i === m.activeIdx ? " twm-desk__btn--on" : ""}"
                     data-desktop="${i}"
                     title="Desktop ${d.label} (Alt+${i + 1}) \xB7 right-click to delete">
                 ${d.label}
             </button>`).join("") + `<button class="twm-desk__btn twm-desk__btn--add"
                   data-desktop="+" title="Add desktop">+</button>`;
+    return;
+  }
+  el.innerHTML = m.chips().map((c) => {
+    const label = _escapeHtml(c.label);
+    const title = c.fixed ? label : `${label} \xB7 double-click to rename \xB7 right-click for more`;
+    return `
+            <button class="twm-desk__btn${c.active ? " twm-desk__btn--on" : ""}"
+                    data-desktop="${c.idx}"
+                    data-desktop-label="${label}"${c.fixed ? ' data-desktop-fixed="1"' : ""}
+                    title="${title}">
+                ${label}
+            </button>`;
+  }).join("") + `<button class="twm-desk__btn twm-desk__btn--add"
+                  data-desktop="+" title="New desktop">+</button>`;
+}
+function _escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
 }
 function _tileTabMenu(wm, leafId, x, y) {
   const tree = wm.desktops.active().tree;
@@ -8539,7 +8678,7 @@ function _tileContextMenu(wm, leafId, x, y) {
   ];
   if (wm.desktops.desktops.length > 1 && !isPanel) {
     for (const [i, d] of wm.desktops.desktops.entries()) {
-      if (i === wm.desktops.activeIdx) continue;
+      if (i === wm.desktops.activeIdx || d.fixed) continue;
       items.push({
         label: `Move to desktop ${d.label}`,
         icon: "sweep",

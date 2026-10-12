@@ -47,6 +47,9 @@ function _makeDesktop(label, seed, panelDefaults = DEFAULT_PANEL_STATE) {
         // when it asked for nothing. Names are assigned by wm._canonicalize via
         // PANEL_TITLES.
         panels: { ...panelDefaults },
+        // C40. Both unset is a desktop exactly as it always was.
+        group: null,
+        fixed: false,
     };
 }
 
@@ -66,6 +69,9 @@ export class DesktopManager {
         this.panelDefaults = { ...DEFAULT_PANEL_STATE, ...(panelDefaults || {}) };
         this.desktops = [_makeDesktop('1', seed, this.panelDefaults)];
         this.activeIdx = 0;
+        // C40. group → the id of the member last on screen, which is where the
+        // group's chip goes back to.
+        this.lastInGroup = new Map();
     }
 
     active() { return this.desktops[this.activeIdx]; }
@@ -74,8 +80,61 @@ export class DesktopManager {
         if (idx < 0 || idx >= this.desktops.length) return false;
         if (idx === this.activeIdx) return false;
         this.activeIdx = idx;
+        const d = this.desktops[idx];
+        if (d.group) this.lastInGroup.set(d.group, d.id);
         return true;
     }
+
+    /**
+     * ══ C40. WHAT THE DESKTOP BAR DRAWS — ONE CHIP PER GROUP ═══════════════
+     *
+     * An embedder may give desktops a `group` and mark them `fixed`. Desktops
+     * that share a group are ONE stop for the user — one chip in the bar, one
+     * step of Ctrl+Left/Right — and the chip goes back to whichever member was
+     * last on screen; which member that is, is the embedder's business (Tables
+     * keeps one desktop per page under a "Workbench" group, and the rail picks
+     * among them). A `fixed` desktop is the embedder's own: the bar offers no
+     * rename and no delete for it, and no menu offers it as a "Move to"
+     * destination.
+     *
+     * With no group set anywhere this is one chip per desktop, in order — the
+     * bar every existing embedder has.
+     *
+     * @returns {Array<{ idx: number, label: string, group: string|null,
+     *   fixed: boolean, active: boolean, members: number[] }>} `idx` is the
+     *   desktop the chip switches to.
+     */
+    chips() {
+        const out = [];
+        const byGroup = new Map();
+        this.desktops.forEach((d, i) => {
+            if (!d.group) {
+                out.push({ idx: i, label: d.label, group: null, fixed: !!d.fixed,
+                           active: i === this.activeIdx, members: [i] });
+                return;
+            }
+            let chip = byGroup.get(d.group);
+            if (!chip) {
+                chip = { idx: i, label: d.group, group: d.group, fixed: true,
+                         active: false, members: [] };
+                byGroup.set(d.group, chip);
+                out.push(chip);
+            }
+            chip.members.push(i);
+            if (i === this.activeIdx) chip.active = true;
+        });
+        for (const chip of byGroup.values()) {
+            if (chip.active) { chip.idx = this.activeIdx; continue; }
+            const last = this.lastInGroup.get(chip.group);
+            const at = last ? this.desktops.findIndex((d) => d.id === last) : -1;
+            if (at >= 0 && this.desktops[at].group === chip.group) chip.idx = at;
+        }
+        return out;
+    }
+
+    /** C40. Whether any desktop belongs to a group — the bar's cue to stop
+     *  promising "Alt+N" on its chips, which then no longer count desktops. */
+    hasGroups() { return this.desktops.some((d) => !!d.group); }
 
     ensureCount(n) {
         while (this.desktops.length < n) {
@@ -85,8 +144,10 @@ export class DesktopManager {
     }
 
     addDesktop(label = null) {
-        const d = _makeDesktop(
-            label || String(this.desktops.length + 1), this.seed, this.panelDefaults);
+        // C40. Numbered among the desktops a user makes, so the first one added
+        // beside an embedder's grouped desktops is "1" rather than "13".
+        const n = this.desktops.filter((d) => !d.group).length + 1;
+        const d = _makeDesktop(label || String(n), this.seed, this.panelDefaults);
         this.desktops.push(d);
         return d;
     }
@@ -98,6 +159,10 @@ export class DesktopManager {
                 id: d.id, label: d.label,
                 tree: d.tree.serialize(),
                 panels: { ...d.panels },
+                // C40. Written only when set, so a blob without them is
+                // byte-for-byte the blob it always was.
+                ...(d.group ? { group: d.group } : {}),
+                ...(d.fixed ? { fixed: true } : {}),
                 // windows serialized at WM level since we don't own
                 // managed-window state in this module.
             })),
@@ -117,12 +182,16 @@ export class DesktopManager {
             // this merge order avoids. The default only fills a key the stored
             // blob predates.
             panels: { ...m.panelDefaults, ...(raw.panels || {}) },
+            group: raw.group || null,
+            fixed: !!raw.fixed,
         }));
         // Empty tree → seed with the taxonomy root so the desktop is usable.
         for (const d of m.desktops) {
             if (!d.tree.rootId) d.tree.setRoot(makeLeaf(seed()));
         }
         m.activeIdx = Math.min(Math.max(0, blob.activeIdx | 0), m.desktops.length - 1);
+        const active = m.desktops[m.activeIdx];
+        if (active.group) m.lastInGroup.set(active.group, active.id);
         return m;
     }
 }

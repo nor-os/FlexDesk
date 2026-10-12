@@ -130,6 +130,35 @@ await createShell({
 });
 ```
 
+### Your desktops beside the app's (0.10.0)
+
+Pass `chrome.desktops` and the shell paints a desktop bar: a chip per desktop
+and a `+`. An app that keeps desktops of its own (one per page, say) marks them
+on the desktop objects themselves:
+
+```js
+const shell = await createShell({ /* … */ eventBus,
+    chrome: { desktops: barEl }, desktopBar: { switchOnAdd: true } });
+shell.wm.desktops.ensureCount(pages.length);
+shell.wm.desktops.desktops.slice(0, pages.length)
+    .forEach((d) => { d.group = 'Workbench'; d.fixed = true; });
+eventBus.emit('wm:changed', {});          // repaint the bar
+```
+
+Desktops that share a **`group`** are one chip, labelled by the group, and one
+stop for Ctrl+Left/Right; the chip goes back to the member that was on screen
+last (`wm.desktops.chips()` says what the bar draws). A **`fixed`** desktop is
+the app's: the bar offers no rename and no delete, no menu offers it as a
+*Move to desktop* target, and `removeDesktop`, `moveFocusedToDesktop` and
+`moveWindowToDesktop` refuse it. Both are persisted. A desktop the user adds is
+numbered among the ungrouped ones, and `desktopBar.switchOnAdd` puts it on
+screen. With neither set anywhere, the bar is what it always was.
+
+*Move to desktop* now carries every tab of the pane and adds them to the target's
+main pane; it used to replace that pane with the active tab alone. A target still
+holding only its seed is replaced, as before. `dispose()` removes the bar, so a
+rebuilt shell paints a fresh one.
+
 ### The palette that finds anything (0.9.0; matching tightened in 0.9.1)
 
 Ctrl+K's grouped layout. Every option is off unless you pass it, so a shell that

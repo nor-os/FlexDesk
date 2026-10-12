@@ -1595,6 +1595,27 @@ submit with "onCreate is not a function".
 `tests/open_form.test.mjs` mounts the real `openForm` in jsdom and covers all
 four, plus a plain form submitting as before.
 
+## Notifications: `NotificationCenter`
+
+Toasts, from `toast:show` on the bus (or `toastInfo` / `toastWarn` /
+`toastError` / `toastSuccess`) or `show()`. A payload with `persistent: true`
+stays until its × is clicked. `history` keeps every notification shown, and
+`NotificationHistory` puts it behind a bell in the bottom bar.
+
+*New in 0.11.0:* **`overflow: 'collapse'`.** By default, a toast past
+`maxVisible` (3) pushes the oldest off the screen. With `'collapse'`, the toasts
+on screen stay, and the rest wait behind one **"+N more"** toast whose count
+follows them. Each comes in as a visible one closes. A sticky alert is never
+pushed off unseen. Clicking the summary calls `summaryAction(held)` and emits
+`notification:summary` with `{held}`, so a history panel can open. Every toast
+is in `history` as it arrives, waiting or not.
+
+```js
+const nc = new NotificationCenter({ eventBus, maxVisible: 3, overflow: 'collapse',
+                                    summaryAction: () => history.open() });
+nc.mount(document.body);
+```
+
 ## The host port
 
 FlexDesk never touches `pywebview`, `fetch`, `localStorage` or the filesystem. It

@@ -10857,3 +10857,19 @@ tr:hover .twm-row-action { opacity: 1; }
     line-height: 1;
 }
 /* ══ end FLOW · LANES ══ */
+
+/* NotificationCenter `overflow: 'collapse'`: the toasts past maxVisible, as one. */
+.twm-notification--summary {
+    display: block;
+    width: 100%;
+    padding: 6px 12px;
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    color: var(--text-secondary, #9a9a9a);
+    background: var(--surface-2, #2d2d2d);
+    border: 1px dashed var(--border-strong, #383838);
+    border-radius: var(--radius-md, 6px);
+    cursor: pointer;
+}
+.twm-notification--summary:hover { color: var(--text-primary, #e0e0e0); }

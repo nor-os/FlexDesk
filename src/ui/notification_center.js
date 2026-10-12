@@ -41,10 +41,21 @@ export class NotificationCenter extends ComponentBase {
         historyLimit = 50,
         defaultDurationMs = 6000,
         logLevels = DEFAULT_LOG_LEVELS,
+        // What happens past `maxVisible`. 'drop' (the default, as before 0.11):
+        // the oldest toast leaves. 'collapse': the toasts on screen stay, the
+        // rest wait behind one "+N more" toast, and each comes in as one closes
+        // — a sticky alert nobody has read is never pushed off unseen.
+        overflow = 'drop',
+        // Called with the held-back toasts when the "+N more" toast is clicked.
+        summaryAction = null,
     } = {}) {
         super({ eventBus, logger });
 
         this.maxVisible = maxVisible;
+        this.overflow = overflow === 'collapse' ? 'collapse' : 'drop';
+        this.summaryAction = typeof summaryAction === 'function' ? summaryAction : null;
+        /** Toasts waiting behind the "+N more" summary ('collapse' only), oldest first. */
+        this.held = [];
         this.historyLimit = historyLimit;
         this.defaultDurationMs = defaultDurationMs;
         this.logLevels = new Set(logLevels ?? DEFAULT_LOG_LEVELS);
@@ -126,6 +137,14 @@ export class NotificationCenter extends ComponentBase {
     show(notification) {
         const normalized = this.#normalizeNotification(notification);
         this.#consoleLog(normalized);
+        if (this.overflow === 'collapse' && this.notifications.length >= this.maxVisible) {
+            // Held, not shown: its timer starts when it comes on screen.
+            this.held.push(normalized);
+            this.#recordHistory(normalized);
+            this.#render();
+            this.#announce(normalized);
+            return normalized.id;
+        }
         this.notifications.push(normalized);
         if (this.notifications.length > this.maxVisible) {
             const removed = this.notifications.shift();
@@ -143,11 +162,22 @@ export class NotificationCenter extends ComponentBase {
     dismiss(notificationId, reason = 'dismissed') {
         const idx = this.notifications.findIndex((item) => item.id === notificationId);
         if (idx === -1) {
-            return false;
+            const h = this.held.findIndex((item) => item.id === notificationId);
+            if (h === -1) return false;
+            const [gone] = this.held.splice(h, 1);
+            this.#recordHistory({ ...gone, dismissed: true, reason });
+            this.#render();
+            return true;
         }
         const [removed] = this.notifications.splice(idx, 1);
         this.#stopTimer(notificationId);
         this.#recordHistory({ ...removed, dismissed: true, reason });
+        // A place on screen came free: the oldest held-back toast takes it.
+        if (this.held.length && this.notifications.length < this.maxVisible) {
+            const next = this.held.shift();
+            this.notifications.push(next);
+            this.#scheduleAutoDismiss(next);
+        }
         this.#render();
         return true;
     }
@@ -451,6 +481,23 @@ export class NotificationCenter extends ComponentBase {
             fragment.appendChild(item);
         });
 
+        // The held-back toasts, as one: "+N more". It is a button so the count is
+        // reachable by keyboard; what it opens is the consumer's (summaryAction),
+        // and it is also announced on the bus for a history panel to answer.
+        if (this.held.length) {
+            const more = document.createElement('button');
+            more.type = 'button';
+            more.className = 'notification twm-notification--summary';
+            more.setAttribute('data-notification-summary', String(this.held.length));
+            more.textContent = `+${this.held.length} more`;
+            more.title = this.held.map((h) => h.title || h.message).join('\n');
+            more.addEventListener('click', () => {
+                const held = [...this.held];
+                try { this.summaryAction?.(held); } catch (err) { this.logger?.warn?.('summaryAction failed', err); }
+                this.eventBus?.emit?.('notification:summary', { held });
+            });
+            fragment.appendChild(more);
+        }
         this.listEl.appendChild(fragment);
     }
 

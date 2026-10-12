@@ -395,6 +395,9 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {Function} [onRender] - `(table) => void`, at the end of every `render()` — for a consumer that shows something the rows decide (a count) outside the table. See `getDisplayedRows`.
  * @property {boolean} [keyboardNav=false] - On the focused table, ArrowUp/ArrowDown move the selection one row through the rows of the page shown (in the order shown), Home/End to its first and last, and with Shift (a table that selects several rows) select the range from the anchor, as Shift-click does. The row moved to is scrolled into view (`scrollToRow`) and `onSelectionChange` is told. Needs `selectable`. Not on a key pressed in a control inside the table, nor with Ctrl, Cmd or Alt.
  * @property {Function} [onRowKeyDown] - `(rowIdx, row, ev) => boolean|void`, for every key pressed on the focused table (not in a control inside it) BEFORE the table's own keys: `rowIdx`/`row` are the row Enter would open (the one row selected, the selection's anchor, else the active row — see `activateOn`), or null when none is drawn. Return `true` and the key is the consumer's: the table does nothing more with it (default prevented, propagation stopped — the page's keymap does not see it either). For the keys `activateOn` does not take: Ctrl+Enter, Alt+T, a "delete this row".
+ * @property {number[]} [hiddenColumns] - STORY-0012. Columns (data indices) NOT DRAWN: no header, no filter box, no cell, no width in the fit, not in a copy or the CSV. They stay in the row data — `renderCell`, `contextMenuItems`' `ctx.row`, sorting and filtering (`sortBy`, `setFilter`) all still see them. A column sorted on while hidden keeps the order and has no arrow to show it. The last column shown cannot be hidden. With `persistKey` the set shown is saved, and a saved set wins over this one. `setData({hiddenColumns})` applies a new set.
+ * @property {boolean} [columnChooser=false] - STORY-0012. A right-click on the header lists every column with a check mark on those shown; choosing one shows or hides it (`setColumnVisible`).
+ * @property {Function} [onColumnsChange] - STORY-0012. `(hidden) => void` with the hidden columns' indices, ascending, after every change of the set (the chooser, `setColumnVisible`, `setData({hiddenColumns})`).
  * @property {boolean} [persistPage=false] - With `persistKey`: the client page is saved with the sort and the filters, and opened again on mount (on the last page, if the rows have shrunk since). OFF by default: a key shared by DIFFERENT row sets (ad-hoc filters, search results) must not reopen on a page of the last list. A sort under `resetPageOnSort` and a new filter save the first page, as they show it. A server's page (`onPageChange`, `dataSource`) is the consumer's and is not kept.
  */
 
@@ -536,6 +539,10 @@ export class DataTable {
             keyboardNav: false,
             onRowKeyDown: null,
             persistPage: false,
+            // STORY-0012. Off — every column drawn, as in 0.9.1 — until set.
+            hiddenColumns: null,
+            columnChooser: false,
+            onColumnsChange: null,
             ...config,
         };
 
@@ -550,6 +557,11 @@ export class DataTable {
         this._filterControls = new Map();
         this._filterCounts = new Map();
         this._pendingFilter = null;
+
+        // STORY-0012. The columns not drawn, by data index. Before the restore
+        // below, which may replace them with the remembered set.
+        this._hidden = new Set();
+        this._setHidden(this.config.hiddenColumns);
 
         // 0.5.0. The open row's key, and the failure on show (`setError`).
         this._activeKey = this.config.activeRow == null ? null : String(this.config.activeRow);
@@ -683,6 +695,12 @@ export class DataTable {
             this._state.filters = new Map(blob.filters);
             applied = true;
         }
+        // STORY-0012. The columns shown, before the widths: the widths are by
+        // DRAWN column, and were saved for this set.
+        if (Array.isArray(blob.hidden)) {
+            this._setHidden(blob.hidden);
+            applied = true;
+        }
         if (blob.colWidths && typeof blob.colWidths === 'object') {
             // Stored under string keys (JSON) → coerce back to ints.
             this._colWidths = {};
@@ -709,7 +727,10 @@ export class DataTable {
      *  keyed by position, so a schema change invalidates them. */
     _colSig() {
         return (this.config.headers || []).join('\x01')
-            + (this.config.showRowNumbers ? '|#' : '');
+            + (this.config.showRowNumbers ? '|#' : '')
+            // STORY-0012. Widths are by drawn column, so a different set drawn
+            // is a different schema — unless `setColumnVisible` carried them.
+            + (this._hidden?.size ? `|-${this.getHiddenColumns().join(',')}` : '');
     }
 
     /** Snapshot the persistable slice of state to the project store.
@@ -724,7 +745,136 @@ export class DataTable {
             // STORY-0010. Only for a table that asked: one that did not writes
             // the 0.9.1 blob, key for key.
             ...(this.config.persistPage ? { offset: this._state.offset } : {}),
+            // STORY-0012. Only for a table that hides columns or lets them be
+            // hidden.
+            ...(this._columnsOn() ? { hidden: this.getHiddenColumns() } : {}),
         });
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // STORY-0012 — columns shown and hidden
+    // ─────────────────────────────────────────────────────────────────
+
+    /** Whether this table hides columns at all (and so saves the set). */
+    _columnsOn() {
+        return Array.isArray(this.config.hiddenColumns) || !!this.config.columnChooser
+            || !!this._columnsTouched;
+    }
+
+    /** Replace the hidden set: whole indices of existing columns, and never
+     *  every column — the first one stays when nothing else would. A table
+     *  with no headers yet keeps the set for the headers `setData` brings. */
+    _setHidden(list) {
+        const n = (this.config.headers || []).length;
+        this._hidden = new Set((Array.isArray(list) ? list : [])
+            .map(Number).filter((c) => Number.isInteger(c) && c >= 0 && (!n || c < n)));
+        if (n && this._hidden.size >= n) this._hidden.delete(0);
+    }
+
+    _isHidden(colIdx) {
+        return this._hidden.has(colIdx);
+    }
+
+    /** The cells a drawn row has: the shown columns, and the row number. */
+    _domColCount() {
+        const n = Math.max(0, (this.config.headers?.length || 0) - this._hidden.size);
+        return n + (this.config.showRowNumbers ? 1 : 0);
+    }
+
+    /** A data column's drawn index (row number included), or -1 when hidden. */
+    _domIdxOf(colIdx) {
+        if (this._isHidden(colIdx)) return -1;
+        let dom = this.config.showRowNumbers ? 1 : 0;
+        for (const h of this._hidden) if (h < colIdx) dom--;
+        return dom + colIdx;
+    }
+
+    /** A drawn cell's data column, or null for the row number. */
+    _dataIdxOfDom(domIdx) {
+        let i = domIdx - (this.config.showRowNumbers ? 1 : 0);
+        if (i < 0) return null;
+        const n = this.config.headers?.length || 0;
+        for (let c = 0; c < n; c++) {
+            if (this._isHidden(c)) continue;
+            if (i === 0) return c;
+            i--;
+        }
+        return null;
+    }
+
+    /** The columns not drawn, by data index, ascending. */
+    getHiddenColumns() {
+        return [...(this._hidden || [])].sort((a, b) => a - b);
+    }
+
+    /**
+     * Show (`on` true) or hide a column. The last column shown is not hidden.
+     * The widths of the other columns stay as they were; a column shown again
+     * is measured. Saved under `persistKey`, and `onColumnsChange` is told.
+     *
+     * @param {number} colIdx
+     * @param {boolean} [on=true]
+     * @returns {boolean} whether the set changed
+     */
+    setColumnVisible(colIdx, on = true) {
+        const n = this.config.headers?.length || 0;
+        if (!Number.isInteger(colIdx) || colIdx < 0 || colIdx >= n) return false;
+        if (!!on === !this._isHidden(colIdx)) return false;
+        if (!on && n - this._hidden.size <= 1) return false;
+        this._columnsTouched = true;
+        const next = new Set(this._hidden);
+        if (on) next.delete(colIdx); else next.add(colIdx);
+        this._applyHidden(next);
+        return true;
+    }
+
+    /** Swap in a new hidden set, carrying the drawn widths of the columns
+     *  that stay drawn to their new places, and tell whoever listens. */
+    _applyHidden(next) {
+        const before = this.getHiddenColumns();
+        const n = this.config.headers?.length || 0;
+        const old = this._colWidths;
+        const kept = this._colWidthsSig === this._colSig();
+        const domBefore = [];
+        for (let c = 0; c < n; c++) domBefore[c] = this._domIdxOf(c);
+        this._setHidden([...next]);
+        if (kept) {
+            const widths = {};
+            if (this.config.showRowNumbers && old[0] != null) widths[0] = old[0];
+            for (let c = 0; c < n; c++) {
+                const from = domBefore[c];
+                const to = this._domIdxOf(c);
+                if (from >= 0 && to >= 0 && old[from] != null) widths[to] = old[from];
+            }
+            this._colWidths = widths;
+            this._colWidthsSig = this._colSig();
+        }
+        const after = this.getHiddenColumns();
+        if (before.join() === after.join()) return;
+        this._savePersisted();
+        if (this._wrapperEl) this.render();
+        try { this.config.onColumnsChange?.(after); } catch (err) {
+            console.error('[DataTable] onColumnsChange threw', err);
+        }
+    }
+
+    /** `columnChooser`: the header's right-click menu, one checkable item a
+     *  column. */
+    _showColumnChooser(clientX, clientY) {
+        const headers = this.config.headers || [];
+        const lastShown = headers.length - this._hidden.size <= 1;
+        const items = headers.map((h, c) => {
+            const shown = !this._isHidden(c);
+            return {
+                label: String(h ?? ''),
+                icon: shown ? 'check' : '',
+                checked: shown,
+                disabled: shown && lastShown,
+                title: shown && lastShown ? 'The last column shown cannot be hidden' : '',
+                onChoose: () => this.setColumnVisible(c, !shown),
+            };
+        });
+        this._showContextMenu(clientX, clientY, { ctx: null, items, copy: false });
     }
 
     /** STORY-0010 `persistPage`: the client page changed, so save it. */
@@ -762,6 +912,21 @@ export class DataTable {
         }
 
         Object.assign(this.config, updates);
+
+        // STORY-0012. A new set asked for applies at once; new columns keep
+        // the set by position, minus any column that is gone.
+        if (Object.prototype.hasOwnProperty.call(updates, 'hiddenColumns')) {
+            const before = this.getHiddenColumns().join();
+            this._setHidden(updates.hiddenColumns);
+            if (this.getHiddenColumns().join() !== before) {
+                this._savePersisted();
+                try { this.config.onColumnsChange?.(this.getHiddenColumns()); } catch (err) {
+                    console.error('[DataTable] onColumnsChange threw', err);
+                }
+            }
+        } else if (updates.headers && this._hidden.size) {
+            this._setHidden([...this._hidden]);
+        }
 
         // Reset state if rows changed
         if (updates.rows) {
@@ -1239,6 +1404,7 @@ export class DataTable {
                 tr.appendChild(th);
             }
             headers.forEach((h, colIdx) => {
+                if (this._isHidden(colIdx)) return;
                 const th = document.createElement('th');
                 th.className = this._columnTypes[colIdx] || 'text';
                 th.textContent = h;
@@ -1257,7 +1423,7 @@ export class DataTable {
             const bodyTable = document.createElement('table');
             bodyTable.className = headerTable.className;
             const tbody = document.createElement('tbody');
-            tbody.appendChild(this._buildEmptyRow(headers.length + (showRowNumbers ? 1 : 0), emptyMessage));
+            tbody.appendChild(this._buildEmptyRow(this._domColCount(), emptyMessage));
             bodyTable.appendChild(tbody);
             tableWrap.appendChild(bodyTable);
             this._wrapperEl.appendChild(tableWrap);
@@ -1289,14 +1455,24 @@ export class DataTable {
             // 0.7.0 `keepFilterRow`: the header and its filters, then the
             // empty (or failed) row the other branch would have drawn.
             if (keepFilterRow && this._tbodyEl) {
-                const n = this.config.headers.length + (this.config.showRowNumbers ? 1 : 0);
-                this._tbodyEl.appendChild(this._buildEmptyRow(n, emptyMessage));
+                this._tbodyEl.appendChild(this._buildEmptyRow(this._domColCount(), emptyMessage));
             }
             tableWrap.appendChild(fullTable);
             this._wrapperEl.appendChild(tableWrap);
         }
 
         this._tableWrapEl = tableWrap;
+        // STORY-0012 `columnChooser`: the header's right-click.
+        if (this.config.columnChooser && this._headerTableEl) {
+            const head = this._headerTableEl;
+            const onHeadMenu = (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                setTimeout(() => this._showColumnChooser(ev.clientX, ev.clientY), 0);
+            };
+            head.addEventListener('contextmenu', onHeadMenu);
+            this._disposers.push(() => head.removeEventListener('contextmenu', onHeadMenu));
+        }
         // 0.7.0 `pagerPosition: 'bottom'`: under the rows.
         if (this._paginationEl && this.config.pagerPosition === 'bottom') {
             this._paginationEl.classList.add('twm-pagination-controls--bottom');
@@ -1440,12 +1616,14 @@ export class DataTable {
         }
 
         const { headers, rows } = this.config;
-        const matrix = [headers];
+        // STORY-0012. The columns shown — all of them, unless some are hidden.
+        const shown = (_, colIdx) => !this._isHidden(colIdx);
+        const matrix = [headers.filter(shown)];
 
         for (const idx of indices) {
             const row = rows[idx];
             if (row) {
-                matrix.push(row.map((val, colIdx) => this._formatValue(val, colIdx)));
+                matrix.push(row.map((val, colIdx) => this._formatValue(val, colIdx)).filter(shown));
             }
         }
 
@@ -1484,11 +1662,12 @@ export class DataTable {
             return;
         }
 
-        const lines = [headers.join(',')];
+        const shown = (_, colIdx) => !this._isHidden(colIdx);
+        const lines = [headers.filter(shown).join(',')];
         for (const row of rows) {
             lines.push(row.map((val, colIdx) =>
                 this._csvEscape(this._formatValue(val, colIdx))
-            ).join(','));
+            ).filter(shown).join(','));
         }
 
         const csv = lines.join('\n');
@@ -1837,6 +2016,7 @@ export class DataTable {
         }
 
         headers.forEach((header, colIdx) => {
+            if (this._isHidden(colIdx)) return;
             const th = document.createElement('th');
             th.className = 'data-table__filter-cell';
 
@@ -2250,7 +2430,7 @@ export class DataTable {
      *  rebuilt its box: the words, and the debounce that will apply them. */
     _resumePendingFilter({ colIdx, value }) {
         const filterRow = this._wrapperEl?.querySelector('.twm-data-table__filter-row');
-        const cell = filterRow?.children[this.config.showRowNumbers ? colIdx + 1 : colIdx];
+        const cell = filterRow?.children[this._domIdxOf(colIdx)];
         const input = cell?.querySelector('.twm-data-table__filter-input');
         if (input && input.value !== value) {
             const focused = input.ownerDocument?.activeElement === input;
@@ -2271,13 +2451,13 @@ export class DataTable {
         if (!row) return null;
         const cells = Array.from(row.children);
         const idx = cells.indexOf(cell);
-        return this.config.showRowNumbers ? idx - 1 : idx;
+        return this._hidden.size ? this._dataIdxOfDom(idx) : (this.config.showRowNumbers ? idx - 1 : idx);
     }
 
     _restoreFilterFocus(colIdx) {
         const filterRow = this._wrapperEl?.querySelector('.twm-data-table__filter-row');
         if (!filterRow) return;
-        const cellIdx = this.config.showRowNumbers ? colIdx + 1 : colIdx;
+        const cellIdx = this._domIdxOf(colIdx);
         const cell = filterRow.children[cellIdx];
         const input = cell?.querySelector('.twm-data-table__filter-input');
         if (input) {
@@ -2841,6 +3021,7 @@ export class DataTable {
         }
 
         headers.forEach((header, colIdx) => {
+            if (this._isHidden(colIdx)) return;
             const th = document.createElement('th');
             th.className = this._columnTypes[colIdx] || 'text';
 
@@ -3040,7 +3221,7 @@ export class DataTable {
      *  any width already pinned for it, so a re-render starts at the widths it
      *  had rather than at a content-sized frame that then snaps. */
     _createColgroup() {
-        const n = (this.config.headers?.length || 0) + (this.config.showRowNumbers ? 1 : 0);
+        const n = this._domColCount();
         const colgroup = document.createElement('colgroup');
         for (let i = 0; i < n; i++) {
             const col = document.createElement('col');
@@ -3064,8 +3245,7 @@ export class DataTable {
             tr.className = `twm-dt-spacer twm-dt-spacer--${edge}`;
             tr.setAttribute('aria-hidden', 'true');
             const td = document.createElement('td');
-            td.colSpan = Math.max(1, (this.config.headers?.length || 0)
-                + (this.config.showRowNumbers ? 1 : 0));
+            td.colSpan = Math.max(1, this._domColCount());
             // INLINE, because it must beat every consumer's cell padding and
             // border at any specificity: a spacer that is 1px taller than its
             // arithmetic moves every row below it by that pixel.
@@ -3484,6 +3664,7 @@ export class DataTable {
             ? (diff.cells instanceof Set ? diff.cells : new Set(diff.cells))
             : null;
         for (let colIdx = 0; colIdx < row.length; colIdx++) {
+            if (this._isHidden(colIdx)) continue;
             const td = document.createElement('td');
             td.className = this._columnTypes[colIdx] || 'text';
 
@@ -3724,7 +3905,7 @@ export class DataTable {
     }
 
     _buildDetailPieces(tr, key) {
-        const n = (this.config.headers?.length || 0) + (this.config.showRowNumbers ? 1 : 0);
+        const n = this._domColCount();
         const detailTr = document.createElement('tr');
         detailTr.className = 'twm-dt-detail-row';
         const td = document.createElement('td');
@@ -4683,7 +4864,7 @@ export class DataTable {
         const v = textBox && value != null && typeof value !== 'string' ? String(value) : value;
         if (textBox) {
             const filterRow = this._wrapperEl?.querySelector('.twm-data-table__filter-row');
-            const cell = filterRow?.children[this.config.showRowNumbers ? colIdx + 1 : colIdx];
+            const cell = filterRow?.children[this._domIdxOf(colIdx)];
             const input = cell?.querySelector('.twm-data-table__filter-input');
             if (input) input.value = v || '';
         }
@@ -6243,6 +6424,8 @@ export class DataTable {
                 event.preventDefault();
                 const ctx = this._contextMenuCtx;
                 this._hideContextMenu();
+                // STORY-0012. The column chooser's own items.
+                if (typeof item.__cmItem.onChoose === 'function') { item.__cmItem.onChoose(); return; }
                 if (!ctx || typeof this.config.onContextMenuAction !== 'function') return;
                 try { this.config.onContextMenuAction(item.__cmItem.action, ctx.rowIdx, ctx.row, ctx); } catch (err) {
                     console.error('[DataTable] onContextMenuAction threw', err);
@@ -6356,8 +6539,8 @@ export class DataTable {
         const cellEl = target?.closest?.('td');
         if (cellEl && cellEl.parentNode === rowEl) {
             const domIdx = Array.prototype.indexOf.call(rowEl.children, cellEl);
-            const dataIdx = this.config.showRowNumbers ? domIdx - 1 : domIdx;
-            if (dataIdx >= 0) colIdx = dataIdx;
+            const dataIdx = this._dataIdxOfDom(domIdx);
+            if (dataIdx !== null) colIdx = dataIdx;
         }
         const sel = [...selection].sort((a, b) => a - b);
         return {
@@ -6420,6 +6603,11 @@ export class DataTable {
                 el.setAttribute('aria-disabled', 'true');
             }
             if (item.title) el.title = String(item.title);
+            // STORY-0012. The column chooser's items say whether they are on.
+            if (typeof item.checked === 'boolean') {
+                el.setAttribute('role', 'menuitemcheckbox');
+                el.setAttribute('aria-checked', String(item.checked));
+            }
             const icon = document.createElement('span');
             icon.className = 'material-symbols-outlined';
             icon.textContent = item.icon == null ? '' : String(item.icon);
@@ -6430,7 +6618,7 @@ export class DataTable {
             el.__cmItem = item;
             menu.appendChild(el);
         }
-        if (this.config.copyable) {
+        if (this.config.copyable && custom.copy !== false) {
             if (custom.items.length) {
                 const sep = document.createElement('div');
                 sep.className = 'twm-context-menu__separator';

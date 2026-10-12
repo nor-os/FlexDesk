@@ -825,6 +825,37 @@ queue.focus();
 |---|---|
 | `persistPage: true` | With `persistKey` and `stateStore`, saves the client page with the sort and filters, and opens the table on it again. If the rows have shrunk since, it opens on the last page. A new filter, and a sort under `resetPageOnSort`, go to the first page and save that. Rows given after mounting (`rows: []`, then `setData`) still open on the saved page. Server-side paging is not affected: its page is your `offset`. Off by default, because a key shared by different row sets, such as ad-hoc filters or search results, must not reopen on a page of the previous list. Without it, the saved state is exactly what 0.9.1 saves. |
 
+### DataTable: columns hidden until somebody asks for them
+
+A column can be part of the row data without being drawn. People choose which
+columns they see from the header's right-click menu, and the choice is
+remembered. A table that sets none of these options draws every column, as in
+0.9.1.
+
+```js
+const list = DataTable.mount(host, {
+    headers: ['Id', 'Summary', 'Status', ...customFields.map((f) => f.label)],
+    rows,
+    hiddenColumns: customFields.map((_, i) => 3 + i),   // not shown until picked
+    columnChooser: true,
+    stateStore, persistKey: 'bugs:queue',
+    onColumnsChange: (hidden) => console.log('hidden now', hidden),
+});
+list.setColumnVisible(3, true);
+```
+
+| Option | What it does |
+|---|---|
+| `hiddenColumns: [colIdx, ...]` | These columns are not drawn: no header, no filter box, no cell, no width in the fit, and they are left out of a copy and of `downloadCSV()`. They stay in the row data, so `renderCell`, `contextMenuItems`, `sortBy` and `setFilter` still see them. The last column shown can never be hidden; a list that hides all of them keeps the first. `setData({ hiddenColumns })` applies a new list. Column indices are positions, so a new `headers` list keeps the set by position. |
+| `columnChooser: true` | A right-click on the header opens a menu that lists every column, with a check mark on those shown. Choosing one shows or hides it. The last column shown is greyed out and says why. Without the option the header keeps the browser's menu. |
+| `setColumnVisible(colIdx, on)` | Shows or hides a column from code. Returns whether anything changed. The widths of the other columns, dragged or fitted, stay with their columns; a column shown again is measured. |
+| `getHiddenColumns()` | The hidden columns' indices, ascending. |
+| `onColumnsChange(hidden)` | Called after every change of the set: the chooser, `setColumnVisible` and `setData({ hiddenColumns })`. |
+| With `persistKey` | The set is saved with the sort and the filters and restored on mount. A saved set wins over `hiddenColumns`, so a column somebody chose stays chosen. A table without these options saves exactly what 0.9.1 saves. |
+
+A column sorted on and then hidden keeps the order; its arrow comes back with
+the column.
+
 ### Scrollbars
 
 `installAutoScrollbars(root)` (from `@flexdesk/widgets`) replaces the browser's

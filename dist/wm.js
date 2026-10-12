@@ -2728,7 +2728,8 @@ var TileRenderer = class {
     ctx,
     onFocusChange,
     onAfterRender,
-    tabLayout = null
+    tabLayout = null,
+    newTabButton = true
   }) {
     if (!content || typeof content.mount !== "function") {
       throw new Error("TileRenderer: a content registry is required");
@@ -2741,6 +2742,7 @@ var TileRenderer = class {
     });
     this.onAfterRender = onAfterRender || (() => {
     });
+    this.newTabButton = newTabButton !== false;
     this._leafCache = /* @__PURE__ */ new Map();
     this._drag = null;
     this._tabDrag = null;
@@ -3318,7 +3320,7 @@ var TileRenderer = class {
         );
       }, true);
     }
-    if (this.tabLayout === "header" && !bar.querySelector(".twm-leaf__tab-new")) {
+    if (this.tabLayout === "header" && this.newTabButton && !bar.querySelector(".twm-leaf__tab-new")) {
       const add = document.createElement("button");
       add.type = "button";
       add.className = "twm-leaf__tab-new";
@@ -4051,7 +4053,8 @@ var WindowManager = class _WindowManager {
     promoteInPlace = false,
     tabLayout = null,
     backToOpenList = false,
-    floatActiveTab = false
+    floatActiveTab = false,
+    newTabButton = true
   }) {
     if (!taxonomy) throw new Error("WindowManager: a taxonomy is required");
     if (!content || typeof content.mount !== "function") {
@@ -4102,6 +4105,8 @@ var WindowManager = class _WindowManager {
        *  `data-twm-tabs` and watches it, so an embedder can change it
        *  live without holding a renderer reference. */
       tabLayout,
+      /** C38. Whether the `header` strip draws its `+`. */
+      newTabButton,
       ctx: {
         ...this.ctx,
         wm: this,
@@ -7691,6 +7696,7 @@ async function createShell({
   backToOpenList = false,
   floatActiveTab = false,
   tabLayout = null,
+  newTabButton = true,
   chrome = {},
   // An embedder that moved its sections out of the top bar — into an icon
   // rail, say — passes the selector its own buttons match, and F1..F8 keep
@@ -7732,6 +7738,7 @@ async function createShell({
     backToOpenList,
     floatActiveTab,
     tabLayout,
+    newTabButton,
     // `ctx` is the delivery vehicle for leaf-mounted chrome: tile_renderer
     // spreads it into every content factory, which is how the breadcrumb
     // gets `taxonomy` + `rootCrumb` without a content factory knowing they

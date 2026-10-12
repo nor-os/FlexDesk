@@ -14,6 +14,9 @@
  *       the strip's, and the empty chrome still floats the pane
  *   §6  a renamed tab is a renamed title; an unchanged repaint leaves the tab
  *       elements alone (a rebuild would drop a tab mid-drag)
+ *   §7  `newTabButton: false` (0.8.1) leaves the `+` out, through the REAL
+ *       `createShell` → `WindowManager` → `TileRenderer`, and survives a
+ *       layout switch
  *
  *     node tests/tab_layout_header.test.mjs
  *
@@ -74,6 +77,8 @@ const { TileTree, makeLeaf } = await import('../src/tiling/tile_tree.js');
 const { createContentRegistry } = await import('../src/tiling/content_registry.js');
 const { createTaxonomy } = await import('../src/tiling/kind_taxonomy.js');
 const { WindowManager } = await import('../src/tiling/wm.js');
+const { createShell } = await import('../src/tiling/shell.js');
+const { createEntityCatalog } = await import('../src/tiling/entity_sources.js');
 
 let failures = 0;
 function ok(what, cond, why = '') {
@@ -321,6 +326,45 @@ console.log('\ntabLayout: header — the tabs are the title\n');
     check('a retitled tab shows its new name…',
           f.chrome().querySelector('.notebook-tabs .tab .twm-tab-title')?.textContent, 'Clients');
     check('…without a re-mount', f.mounts.n, mounted);
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 7. `newTabButton: false`, THROUGH THE REAL SHELL
+// ════════════════════════════════════════════════════════════════════════
+//
+// Three constructors carry the option (`createShell` → `WindowManager` →
+// `TileRenderer`), and a dropped hand-off anywhere would leave the `+` on
+// screen with every unit test of the renderer still passing.
+{
+    for (const on of [true, false]) {
+        const sroot = dom.window.document.createElement('div');
+        dom.window.document.getElementById('root').appendChild(sroot);
+        const shell = await createShell({
+            root: sroot,
+            entities: createEntityCatalog({ sources: [] }),
+            taxonomy: createTaxonomy({
+                kinds: { home: { label: 'Home' } }, root: 'home' }),
+            content: { home: (host) => { host.textContent = 'ground'; return {}; } },
+            panels: { left: false, right: false, bottom: false },
+            tabLayout: 'header',
+            ...(on ? {} : { newTabButton: false }),
+        });
+        shell.wm.renderer.render();
+        const plus = () => sroot.querySelectorAll('.twm-leaf__tab-new').length;
+        const tabs = () => sroot.querySelectorAll('.twm-leaf__chrome .notebook-tabs .tab').length;
+        check(`newTabButton ${on ? 'omitted' : 'false'}: the tab is in the header`, tabs(), 1);
+        check(`newTabButton ${on ? 'omitted' : 'false'}: the \`+\` ${on ? 'is drawn' : 'is not'}`,
+              plus(), on ? 1 : 0);
+        shell.wm.setTabLayout('top');
+        shell.wm.setTabLayout('header');
+        check(`newTabButton ${on ? 'omitted' : 'false'}: …and still ${on ? 'is' : 'is not'} after a layout switch`,
+              plus(), on ? 1 : 0);
+        if (!on) {
+            check('wm.newTab still works without the button', shell.wm.newTab(), 1);
+            check('…and the header shows both tabs, still without a `+`', [tabs(), plus()], [2, 0]);
+        }
+        shell.dispose();
+    }
 }
 
 console.log(failures === 0

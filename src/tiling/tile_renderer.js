@@ -43,7 +43,9 @@
  *
  * `+` appends a tab holding the taxonomy root, which is what a split seeds the
  * new pane with (`wm.newTab`). It is a button, so `CHROME_NO_FLOAT` already
- * makes it inert to the pull and the double-click.
+ * makes it inert to the pull and the double-click. `newTabButton: false`
+ * leaves it out, for an embedder whose root is not somewhere a new tab should
+ * start; the tabs still replace the title.
  *
  * The chrome stops being a drag source here (C33): a single-tab leaf now has a
  * tab to grab, and a strip that names the tab is the reason C33 limited the
@@ -285,7 +287,7 @@ export class TileRenderer {
     static get TAB_MIME() { return TILE_TAB_MIME; }
 
     constructor({ root, tree, content, ctx, onFocusChange, onAfterRender,
-                  tabLayout = null }) {
+                  tabLayout = null, newTabButton = true }) {
         if (!content || typeof content.mount !== 'function') {
             throw new Error('TileRenderer: a content registry is required');
         }
@@ -308,6 +310,9 @@ export class TileRenderer {
          *  The renderer cannot know about windows, so it says "I have
          *  repainted" and the WM re-homes what it owns. */
         this.onAfterRender = onAfterRender || (() => {});
+        /** C38. Whether the `header` strip draws its `+`. An embedder whose
+         *  new tab would open nothing useful turns it off; `wm.newTab` stays. */
+        this.newTabButton = newTabButton !== false;
         // leafId -> { wrapEl, bodyEl, chromeEl, content, kindKey, tabStrip }
         this._leafCache = new Map();
         this._drag = null;
@@ -1225,7 +1230,8 @@ export class TileRenderer {
         // component's container so its `update()` never rewrites it, and
         // built with the strip so `setTabLayout` (which empties the bar and
         // disposes the strip) takes it away with the strip.
-        if (this.tabLayout === 'header' && !bar.querySelector('.twm-leaf__tab-new')) {
+        if (this.tabLayout === 'header' && this.newTabButton
+                && !bar.querySelector('.twm-leaf__tab-new')) {
             const add = document.createElement('button');
             add.type = 'button';
             add.className = 'twm-leaf__tab-new';

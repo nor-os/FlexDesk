@@ -122,6 +122,7 @@ await createShell({
     backToOpenList: true,    // Back in a record opened beside its list closes onto that list
     floatActiveTab: true,    // floating a tile takes the tab on screen, not the whole pane
     tabLayout: 'header',     // tabs in the tile header, in place of its title, with a + (0.8.0)
+    newTabButton: false,     // …and without the + (0.8.1)
     chrome: {
         topNav: document.getElementById('nav'),
         zoom:   document.getElementById('status-bar'),   // content zoom, 50–200%
@@ -158,6 +159,7 @@ editor tab bar between the header and the body, also from two tabs.
 `'header'` (0.8.0) puts that tab bar inside the header in place of the title,
 on every tile, one tab included, with a `+` after the last tab that opens the
 taxonomy root in a new tab (`wm.newTab(leafId)`, the same seed a split uses).
+Pass `newTabButton: false` (0.8.1) to leave the `+` out.
 A panel tile has no tabs and keeps its title. Under `'header'` the tab, not
 the header, is what you drag to move a single-tab pane; the empty part of the
 header still floats the pane on a pull-down or a double-click. Set

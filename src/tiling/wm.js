@@ -35,7 +35,7 @@ export class WindowManager {
     constructor({ rootEl, api, ctx, onChange, eventBus, host, taxonomy, events, content,
                   panelDefaults = null, snapPromotion = false,
                   promoteInPlace = false, tabLayout = null, backToOpenList = false,
-                  floatActiveTab = false }) {
+                  floatActiveTab = false, newTabButton = true }) {
         if (!taxonomy) throw new Error('WindowManager: a taxonomy is required');
         if (!content || typeof content.mount !== 'function') {
             throw new Error('WindowManager: a content registry is required '
@@ -121,6 +121,8 @@ export class WindowManager {
              *  `data-twm-tabs` and watches it, so an embedder can change it
              *  live without holding a renderer reference. */
             tabLayout,
+            /** C38. Whether the `header` strip draws its `+`. */
+            newTabButton,
             ctx: {
                 ...this.ctx,
                 wm: this,

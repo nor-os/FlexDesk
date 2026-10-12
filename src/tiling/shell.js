@@ -110,6 +110,11 @@ import { openForm } from '../ui/components/modal.js';
  *                                      `data-twm-tabs` and watches it, so an
  *                                      embedder whose settings pane holds only
  *                                      the root element can change it live.
+ * @param {boolean}    [cfg.newTabButton] C38. Whether the `'header'` strip
+ *                                      draws its `+`. Default on; an embedder
+ *                                      whose new tab has nowhere useful to go
+ *                                      passes `false`. `wm.newTab()` is there
+ *                                      either way.
  * @param {object}     [cfg.chrome]     { topNav?, paletteButton?, desktops?,
  *                                        panelToggles?: { left?, right?, bottom? },
  *                                        zoom? }
@@ -138,6 +143,7 @@ export async function createShell({
     backToOpenList = false,
     floatActiveTab = false,
     tabLayout = null,
+    newTabButton = true,
     chrome = {},
     // An embedder that moved its sections out of the top bar — into an icon
     // rail, say — passes the selector its own buttons match, and F1..F8 keep
@@ -181,6 +187,7 @@ export async function createShell({
         backToOpenList,
         floatActiveTab,
         tabLayout,
+        newTabButton,
         // `ctx` is the delivery vehicle for leaf-mounted chrome: tile_renderer
         // spreads it into every content factory, which is how the breadcrumb
         // gets `taxonomy` + `rootCrumb` without a content factory knowing they

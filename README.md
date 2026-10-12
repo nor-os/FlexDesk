@@ -765,6 +765,66 @@ disposed.
 dispose when the table is put back. Before 0.7.0, a table taken out, put back
 and taken out again could be disposed by the first departure's timer.
 
+### DataTable: your own right-click items, a render hook, the keyboard, a remembered page
+
+These options let an application drop a private copy of the DataTable kept for
+them. Every one is off until you set it, and a table that sets none of them
+draws and behaves as in 0.9.1.
+
+```js
+const queue = DataTable.mount(host, {
+    headers, rows, pagination: true, sortable: true, filterable: true,
+    stateStore, persistKey: `queue:${view}`,
+    persistPage: !!savedView,              // an ad-hoc view shares its key: start it on page 1
+    getRowKey: (row) => row[0],
+    contextMenuItems: (row, rowIdx, ctx) => [
+        { label: ctx.selection.length > 1 ? `Open ${ctx.selection.length}` : 'Open',
+          icon: 'open_in_new', action: 'open' },
+        { separator: true },
+        { label: 'Delete…', icon: 'delete', action: 'delete', danger: true,
+          disabled: !canDelete(row), title: canDelete(row) ? '' : 'Closed records stay' },
+    ],
+    onContextMenuAction: (action, rowIdx, row, ctx) => run(action, ctx.selectedRows),
+    onRender: (t) => status.textContent = `${t.getDisplayedRows().length} of ${rows.length} shown`,
+    keyboardNav: true,
+    onRowKeyDown: (rowIdx, row, ev) => {
+        if (row && ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { openElsewhere(row); return true; }
+        if (row && ev.altKey && ev.key.toLowerCase() === 't') { openInTab(row); return true; }
+    },
+    onRowActivate: (i, row) => open(row),
+    activateOn: ['click', 'enter'],
+});
+queue.focus();
+```
+
+**The right-click menu**
+
+| Option | What it does |
+|---|---|
+| `contextMenuItems` | Your items in the table's own right-click menu: an array, or `(row, rowIdx, ctx) => items`, asked on every right-click of a row. An item is `{ label, icon, action, disabled, danger, title }` or `{ separator: true }`, drawn like the copy items (`disabled` greys it out, `danger` draws it red, `title` says why). `ctx` is `{ rowIdx, row, colIdx, value, selection, selectedRows }`: the row and the cell under the pointer (`colIdx` is null on the row-number column) and the selection, which by then includes the row. Your items come first; with `copyable`, a separator and the two copy items follow. Set without `copyable`, the menu has your items only, and a row you give no items gets the browser's own menu. |
+| `onContextMenuAction(action, rowIdx, row, ctx)` | Called when one of your items is chosen, after the menu has closed. The copy items never call it, so an action may be named anything. |
+
+**What the table shows**
+
+| Option | What it does |
+|---|---|
+| `onRender(table)` | Called at the end of every render: the first one, `setData`, a sort, a filter, a page. A hook that throws is reported on the console and the table still draws. |
+| `getDisplayedRows()` | The rows the table shows, filtered and sorted, across every page and not only the one on screen. It returns a copy. With server-side paging it is the page held. |
+
+**The keyboard**
+
+| Option | What it does |
+|---|---|
+| `keyboardNav: true` | On the focused table, ArrowUp and ArrowDown move the selection one row through the page shown, in the order shown, and Home and End go to its first and last row. With Shift they select the range from the anchor, as Shift-click does (not on a `selectable: 'single'` table). The row is scrolled into view and `onSelectionChange` is told. Keys pressed in a control inside the table are left alone. Needs `selectable`. |
+| `onRowKeyDown(rowIdx, row, ev)` | Called for every key pressed on the focused table, before the table's own keys, with the row Enter would open (the one row selected, the selection's anchor, or else the active row) or `null`. Return `true` to take the key: its default is prevented and nothing after it sees it, neither the table (Enter's `onRowActivate`, the arrows, copy) nor the page. Use it for the keys `activateOn` does not take, such as Ctrl+Enter or Alt+T. |
+| `focus()` | Puts the keyboard focus on the table's body without scrolling the page. Returns `false` when nothing is drawn yet. |
+
+**A remembered page**
+
+| Option | What it does |
+|---|---|
+| `persistPage: true` | With `persistKey` and `stateStore`, saves the client page with the sort and filters, and opens the table on it again. If the rows have shrunk since, it opens on the last page. A new filter, and a sort under `resetPageOnSort`, go to the first page and save that. Rows given after mounting (`rows: []`, then `setData`) still open on the saved page. Server-side paging is not affected: its page is your `offset`. Off by default, because a key shared by different row sets, such as ad-hoc filters or search results, must not reopen on a page of the previous list. Without it, the saved state is exactly what 0.9.1 saves. |
+
 ### Scrollbars
 
 `installAutoScrollbars(root)` (from `@flexdesk/widgets`) replaces the browser's

@@ -388,12 +388,33 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {boolean|number} [keepWhileDetached=false] - With `autoDispose`: how long a table taken out of the page may stay out and still come back drawn. A number is a grace in ms; `true` keeps it for as long as it is out (it is disposed only by `dispose()`, and what it holds meanwhile is its own DOM — nothing on the document, and a follow timer that holds it weakly). A table put back within its grace is not disposed, however many tasks it was out.
  * @property {Object|Array|Function} [filterKinds] - FILTER CONTROLS THAT ARE NOT TEXT BOXES, per column (an object or array keyed by column index, or `(colIdx, header) => spec`). A spec is `'text'` (the 0.4 box), `{kind: 'chips', options: [{value, label, icon?, title?}], multiple?}` (one-of-N chips with counts — an option whose value is `''` or null means "no filter"), or `{create(ctx)}` / a function `create(ctx)` for the consumer's own control (a date range, a person): `ctx` is `{column, header, value, counts, setValue(v), table}`, and it returns `{el, setValue?(v), setCounts?(c), destroy?(), match?(cellValue, filterValue, row)}`. A filter's value may then be anything (an array, an object): `query.filters` forwards it as it is, and on the client the control's `match` decides (chips: equality, or membership for `multiple`). The control is built once and kept across renders, and is in the column-width measure: a column is never narrower than its control at its narrowest (the widest chip), and the cell wraps the rest.
  * @property {Function} [onFilterChange] - `(filters) => void` with `[{column, header, value}]`, whenever a column filter changes.
+ *
+ * ── STORY-0010, every one of them off unless asked for ─────────────────────
+ * @property {Array|Function} [contextMenuItems] - The consumer's own items in the table's right-click menu: an array, or `(row, rowIdx, ctx) => items`, asked on every right-click of a body row so the items can follow the row and the live selection. An item is `{label, icon?, action, disabled?, danger?, title?}` or `{separator: true}`, drawn as the copy items are (`disabled` greys it, `danger` is `twm-delete-node`). `ctx` is `{rowIdx, row, colIdx, value, selection, selectedRows}`: the right-clicked row (already selected by then), the right-clicked cell (`colIdx` null off a data column, the row-number gutter included), and the selection's original indices with their rows, 1:1. The items come first; with `copyable` the copy items follow behind a separator. Set, it installs the menu without `copyable` too.
+ * @property {Function} [onContextMenuAction] - `(action, rowIdx, row, ctx) => void`, when one of `contextMenuItems` is chosen; the menu is hidden first. The copy items never come here.
+ * @property {Function} [onRender] - `(table) => void`, at the end of every `render()` — for a consumer that shows something the rows decide (a count) outside the table. See `getDisplayedRows`.
+ * @property {boolean} [keyboardNav=false] - On the focused table, ArrowUp/ArrowDown move the selection one row through the rows of the page shown (in the order shown), Home/End to its first and last, and with Shift (a table that selects several rows) select the range from the anchor, as Shift-click does. The row moved to is scrolled into view (`scrollToRow`) and `onSelectionChange` is told. Needs `selectable`. Not on a key pressed in a control inside the table, nor with Ctrl, Cmd or Alt.
+ * @property {Function} [onRowKeyDown] - `(rowIdx, row, ev) => boolean|void`, for every key pressed on the focused table (not in a control inside it) BEFORE the table's own keys: `rowIdx`/`row` are the row Enter would open (the one row selected, the selection's anchor, else the active row — see `activateOn`), or null when none is drawn. Return `true` and the key is the consumer's: the table does nothing more with it (default prevented, propagation stopped — the page's keymap does not see it either). For the keys `activateOn` does not take: Ctrl+Enter, Alt+T, a "delete this row".
+ * @property {boolean} [persistPage=false] - With `persistKey`: the client page is saved with the sort and the filters, and opened again on mount (on the last page, if the rows have shrunk since). OFF by default: a key shared by DIFFERENT row sets (ad-hoc filters, search results) must not reopen on a page of the last list. A sort under `resetPageOnSort` and a new filter save the first page, as they show it. A server's page (`onPageChange`, `dataSource`) is the consumer's and is not kept.
  */
 
 /** C10. When the scroll box has no layout — mounted hidden, or a DOM with no
  *  layout engine — there is no viewport to measure, so the window is sized as if
  *  it were this tall. A ResizeObserver corrects it the moment a real size exists. */
 const VIRTUAL_FALLBACK_VIEWPORT_PX = 1000;
+
+/** The copy menu's two items — the whole right-click menu of a table without
+ *  `contextMenuItems`, and its tail with them (STORY-0010). */
+const COPY_MENU_HTML = `
+            <div class="twm-context-menu-item" data-action="copy-tsv">
+                <span class="material-symbols-outlined">content_copy</span>
+                <span class="label">Copy Row(s)</span>
+            </div>
+            <div class="twm-context-menu-item" data-action="copy-csv">
+                <span class="material-symbols-outlined">table</span>
+                <span class="label">Copy as CSV</span>
+            </div>
+        `;
 
 export class DataTable {
     /**
@@ -507,6 +528,14 @@ export class DataTable {
             keepWhileDetached: false,
             filterKinds: null,
             onFilterChange: null,
+            // STORY-0010. Off — or exactly the 0.9.1 behaviour — until set. The
+            // typedef says what each does.
+            contextMenuItems: null,
+            onContextMenuAction: null,
+            onRender: null,
+            keyboardNav: false,
+            onRowKeyDown: null,
+            persistPage: false,
             ...config,
         };
 
@@ -563,6 +592,11 @@ export class DataTable {
         this._tableEl = null;
         this._tbodyEl = null;
         this._contextMenuEl = null;
+        // STORY-0010. The right-click the custom items on show were built for,
+        // read again when one is chosen.
+        this._contextMenuCtx = null;
+        // STORY-0010 `keyboardNav`: the row the arrows last moved to.
+        this._navCursor = null;
         this._filterDropdownEl = null;
         this._filterDropdownCleanup = null;
 
@@ -660,6 +694,14 @@ export class DataTable {
             this._colWidthsSig = this._colSig();
             applied = true;
         }
+        // STORY-0010 `persistPage`. The page you were on — only when asked for:
+        // page 3 of one search is not a place in the next. Clamped by the first
+        // render that has rows, since they may have shrunk since it was saved.
+        if (this.config.persistPage && Number.isInteger(blob.offset) && blob.offset >= 0) {
+            this._state.offset = blob.offset;
+            this._clampRestoredPage = true;
+            applied = true;
+        }
         return applied;
     }
 
@@ -679,7 +721,15 @@ export class DataTable {
             sortAscending: this._state.sortAscending,
             filters: [...this._state.filters.entries()],
             colWidths: { ...this._colWidths },
+            // STORY-0010. Only for a table that asked: one that did not writes
+            // the 0.9.1 blob, key for key.
+            ...(this.config.persistPage ? { offset: this._state.offset } : {}),
         });
+    }
+
+    /** STORY-0010 `persistPage`: the client page changed, so save it. */
+    _savePage() {
+        if (this.config.persistPage) this._savePersisted();
     }
 
     /**
@@ -909,6 +959,7 @@ export class DataTable {
         const rowCount = this._getProcessedRows().length;
         const maxPage = Math.ceil(rowCount / this.config.pageSize) - 1;
         this._state.offset = Math.max(0, Math.min(page, maxPage)) * this.config.pageSize;
+        this._savePage();
         this.render();
     }
 
@@ -925,6 +976,7 @@ export class DataTable {
         const rowCount = this._getProcessedRows().length;
         const idx = Math.max(0, Math.min(rowIndex, rowCount - 1));
         this._state.offset = Math.floor(idx / this.config.pageSize) * this.config.pageSize;
+        this._savePage();
         this.render();
     }
 
@@ -1004,6 +1056,40 @@ export class DataTable {
     }
 
     /**
+     * STORY-0010. Give the table the keyboard focus (the body, where the arrow
+     * keys and `onRowKeyDown` listen) without scrolling the page. False when
+     * there is nothing drawn to focus.
+     * @returns {boolean}
+     */
+    focus() {
+        if (!this._tableEl) return false;
+        try { this._tableEl.focus({ preventScroll: true }); } catch (_) { return false; }
+        return true;
+    }
+
+    /** STORY-0010 `keyboardNav`: the original indices of the page shown, in
+     *  the order shown — every row held, when the page is a server's or there
+     *  are no pages. */
+    _pageOrder() {
+        this._getProcessedRows();
+        const order = this._processedIndexMap || [];
+        if (this._isServerSide() || !this.config.pagination || this._pagingConfig()) return order;
+        return order.slice(this._state.offset, this._state.offset + this.config.pageSize);
+    }
+
+    /**
+     * STORY-0010. The rows the table shows, as row arrays, in the order shown:
+     * filtered and sorted, across EVERY page — not only the one on screen. With
+     * server-side paging (`onPageChange`, `dataSource`) they are the page the
+     * consumer or the source gave, which is all the table holds. A copy:
+     * changing it changes nothing in the table.
+     * @returns {Array<Array>}
+     */
+    getDisplayedRows() {
+        return this._getProcessedRows().slice();
+    }
+
+    /**
      * Render the table
      */
     render() {
@@ -1052,6 +1138,20 @@ export class DataTable {
         // Detect column types if not cached
         if (this._columnTypes.length === 0) {
             this._columnTypes = this._detectColumnTypes();
+        }
+
+        // STORY-0010 `persistPage`. A restored page is put on a page boundary,
+        // and past the rows (they shrank since it was saved, or a restored
+        // filter narrowed them) it is the last page — by the first render that
+        // has rows to count, which for a board that sets its rows after it
+        // mounts is not the first render.
+        if (this._clampRestoredPage && rows.length > 0) {
+            this._clampRestoredPage = false;
+            if (!this._isServerSide() && !this._pagingConfig()) {
+                const size = this.config.pageSize;
+                const last = Math.max(0, Math.ceil(this._getProcessedRows().length / size) - 1) * size;
+                this._state.offset = Math.min(Math.floor(this._state.offset / size) * size, last);
+            }
         }
 
         // Create wrapper. Compact mode adds a modifier class that the
@@ -1288,7 +1388,8 @@ export class DataTable {
         // Install interactions (readonly only prevents editing, not selection/copy)
         if (rows.length > 0 && (this.config.selectable || this.config.copyable || !this.config.readonly
                                 || typeof this.config.onRowActivate === 'function'
-                                || typeof this.config.rowDetail === 'function')) {
+                                || typeof this.config.rowDetail === 'function'
+                                || typeof this.config.onRowKeyDown === 'function')) {
             this._installInteractions();
         }
 
@@ -1317,6 +1418,13 @@ export class DataTable {
                 this.setLoading(true);
             }
             if (this._following && !this._followTimer) this._armFollow();
+        }
+
+        // STORY-0010. Last, so the hook reads the table as drawn.
+        if (typeof this.config.onRender === 'function') {
+            try { this.config.onRender(this); } catch (err) {
+                console.error('[DataTable] onRender threw', err);
+            }
         }
     }
 
@@ -2312,6 +2420,7 @@ export class DataTable {
                 this._awaitWithSpinner(onPageChange(newOffset, pageSize));
             } else {
                 this._state.offset = newOffset;
+                this._savePage();
                 this.render();
             }
         };
@@ -4381,6 +4490,7 @@ export class DataTable {
             if (source) { this._sourceGoTo(newOffset); return; }
             if (server) { this._awaitWithSpinner(c.onPageChange(newOffset, pageSize)); return; }
             this._state.offset = newOffset;
+            this._savePage();
             this.render();
         };
 
@@ -5868,6 +5978,8 @@ export class DataTable {
         if (!this._tbodyEl || !this._tableEl) return;
 
         const { selectable, copyable } = this.config;
+        // STORY-0010. The consumer's own items install the menu by themselves.
+        const customMenu = this.config.contextMenuItems != null;
         const tbody = this._tbodyEl;
         const table = this._tableEl;
 
@@ -5911,6 +6023,70 @@ export class DataTable {
             this._disposers.push(() => tbody.removeEventListener('click', handleRowClick));
         }
 
+        // STORY-0010 `onRowKeyDown`. Bound BEFORE every keydown listener of the
+        // table's own (Enter's activation, the detail keys, copy, `keyboardNav`),
+        // so a key the consumer takes stops here.
+        if (typeof this.config.onRowKeyDown === 'function') {
+            const onRowKey = (ev) => {
+                if (ev.isComposing || isRowControl(ev.target, table)) return;
+                const tr = this._currentRowEl();
+                let handled = false;
+                try {
+                    handled = this.config.onRowKeyDown(tr ? tr.__rowIndex : null, tr ? tr.__row : null, ev) === true;
+                } catch (err) {
+                    console.error('[DataTable] onRowKeyDown threw', err);
+                }
+                if (handled) {
+                    ev.preventDefault();
+                    ev.stopImmediatePropagation();
+                }
+            };
+            table.addEventListener('keydown', onRowKey);
+            this._disposers.push(() => table.removeEventListener('keydown', onRowKey));
+        }
+
+        // STORY-0010 `keyboardNav`: the arrows move the selection through the
+        // rows of the page, in the order shown.
+        if (this.config.keyboardNav && selectable) {
+            const NAV_KEYS = ['ArrowDown', 'ArrowUp', 'Home', 'End'];
+            const onNavKey = (ev) => {
+                if (!NAV_KEYS.includes(ev.key) || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+                if (isRowControl(ev.target, table)) return;
+                const order = this._pageOrder();
+                if (!order.length) return;
+                ev.preventDefault();
+                const selected = this._state.selected;
+                // Where the arrows left off, while that row is still selected;
+                // else the anchor (a click since moved it).
+                const cur = this._navCursor != null && selected.has(this._navCursor)
+                    ? this._navCursor : this._state.anchorIndex;
+                let pos = order.indexOf(cur);
+                if (ev.key === 'Home') pos = 0;
+                else if (ev.key === 'End') pos = order.length - 1;
+                else if (pos === -1) pos = ev.key === 'ArrowDown' ? 0 : order.length - 1;
+                else pos = Math.max(0, Math.min(order.length - 1, pos + (ev.key === 'ArrowDown' ? 1 : -1)));
+                const idx = order[pos];
+                this._navCursor = idx;
+                const anchorPos = order.indexOf(this._state.anchorIndex);
+                if (ev.shiftKey && selectable !== 'single' && anchorPos !== -1) {
+                    // Shift: the range between the fixed anchor and the moving
+                    // row, as Shift-click selects it.
+                    const [a, b] = anchorPos <= pos ? [anchorPos, pos] : [pos, anchorPos];
+                    selected.clear();
+                    for (let i = a; i <= b; i++) selected.add(order[i]);
+                } else {
+                    selected.clear();
+                    selected.add(idx);
+                    this._state.anchorIndex = idx;
+                }
+                this._updateRowSelection();
+                this._notifySelectionChange();
+                this.scrollToRow(idx);
+            };
+            table.addEventListener('keydown', onNavKey);
+            this._disposers.push(() => table.removeEventListener('keydown', onNavKey));
+        }
+
         // 0.5.0 `onRowActivate`. Bound AFTER the selection handler on the same
         // element, so a row is selected before it is opened — the listener
         // order is the guarantee. `onRowClick` stays exactly where it was (on
@@ -5938,7 +6114,7 @@ export class DataTable {
             this._disposers.push(() => table.removeEventListener('keydown', onDetailKey));
         }
 
-        if (copyable) {
+        if (copyable || customMenu) {
             const handleContextMenu = (event) => {
                 const rowEl = event.target.closest('tr');
                 if (!rowEl) {
@@ -5952,10 +6128,25 @@ export class DataTable {
                     return;
                 }
 
+                // STORY-0010. The consumer's items, asked with the selection the
+                // right-click is about to make, so `ctx` describes the rows the
+                // person will act on. None, and no copy items: the page's menu.
+                const idx = rowEl.__rowIndex;
+                let custom = null;
+                if (customMenu) {
+                    const selection = idx !== undefined && !this._state.selected.has(idx)
+                        ? [idx] : this.getSelection();
+                    const ctx = this._contextMenuCtxFor(rowEl, event.target, selection);
+                    custom = { ctx, items: this._customMenuItems(ctx) };
+                }
+                if (!copyable && !custom.items.length) {
+                    this._hideContextMenu();
+                    return;
+                }
+
                 event.preventDefault();
                 event.stopPropagation();
 
-                const idx = rowEl.__rowIndex;
                 if (idx !== undefined && !this._state.selected.has(idx)) {
                     this._state.selected.clear();
                     this._state.selected.add(idx);
@@ -5965,11 +6156,14 @@ export class DataTable {
                 }
 
                 try { table.focus({ preventScroll: true }); } catch (_) {}
-                setTimeout(() => this._showContextMenu(event.clientX, event.clientY), 0);
+                setTimeout(() => this._showContextMenu(event.clientX, event.clientY, custom), 0);
             };
 
             tbody.addEventListener('contextmenu', handleContextMenu);
             this._disposers.push(() => tbody.removeEventListener('contextmenu', handleContextMenu));
+        }
+
+        if (copyable) {
 
             const handleKeyDown = (event) => {
                 const ctrlLike = event.ctrlKey || event.metaKey;
@@ -6035,21 +6229,26 @@ export class DataTable {
         menu.style.display = 'none';
         menu.style.position = 'fixed';
         menu.style.zIndex = '10001';
-        menu.innerHTML = `
-            <div class="twm-context-menu-item" data-action="copy-tsv">
-                <span class="material-symbols-outlined">content_copy</span>
-                <span class="label">Copy Row(s)</span>
-            </div>
-            <div class="twm-context-menu-item" data-action="copy-csv">
-                <span class="material-symbols-outlined">table</span>
-                <span class="label">Copy as CSV</span>
-            </div>
-        `;
+        menu.innerHTML = COPY_MENU_HTML;
         document.body.appendChild(menu);
 
         menu.addEventListener('click', (event) => {
             const item = event.target.closest('.twm-context-menu-item');
             if (!item || item.classList.contains('disabled')) return;
+            // STORY-0010. One of the consumer's items: dispatched off the item
+            // itself, not `data-action`, so an action is free to be called
+            // 'copy-tsv'. The menu goes first — the action may open a dialog.
+            if (item.__cmItem) {
+                event.stopPropagation();
+                event.preventDefault();
+                const ctx = this._contextMenuCtx;
+                this._hideContextMenu();
+                if (!ctx || typeof this.config.onContextMenuAction !== 'function') return;
+                try { this.config.onContextMenuAction(item.__cmItem.action, ctx.rowIdx, ctx.row, ctx); } catch (err) {
+                    console.error('[DataTable] onContextMenuAction threw', err);
+                }
+                return;
+            }
             const action = item.getAttribute('data-action');
             if (action === 'copy-tsv') this.copyToClipboard('tsv');
             else if (action === 'copy-csv') this.copyToClipboard('csv');
@@ -6112,12 +6311,15 @@ export class DataTable {
         this._disarmContextMenuGlobals();
     }
 
-    _showContextMenu(clientX, clientY) {
+    _showContextMenu(clientX, clientY, custom = null) {
         const menu = this._ensureContextMenu();
+        this._drawContextMenuItems(menu, custom);
         this._armContextMenuGlobals();
         const hasSelection = this._state.selected.size > 0;
 
+        // The copy items need a selection; a consumer's item says for itself.
         menu.querySelectorAll('.twm-context-menu-item').forEach(item => {
+            if (item.__cmItem) return;
             item.classList.toggle('disabled', !hasSelection);
             item.style.pointerEvents = hasSelection ? '' : 'none';
         });
@@ -6136,6 +6338,106 @@ export class DataTable {
 
         menu.style.left = `${left}px`;
         menu.style.top = `${top}px`;
+    }
+
+    /**
+     * STORY-0010. The `ctx` handed to `contextMenuItems` and, later, to
+     * `onContextMenuAction`: the right-clicked row and cell, and `selection`
+     * (original indices, ascending) with its rows 1:1.
+     */
+    _contextMenuCtxFor(rowEl, target, selection) {
+        const rows = this.config.rows || [];
+        const rowIdx = rowEl.__rowIndex === undefined ? null : rowEl.__rowIndex;
+        const row = rowIdx === null ? null : (rows[rowIdx] ?? null);
+        // The DATA column under the pointer. Only a cell of THIS row counts (a
+        // `renderCell` may plant a table of its own), and the row-number gutter
+        // is no data column.
+        let colIdx = null;
+        const cellEl = target?.closest?.('td');
+        if (cellEl && cellEl.parentNode === rowEl) {
+            const domIdx = Array.prototype.indexOf.call(rowEl.children, cellEl);
+            const dataIdx = this.config.showRowNumbers ? domIdx - 1 : domIdx;
+            if (dataIdx >= 0) colIdx = dataIdx;
+        }
+        const sel = [...selection].sort((a, b) => a - b);
+        return {
+            rowIdx,
+            row,
+            colIdx,
+            value: colIdx !== null && row ? row[colIdx] : null,
+            selection: sel,
+            selectedRows: sel.map((i) => rows[i]),
+        };
+    }
+
+    /** STORY-0010. `contextMenuItems` for one right-click: none off a data row
+     *  (the empty row), and none from a function that threw. */
+    _customMenuItems(ctx) {
+        if (ctx.rowIdx === null) return [];
+        const spec = this.config.contextMenuItems;
+        let items = spec;
+        if (typeof spec === 'function') {
+            try { items = spec(ctx.row, ctx.rowIdx, ctx); } catch (err) {
+                console.error('[DataTable] contextMenuItems threw', err);
+                items = null;
+            }
+        }
+        return Array.isArray(items) ? items.filter(Boolean) : [];
+    }
+
+    /**
+     * STORY-0010. Fill the menu for this right-click: the consumer's items,
+     * then (with `copyable`) a separator and the copy items. Without custom
+     * items the menu is the 0.9.1 copy menu, and is only rebuilt when the last
+     * right-click drew custom ones into it. Built with DOM calls, not markup:
+     * the labels are the consumer's text.
+     */
+    _drawContextMenuItems(menu, custom) {
+        this._contextMenuCtx = custom ? custom.ctx : null;
+        if (!custom) {
+            if (this._contextMenuCustom) {
+                menu.innerHTML = COPY_MENU_HTML;
+                this._contextMenuCustom = false;
+            }
+            return;
+        }
+        this._contextMenuCustom = true;
+        menu.textContent = '';
+        for (const item of custom.items) {
+            if (item.separator) {
+                const sep = document.createElement('div');
+                sep.className = 'twm-context-menu__separator';
+                menu.appendChild(sep);
+                continue;
+            }
+            const el = document.createElement('div');
+            el.className = 'twm-context-menu-item';
+            if (item.action != null) el.setAttribute('data-action', String(item.action));
+            if (item.danger) el.classList.add('twm-delete-node');
+            if (item.disabled) {
+                el.classList.add('disabled');
+                el.style.pointerEvents = 'none';
+                el.setAttribute('aria-disabled', 'true');
+            }
+            if (item.title) el.title = String(item.title);
+            const icon = document.createElement('span');
+            icon.className = 'material-symbols-outlined';
+            icon.textContent = item.icon == null ? '' : String(item.icon);
+            const label = document.createElement('span');
+            label.className = 'label';
+            label.textContent = item.label == null ? '' : String(item.label);
+            el.append(icon, label);
+            el.__cmItem = item;
+            menu.appendChild(el);
+        }
+        if (this.config.copyable) {
+            if (custom.items.length) {
+                const sep = document.createElement('div');
+                sep.className = 'twm-context-menu__separator';
+                menu.appendChild(sep);
+            }
+            menu.insertAdjacentHTML('beforeend', COPY_MENU_HTML);
+        }
     }
 
     _teardownContextMenu() {

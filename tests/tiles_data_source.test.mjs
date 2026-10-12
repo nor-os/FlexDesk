@@ -90,6 +90,12 @@ for (const key of ['window', 'document', 'HTMLElement', 'Element', 'Node', 'Even
     }
 }
 if (globalThis.PointerEvent === undefined) globalThis.PointerEvent = dom.window.MouseEvent;
+// Node >= 19 has an `Event` and a `CustomEvent` of its own, which the loop
+// above leaves in place — and jsdom's `dispatchEvent` refuses Node's (the
+// cogwheel's `tile:config-request`: "parameter 1 is not of type 'Event'").
+// The DOM's events are jsdom's.
+globalThis.Event = dom.window.Event;
+globalThis.CustomEvent = dom.window.CustomEvent;
 if (globalThis.ResizeObserver === undefined) {
     globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
 }

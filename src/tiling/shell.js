@@ -95,13 +95,17 @@ import { openForm } from '../ui/components/modal.js';
  *                                      only the tab on screen, leaving its
  *                                      siblings in the tile. Default off: the
  *                                      whole pane floats, strip and all (R8).
- * @param {'top'|'bottom'} [cfg.tabLayout] C22. Where a multi-tab leaf draws its
+ * @param {'top'|'bottom'|'header'} [cfg.tabLayout] C22. Where a multi-tab leaf
+ *                                      draws its
  *                                      tabs. `'bottom'` is the framework's own
  *                                      spreadsheet strip under the tile body
  *                                      and is the DEFAULT, so no existing
  *                                      embedder's panes rearrange on upgrade;
  *                                      `'top'` mounts the editor tab bar
- *                                      between the chrome and the body. The
+ *                                      between the chrome and the body;
+ *                                      `'header'` (C38) mounts it inside the
+ *                                      chrome in place of the title, on every
+ *                                      tile, with a `+` for a new tab. The
  *                                      renderer mirrors this onto `root` as
  *                                      `data-twm-tabs` and watches it, so an
  *                                      embedder whose settings pane holds only

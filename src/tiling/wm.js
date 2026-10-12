@@ -177,6 +177,24 @@ export class WindowManager {
         this.renderer.setTabLayout(layout);
     }
 
+    /** C38. Open a new tab in a tile and show it. It holds the taxonomy root —
+     *  what a split seeds its new pane with, so "a new tab" and "a new pane"
+     *  start in the same place. Defaults to the focused tile. A panel tile
+     *  grows no tabs (`TileTree.appendLeafTab`); then this does nothing and
+     *  answers -1, else the new tab's index. */
+    newTab(leafId = null) {
+        const tree = this._tree();
+        const id = leafId ?? tree.focusedLeafId;
+        const seed = this._rootLeaf();
+        const idx = tree.appendLeafTab(id, seed.content, seed.title);
+        if (idx < 0) return -1;
+        tree.focus(id);
+        this.renderer.render();
+        this._persist();
+        this._notifyChange('tab-new');
+        return idx;
+    }
+
     /** Emit on bus + call onChange. Use this instead of the bare callback
      *  so other surfaces (palette, top-bar toggles, page shortcuts) can
      *  subscribe through the existing event system. */
@@ -3447,6 +3465,12 @@ export class WindowManager {
             this.renderer.render();
             this._persist();
             this._notifyChange('twm-tab-close');
+            return;
+        }
+        if (action === 'new') {
+            // C38. The `header` strip's `+`. `newTab` renders, persists and
+            // notifies on its own.
+            this.newTab(leafId);
             return;
         }
         if (action === 'move') {

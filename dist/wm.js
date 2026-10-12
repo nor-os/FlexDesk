@@ -2689,7 +2689,7 @@ function createPageFactories({ eventBus = null, events = {}, refreshOn = {} } = 
 
 // src/tiling/tile_renderer.js
 var SPLITTER_PX = 4;
-var TAB_LAYOUTS = ["bottom", "top"];
+var TAB_LAYOUTS = ["bottom", "top", "header"];
 var DEFAULT_TAB_LAYOUT = "bottom";
 function _normalizeTabLayout(value) {
   return TAB_LAYOUTS.includes(value) ? value : DEFAULT_TAB_LAYOUT;
@@ -2702,7 +2702,7 @@ function _tabKeyIndex(key) {
   return Number.isInteger(n) && n >= 0 ? n : -1;
 }
 var TILE_LIFT_PX = 24;
-var CHROME_NO_FLOAT = "button, .twm-leaf__tab";
+var CHROME_NO_FLOAT = "button, .twm-leaf__tab, .notebook-tabs .tab";
 function _isDownwardPull(down, sideways) {
   return down > 0 && sideways <= down;
 }
@@ -2877,6 +2877,7 @@ var TileRenderer = class {
     if (entry && entry.kindKey === kindKey) {
       entry.titleEl.textContent = leaf.title || (leaf.content ? leaf.content.kind : "empty");
       _paintLeafIcon(entry.iconEl, leaf, entry.content, this.ctx);
+      if (this.tabLayout === "header") this._refreshHeaderLabels(leaf, entry);
       return entry.wrapEl;
     }
     if (entry) {
@@ -2928,7 +2929,14 @@ var TileRenderer = class {
     if (!Array.isArray(leaf.tabs) || leaf.tabs.length <= 1) {
       tabBar.classList.add("twm-leaf__tabbar--hidden");
     }
-    wrap.append(chrome, ...this.tabLayout === "top" ? [tabBar, body] : [body, tabBar]);
+    wrap.append(chrome, body, tabBar);
+    this._placeTabBar({
+      wrapEl: wrap,
+      bodyEl: body,
+      chromeEl: chrome,
+      titleEl: title,
+      tabBarEl: tabBar
+    });
     wrap.addEventListener("mousedown", (e) => {
       if (e.target.closest(".twm-splitter")) return;
       this.tree.focus(leaf.id);
@@ -3148,9 +3156,10 @@ var TileRenderer = class {
    *  attached element is a re-parent, not a rebuild — the body keeps its
    *  DOM, its listeners and its scroll. */
   _placeTabBar(entry) {
-    const { wrapEl, bodyEl, tabBarEl } = entry;
+    const { wrapEl, bodyEl, tabBarEl, chromeEl, titleEl } = entry;
     if (!wrapEl || !tabBarEl || !bodyEl) return;
-    if (this.tabLayout === "top") wrapEl.insertBefore(tabBarEl, bodyEl);
+    if (this.tabLayout === "header" && chromeEl && titleEl) titleEl.after(tabBarEl);
+    else if (this.tabLayout === "top") wrapEl.insertBefore(tabBarEl, bodyEl);
     else wrapEl.appendChild(tabBarEl);
   }
   /** Tear down the `top` layout's component, if this leaf has one. Safe to
@@ -3173,16 +3182,42 @@ var TileRenderer = class {
     const bar = entry.tabBarEl;
     if (!bar) return;
     const tabs = Array.isArray(leaf.tabs) ? leaf.tabs : [];
+    const header = this.tabLayout === "header";
     bar.classList.toggle("twm-leaf__tabbar--top", this.tabLayout === "top");
-    if (tabs.length <= 1) {
+    bar.classList.toggle("twm-leaf__tabbar--header", header);
+    const isPanel = String(leaf.content?.kind || "").startsWith("panel:");
+    const inHeader = header && !isPanel && !!leaf.content && tabs.length >= 1;
+    entry.wrapEl?.classList.toggle("twm-leaf--tabs-in-header", inHeader);
+    if (!inHeader && tabs.length <= 1) {
       bar.classList.add("twm-leaf__tabbar--hidden");
       this._disposeTabStrip(entry);
       bar.innerHTML = "";
       return;
     }
     bar.classList.remove("twm-leaf__tabbar--hidden");
-    if (this.tabLayout === "top") this._renderTopTabBar(leaf, entry, tabs);
-    else this._renderBottomTabBar(leaf, entry, tabs);
+    if (this.tabLayout === "bottom") this._renderBottomTabBar(leaf, entry, tabs);
+    else this._renderTopTabBar(leaf, entry, tabs);
+  }
+  /** C38. The labels the `header` strip shows for `leaf`, in one string, so
+   *  a repaint can tell whether anything it draws has changed. */
+  _headerLabels(leaf, entry) {
+    const tabs = Array.isArray(leaf.tabs) ? leaf.tabs : [];
+    const activeIdx = Math.max(0, Math.min(tabs.length - 1, leaf.activeTabIdx || 0));
+    return tabs.map((t, i) => this._tabLabel(t, i === activeIdx, entry)).join("\n");
+  }
+  /** C38. A cached leaf is not re-mounted, so a tab renamed in the tree
+   *  (`TileTree.renameMatchingTabs`) reaches the strip only through here. */
+  _refreshHeaderLabels(leaf, entry) {
+    const labels = this._headerLabels(leaf, entry);
+    if (entry.headerLabels === labels) return;
+    this._renderTabBar(leaf, entry);
+  }
+  /** What a tab in the `top` or `header` strip is called. A tab with no
+   *  title of its own falls back, when it is the active one, to the title
+   *  its content gave at mount — the string the chrome title would have
+   *  shown, and under `header` the chrome title is hidden (C38). */
+  _tabLabel(t, active, entry) {
+    return t.title || active && entry?.content?.title || t.kind || "";
   }
   /**
    * C33. THE CHROME IS THE DRAG SOURCE FOR A LEAF THAT HAS ONE TAB.
@@ -3218,12 +3253,13 @@ var TileRenderer = class {
     const tabs = Array.isArray(leaf.tabs) ? leaf.tabs : [];
     const isPanel = String(leaf.content?.kind || "").startsWith("panel:");
     const vetoed = this.leafChrome(leaf.id)?.promote === false;
-    const on = tabs.length === 1 && !isPanel && !vetoed;
+    const on = tabs.length === 1 && !isPanel && !vetoed && this.tabLayout !== "header";
     if (on) chrome.setAttribute("draggable", "true");
     else chrome.removeAttribute("draggable");
     if (chrome.__twmTabDragBound) return;
     chrome.__twmTabDragBound = true;
     chrome.addEventListener("dragstart", (ev) => {
+      if (entry.tabBarEl?.contains(ev.target)) return;
       if (ev.target?.closest?.(CHROME_NO_FLOAT)) {
         ev.preventDefault();
         return;
@@ -3282,11 +3318,27 @@ var TileRenderer = class {
         );
       }, true);
     }
+    if (this.tabLayout === "header" && !bar.querySelector(".twm-leaf__tab-new")) {
+      const add = document.createElement("button");
+      add.type = "button";
+      add.className = "twm-leaf__tab-new";
+      add.dataset.action = "tab-new";
+      add.title = "New tab";
+      add.setAttribute("aria-label", "New tab");
+      add.innerHTML = '<span class="material-symbols-outlined">add</span>';
+      add.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        this.ctx.onLeafTabAction?.(leaf.id, "new", {});
+      });
+      bar.appendChild(add);
+    }
     const activeIdx = Math.max(0, Math.min(tabs.length - 1, leaf.activeTabIdx || 0));
+    entry.headerLabels = this._headerLabels(leaf, entry);
     entry.tabStrip.update(
       tabs.map((t, i) => ({
         filePath: _tabKey(i),
-        label: t.title || t.kind || "",
+        label: this._tabLabel(t, i === activeIdx, entry),
         // The component's `fileType` picks a glyph out of a static map
         // of FILE kinds. A tile's kinds are the embedder's, and the
         // taxonomy already answers for them — see `_paintTopTabs`.
@@ -3299,7 +3351,7 @@ var TileRenderer = class {
       })),
       _tabKey(activeIdx)
     );
-    this._paintTopTabs(entry.tabStripHostEl, tabs);
+    this._paintTopTabs(entry.tabStripHostEl, tabs, activeIdx, entry);
   }
   /**
    * The two things `NotebookTabBar` derives from a vocabulary a tile does not
@@ -3318,13 +3370,13 @@ var TileRenderer = class {
    * rendered last. The class names used here are the component's published
    * contract, stated in its header comment.
    */
-  _paintTopTabs(hostEl, tabs) {
+  _paintTopTabs(hostEl, tabs, activeIdx = -1, entry = null) {
     if (!hostEl) return;
     const els = hostEl.querySelectorAll(".tab");
     els.forEach((el, i) => {
       const spec = tabs[i];
       if (!spec) return;
-      el.title = spec.title || spec.kind || "";
+      el.title = this._tabLabel(spec, i === activeIdx, entry);
       const icon = spec.kind ? this.ctx?.taxonomy?.meta?.(spec.kind)?.icon : null;
       const glyph = el.querySelector(".tab-icon");
       if (glyph && icon) glyph.textContent = icon;
@@ -4088,6 +4140,23 @@ var WindowManager = class _WindowManager {
    *  under its own key and passes it back as `createShell({ tabLayout })`. */
   setTabLayout(layout) {
     this.renderer.setTabLayout(layout);
+  }
+  /** C38. Open a new tab in a tile and show it. It holds the taxonomy root —
+   *  what a split seeds its new pane with, so "a new tab" and "a new pane"
+   *  start in the same place. Defaults to the focused tile. A panel tile
+   *  grows no tabs (`TileTree.appendLeafTab`); then this does nothing and
+   *  answers -1, else the new tab's index. */
+  newTab(leafId = null) {
+    const tree = this._tree();
+    const id = leafId ?? tree.focusedLeafId;
+    const seed = this._rootLeaf();
+    const idx = tree.appendLeafTab(id, seed.content, seed.title);
+    if (idx < 0) return -1;
+    tree.focus(id);
+    this.renderer.render();
+    this._persist();
+    this._notifyChange("tab-new");
+    return idx;
   }
   /** Emit on bus + call onChange. Use this instead of the bare callback
    *  so other surfaces (palette, top-bar toggles, page shortcuts) can
@@ -6704,6 +6773,10 @@ var WindowManager = class _WindowManager {
       this.renderer.render();
       this._persist();
       this._notifyChange("twm-tab-close");
+      return;
+    }
+    if (action === "new") {
+      this.newTab(leafId);
       return;
     }
     if (action === "move") {

@@ -4844,6 +4844,81 @@ button.twm-about-dialog__btn--close:focus {
 .twm-window-body { flex: 1 1 auto; min-height: 0; min-width: 0; }
 
 
+/* ══ C38. THE TABS ARE THE TITLE ═════════════════════════════════════
+ *
+ * `tabLayout: 'header'` mounts the same strip INSIDE the chrome, in place of
+ * the title, on every content tile (`tile_renderer.js`, C38). The renderer
+ * marks such a leaf `twm-leaf--tabs-in-header`; a panel, which has no tabs,
+ * is not marked and keeps its title.
+ *
+ * Every selector here is two classes or more, so none of it depends on
+ * whether this sheet or the one holding `.twm-leaf__chrome` loads first.
+ *
+ * The chrome grows to the editor strip's 26px rather than the strip shrinking
+ * to 22: one 26px row replaces a 22px row plus a 26px one. */
+.twm-leaf--tabs-in-header > .twm-leaf__chrome {
+    height: 26px;
+    padding-left: 0;
+    gap: var(--space-sm);
+}
+.twm-leaf--tabs-in-header > .twm-leaf__chrome > .twm-leaf__title,
+.twm-leaf--tabs-in-header > .twm-leaf__chrome > .twm-leaf__icon.material-symbols-outlined {
+    display: none;
+}
+
+/* The strip takes the room the title had, and the actions keep the right. */
+.twm-leaf__tabbar.twm-leaf__tabbar--header {
+    flex: 1 1 auto;
+    align-self: stretch;
+    min-width: 0;
+    height: auto;
+    padding: 0;
+    border: none;
+    background: transparent;
+    overflow: hidden;
+}
+
+/* `0 1 auto`, not the top strip's `1 1 auto`: the list is only as wide as
+ * its tabs, so the `+` sits right after the last one rather than at the far
+ * end of the chrome. It still shrinks, and scrolls, when the tabs outgrow it. */
+.twm-leaf__tabbar--header > .tabs.notebook-tabs {
+    flex: 0 1 auto;
+    min-width: 0;
+    background: transparent;
+}
+
+/* An inactive tab is the chrome's colour, focused or not, so the active one —
+ * the body's colour — is the only box in the row. */
+.twm-leaf__tabbar--header .notebook-tabs > .tab:not(.active) { background: transparent; }
+.twm-leaf__tabbar--header .notebook-tabs > .tab:not(.active):hover {
+    background: var(--state-hover);
+    color: var(--text-primary);
+}
+
+.twm-leaf__tabbar--header > .twm-leaf__tab-new {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+.twm-leaf__tabbar--header > .twm-leaf__tab-new:hover {
+    background: var(--state-hover);
+    color: var(--text-primary);
+}
+/* Two classes, for the Material Symbols tie — see `.twm-leaf__icon`. */
+.twm-leaf__tab-new .material-symbols-outlined {
+    font-size: 16px;
+    line-height: 1;
+}
+
+
 /* ══ NotebookTabBar ══════════════════════════════════════════════════
  *
  * A CLASS ONE SIDE KNOWS AND THE OTHER HAD NEVER HEARD OF — the fifth in this

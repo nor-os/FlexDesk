@@ -121,6 +121,7 @@ await createShell({
     promoteInPlace: true,    // a window floated out of a tile stays inside that tile's pane
     backToOpenList: true,    // Back in a record opened beside its list closes onto that list
     floatActiveTab: true,    // floating a tile takes the tab on screen, not the whole pane
+    tabLayout: 'header',     // tabs in the tile header, in place of its title, with a + (0.8.0)
     chrome: {
         topNav: document.getElementById('nav'),
         zoom:   document.getElementById('status-bar'),   // content zoom, 50–200%
@@ -150,6 +151,18 @@ first, and a record with no such list beside it still walks up in place.
 views of one pane. The float button, Alt+F and the tile menu take only the tab
 on screen and leave its siblings in the tile, so the window holds one tab and
 draws no strip. Without it the whole pane floats, strip and all.
+
+**`tabLayout`** says where a tile draws its tabs. `'bottom'` (the default) is
+the spreadsheet strip under the body, shown from two tabs. `'top'` is the
+editor tab bar between the header and the body, also from two tabs.
+`'header'` (0.8.0) puts that tab bar inside the header in place of the title,
+on every tile, one tab included, with a `+` after the last tab that opens the
+taxonomy root in a new tab (`wm.newTab(leafId)`, the same seed a split uses).
+A panel tile has no tabs and keeps its title. Under `'header'` the tab, not
+the header, is what you drag to move a single-tab pane; the empty part of the
+header still floats the pane on a pull-down or a double-click. Set
+`data-twm-tabs` on the shell's root, or call `wm.setTabLayout()`, to switch
+live; nothing mounted in a tile is unmounted.
 
 **Back and the breadcrumb are one rule.** `wm.navigateBack()` (Backspace) and
 `wm.navigateUp(kind, props, { ctx })` (every breadcrumb crumb) share it. With

@@ -22,6 +22,34 @@
  *              tab strip, mounted BETWEEN the chrome and the body. The chrome
  *              is the pane's identity — its glyph, its title, its verbs — and
  *              the tabs are its contents, so the tabs go under it, not over.
+ *   `header` — C38. The same `NotebookTabBar`, mounted INSIDE the chrome in
+ *              place of the title, with a `+` after the last tab. One strip
+ *              instead of two, so a pane spends one row on chrome, not two.
+ *
+ * ── C38. THE TABS ARE THE TITLE ─────────────────────────────────────────
+ *
+ * *"Replace the title with one element with the tab — the title is always in
+ * the tabs and we always can create more tabs. This is a more compact layout."*
+ *
+ * Under `header` the strip is drawn for EVERY content leaf, one tab included,
+ * because it is now the only place the pane's name appears. The chrome's own
+ * title and glyph are hidden by a wrap class (`twm-leaf--tabs-in-header`), not
+ * removed: a panel leaf has no tabs to draw, keeps its title, and a switch
+ * back to another layout finds the title element where it left it.
+ *
+ * The active tab's label is the CONTENT's title when the factory returned one
+ * — the string the chrome title used to show — so nothing the title said is
+ * lost by moving it into the tab.
+ *
+ * `+` appends a tab holding the taxonomy root, which is what a split seeds the
+ * new pane with (`wm.newTab`). It is a button, so `CHROME_NO_FLOAT` already
+ * makes it inert to the pull and the double-click.
+ *
+ * The chrome stops being a drag source here (C33): a single-tab leaf now has a
+ * tab to grab, and a strip that names the tab is the reason C33 limited the
+ * chrome to the case where there was none. A drag that begins on a tab
+ * belongs to the strip, so the chrome's `dragstart` lets it pass untouched.
+ * The empty chrome around the tabs still takes the pull and the double-click.
  *
  * The tab bar is reused rather than reimplemented. It already has the
  * behaviours a top strip is expected to have — drag-to-reorder, a scrolling
@@ -153,9 +181,9 @@
 import { NotebookTabBar } from '../editor/notebook_tab_bar.js';
 
 const SPLITTER_PX = 4;
-/** The two tab layouts, and the framework's default. `bottom` is the default
+/** The three tab layouts, and the framework's default. `bottom` is the default
  *  because it is what every existing embedder already renders. */
-const TAB_LAYOUTS = ['bottom', 'top'];
+const TAB_LAYOUTS = ['bottom', 'top', 'header'];
 const DEFAULT_TAB_LAYOUT = 'bottom';
 
 /** Anything that is not one of the two layouts is the default rather than an
@@ -195,8 +223,9 @@ const TILE_LIFT_PX = 24;
  *
  *  A tile's chrome is a grip with controls sitting on it — the split, float
  *  and close buttons on the right, whatever the content contributed on the
- *  left, and (defensively; the strip is a sibling of the chrome today, not a
- *  child) a tab. Neither the downward pull nor the double-click may fire when
+ *  left, and a tab — the strip is a CHILD of the chrome under the `header`
+ *  layout (C38), and a sibling of it otherwise. Neither the downward pull nor
+ *  the double-click may fire when
  *  the press landed on one of those.
  *
  *  ONE CONSTANT, TWO LISTENERS, and that is the point of writing it down
@@ -204,7 +233,7 @@ const TILE_LIFT_PX = 24;
  *  about where the door is are worse than one door. A button added to this
  *  strip later must become inert under BOTH gestures at once, and it cannot
  *  do that if each of them carries its own copy of the rule. */
-const CHROME_NO_FLOAT = 'button, .twm-leaf__tab';
+const CHROME_NO_FLOAT = 'button, .twm-leaf__tab, .notebook-tabs .tab';
 
 /**
  * IS THIS GESTURE THE DOWNWARD PULL? Asked in TWO places that must not be
@@ -498,6 +527,11 @@ export class TileRenderer {
             // that can change while the content stays put has to be refreshed
             // here or it is frozen at whatever it was when the tile was built.
             _paintLeafIcon(entry.iconEl, leaf, entry.content, this.ctx);
+            // C38. …and under `header` the tabs ARE the title, so a renamed
+            // tab is a renamed title and has to be refreshed for the same
+            // reason. Only when a label changed: rebuilding the strip's tabs
+            // on every repaint would detach a tab mid-drag.
+            if (this.tabLayout === 'header') this._refreshHeaderLabels(leaf, entry);
             return entry.wrapEl;
         }
         // Build fresh.
@@ -589,9 +623,11 @@ export class TileRenderer {
         }
         // C22. CHROME FIRST IN BOTH LAYOUTS. The chrome is the pane's identity
         // and the tabs are what is inside it; a strip above the title would say
-        // the tabs own the pane rather than the other way round.
-        wrap.append(chrome, ...(this.tabLayout === 'top' ? [tabBar, body]
-                                                        : [body, tabBar]));
+        // the tabs own the pane rather than the other way round. C38's
+        // `header` puts the strip inside the chrome — `_placeTabBar` decides.
+        wrap.append(chrome, body, tabBar);
+        this._placeTabBar({ wrapEl: wrap, bodyEl: body, chromeEl: chrome,
+                            titleEl: title, tabBarEl: tabBar });
 
         wrap.addEventListener('mousedown', (e) => {
             if (e.target.closest('.twm-splitter')) return;
@@ -947,9 +983,12 @@ export class TileRenderer {
      *  attached element is a re-parent, not a rebuild — the body keeps its
      *  DOM, its listeners and its scroll. */
     _placeTabBar(entry) {
-        const { wrapEl, bodyEl, tabBarEl } = entry;
+        const { wrapEl, bodyEl, tabBarEl, chromeEl, titleEl } = entry;
         if (!wrapEl || !tabBarEl || !bodyEl) return;
-        if (this.tabLayout === 'top') wrapEl.insertBefore(tabBarEl, bodyEl);
+        // C38. Right after the title, so it takes the title's place and the
+        // content's actions and the structural buttons stay on the right.
+        if (this.tabLayout === 'header' && chromeEl && titleEl) titleEl.after(tabBarEl);
+        else if (this.tabLayout === 'top') wrapEl.insertBefore(tabBarEl, bodyEl);
         else wrapEl.appendChild(tabBarEl);
     }
 
@@ -975,16 +1014,48 @@ export class TileRenderer {
         const bar = entry.tabBarEl;
         if (!bar) return;
         const tabs = Array.isArray(leaf.tabs) ? leaf.tabs : [];
+        const header = this.tabLayout === 'header';
         bar.classList.toggle('twm-leaf__tabbar--top', this.tabLayout === 'top');
-        if (tabs.length <= 1) {
+        bar.classList.toggle('twm-leaf__tabbar--header', header);
+        // C38. One tab is enough under `header`: the strip is the title. A
+        // panel, or a leaf with no content, has no tab to name and keeps the
+        // chrome's title.
+        const isPanel = String(leaf.content?.kind || '').startsWith('panel:');
+        const inHeader = header && !isPanel && !!leaf.content && tabs.length >= 1;
+        entry.wrapEl?.classList.toggle('twm-leaf--tabs-in-header', inHeader);
+        if (!inHeader && tabs.length <= 1) {
             bar.classList.add('twm-leaf__tabbar--hidden');
             this._disposeTabStrip(entry);
             bar.innerHTML = '';
             return;
         }
         bar.classList.remove('twm-leaf__tabbar--hidden');
-        if (this.tabLayout === 'top') this._renderTopTabBar(leaf, entry, tabs);
-        else this._renderBottomTabBar(leaf, entry, tabs);
+        if (this.tabLayout === 'bottom') this._renderBottomTabBar(leaf, entry, tabs);
+        else this._renderTopTabBar(leaf, entry, tabs);
+    }
+
+    /** C38. The labels the `header` strip shows for `leaf`, in one string, so
+     *  a repaint can tell whether anything it draws has changed. */
+    _headerLabels(leaf, entry) {
+        const tabs = Array.isArray(leaf.tabs) ? leaf.tabs : [];
+        const activeIdx = Math.max(0, Math.min(tabs.length - 1, leaf.activeTabIdx || 0));
+        return tabs.map((t, i) => this._tabLabel(t, i === activeIdx, entry)).join('\n');
+    }
+
+    /** C38. A cached leaf is not re-mounted, so a tab renamed in the tree
+     *  (`TileTree.renameMatchingTabs`) reaches the strip only through here. */
+    _refreshHeaderLabels(leaf, entry) {
+        const labels = this._headerLabels(leaf, entry);
+        if (entry.headerLabels === labels) return;
+        this._renderTabBar(leaf, entry);
+    }
+
+    /** What a tab in the `top` or `header` strip is called. A tab with no
+     *  title of its own falls back, when it is the active one, to the title
+     *  its content gave at mount — the string the chrome title would have
+     *  shown, and under `header` the chrome title is hidden (C38). */
+    _tabLabel(t, active, entry) {
+        return t.title || (active && entry?.content?.title) || t.kind || '';
     }
 
     /**
@@ -1021,12 +1092,19 @@ export class TileRenderer {
         const tabs = Array.isArray(leaf.tabs) ? leaf.tabs : [];
         const isPanel = String(leaf.content?.kind || '').startsWith('panel:');
         const vetoed = this.leafChrome(leaf.id)?.promote === false;
-        const on = tabs.length === 1 && !isPanel && !vetoed;
+        // C38. Not under `header`: the one tab is drawn in the strip, and the
+        // strip is its drag source.
+        const on = tabs.length === 1 && !isPanel && !vetoed && this.tabLayout !== 'header';
         if (on) chrome.setAttribute('draggable', 'true');
         else chrome.removeAttribute('draggable');
         if (chrome.__twmTabDragBound) return;
         chrome.__twmTabDragBound = true;
         chrome.addEventListener('dragstart', (ev) => {
+            // C38. A drag that began in the strip — which the `header` layout
+            // puts INSIDE the chrome — is the strip's, and has bubbled here.
+            // Not refused (that would cancel the tab's own drag) and not
+            // re-begun as tab 0: left alone.
+            if (entry.tabBarEl?.contains(ev.target)) return;
             // A drag that began on a BUTTON is not a drag of the pane. Buttons
             // are not draggable on their own, but a draggable ancestor makes
             // them so — hence the same guard the two float gestures apply, from
@@ -1143,11 +1221,31 @@ export class TileRenderer {
                     { idx, x: ev.clientX, y: ev.clientY });
             }, true);
         }
+        // C38. The `+` after the last tab, `header` only. Outside the
+        // component's container so its `update()` never rewrites it, and
+        // built with the strip so `setTabLayout` (which empties the bar and
+        // disposes the strip) takes it away with the strip.
+        if (this.tabLayout === 'header' && !bar.querySelector('.twm-leaf__tab-new')) {
+            const add = document.createElement('button');
+            add.type = 'button';
+            add.className = 'twm-leaf__tab-new';
+            add.dataset.action = 'tab-new';
+            add.title = 'New tab';
+            add.setAttribute('aria-label', 'New tab');
+            add.innerHTML = '<span class="material-symbols-outlined">add</span>';
+            add.addEventListener('click', (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                this.ctx.onLeafTabAction?.(leaf.id, 'new', {});
+            });
+            bar.appendChild(add);
+        }
         const activeIdx = Math.max(0, Math.min(tabs.length - 1, leaf.activeTabIdx || 0));
+        entry.headerLabels = this._headerLabels(leaf, entry);
         entry.tabStrip.update(
             tabs.map((t, i) => ({
                 filePath: _tabKey(i),
-                label: t.title || t.kind || '',
+                label: this._tabLabel(t, i === activeIdx, entry),
                 // The component's `fileType` picks a glyph out of a static map
                 // of FILE kinds. A tile's kinds are the embedder's, and the
                 // taxonomy already answers for them — see `_paintTopTabs`.
@@ -1159,7 +1257,7 @@ export class TileRenderer {
                 isDirty: !!t.dirty,
             })),
             _tabKey(activeIdx));
-        this._paintTopTabs(entry.tabStripHostEl, tabs);
+        this._paintTopTabs(entry.tabStripHostEl, tabs, activeIdx, entry);
     }
 
     /**
@@ -1179,13 +1277,13 @@ export class TileRenderer {
      * rendered last. The class names used here are the component's published
      * contract, stated in its header comment.
      */
-    _paintTopTabs(hostEl, tabs) {
+    _paintTopTabs(hostEl, tabs, activeIdx = -1, entry = null) {
         if (!hostEl) return;
         const els = hostEl.querySelectorAll('.tab');
         els.forEach((el, i) => {
             const spec = tabs[i];
             if (!spec) return;
-            el.title = spec.title || spec.kind || '';
+            el.title = this._tabLabel(spec, i === activeIdx, entry);
             const icon = spec.kind ? this.ctx?.taxonomy?.meta?.(spec.kind)?.icon : null;
             const glyph = el.querySelector('.tab-icon');
             if (glyph && icon) glyph.textContent = icon;

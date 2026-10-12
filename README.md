@@ -130,6 +130,38 @@ await createShell({
 });
 ```
 
+### The palette that finds anything (0.9.0)
+
+Ctrl+K's grouped layout. Every option is off unless you pass it, so a shell that
+passes none of them keeps the chip strip, the panel toggles and the flat list:
+
+```js
+await createShell({
+    // …everything above…
+    palette: {
+        placeholder: 'Search everything…',
+        layout: 'grouped',                       // a header per kind, matches marked
+        chrome: { pages: false, panels: false }, // nothing between the input and the results
+        groupCap: 4,                             // then "Show all N", which scopes to the kind
+        cache: true,                             // a re-open draws the last catalogue at once
+        empty: async () => recentRows(),         // shown before anything is typed, under "Recent"
+        commands: () => commandRows(),           // `{label, action}`; `>` restricts to them
+        drill: (pick) => pick.kind === 'planet'  // Tab on a row enters a scope
+            ? { label: `${pick.label} › moons`, search: (q, signal) => findMoons(pick.id, q, signal) }
+            : null,
+        onPick: (pick, { mode, scope }) => openSomewhere(pick, mode), // 'open' | 'split' | 'window'
+    },
+});
+```
+
+A row may carry `context` (drawn, not searched), `keywords` (searched, not
+drawn), `modes` (which of `split`/`window` its keys offer), `drillLabel` (the Tab
+hint), `boost`, `group`/`groupLabel`, `kindLabel`, `shortcut` and `verb`. A group's
+header is the taxonomy's `plural` for the kind, else its `label`. Matching ranks
+exact, prefix, word starts (`ord li` finds *Order lines*), substring, then a tight
+subsequence. A drill's `search` is debounced, and a stale answer is aborted and
+never drawn. `palette.invalidate()` drops the cache.
+
 **`chrome.zoom`** paints a − / track / + / readout control into the element you
 pass, restores the saved zoom through the host's `state` capability, and scales
 the content of tiles and floating windows. It deliberately scales *content only*

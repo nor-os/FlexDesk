@@ -25,42 +25,72 @@ var STATIC_COMMANDS = [
     label: "Keyboard shortcuts",
     hint: "Show all key bindings (?)",
     icon: "keyboard",
+    shortcut: "?",
+    verb: "run",
     action: () => HelpModal.open("keyboard-shortcuts")
   }
 ];
+var DEFAULT_GROUP_CAP = 4;
+var DEFAULT_COMMAND_MIN_CHARS = 2;
+var REMOTE_DEBOUNCE_MS = 150;
+var MAX_ROWS = 200;
 function createCommandPalette({
   wm,
   api,
   taxonomy,
   catalog,
   placeholder = "Search\u2026",
-  onPick = null
+  onPick = null,
+  chrome = {},
+  layout = "flat",
+  groupCap = DEFAULT_GROUP_CAP,
+  empty = null,
+  emptyLabel = "Recent",
+  commands = null,
+  commandMinChars = DEFAULT_COMMAND_MIN_CHARS,
+  drill = null,
+  cache = false,
+  tips = null,
+  footerNote = ""
 }) {
   if (!taxonomy) throw new Error("createCommandPalette: a taxonomy is required");
   if (!catalog) throw new Error("createCommandPalette: an entity catalog is required");
+  const grouped = layout === "grouped";
   let overlay = null;
   let entities = [];
+  let cached = null;
+  let onClose = null;
   const isOpen = () => !!overlay;
   const close = () => {
     if (!overlay) return;
+    try {
+      onClose?.();
+    } catch {
+    }
+    onClose = null;
     overlay.remove();
     overlay = null;
   };
   const toggle = () => {
     isOpen() ? close() : open();
   };
+  const invalidate = () => {
+    cached = null;
+  };
   const open = async () => {
     if (overlay) return;
     overlay = document.createElement("div");
     overlay.id = ROOT_ID;
-    overlay.className = "twm-cmdpal-overlay";
-    overlay.innerHTML = _markup(taxonomy, placeholder, wm);
+    overlay.className = "twm-cmdpal-overlay" + (grouped ? " twm-cmdpal-overlay--grouped" : "");
+    overlay.innerHTML = _markup(taxonomy, placeholder, wm, { chrome, grouped });
     document.body.appendChild(overlay);
+    const mine = overlay;
     overlay.addEventListener("click", (e) => {
       if (e.target === overlay) close();
     });
     const input = overlay.querySelector(".twm-cmdpal__input");
     const list = overlay.querySelector('[data-role="list"]');
+    const foot = overlay.querySelector('[data-role="footer"]');
     const chipSlot = overlay.querySelector('[data-role="type-chip"]');
     const chips = overlay.querySelectorAll("[data-shortcut]");
     const toggles = overlay.querySelectorAll("[data-toggle]");
@@ -82,7 +112,35 @@ function createCommandPalette({
     let active = 0;
     let typeFilter = null;
     let typeFilterLabel = null;
+    let emptyRows = [];
+    let scope = null;
+    let remote = { seq: 0, ctl: null, timer: null, rows: [], pending: false, error: null };
+    const cancelRemote = () => {
+      clearTimeout(remote.timer);
+      try {
+        remote.ctl?.abort();
+      } catch {
+      }
+      remote.ctl = null;
+    };
+    onClose = cancelRemote;
     const renderChip = () => {
+      if (scope) {
+        chipSlot.innerHTML = `
+                    <span class="twm-cmdpal__type-chip" title="${_esc(scope.label)}">
+                        <span class="material-symbols-outlined twm-cmdpal__type-chip-icon">${_esc(scope.icon || "arrow_right")}</span>
+                        <span class="twm-cmdpal__type-chip-label twm-cmdpal__type-chip-label--scope">${_esc(scope.label)}</span>
+                        <button type="button" class="twm-cmdpal__type-chip-x"
+                                data-action="clear-type"
+                                aria-label="Leave ${_esc(scope.label)}">\xD7</button>
+                    </span>`;
+        chipSlot.querySelector('[data-action="clear-type"]')?.addEventListener("click", (ev) => {
+          ev.preventDefault();
+          leaveScope();
+          input.focus();
+        });
+        return;
+      }
       if (!typeFilter) {
         chipSlot.innerHTML = "";
         return;
@@ -109,7 +167,11 @@ function createCommandPalette({
       });
     };
     const render = () => {
-      list.innerHTML = filtered.slice(0, 200).map((e, i) => `
+      if (grouped) {
+        renderGrouped();
+        return;
+      }
+      list.innerHTML = filtered.slice(0, MAX_ROWS).map((e, i) => `
                 <div class="twm-cmdpal__item${i === active ? " twm-cmdpal__item--active" : ""}"
                      data-idx="${i}">
                     <span class="material-symbols-outlined twm-cmdpal__icon">${e.icon || "arrow_right"}</span>
@@ -122,13 +184,112 @@ function createCommandPalette({
         el.addEventListener("click", () => commit(Number(el.dataset.idx)));
       });
     };
-    const commit = (i) => {
-      const pick = filtered[i];
-      if (!pick) return;
+    let sections = [];
+    const namedGroups = /* @__PURE__ */ new Map();
+    const groupLabel = (key) => {
+      if (namedGroups.has(key)) return namedGroups.get(key);
+      if (key === "command") return "Commands";
+      const m = taxonomy.meta(key);
+      return m?.plural || m?.label || _titleCase(key);
+    };
+    const kindLabel = (row) => {
+      if (row.kindLabel) return row.kindLabel;
+      if (row.kind === "command") return "Command";
+      return taxonomy.meta(row.kind)?.label || _titleCase(row.kind);
+    };
+    const rowHtml = (r, i) => {
+      const on = i === active ? " twm-cmdpal__item--active" : "";
+      if (r.more) {
+        return `<div class="twm-cmdpal__item twm-cmdpal__item--more${on}" data-idx="${i}" role="option">
+                    <span class="material-symbols-outlined twm-cmdpal__icon">expand_more</span>
+                    <span class="twm-cmdpal__main"><span class="twm-cmdpal__label">${_esc(r.label)}</span></span>
+                    <span class="twm-cmdpal__side"><span class="twm-cmdpal__acts"><span><kbd>Enter</kbd> show all</span></span></span>
+                </div>`;
+      }
+      const drawn = _drawn(r);
+      const ctx = r.cells?.length ? `<span class="twm-cmdpal__cells">${r.cells.map(_esc).join(" \xB7 ")}</span>` : drawn ? `<span class="twm-cmdpal__context">${_esc(drawn)}</span>` : "";
+      const verb = r.verb || (r.action || r.kind === "command" ? "run" : "open");
+      const modes = Array.isArray(r.modes) ? r.modes : [];
+      const acts = [`<span><kbd>Enter</kbd> ${_esc(verb)}</span>`];
+      if (r.drillLabel && drill) acts.push(`<span><kbd>Tab</kbd> ${_esc(r.drillLabel)}</span>`);
+      if (modes.includes("split")) acts.push("<span><kbd>Ctrl Enter</kbd> split</span>");
+      if (modes.includes("window")) acts.push("<span><kbd>Shift Enter</kbd> window</span>");
+      const side = r.shortcut ? `<kbd class="twm-cmdpal__shortcut">${_esc(r.shortcut)}</kbd>` : `<span class="twm-cmdpal__kind">${_esc(kindLabel(r))}</span>`;
+      return `<div class="twm-cmdpal__item${on}" data-idx="${i}" role="option">
+                <span class="material-symbols-outlined twm-cmdpal__icon">${_esc(r.icon || "arrow_right")}</span>
+                <span class="twm-cmdpal__main"><span class="twm-cmdpal__label">${_mark(r.label || r.id, r._hits)}</span>${ctx}</span>
+                <span class="twm-cmdpal__side">${side}<span class="twm-cmdpal__acts">${acts.join("")}</span></span>
+            </div>`;
+    };
+    const renderGrouped = () => {
+      let html = "";
+      for (const s of sections) {
+        if (!s.count) continue;
+        if (s.title) html += `<div class="twm-cmdpal__group" role="presentation">${_esc(s.title)}</div>`;
+        for (let i = s.start; i < s.start + s.count; i++) html += rowHtml(filtered[i], i);
+      }
+      const q = input.value.trim();
+      if (!filtered.length) {
+        if (scope) {
+          const msg = remote.error ? remote.error : remote.pending ? "Searching\u2026" : q ? `Nothing in ${scope.label} matches \u201C${q}\u201D.` : scope.emptyText || `Type to search ${scope.label}.`;
+          html += `<div class="twm-cmdpal__empty">${_esc(msg)}</div>`;
+        } else if (q && q !== ">") {
+          html += `<div class="twm-cmdpal__empty">Nothing matches \u201C${_esc(q)}\u201D.</div>`;
+        }
+      } else if (scope && remote.pending) {
+        html += '<div class="twm-cmdpal__empty twm-cmdpal__empty--quiet">Searching\u2026</div>';
+      }
+      if (!q && !scope && !typeFilter && Array.isArray(tips) && tips.length) {
+        html += `<div class="twm-cmdpal__tips">${tips.map((t) => `<span>${_esc(t)}</span>`).join("")}</div>`;
+      }
+      list.innerHTML = html;
+      renderFooter();
+    };
+    const paintActive = () => {
+      list.querySelectorAll("[data-idx]").forEach((el) => {
+        const on = Number(el.dataset.idx) === active;
+        el.classList.toggle("twm-cmdpal__item--active", on);
+        el.setAttribute("aria-selected", on ? "true" : "false");
+        if (on) el.scrollIntoView?.({ block: "nearest" });
+      });
+    };
+    const renderFooter = () => {
+      if (!foot || !grouped) return;
+      const parts = ["<span><kbd>\u2191</kbd><kbd>\u2193</kbd> move</span>", "<span><kbd>Enter</kbd> open</span>"];
+      if (scope || typeFilter) parts.push("<span><kbd>Backspace</kbd> leave</span>");
+      parts.push("<span><kbd>Esc</kbd> close</span>");
+      const note = scope?.note || footerNote;
+      foot.innerHTML = parts.join("") + (note ? `<span class="twm-cmdpal__footnote">${_esc(note)}</span>` : "");
+    };
+    if (grouped) {
+      list.addEventListener("mousemove", (e) => {
+        const el = e.target.closest?.("[data-idx]");
+        if (!el) return;
+        const i = Number(el.dataset.idx);
+        if (i !== active) {
+          active = i;
+          paintActive();
+        }
+      });
+      list.addEventListener("click", (e) => {
+        const el = e.target.closest?.("[data-idx]");
+        if (!el) return;
+        commit(Number(el.dataset.idx), _modeOf(e));
+      });
+    }
+    const commit = (i, mode = "open") => {
+      const picked = filtered[i];
+      if (!picked) return;
+      if (picked.more) {
+        showAll(picked.more);
+        return;
+      }
+      const pick = _public(picked);
+      const how = { mode, scope: scope?.id ?? null };
       close();
       if (pick.action) {
         try {
-          pick.action();
+          pick.action(how);
         } catch (err) {
           console.error(err);
         }
@@ -137,7 +298,7 @@ function createCommandPalette({
       if (onPick) {
         let handled = false;
         try {
-          handled = onPick(pick) ?? false;
+          handled = onPick(pick, how) ?? false;
         } catch (err) {
           console.error("[cmdpal] onPick threw", err);
         }
@@ -146,7 +307,7 @@ function createCommandPalette({
       wm.openInPrimary(pick.kind, pick.props || { id: pick.id, label: pick.label });
     };
     const tryConsumePrefix = () => {
-      if (typeFilter) return false;
+      if (typeFilter || scope) return false;
       const m = input.value.match(/^([a-zA-Z][a-zA-Z0-9_-]*):/);
       if (!m) return false;
       const kinds = catalog.resolveTypePrefix(m[1]);
@@ -154,11 +315,163 @@ function createCommandPalette({
       typeFilter = kinds;
       typeFilterLabel = _titleCase(m[1]);
       input.value = input.value.slice(m[0].length);
+      if (grouped) {
+        input.value = input.value.replace(/^\s+/, "");
+        typeFilterLabel = groupLabel(kinds[0]);
+      }
       renderChip();
       return true;
     };
+    const showAll = (key) => {
+      typeFilter = [key];
+      typeFilterLabel = groupLabel(key);
+      if (input.value.startsWith(">")) input.value = input.value.slice(1);
+      renderChip();
+      refilter();
+      input.focus();
+    };
+    const enterScope = (row) => {
+      if (!drill || !row || row.more) return false;
+      let next = null;
+      try {
+        next = drill(_public(row));
+      } catch (err) {
+        console.error("[cmdpal] drill threw", err);
+      }
+      if (!next || typeof next.search !== "function") return false;
+      cancelRemote();
+      scope = next;
+      typeFilter = null;
+      typeFilterLabel = null;
+      input.value = "";
+      input.placeholder = next.placeholder || `Search ${next.label}\u2026`;
+      remote = { seq: 0, ctl: null, timer: null, rows: [], pending: false, error: null };
+      renderChip();
+      refilter();
+      return true;
+    };
+    const leaveScope = () => {
+      cancelRemote();
+      remote.seq++;
+      scope = null;
+      typeFilter = null;
+      typeFilterLabel = null;
+      input.placeholder = placeholder;
+      renderChip();
+      refilter();
+    };
+    const runRemote = (q) => {
+      cancelRemote();
+      const seq = ++remote.seq;
+      if (q.length < (scope.minChars ?? 1)) {
+        remote.rows = [];
+        remote.pending = false;
+        remote.error = null;
+        return;
+      }
+      remote.pending = true;
+      remote.error = null;
+      const s = scope;
+      remote.timer = setTimeout(async () => {
+        const ctl = typeof AbortController === "function" ? new AbortController() : null;
+        remote.ctl = ctl;
+        let rows = [];
+        let error = null;
+        try {
+          rows = await s.search(q, ctl?.signal);
+        } catch (err) {
+          if (err?.name === "AbortError") return;
+          error = err?.userMessage || "The search failed.";
+          console.warn("[cmdpal] scope search failed", err);
+        }
+        if (seq !== remote.seq || scope !== s || overlay !== mine) return;
+        remote.rows = _decorateIcons(Array.isArray(rows) ? rows : [], taxonomy).map((r) => ({ ...r, _hits: _match(String(r.label || ""), q)?.hits || [] }));
+        remote.pending = false;
+        remote.error = error;
+        filtered = remote.rows.slice(0, MAX_ROWS);
+        sections = [{ title: s.label, start: 0, count: filtered.length }];
+        active = 0;
+        render();
+      }, REMOTE_DEBOUNCE_MS);
+    };
+    const refilterGrouped = () => {
+      const raw = input.value;
+      if (scope) {
+        runRemote(raw.trim());
+        filtered = remote.rows;
+        sections = [{ title: scope.label, start: 0, count: filtered.length }];
+        active = 0;
+        render();
+        return;
+      }
+      const commandsOnly = !typeFilter && raw.startsWith(">");
+      const q = (commandsOnly ? raw.slice(1) : raw).trim();
+      const filterSet = typeFilter ? new Set(typeFilter) : null;
+      if (!q && !commandsOnly && !filterSet) {
+        filtered = emptyRows.slice(0, MAX_ROWS).map((r) => ({ ...r, _hits: [] }));
+        sections = [{ title: filtered.length ? emptyLabel : "", start: 0, count: filtered.length }];
+        active = 0;
+        render();
+        return;
+      }
+      let pool = entities;
+      if (commandsOnly) pool = pool.filter((e) => e.kind === "command");
+      else if (filterSet) pool = pool.filter((e) => filterSet.has(_groupOf(e)) || filterSet.has(e.kind));
+      else if (q.length < commandMinChars) pool = pool.filter((e) => e.kind !== "command");
+      const scored = [];
+      if (!q) {
+        for (const e of pool) scored.push({ ...e, _hits: [], _score: 0 });
+        scored.sort((a, b) => String(a.label || a.id).localeCompare(String(b.label || b.id)));
+      } else {
+        for (const e of pool) {
+          let m = _match(String(e.label || e.id || ""), q);
+          if (!m) {
+            const extra = _searched(e);
+            const k = extra ? _match(extra, q) : null;
+            if (k) m = { s: Math.min(k.s, 20), hits: [] };
+          }
+          if (!m) continue;
+          const penalty = e.kind === "command" && !commandsOnly ? 5 : 0;
+          scored.push({ ...e, _hits: m.hits, _score: m.s + (Number(e.boost) || 0) - penalty });
+        }
+      }
+      const order = [];
+      const by = /* @__PURE__ */ new Map();
+      for (const r of scored) {
+        const key = commandsOnly ? "command" : _groupOf(r);
+        if (!by.has(key)) {
+          by.set(key, []);
+          order.push(key);
+        }
+        by.get(key).push(r);
+        if (r.groupLabel && !namedGroups.has(key)) namedGroups.set(key, r.groupLabel);
+      }
+      const top = (k) => by.get(k).slice().sort(_byScore)[0];
+      const keys = order.slice().sort((a, b) => (q ? _byScore(top(a), top(b)) : 0) || order.indexOf(a) - order.indexOf(b));
+      const capped = !filterSet && !commandsOnly;
+      filtered = [];
+      sections = [];
+      for (const key of keys) {
+        const rows = by.get(key);
+        if (q) rows.sort(_byScore);
+        const shown = capped ? rows.slice(0, groupCap) : rows;
+        const start = filtered.length;
+        filtered.push(...shown);
+        if (shown.length < rows.length) {
+          filtered.push({ more: key, label: `Show all ${rows.length} ${groupLabel(key).toLowerCase()}` });
+        }
+        sections.push({ title: groupLabel(key), start, count: filtered.length - start });
+        if (filtered.length >= MAX_ROWS) break;
+      }
+      active = 0;
+      render();
+    };
     const refilter = () => {
       tryConsumePrefix();
+      if (grouped) {
+        refilterGrouped();
+        return;
+      }
       const q = input.value.trim().toLowerCase();
       const filterSet = typeFilter ? new Set(typeFilter) : null;
       const pool = filterSet ? entities.filter((e) => filterSet.has(e.kind)) : entities;
@@ -172,21 +485,34 @@ function createCommandPalette({
     };
     input.addEventListener("input", refilter);
     input.addEventListener("keydown", (e) => {
+      const move = (to) => {
+        active = to;
+        if (grouped) paintActive();
+        else render();
+      };
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        active = Math.min(filtered.length - 1, active + 1);
-        render();
+        move(Math.min(filtered.length - 1, active + 1));
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        active = Math.max(0, active - 1);
-        render();
+        move(Math.max(0, active - 1));
       } else if (e.key === "Enter") {
         e.preventDefault();
-        commit(active);
+        commit(active, _modeOf(e));
       } else if (e.key === "Escape") {
         close();
-      } else if (e.key === "Backspace" && input.value === "" && typeFilter) {
+      } else if (grouped && e.key === "Tab" && !e.shiftKey) {
+        const row = filtered[active];
+        if (row?.more) {
+          e.preventDefault();
+          showAll(row.more);
+        } else if (row?.drillLabel && enterScope(row)) e.preventDefault();
+      } else if (e.key === "Backspace" && input.value === "" && (typeFilter || scope)) {
         e.preventDefault();
+        if (scope) {
+          leaveScope();
+          return;
+        }
         typeFilter = null;
         typeFilterLabel = null;
         renderChip();
@@ -194,38 +520,81 @@ function createCommandPalette({
       }
     });
     input.focus();
-    entities = _decorateIcons(STATIC_COMMANDS.slice(), taxonomy);
+    const commandRows = () => {
+      let extra = [];
+      if (typeof commands === "function") {
+        try {
+          extra = (commands() || []).map((c) => ({ kind: "command", ...c }));
+        } catch (err) {
+          console.warn("[cmdpal] commands() threw", err);
+        }
+      }
+      return [...STATIC_COMMANDS, ...extra];
+    };
+    const withCommands = (rows) => grouped ? [...rows, ...commandRows()] : [...commandRows(), ...rows];
+    entities = _decorateIcons(withCommands(cache && cached ? cached : []), taxonomy);
+    if (grouped) {
+      refilter();
+      if (typeof empty === "function") {
+        try {
+          const got = await empty();
+          if (overlay !== mine) return;
+          emptyRows = _decorateIcons(Array.isArray(got) ? got : [], taxonomy);
+          if (!input.value && !typeFilter && !scope) refilter();
+        } catch (err) {
+          console.warn("[cmdpal] empty() failed", err);
+        }
+      }
+    }
     if (api) {
       try {
-        entities = _decorateIcons(
-          [...STATIC_COMMANDS, ...await catalog.loadAll(api)],
-          taxonomy
-        );
-        if (input.value) refilter();
+        const loaded = await catalog.loadAll(api);
+        if (cache) cached = loaded;
+        if (overlay !== mine) return;
+        entities = _decorateIcons(withCommands(loaded), taxonomy);
+        if (grouped ? !scope && (input.value || typeFilter) : input.value) refilter();
       } catch (err) {
         console.warn("[cmdpal] entity load failed", err);
       }
     }
   };
-  return { open, close, toggle, isOpen };
+  return { open, close, toggle, isOpen, invalidate };
 }
-function _markup(taxonomy, placeholder, wm) {
+function _markup(taxonomy, placeholder, wm, { chrome = {}, grouped = false } = {}) {
   const PANEL_CHIPS = [
     { side: "left", icon: "menu", label: "Left nav" },
     { side: "right", icon: "dock_to_left", label: "Right panel" },
     { side: "bottom", icon: "dock_to_bottom", label: "Bottom panel" }
   ];
-  const panelToggles = PANEL_CHIPS.filter((p) => wm.content?.has?.(`panel:${p.side}`) !== false).map((p) => `
+  const panelToggles = chrome.panels === false ? "" : PANEL_CHIPS.filter((p) => wm.content?.has?.(`panel:${p.side}`) !== false).map((p) => `
                 <button class="twm-chip" data-toggle="${p.side}">
                     <span class="material-symbols-outlined">${p.icon}</span>
                     ${p.label}
                 </button>`).join("");
-  const chips = taxonomy.topNavEntries().map((k) => `
+  const chips = chrome.pages === false ? "" : taxonomy.topNavEntries().map((k) => `
         <button class="twm-chip" data-shortcut="${k.kind}">
             <span class="material-symbols-outlined">${k.icon}</span>
             ${k.label}
         </button>
     `).join("");
+  if (grouped) {
+    return `
+        <div class="twm-cmdpal twm-cmdpal--grouped" role="dialog" aria-label="Command palette">
+            <div class="twm-cmdpal__inputrow">
+                <span class="material-symbols-outlined twm-cmdpal__search-icon">search</span>
+                <span class="twm-cmdpal__type-chip-slot" data-role="type-chip"></span>
+                <input type="text" class="twm-cmdpal__input"
+                       placeholder="${_esc(placeholder)}"
+                       autocomplete="off" spellcheck="false" role="combobox"
+                       aria-expanded="true" aria-controls="twm-cmdpal-list" />
+                <kbd class="twm-cmdpal__esc">Esc</kbd>
+            </div>
+            ${chips ? `<div class="twm-cmdpal__chips">${chips}</div>` : ""}
+            ${panelToggles ? `<div class="twm-cmdpal__toggles">${panelToggles}</div>` : ""}
+            <div class="twm-cmdpal__list" id="twm-cmdpal-list" role="listbox" data-role="list"></div>
+            <div class="twm-cmdpal__footer" data-role="footer"></div>
+        </div>`;
+  }
   return `
         <div class="twm-cmdpal" role="dialog" aria-label="Command palette">
             <div class="twm-cmdpal__inputrow">
@@ -270,6 +639,98 @@ function _search(entities, q) {
   }
   scored.sort((a, b) => a.r - b.r || a.e.label.localeCompare(b.e.label));
   return scored.map((x) => x.e);
+}
+function _drawn(r) {
+  return r.context !== void 0 ? r.context : r.hint || "";
+}
+function _searched(r) {
+  const k = r.keywords !== void 0 ? r.keywords : r.hint;
+  return Array.isArray(k) ? k.join(" ") : String(k || "");
+}
+function _groupOf(r) {
+  return r.group || r.kind;
+}
+function _public(r) {
+  const { _hits, _score, ...rest } = r;
+  return rest;
+}
+function _byScore(a, b) {
+  return b._score - a._score || String(a.label || "").length - String(b.label || "").length || String(a.label || "").localeCompare(String(b.label || ""));
+}
+function _modeOf(e) {
+  if (e?.ctrlKey || e?.metaKey) return "split";
+  if (e?.shiftKey) return "window";
+  return "open";
+}
+var _WORD_BREAK = /[\s_\-–—.:/\\()[\]&,+·›]/;
+function matchLabel(text, query) {
+  return _match(text, query);
+}
+function _match(text, query) {
+  const t = String(text || "").toLowerCase();
+  const q = String(query || "").toLowerCase().trim();
+  if (!q || !t) return null;
+  const span = (a, n) => Array.from({ length: n }, (_, i) => a + i);
+  if (t === q) return { s: 100, hits: span(0, q.length) };
+  if (t.startsWith(q)) return { s: 90, hits: span(0, q.length) };
+  const words = q.split(/\s+/).filter(Boolean);
+  {
+    const hits2 = [];
+    let from = 0;
+    let ok = true;
+    for (const w of words) {
+      let at = -1;
+      for (let i = from; i <= t.length - w.length; i++) {
+        if ((i === 0 || _WORD_BREAK.test(t[i - 1])) && t.startsWith(w, i)) {
+          at = i;
+          break;
+        }
+      }
+      if (at < 0) {
+        ok = false;
+        break;
+      }
+      hits2.push(...span(at, w.length));
+      from = at + w.length;
+    }
+    if (ok) return { s: 75 - Math.min(words.length, 5), hits: hits2 };
+  }
+  const sub = t.indexOf(q);
+  if (sub >= 0) return { s: 60, hits: span(sub, q.length) };
+  const flat = q.replace(/\s+/g, "");
+  const hits = [];
+  let j = 0;
+  for (let i = 0; i < t.length && j < flat.length; i++) {
+    if (t[i] === flat[j]) {
+      hits.push(i);
+      j++;
+    }
+  }
+  if (j < flat.length) return null;
+  const spread = hits[hits.length - 1] - hits[0] + 1 - flat.length;
+  if (spread > 3 * flat.length + 6) return null;
+  return { s: Math.max(1, 30 - spread), hits };
+}
+function _mark(text, hits) {
+  const s = String(text ?? "");
+  if (!hits?.length) return _esc(s);
+  const set = new Set(hits);
+  let out = "";
+  let open = false;
+  for (let i = 0; i < s.length; i++) {
+    const on = set.has(i);
+    if (on && !open) {
+      out += "<mark>";
+      open = true;
+    }
+    if (!on && open) {
+      out += "</mark>";
+      open = false;
+    }
+    out += _esc(s[i]);
+  }
+  if (open) out += "</mark>";
+  return out;
 }
 function _esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({
@@ -8141,6 +8602,7 @@ export {
   makeLeaf,
   makeLoadingOverlay,
   makeSplit,
+  matchLabel,
   mountLandingActions,
   mountLandingShell,
   mountNavPanel,

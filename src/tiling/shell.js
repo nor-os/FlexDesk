@@ -65,7 +65,10 @@ import { openForm } from '../ui/components/modal.js';
  * @param {object}     [cfg.tableStore] threaded into ctx for table persistence
  * @param {object}     [cfg.events]     bus-event NAMES the WM listens for
  * @param {object}     [cfg.rootCrumb]  the breadcrumb's leading segment
- * @param {object}     [cfg.palette]    { placeholder, onPick } — C30. `onPick`
+ * @param {object}     [cfg.palette]    { placeholder, onPick, …C39 } — C39's
+ *                                      grouped layout and its options are
+ *                                      documented in `command_palette.js`.
+ *                                      C30. `onPick`
  *                                      is `(pick) => truthy` and CLAIMS the
  *                                      open of a picked entity, so an embedder
  *                                      with a rule about where its own entities

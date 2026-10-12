@@ -256,6 +256,8 @@
     --twm-flow-control-border: #454545;
     --twm-flow-muted:          #a6a6a6;
     --twm-flow-focus:          var(--accent-bright);
+    /* C39: a matched character in the command palette (grouped layout). */
+    --twm-cmdpal-match:        #4fc1ff;
     --twm-flow-error:          #f48771;
     --twm-flow-error-bg:       rgba(244, 135, 113, 0.09);
     --twm-flow-error-line:     rgba(244, 135, 113, 0.35);

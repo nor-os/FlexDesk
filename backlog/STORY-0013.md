@@ -2,10 +2,10 @@
 id: 13
 type: story
 title: "Desktop groups and fixed desktops: an embedder's desktops beside the user's (C40)"
-status: in-progress
+status: review
 parent:
 phase:
-assignee: norman_agent
+assignee: norman
 reporter: norman
 points: 3
 subsystem: tiling
@@ -42,3 +42,11 @@ desktop, so it could only show a copy of Tables' rail. With no `group` or `fixed
 ## History
 
 - 2026-10-12 · norman_agent · status: (new) -> in-progress
+- 2026-10-12 · norman_agent · status: in-progress -> review
+- 2026-10-12 · norman_agent · assignee: norman_agent -> norman
+
+## Comments
+
+### 2026-10-12T16:20Z · norman_agent
+
+Released as 0.10.0 (`00c7fe3`) and pinned in Tables; seen there in headless Edge (Tables STORY-0283).

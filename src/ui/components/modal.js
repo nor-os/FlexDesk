@@ -10,17 +10,31 @@
  *
  * Field schema:
  *   { name, label, type='text', default, step?, options?, required?,
- *     placeholder?, hint?, validator?, rows?, create? }
+ *     placeholder?, hint?, validator?, rows?, create?, pick?, displayFor? }
  *
  *   - type: 'text' | 'number' | 'password' | 'select' | 'textarea' |
- *           'checkbox'
+ *           'checkbox' | 'picker'
  *   - hint: small dim help line rendered under the field
  *   - validator: fn(value, allValues) => string | null    (inline error)
  *   - rows: number of textarea rows (only used for type='textarea')
  *
  * Section dividers — entries of the form `{ section: 'Label' }` are
  * rendered as a small uppercase heading that groups the fields below
- * them. Useful for longer forms.
+ * them. Useful for longer forms. A section that also carries a `name`
+ * can be hidden and shown by `onFieldChange`'s `setVisible`.
+ *
+ * Picker — a value the user LOOKS UP rather than types (an id chosen in a
+ * search dialog, say). The row shows a read-only box and a search button;
+ * the button (or a click on the box) awaits `pick(currentValue)`, which
+ * resolves to `{ value, label }`, a bare value, or null to leave the field
+ * alone. The value is what is submitted, the label is what is shown, and
+ * `displayFor(value)` gives the label for the value the form opens with:
+ *
+ *   {
+ *     name: 'parent', label: 'Parent', type: 'picker',
+ *     pick: async (current) => ({ value: 'EPIC-0001', label: 'EPIC-0001 — Auth' }),
+ *     displayFor: (value) => titleOf(value),
+ *   }
  *
  * Dependent-property pick-or-create — a `select` field that carries a
  * `create` spec renders as a **type-ahead combobox** instead of a
@@ -36,6 +50,12 @@
  *       hint: 'new asset kind',             // shown when the typed value is new
  *     },
  *   }
+ *
+ * `create: true` is the degenerate case — "pick one of these, or type
+ * anything" — where the typed value IS the value and there is no entity to
+ * create, so there is no "will create" hint either. A bare `true` used to
+ * reach `f.create.onCreate(v)` and fail the submit with "onCreate is not a
+ * function", blaming the user for typing their own name.
  */
 
 import { ManagedWindow } from '../../ui/components/managed_window.js';
@@ -65,7 +85,29 @@ export function modalHost() { return _modalHost; }
 
 let _modalSeq = 1;
 
-export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK' } = {}) {
+/**
+ * @param {object}    o
+ * @param {Function?} o.onFieldChange  `(name, value, api)` — called after any
+ *   field's `change`, and ONCE on open with `name === null` so the form starts
+ *   consistent with its defaults. `api` is
+ *   `{ setVisible(name, on), get(name), set(name, value) }`, addressing fields
+ *   and named sections by name. `get` reads the control as it stands (a
+ *   checkbox as a boolean, everything else as its string); `set` writes it and
+ *   does NOT call `onFieldChange` back, so a hook that fills one field from
+ *   another cannot loop.
+ *
+ *   It exists for the form whose Type select spans two record kinds and must
+ *   show the fields of the kind actually chosen. Rebuilding the form on every
+ *   change would lose what the user had already typed, so every field is
+ *   built once and the irrelevant rows are hidden. A hidden row keeps its
+ *   value and is still submitted — the caller drops what its chosen kind does
+ *   not use — but it is not ASKED about: its `required` and its `validator`
+ *   stand down until it is shown again, because a constraint on a field the
+ *   user cannot see is a submit button that silently does nothing.
+ *
+ *   Absent — every caller before it — nothing here runs.
+ */
+export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK', onFieldChange = null } = {}) {
     return new Promise((resolve) => {
         // Build the form body — same markup as the legacy overlay,
         // minus the outer .ea-modal wrapper (ManagedWindow owns the
@@ -119,7 +161,9 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
         const formFields = fields.filter((f) => !f.section);
         for (const f of formFields) {
             if (f.type === 'select' && f.create) _wireComboboxHint(body, f);
+            if (f.type === 'picker') _wirePicker(body, f);
         }
+        const rowHidden = (name) => !!body.querySelector(`[data-field-row="${name}"]`)?.hidden;
 
         const clearFieldError = (name) => {
             const row = body.querySelector(`[data-field-row="${name}"]`);
@@ -140,6 +184,57 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
             el?.addEventListener('change', () => clearFieldError(f.name));
         }
 
+        // Adaptive fields — see `onFieldChange` above.
+        if (typeof onFieldChange === 'function') {
+            const fieldOf = (name) => formFields.find((f) => f.name === name) || null;
+            const api = {
+                setVisible(name, on) {
+                    const row = body.querySelector(`[data-field-row="${name}"]`);
+                    if (!row) return;
+                    // The attribute alone loses to `.twm-modal__row { display:
+                    // grid }` in any stylesheet that has not got the `[hidden]`
+                    // rule flexdesk.css carries, so the inline style says it too.
+                    row.hidden = !on;
+                    row.style.display = on ? '' : 'none';
+                    clearFieldError(name);
+                    // A required control nobody can see blocks the submit with
+                    // no message the user can find. Remembered on the control,
+                    // so showing the row gives back exactly what it had.
+                    for (const el of row.querySelectorAll('input, select, textarea')) {
+                        if (!on && el.required) { el.required = false; el.dataset.twmRequired = '1'; }
+                        else if (on && el.dataset.twmRequired) { el.required = true; delete el.dataset.twmRequired; }
+                    }
+                },
+                get(name) {
+                    const el = body.querySelector(`[name="${name}"]`);
+                    if (!el) return undefined;
+                    return el.type === 'checkbox' ? !!el.checked : el.value;
+                },
+                set(name, value) {
+                    const el = body.querySelector(`[name="${name}"]`);
+                    if (!el) return;
+                    if (el.type === 'checkbox') { el.checked = !!value; return; }
+                    el.value = value == null ? '' : String(value);
+                    const f = fieldOf(name);
+                    if (f?.type === 'picker') {
+                        const display = body.querySelector(`[data-picker-display="${name}"]`);
+                        if (display) display.value = _pickerLabel(f, el.value);
+                    }
+                },
+            };
+            const fire = (name) => {
+                try { onFieldChange(name, name == null ? undefined : api.get(name), api); }
+                catch (err) { console.error('[modal] onFieldChange threw', err); }
+            };
+            for (const f of formFields) {
+                const el = body.querySelector(`[name="${f.name}"]`);
+                el?.addEventListener('change', () => fire(f.name));
+            }
+            // Once on open, so a preselected value is reflected immediately
+            // rather than only after the user touches something.
+            fire(null);
+        }
+
         body.querySelector('form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const submitBtn = body.querySelector('button[type="submit"]');
@@ -157,16 +252,17 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                     v = el.value;
                 }
                 if (f.type === 'select' && f.create) {
+                    const spec = _createSpec(f);
                     const known = new Set(_optionValues(f.options));
                     if (v && !known.has(v)) {
                         if (submitBtn) submitBtn.disabled = true;
                         let created;
                         let failMsg = null;
-                        try { created = await f.create.onCreate(v); }
+                        try { created = await spec.onCreate(v); }
                         catch (err) { created = null; failMsg = err?.message || String(err); }
                         if (submitBtn) submitBtn.disabled = false;
                         if (created == null) {
-                            const hint = (f.create && f.create.hint) || f.label.toLowerCase();
+                            const hint = spec.hint || f.label.toLowerCase();
                             showError(failMsg
                                 ? `Couldn't create ${hint} "${v}": ${failMsg}`
                                 : `Couldn't create ${hint} "${v}". See the toast for details.`);
@@ -182,16 +278,23 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
             let firstBadName = null;
             for (const f of formFields) {
                 clearFieldError(f.name);
-                if (typeof f.validator !== 'function') continue;
+                if (rowHidden(f.name)) continue;
                 let msg = null;
-                try { msg = f.validator(data[f.name], data); } catch (err) { msg = err?.message || String(err); }
+                // A picker's value lives in a hidden input, which the browser's
+                // own `required` check skips — so it is checked here.
+                if (f.type === 'picker' && f.required && !data[f.name]) msg = 'Required.';
+                else if (typeof f.validator !== 'function') continue;
+                else {
+                    try { msg = f.validator(data[f.name], data); } catch (err) { msg = err?.message || String(err); }
+                }
                 if (msg) {
                     setFieldError(f.name, msg);
                     if (!firstBadName) firstBadName = f.name;
                 }
             }
             if (firstBadName) {
-                body.querySelector(`[name="${firstBadName}"]`)?.focus();
+                body.querySelector(`[data-picker="${firstBadName}"]`)?.focus();
+                body.querySelector(`[name="${firstBadName}"]:not([type="hidden"])`)?.focus();
                 return;
             }
             close(data);
@@ -199,8 +302,12 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
 
         // Focus first field on next frame so the managed-window mount
         // settles before we steal focus.
+        // Not a picker's hidden value, and not a field in a row that
+        // `onFieldChange` hid on open.
         requestAnimationFrame(() => {
-            body.querySelector('input, select, textarea')?.focus();
+            const first = [...body.querySelectorAll('input:not([type="hidden"]), select, textarea')]
+                .find((el) => !el.closest('[data-field-row]')?.hidden);
+            first?.focus();
         });
     });
 }
@@ -613,6 +720,53 @@ function _optionValues(options) {
     return (options || []).map((o) => (typeof o === 'object') ? o.value : o);
 }
 
+/** Normalise a `create` spec. `true` means the typed value is accepted as-is. */
+function _createSpec(f) {
+    if (!f || !f.create) return null;
+    if (f.create === true) return { onCreate: async (v) => v, hint: null };
+    return {
+        onCreate: typeof f.create.onCreate === 'function' ? f.create.onCreate : async (v) => v,
+        hint: f.create.hint ?? null,
+    };
+}
+
+/** What a picker shows for `value`: the caller's `displayFor`, else the value. */
+function _pickerLabel(f, value) {
+    if (typeof f.displayFor !== 'function') return value == null ? '' : String(value);
+    try { return String(f.displayFor(value) ?? ''); }
+    catch (err) { console.warn('[modal] displayFor threw', err); return String(value ?? ''); }
+}
+
+/** Hook a picker field's search button up to the caller's `pick()`, and keep
+ *  the hidden value and the visible display in step. */
+function _wirePicker(host, f) {
+    const hidden = host.querySelector(`input[type="hidden"][name="${f.name}"]`);
+    const display = host.querySelector(`[data-picker-display="${f.name}"]`);
+    const btn = host.querySelector(`[data-picker="${f.name}"]`);
+    if (!hidden || !display || !btn || typeof f.pick !== 'function') return;
+
+    let busy = false;
+    const open = async () => {
+        if (busy) return;                           // one search at a time
+        busy = true;
+        let picked;
+        try { picked = await f.pick(hidden.value); }
+        catch (err) { console.warn('[modal] pick threw', err); picked = null; }
+        finally { busy = false; }
+        if (picked == null) return;                 // cancelled — leave it alone
+        const isPair = typeof picked === 'object';
+        hidden.value = String((isPair ? picked.value : picked) ?? '');
+        display.value = isPair && picked.label != null
+            ? String(picked.label) : _pickerLabel(f, hidden.value);
+        // A hidden input fires no `change` of its own; this is the one the
+        // field-error clear and `onFieldChange` listen for.
+        hidden.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    btn.addEventListener('click', open);
+    // The read-only box is the obvious thing to click; make it work too.
+    display.addEventListener('click', open);
+}
+
 
 /** Show / hide the "↳ will create …" hint as the user types into a
  *  create-capable combobox. */
@@ -620,8 +774,12 @@ function _wireComboboxHint(host, f) {
     const input = host.querySelector(`input[name="${f.name}"]`);
     const hintEl = host.querySelector(`.twm-combobox__hint[data-for="${f.name}"]`);
     if (!input || !hintEl) return;
+    // With `create: true` the typed value simply IS the value — there is no
+    // entity being made, so promising to "create" one is a lie that reads as
+    // a warning.
+    if (f.create === true) return;
     const known = new Set(_optionValues(f.options));
-    const label = (f.create && f.create.hint) || 'new entry';
+    const label = _createSpec(f).hint || 'new entry';
     const update = () => {
         const v = input.value.trim();
         if (v && !known.has(v)) {
@@ -638,7 +796,10 @@ function _wireComboboxHint(host, f) {
 
 function _renderEntry(f, value) {
     if (f && f.section != null) {
-        return `<div class="twm-modal__section">${_esc(f.section)}</div>`;
+        // A named section is addressable by `setVisible`, so a heading can be
+        // hidden along with the group it introduces.
+        const attr = f.name ? ` data-field-row="${f.name}"` : '';
+        return `<div class="twm-modal__section"${attr}>${_esc(f.section)}</div>`;
     }
     return _renderField(f, value);
 }
@@ -681,6 +842,24 @@ function _renderField(f, value) {
     }
 
     const v = value == null ? '' : String(value);
+    if (f.type === 'picker') {
+        // The display text and the stored value are different things (an id
+        // vs. "EPIC-0001 — Auth rewrite"), so the value rides in a hidden
+        // input — the one the submit reads by name — and the visible box is
+        // read-only.
+        const placeholder = f.placeholder ? `placeholder="${_esc(f.placeholder)}"` : '';
+        return wrap(`
+            <div class="twm-picker">
+                <input type="hidden" name="${f.name}" value="${_esc(v)}">
+                <input class="twm-picker__display" data-picker-display="${f.name}" type="text"
+                       value="${_esc(_pickerLabel(f, v))}" ${placeholder} readonly>
+                <button type="button" class="twm-btn twm-picker__btn" data-picker="${f.name}"
+                        aria-label="Search" title="Search">
+                    <span class="material-symbols-outlined" aria-hidden="true">search</span>
+                </button>
+            </div>
+        `);
+    }
     if (f.type === 'select' && f.create) {
         const dlId = `ea-dl-${f.name}-${_modalSeq}`;
         const opts = _optionValues(f.options)

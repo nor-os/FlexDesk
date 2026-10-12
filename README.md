@@ -1397,6 +1397,84 @@ card starts no native drag (a `dragstart` counter at 0) and moves nothing. Real
 arrows, Delete, Ctrl+Z and Backspace do what is said above, and three real
 keystrokes ask the preview once.
 
+## Forms: `openForm`
+
+`openForm({ title, fields, defaults, submitLabel })` (in `@flexdesk/widgets`)
+opens a modal form and resolves with `{ [name]: value }`, or `null` when it is
+cancelled. Fields are `text`, `number`, `password`, `select`, `textarea`,
+`checkbox` and `picker`; `{ section: 'Label' }` entries are headings. Each of
+the four additions below is opt-in, and a form that uses none of them renders
+and submits exactly as in 0.9.1.
+
+### A form that adapts: `onFieldChange`
+
+```js
+openForm({
+    fields: [
+        { name: 'type', label: 'Type', type: 'select', options: ['bug', 'story'] },
+        { section: 'Story', name: 'story' },          // a NAMED section can be hidden
+        { name: 'points', label: 'Points', type: 'number', required: true },
+    ],
+    onFieldChange: (name, value, api) => {
+        const story = api.get('type') === 'story';
+        api.setVisible('story', story);
+        api.setVisible('points', story);
+    },
+});
+```
+
+`onFieldChange(name, value, api)` is called once when the form opens (with
+`name === null`, so the form starts consistent with its defaults) and after
+every field's `change`. `api` addresses fields and named sections by name:
+
+- `setVisible(name, on)` hides or shows the row. A hidden row keeps its value
+  and is still submitted, but it is not asked about: its `required` and its
+  `validator` stand down until it is shown again.
+- `get(name)` reads the control as it stands: a checkbox as a boolean,
+  anything else as its string.
+- `set(name, value)` writes it. It does not call `onFieldChange` back, so a
+  hook that fills one field from another cannot loop.
+
+A hook that throws is logged and the form carries on.
+
+### Hidden rows stay hidden
+
+`.twm-modal__row` is a grid, and a grid rule beats the `display: none` that
+the `hidden` attribute gets from the browser, so a hidden row stayed on
+screen. `flexdesk.css` now has `.twm-modal__row[hidden],
+.twm-modal__section[hidden] { display: none !important }`, and `setVisible`
+also sets the row's inline `display`, so it holds under a stylesheet of your
+own as well.
+
+### A value you look up: `type: 'picker'`
+
+```js
+{ name: 'parent', label: 'Parent', type: 'picker', required: true,
+  pick: async (current) => ({ value: 'EPIC-0001', label: 'EPIC-0001 — Auth rewrite' }),
+  displayFor: (value) => titleOf(value) }
+```
+
+The row shows a read-only box and a search button. The button, or a click on
+the box, awaits `pick(currentValue)`. Return `{ value, label }` (the label is
+shown, the value is submitted), a bare value (shown through `displayFor`, or
+as itself), or `null` to leave the field as it was. `displayFor(value)` gives
+the text for the value the form opens with and for `api.set`. The value is
+kept in a hidden input, which the browser's own `required` check skips, so
+`required: true` on a picker is checked by the form instead. The markup is
+`.twm-picker` > `.twm-picker__display` + `.twm-btn.twm-picker__btn`.
+
+### A select you may type into: `create`
+
+A `select` with a `create` spec is a type-ahead combobox: pick an option or
+type a new value. `create: { onCreate, hint }` makes the typed value into an
+entity before the form resolves, and shows "↳ will create *hint* …" while you
+type. `create: true` is the plain case: the typed value is submitted as typed,
+with no hint, because nothing is created. Until now `create: true` failed the
+submit with "onCreate is not a function".
+
+`tests/open_form.test.mjs` mounts the real `openForm` in jsdom and covers all
+four, plus a plain form submitting as before.
+
 ## The host port
 
 FlexDesk never touches `pywebview`, `fetch`, `localStorage` or the filesystem. It

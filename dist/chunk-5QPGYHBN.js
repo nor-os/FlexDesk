@@ -1,6 +1,6 @@
 import {
   modalHost
-} from "./chunk-6NG7YVBG.js";
+} from "./chunk-6EZPPN4E.js";
 
 // src/help/help_registry.js
 var EMPTY_PROVIDER = Object.freeze({
@@ -472,4 +472,4 @@ export {
   showContextMenu,
   hideContextMenu
 };
-//# sourceMappingURL=chunk-H4LT43RS.js.map
+//# sourceMappingURL=chunk-5QPGYHBN.js.map

@@ -629,6 +629,16 @@ function compareSortKeys(a, b, asc) {
 }
 var AUTOSIZE_MAX_PX = 520;
 var VIRTUAL_FALLBACK_VIEWPORT_PX = 1e3;
+var COPY_MENU_HTML = `
+            <div class="twm-context-menu-item" data-action="copy-tsv">
+                <span class="material-symbols-outlined">content_copy</span>
+                <span class="label">Copy Row(s)</span>
+            </div>
+            <div class="twm-context-menu-item" data-action="copy-csv">
+                <span class="material-symbols-outlined">table</span>
+                <span class="label">Copy as CSV</span>
+            </div>
+        `;
 var DataTable = class {
   /**
    * Create a DataTable instance
@@ -741,6 +751,18 @@ var DataTable = class {
       keepWhileDetached: false,
       filterKinds: null,
       onFilterChange: null,
+      // STORY-0010. Off — or exactly the 0.9.1 behaviour — until set. The
+      // typedef says what each does.
+      contextMenuItems: null,
+      onContextMenuAction: null,
+      onRender: null,
+      keyboardNav: false,
+      onRowKeyDown: null,
+      persistPage: false,
+      // STORY-0012. Off — every column drawn, as in 0.9.1 — until set.
+      hiddenColumns: null,
+      columnChooser: false,
+      onColumnsChange: null,
       ...config
     };
     this._expanded = new Set((this.config.expandedRows || []).map((k) => String(k)));
@@ -752,6 +774,8 @@ var DataTable = class {
     this._filterControls = /* @__PURE__ */ new Map();
     this._filterCounts = /* @__PURE__ */ new Map();
     this._pendingFilter = null;
+    this._hidden = /* @__PURE__ */ new Set();
+    this._setHidden(this.config.hiddenColumns);
     this._activeKey = this.config.activeRow == null ? null : String(this.config.activeRow);
     this._error = null;
     this._virt = null;
@@ -776,6 +800,8 @@ var DataTable = class {
     this._tableEl = null;
     this._tbodyEl = null;
     this._contextMenuEl = null;
+    this._contextMenuCtx = null;
+    this._navCursor = null;
     this._filterDropdownEl = null;
     this._filterDropdownCleanup = null;
     this._colWidths = {};
@@ -847,6 +873,10 @@ var DataTable = class {
       this._state.filters = new Map(blob.filters);
       applied = true;
     }
+    if (Array.isArray(blob.hidden)) {
+      this._setHidden(blob.hidden);
+      applied = true;
+    }
     if (blob.colWidths && typeof blob.colWidths === "object") {
       this._colWidths = {};
       for (const [k, v] of Object.entries(blob.colWidths)) {
@@ -855,12 +885,17 @@ var DataTable = class {
       this._colWidthsSig = this._colSig();
       applied = true;
     }
+    if (this.config.persistPage && Number.isInteger(blob.offset) && blob.offset >= 0) {
+      this._state.offset = blob.offset;
+      this._clampRestoredPage = true;
+      applied = true;
+    }
     return applied;
   }
   /** Identity of the current column set — restored widths/sort are
    *  keyed by position, so a schema change invalidates them. */
   _colSig() {
-    return (this.config.headers || []).join("") + (this.config.showRowNumbers ? "|#" : "");
+    return (this.config.headers || []).join("") + (this.config.showRowNumbers ? "|#" : "") + (this._hidden?.size ? `|-${this.getHiddenColumns().join(",")}` : "");
   }
   /** Snapshot the persistable slice of state to the project store.
    *  No-op unless `persistKey` is set. Debounced inside the store. */
@@ -870,8 +905,134 @@ var DataTable = class {
       sortColumn: this._state.sortColumn,
       sortAscending: this._state.sortAscending,
       filters: [...this._state.filters.entries()],
-      colWidths: { ...this._colWidths }
+      colWidths: { ...this._colWidths },
+      // STORY-0010. Only for a table that asked: one that did not writes
+      // the 0.9.1 blob, key for key.
+      ...this.config.persistPage ? { offset: this._state.offset } : {},
+      // STORY-0012. Only for a table that hides columns or lets them be
+      // hidden.
+      ...this._columnsOn() ? { hidden: this.getHiddenColumns() } : {}
     });
+  }
+  // ─────────────────────────────────────────────────────────────────
+  // STORY-0012 — columns shown and hidden
+  // ─────────────────────────────────────────────────────────────────
+  /** Whether this table hides columns at all (and so saves the set). */
+  _columnsOn() {
+    return Array.isArray(this.config.hiddenColumns) || !!this.config.columnChooser || !!this._columnsTouched;
+  }
+  /** Replace the hidden set: whole indices of existing columns, and never
+   *  every column — the first one stays when nothing else would. A table
+   *  with no headers yet keeps the set for the headers `setData` brings. */
+  _setHidden(list) {
+    const n = (this.config.headers || []).length;
+    this._hidden = new Set((Array.isArray(list) ? list : []).map(Number).filter((c) => Number.isInteger(c) && c >= 0 && (!n || c < n)));
+    if (n && this._hidden.size >= n) this._hidden.delete(0);
+  }
+  _isHidden(colIdx) {
+    return this._hidden.has(colIdx);
+  }
+  /** The cells a drawn row has: the shown columns, and the row number. */
+  _domColCount() {
+    const n = Math.max(0, (this.config.headers?.length || 0) - this._hidden.size);
+    return n + (this.config.showRowNumbers ? 1 : 0);
+  }
+  /** A data column's drawn index (row number included), or -1 when hidden. */
+  _domIdxOf(colIdx) {
+    if (this._isHidden(colIdx)) return -1;
+    let dom = this.config.showRowNumbers ? 1 : 0;
+    for (const h of this._hidden) if (h < colIdx) dom--;
+    return dom + colIdx;
+  }
+  /** A drawn cell's data column, or null for the row number. */
+  _dataIdxOfDom(domIdx) {
+    let i = domIdx - (this.config.showRowNumbers ? 1 : 0);
+    if (i < 0) return null;
+    const n = this.config.headers?.length || 0;
+    for (let c = 0; c < n; c++) {
+      if (this._isHidden(c)) continue;
+      if (i === 0) return c;
+      i--;
+    }
+    return null;
+  }
+  /** The columns not drawn, by data index, ascending. */
+  getHiddenColumns() {
+    return [...this._hidden || []].sort((a, b) => a - b);
+  }
+  /**
+   * Show (`on` true) or hide a column. The last column shown is not hidden.
+   * The widths of the other columns stay as they were; a column shown again
+   * is measured. Saved under `persistKey`, and `onColumnsChange` is told.
+   *
+   * @param {number} colIdx
+   * @param {boolean} [on=true]
+   * @returns {boolean} whether the set changed
+   */
+  setColumnVisible(colIdx, on = true) {
+    const n = this.config.headers?.length || 0;
+    if (!Number.isInteger(colIdx) || colIdx < 0 || colIdx >= n) return false;
+    if (!!on === !this._isHidden(colIdx)) return false;
+    if (!on && n - this._hidden.size <= 1) return false;
+    this._columnsTouched = true;
+    const next = new Set(this._hidden);
+    if (on) next.delete(colIdx);
+    else next.add(colIdx);
+    this._applyHidden(next);
+    return true;
+  }
+  /** Swap in a new hidden set, carrying the drawn widths of the columns
+   *  that stay drawn to their new places, and tell whoever listens. */
+  _applyHidden(next) {
+    const before = this.getHiddenColumns();
+    const n = this.config.headers?.length || 0;
+    const old = this._colWidths;
+    const kept = this._colWidthsSig === this._colSig();
+    const domBefore = [];
+    for (let c = 0; c < n; c++) domBefore[c] = this._domIdxOf(c);
+    this._setHidden([...next]);
+    if (kept) {
+      const widths = {};
+      if (this.config.showRowNumbers && old[0] != null) widths[0] = old[0];
+      for (let c = 0; c < n; c++) {
+        const from = domBefore[c];
+        const to = this._domIdxOf(c);
+        if (from >= 0 && to >= 0 && old[from] != null) widths[to] = old[from];
+      }
+      this._colWidths = widths;
+      this._colWidthsSig = this._colSig();
+    }
+    const after = this.getHiddenColumns();
+    if (before.join() === after.join()) return;
+    this._savePersisted();
+    if (this._wrapperEl) this.render();
+    try {
+      this.config.onColumnsChange?.(after);
+    } catch (err) {
+      console.error("[DataTable] onColumnsChange threw", err);
+    }
+  }
+  /** `columnChooser`: the header's right-click menu, one checkable item a
+   *  column. */
+  _showColumnChooser(clientX, clientY) {
+    const headers = this.config.headers || [];
+    const lastShown = headers.length - this._hidden.size <= 1;
+    const items = headers.map((h, c) => {
+      const shown = !this._isHidden(c);
+      return {
+        label: String(h ?? ""),
+        icon: shown ? "check" : "",
+        checked: shown,
+        disabled: shown && lastShown,
+        title: shown && lastShown ? "The last column shown cannot be hidden" : "",
+        onChoose: () => this.setColumnVisible(c, !shown)
+      };
+    });
+    this._showContextMenu(clientX, clientY, { ctx: null, items, copy: false });
+  }
+  /** STORY-0010 `persistPage`: the client page changed, so save it. */
+  _savePage() {
+    if (this.config.persistPage) this._savePersisted();
   }
   /**
    * Update data and re-render
@@ -897,6 +1058,20 @@ var DataTable = class {
       this._destroyFilterControls();
     }
     Object.assign(this.config, updates);
+    if (Object.prototype.hasOwnProperty.call(updates, "hiddenColumns")) {
+      const before = this.getHiddenColumns().join();
+      this._setHidden(updates.hiddenColumns);
+      if (this.getHiddenColumns().join() !== before) {
+        this._savePersisted();
+        try {
+          this.config.onColumnsChange?.(this.getHiddenColumns());
+        } catch (err) {
+          console.error("[DataTable] onColumnsChange threw", err);
+        }
+      }
+    } else if (updates.headers && this._hidden.size) {
+      this._setHidden([...this._hidden]);
+    }
     if (updates.rows) {
       this._state.selected.clear();
       this._state.anchorIndex = null;
@@ -1060,6 +1235,7 @@ var DataTable = class {
     const rowCount = this._getProcessedRows().length;
     const maxPage = Math.ceil(rowCount / this.config.pageSize) - 1;
     this._state.offset = Math.max(0, Math.min(page, maxPage)) * this.config.pageSize;
+    this._savePage();
     this.render();
   }
   /**
@@ -1074,6 +1250,7 @@ var DataTable = class {
     const rowCount = this._getProcessedRows().length;
     const idx = Math.max(0, Math.min(rowIndex, rowCount - 1));
     this._state.offset = Math.floor(idx / this.config.pageSize) * this.config.pageSize;
+    this._savePage();
     this.render();
   }
   /**
@@ -1137,6 +1314,41 @@ var DataTable = class {
     return this._getProcessedRows().length;
   }
   /**
+   * STORY-0010. Give the table the keyboard focus (the body, where the arrow
+   * keys and `onRowKeyDown` listen) without scrolling the page. False when
+   * there is nothing drawn to focus.
+   * @returns {boolean}
+   */
+  focus() {
+    if (!this._tableEl) return false;
+    try {
+      this._tableEl.focus({ preventScroll: true });
+    } catch (_) {
+      return false;
+    }
+    return true;
+  }
+  /** STORY-0010 `keyboardNav`: the original indices of the page shown, in
+   *  the order shown — every row held, when the page is a server's or there
+   *  are no pages. */
+  _pageOrder() {
+    this._getProcessedRows();
+    const order = this._processedIndexMap || [];
+    if (this._isServerSide() || !this.config.pagination || this._pagingConfig()) return order;
+    return order.slice(this._state.offset, this._state.offset + this.config.pageSize);
+  }
+  /**
+   * STORY-0010. The rows the table shows, as row arrays, in the order shown:
+   * filtered and sorted, across EVERY page — not only the one on screen. With
+   * server-side paging (`onPageChange`, `dataSource`) they are the page the
+   * consumer or the source gave, which is all the table holds. A copy:
+   * changing it changes nothing in the table.
+   * @returns {Array<Array>}
+   */
+  getDisplayedRows() {
+    return this._getProcessedRows().slice();
+  }
+  /**
    * Render the table
    */
   render() {
@@ -1159,6 +1371,14 @@ var DataTable = class {
     }
     if (this._columnTypes.length === 0) {
       this._columnTypes = this._detectColumnTypes();
+    }
+    if (this._clampRestoredPage && rows.length > 0) {
+      this._clampRestoredPage = false;
+      if (!this._isServerSide() && !this._pagingConfig()) {
+        const size = this.config.pageSize;
+        const last = Math.max(0, Math.ceil(this._getProcessedRows().length / size) - 1) * size;
+        this._state.offset = Math.min(Math.floor(this._state.offset / size) * size, last);
+      }
     }
     this._wrapperEl = document.createElement("div");
     this._wrapperEl.className = "twm-data-table-component" + (this.config.mode === "compact" ? " twm-data-table-component--compact" : "");
@@ -1201,6 +1421,7 @@ var DataTable = class {
         tr.appendChild(th);
       }
       headers.forEach((h, colIdx) => {
+        if (this._isHidden(colIdx)) return;
         const th = document.createElement("th");
         th.className = this._columnTypes[colIdx] || "text";
         th.textContent = h;
@@ -1215,7 +1436,7 @@ var DataTable = class {
       const bodyTable = document.createElement("table");
       bodyTable.className = headerTable.className;
       const tbody = document.createElement("tbody");
-      tbody.appendChild(this._buildEmptyRow(headers.length + (showRowNumbers ? 1 : 0), emptyMessage));
+      tbody.appendChild(this._buildEmptyRow(this._domColCount(), emptyMessage));
       bodyTable.appendChild(tbody);
       tableWrap.appendChild(bodyTable);
       this._wrapperEl.appendChild(tableWrap);
@@ -1240,13 +1461,22 @@ var DataTable = class {
         this._headerTableEl = null;
       }
       if (keepFilterRow && this._tbodyEl) {
-        const n = this.config.headers.length + (this.config.showRowNumbers ? 1 : 0);
-        this._tbodyEl.appendChild(this._buildEmptyRow(n, emptyMessage));
+        this._tbodyEl.appendChild(this._buildEmptyRow(this._domColCount(), emptyMessage));
       }
       tableWrap.appendChild(fullTable);
       this._wrapperEl.appendChild(tableWrap);
     }
     this._tableWrapEl = tableWrap;
+    if (this.config.columnChooser && this._headerTableEl) {
+      const head = this._headerTableEl;
+      const onHeadMenu = (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        setTimeout(() => this._showColumnChooser(ev.clientX, ev.clientY), 0);
+      };
+      head.addEventListener("contextmenu", onHeadMenu);
+      this._disposers.push(() => head.removeEventListener("contextmenu", onHeadMenu));
+    }
     if (this._paginationEl && this.config.pagerPosition === "bottom") {
       this._paginationEl.classList.add("twm-pagination-controls--bottom");
       this._paginationEl.style.borderBottom = "0";
@@ -1304,7 +1534,7 @@ var DataTable = class {
       this._installHeaderScrollSync();
       if (rows.length > 0) this._installColumnResizers();
     }
-    if (rows.length > 0 && (this.config.selectable || this.config.copyable || !this.config.readonly || typeof this.config.onRowActivate === "function" || typeof this.config.rowDetail === "function")) {
+    if (rows.length > 0 && (this.config.selectable || this.config.copyable || !this.config.readonly || typeof this.config.onRowActivate === "function" || typeof this.config.rowDetail === "function" || typeof this.config.onRowKeyDown === "function")) {
       this._installInteractions();
     }
     if (activeFilterColIdx !== null) {
@@ -1327,6 +1557,13 @@ var DataTable = class {
       }
       if (this._following && !this._followTimer) this._armFollow();
     }
+    if (typeof this.config.onRender === "function") {
+      try {
+        this.config.onRender(this);
+      } catch (err) {
+        console.error("[DataTable] onRender threw", err);
+      }
+    }
   }
   /**
    * Copy selected rows to clipboard
@@ -1339,11 +1576,12 @@ var DataTable = class {
       return;
     }
     const { headers, rows } = this.config;
-    const matrix = [headers];
+    const shown = (_, colIdx) => !this._isHidden(colIdx);
+    const matrix = [headers.filter(shown)];
     for (const idx of indices) {
       const row = rows[idx];
       if (row) {
-        matrix.push(row.map((val, colIdx) => this._formatValue(val, colIdx)));
+        matrix.push(row.map((val, colIdx) => this._formatValue(val, colIdx)).filter(shown));
       }
     }
     const separator = format === "csv" ? "," : "	";
@@ -1374,11 +1612,12 @@ var DataTable = class {
       this._notify("Download", "No data to download.", "warn");
       return;
     }
-    const lines = [headers.join(",")];
+    const shown = (_, colIdx) => !this._isHidden(colIdx);
+    const lines = [headers.filter(shown).join(",")];
     for (const row of rows) {
       lines.push(row.map(
         (val, colIdx) => this._csvEscape(this._formatValue(val, colIdx))
-      ).join(","));
+      ).filter(shown).join(","));
     }
     const csv = lines.join("\n");
     const dialogs = this.config.host?.dialogs;
@@ -1689,6 +1928,7 @@ var DataTable = class {
       tr.appendChild(th);
     }
     headers.forEach((header, colIdx) => {
+      if (this._isHidden(colIdx)) return;
       const th = document.createElement("th");
       th.className = "data-table__filter-cell";
       const control = this._filterControlFor(colIdx, header);
@@ -2008,7 +2248,7 @@ var DataTable = class {
    *  rebuilt its box: the words, and the debounce that will apply them. */
   _resumePendingFilter({ colIdx, value }) {
     const filterRow = this._wrapperEl?.querySelector(".twm-data-table__filter-row");
-    const cell = filterRow?.children[this.config.showRowNumbers ? colIdx + 1 : colIdx];
+    const cell = filterRow?.children[this._domIdxOf(colIdx)];
     const input = cell?.querySelector(".twm-data-table__filter-input");
     if (input && input.value !== value) {
       const focused = input.ownerDocument?.activeElement === input;
@@ -2028,12 +2268,12 @@ var DataTable = class {
     if (!row) return null;
     const cells = Array.from(row.children);
     const idx = cells.indexOf(cell);
-    return this.config.showRowNumbers ? idx - 1 : idx;
+    return this._hidden.size ? this._dataIdxOfDom(idx) : this.config.showRowNumbers ? idx - 1 : idx;
   }
   _restoreFilterFocus(colIdx) {
     const filterRow = this._wrapperEl?.querySelector(".twm-data-table__filter-row");
     if (!filterRow) return;
-    const cellIdx = this.config.showRowNumbers ? colIdx + 1 : colIdx;
+    const cellIdx = this._domIdxOf(colIdx);
     const cell = filterRow.children[cellIdx];
     const input = cell?.querySelector(".twm-data-table__filter-input");
     if (input) {
@@ -2146,6 +2386,7 @@ var DataTable = class {
         this._awaitWithSpinner(onPageChange(newOffset, pageSize));
       } else {
         this._state.offset = newOffset;
+        this._savePage();
         this.render();
       }
     };
@@ -2506,6 +2747,7 @@ var DataTable = class {
       headerRow.appendChild(th);
     }
     headers.forEach((header, colIdx) => {
+      if (this._isHidden(colIdx)) return;
       const th = document.createElement("th");
       th.className = this._columnTypes[colIdx] || "text";
       if (sortable) {
@@ -2652,7 +2894,7 @@ var DataTable = class {
    *  any width already pinned for it, so a re-render starts at the widths it
    *  had rather than at a content-sized frame that then snaps. */
   _createColgroup() {
-    const n = (this.config.headers?.length || 0) + (this.config.showRowNumbers ? 1 : 0);
+    const n = this._domColCount();
     const colgroup = document.createElement("colgroup");
     for (let i = 0; i < n; i++) {
       const col = document.createElement("col");
@@ -2674,7 +2916,7 @@ var DataTable = class {
       tr.className = `twm-dt-spacer twm-dt-spacer--${edge}`;
       tr.setAttribute("aria-hidden", "true");
       const td = document.createElement("td");
-      td.colSpan = Math.max(1, (this.config.headers?.length || 0) + (this.config.showRowNumbers ? 1 : 0));
+      td.colSpan = Math.max(1, this._domColCount());
       td.style.cssText = "padding:0;border:0;height:0;min-width:0;max-width:none;";
       tr.appendChild(td);
       return tr;
@@ -3076,6 +3318,7 @@ var DataTable = class {
     const gap = diff?.status === "gap";
     const changedCells = diff?.cells ? diff.cells instanceof Set ? diff.cells : new Set(diff.cells) : null;
     for (let colIdx = 0; colIdx < row.length; colIdx++) {
+      if (this._isHidden(colIdx)) continue;
       const td = document.createElement("td");
       td.className = this._columnTypes[colIdx] || "text";
       const value = row[colIdx];
@@ -3263,7 +3506,7 @@ var DataTable = class {
     for (const p of pieces) parent.insertBefore(p, ref);
   }
   _buildDetailPieces(tr, key) {
-    const n = (this.config.headers?.length || 0) + (this.config.showRowNumbers ? 1 : 0);
+    const n = this._domColCount();
     const detailTr = document.createElement("tr");
     detailTr.className = "twm-dt-detail-row";
     const td = document.createElement("td");
@@ -3997,6 +4240,7 @@ var DataTable = class {
         return;
       }
       this._state.offset = newOffset;
+      this._savePage();
       this.render();
     };
     const el = document.createElement("div");
@@ -4202,7 +4446,7 @@ var DataTable = class {
     const v = textBox && value != null && typeof value !== "string" ? String(value) : value;
     if (textBox) {
       const filterRow = this._wrapperEl?.querySelector(".twm-data-table__filter-row");
-      const cell = filterRow?.children[this.config.showRowNumbers ? colIdx + 1 : colIdx];
+      const cell = filterRow?.children[this._domIdxOf(colIdx)];
       const input = cell?.querySelector(".twm-data-table__filter-input");
       if (input) input.value = v || "";
     }
@@ -5249,6 +5493,7 @@ var DataTable = class {
   _installInteractions() {
     if (!this._tbodyEl || !this._tableEl) return;
     const { selectable, copyable } = this.config;
+    const customMenu = this.config.contextMenuItems != null;
     const tbody = this._tbodyEl;
     const table = this._tableEl;
     if (selectable) {
@@ -5287,6 +5532,58 @@ var DataTable = class {
       tbody.addEventListener("click", handleRowClick);
       this._disposers.push(() => tbody.removeEventListener("click", handleRowClick));
     }
+    if (typeof this.config.onRowKeyDown === "function") {
+      const onRowKey = (ev) => {
+        if (ev.isComposing || isRowControl(ev.target, table)) return;
+        const tr = this._currentRowEl();
+        let handled = false;
+        try {
+          handled = this.config.onRowKeyDown(tr ? tr.__rowIndex : null, tr ? tr.__row : null, ev) === true;
+        } catch (err) {
+          console.error("[DataTable] onRowKeyDown threw", err);
+        }
+        if (handled) {
+          ev.preventDefault();
+          ev.stopImmediatePropagation();
+        }
+      };
+      table.addEventListener("keydown", onRowKey);
+      this._disposers.push(() => table.removeEventListener("keydown", onRowKey));
+    }
+    if (this.config.keyboardNav && selectable) {
+      const NAV_KEYS = ["ArrowDown", "ArrowUp", "Home", "End"];
+      const onNavKey = (ev) => {
+        if (!NAV_KEYS.includes(ev.key) || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+        if (isRowControl(ev.target, table)) return;
+        const order = this._pageOrder();
+        if (!order.length) return;
+        ev.preventDefault();
+        const selected = this._state.selected;
+        const cur = this._navCursor != null && selected.has(this._navCursor) ? this._navCursor : this._state.anchorIndex;
+        let pos = order.indexOf(cur);
+        if (ev.key === "Home") pos = 0;
+        else if (ev.key === "End") pos = order.length - 1;
+        else if (pos === -1) pos = ev.key === "ArrowDown" ? 0 : order.length - 1;
+        else pos = Math.max(0, Math.min(order.length - 1, pos + (ev.key === "ArrowDown" ? 1 : -1)));
+        const idx = order[pos];
+        this._navCursor = idx;
+        const anchorPos = order.indexOf(this._state.anchorIndex);
+        if (ev.shiftKey && selectable !== "single" && anchorPos !== -1) {
+          const [a, b] = anchorPos <= pos ? [anchorPos, pos] : [pos, anchorPos];
+          selected.clear();
+          for (let i = a; i <= b; i++) selected.add(order[i]);
+        } else {
+          selected.clear();
+          selected.add(idx);
+          this._state.anchorIndex = idx;
+        }
+        this._updateRowSelection();
+        this._notifySelectionChange();
+        this.scrollToRow(idx);
+      };
+      table.addEventListener("keydown", onNavKey);
+      this._disposers.push(() => table.removeEventListener("keydown", onNavKey));
+    }
     if (typeof this.config.onRowActivate === "function") {
       this._installActivation(tbody, table);
     }
@@ -5304,7 +5601,7 @@ var DataTable = class {
       table.addEventListener("keydown", onDetailKey);
       this._disposers.push(() => table.removeEventListener("keydown", onDetailKey));
     }
-    if (copyable) {
+    if (copyable || customMenu) {
       const handleContextMenu = (event) => {
         const rowEl = event.target.closest("tr");
         if (!rowEl) {
@@ -5315,9 +5612,19 @@ var DataTable = class {
           this._hideContextMenu();
           return;
         }
+        const idx = rowEl.__rowIndex;
+        let custom = null;
+        if (customMenu) {
+          const selection = idx !== void 0 && !this._state.selected.has(idx) ? [idx] : this.getSelection();
+          const ctx = this._contextMenuCtxFor(rowEl, event.target, selection);
+          custom = { ctx, items: this._customMenuItems(ctx) };
+        }
+        if (!copyable && !custom.items.length) {
+          this._hideContextMenu();
+          return;
+        }
         event.preventDefault();
         event.stopPropagation();
-        const idx = rowEl.__rowIndex;
         if (idx !== void 0 && !this._state.selected.has(idx)) {
           this._state.selected.clear();
           this._state.selected.add(idx);
@@ -5329,10 +5636,12 @@ var DataTable = class {
           table.focus({ preventScroll: true });
         } catch (_) {
         }
-        setTimeout(() => this._showContextMenu(event.clientX, event.clientY), 0);
+        setTimeout(() => this._showContextMenu(event.clientX, event.clientY, custom), 0);
       };
       tbody.addEventListener("contextmenu", handleContextMenu);
       this._disposers.push(() => tbody.removeEventListener("contextmenu", handleContextMenu));
+    }
+    if (copyable) {
       const handleKeyDown = (event) => {
         const ctrlLike = event.ctrlKey || event.metaKey;
         if (ctrlLike && !event.altKey) {
@@ -5389,20 +5698,28 @@ var DataTable = class {
     menu.style.display = "none";
     menu.style.position = "fixed";
     menu.style.zIndex = "10001";
-    menu.innerHTML = `
-            <div class="twm-context-menu-item" data-action="copy-tsv">
-                <span class="material-symbols-outlined">content_copy</span>
-                <span class="label">Copy Row(s)</span>
-            </div>
-            <div class="twm-context-menu-item" data-action="copy-csv">
-                <span class="material-symbols-outlined">table</span>
-                <span class="label">Copy as CSV</span>
-            </div>
-        `;
+    menu.innerHTML = COPY_MENU_HTML;
     document.body.appendChild(menu);
     menu.addEventListener("click", (event) => {
       const item = event.target.closest(".twm-context-menu-item");
       if (!item || item.classList.contains("disabled")) return;
+      if (item.__cmItem) {
+        event.stopPropagation();
+        event.preventDefault();
+        const ctx = this._contextMenuCtx;
+        this._hideContextMenu();
+        if (typeof item.__cmItem.onChoose === "function") {
+          item.__cmItem.onChoose();
+          return;
+        }
+        if (!ctx || typeof this.config.onContextMenuAction !== "function") return;
+        try {
+          this.config.onContextMenuAction(item.__cmItem.action, ctx.rowIdx, ctx.row, ctx);
+        } catch (err) {
+          console.error("[DataTable] onContextMenuAction threw", err);
+        }
+        return;
+      }
       const action = item.getAttribute("data-action");
       if (action === "copy-tsv") this.copyToClipboard("tsv");
       else if (action === "copy-csv") this.copyToClipboard("csv");
@@ -5460,11 +5777,13 @@ var DataTable = class {
     }
     this._disarmContextMenuGlobals();
   }
-  _showContextMenu(clientX, clientY) {
+  _showContextMenu(clientX, clientY, custom = null) {
     const menu = this._ensureContextMenu();
+    this._drawContextMenuItems(menu, custom);
     this._armContextMenuGlobals();
     const hasSelection = this._state.selected.size > 0;
     menu.querySelectorAll(".twm-context-menu-item").forEach((item) => {
+      if (item.__cmItem) return;
       item.classList.toggle("disabled", !hasSelection);
       item.style.pointerEvents = hasSelection ? "" : "none";
     });
@@ -5480,6 +5799,106 @@ var DataTable = class {
     }
     menu.style.left = `${left}px`;
     menu.style.top = `${top}px`;
+  }
+  /**
+   * STORY-0010. The `ctx` handed to `contextMenuItems` and, later, to
+   * `onContextMenuAction`: the right-clicked row and cell, and `selection`
+   * (original indices, ascending) with its rows 1:1.
+   */
+  _contextMenuCtxFor(rowEl, target, selection) {
+    const rows = this.config.rows || [];
+    const rowIdx = rowEl.__rowIndex === void 0 ? null : rowEl.__rowIndex;
+    const row = rowIdx === null ? null : rows[rowIdx] ?? null;
+    let colIdx = null;
+    const cellEl = target?.closest?.("td");
+    if (cellEl && cellEl.parentNode === rowEl) {
+      const domIdx = Array.prototype.indexOf.call(rowEl.children, cellEl);
+      const dataIdx = this._dataIdxOfDom(domIdx);
+      if (dataIdx !== null) colIdx = dataIdx;
+    }
+    const sel = [...selection].sort((a, b) => a - b);
+    return {
+      rowIdx,
+      row,
+      colIdx,
+      value: colIdx !== null && row ? row[colIdx] : null,
+      selection: sel,
+      selectedRows: sel.map((i) => rows[i])
+    };
+  }
+  /** STORY-0010. `contextMenuItems` for one right-click: none off a data row
+   *  (the empty row), and none from a function that threw. */
+  _customMenuItems(ctx) {
+    if (ctx.rowIdx === null) return [];
+    const spec = this.config.contextMenuItems;
+    let items = spec;
+    if (typeof spec === "function") {
+      try {
+        items = spec(ctx.row, ctx.rowIdx, ctx);
+      } catch (err) {
+        console.error("[DataTable] contextMenuItems threw", err);
+        items = null;
+      }
+    }
+    return Array.isArray(items) ? items.filter(Boolean) : [];
+  }
+  /**
+   * STORY-0010. Fill the menu for this right-click: the consumer's items,
+   * then (with `copyable`) a separator and the copy items. Without custom
+   * items the menu is the 0.9.1 copy menu, and is only rebuilt when the last
+   * right-click drew custom ones into it. Built with DOM calls, not markup:
+   * the labels are the consumer's text.
+   */
+  _drawContextMenuItems(menu, custom) {
+    this._contextMenuCtx = custom ? custom.ctx : null;
+    if (!custom) {
+      if (this._contextMenuCustom) {
+        menu.innerHTML = COPY_MENU_HTML;
+        this._contextMenuCustom = false;
+      }
+      return;
+    }
+    this._contextMenuCustom = true;
+    menu.textContent = "";
+    for (const item of custom.items) {
+      if (item.separator) {
+        const sep = document.createElement("div");
+        sep.className = "twm-context-menu__separator";
+        menu.appendChild(sep);
+        continue;
+      }
+      const el = document.createElement("div");
+      el.className = "twm-context-menu-item";
+      if (item.action != null) el.setAttribute("data-action", String(item.action));
+      if (item.danger) el.classList.add("twm-delete-node");
+      if (item.disabled) {
+        el.classList.add("disabled");
+        el.style.pointerEvents = "none";
+        el.setAttribute("aria-disabled", "true");
+      }
+      if (item.title) el.title = String(item.title);
+      if (typeof item.checked === "boolean") {
+        el.setAttribute("role", "menuitemcheckbox");
+        el.setAttribute("aria-checked", String(item.checked));
+      }
+      const icon = document.createElement("span");
+      icon.className = "material-symbols-outlined";
+      icon.textContent = item.icon == null ? "" : String(item.icon);
+      const label = document.createElement("span");
+      label.className = "label";
+      label.textContent = item.label == null ? "" : String(item.label);
+      el.append(icon, label);
+      el.__cmItem = item;
+      menu.appendChild(el);
+    }
+    if (this.config.copyable && custom.copy !== false) {
+      if (custom.items.length) {
+        const sep = document.createElement("div");
+        sep.className = "twm-context-menu__separator";
+        menu.appendChild(sep);
+      }
+      menu.insertAdjacentHTML("beforeend", COPY_MENU_HTML);
+    }
   }
   _teardownContextMenu() {
     this._contextMenuGlobals.forEach((dispose) => {
@@ -5556,4 +5975,4 @@ export {
   resolvePaging,
   DataTable
 };
-//# sourceMappingURL=chunk-JLCJWCRS.js.map
+//# sourceMappingURL=chunk-6CGH73BC.js.map

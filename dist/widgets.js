@@ -9,14 +9,14 @@ import {
   hideContextMenu,
   setHelpProvider,
   showContextMenu
-} from "./chunk-H4LT43RS.js";
+} from "./chunk-5QPGYHBN.js";
 import {
   modalHost,
   openConfirm,
   openForm,
   openModal,
   setModalHost
-} from "./chunk-6NG7YVBG.js";
+} from "./chunk-6EZPPN4E.js";
 import {
   ActionDropdown
 } from "./chunk-O5OHMWBB.js";
@@ -36,7 +36,7 @@ import {
   parseDateValue,
   parseDuration,
   resolvePaging
-} from "./chunk-JLCJWCRS.js";
+} from "./chunk-6CGH73BC.js";
 import {
   ManagedWindow,
   ROW_CONTROL_SELECTOR,
@@ -5073,10 +5073,20 @@ var NotificationCenter = class _NotificationCenter extends ComponentBase {
     maxVisible = 3,
     historyLimit = 50,
     defaultDurationMs = 6e3,
-    logLevels = DEFAULT_LOG_LEVELS
+    logLevels = DEFAULT_LOG_LEVELS,
+    // What happens past `maxVisible`. 'drop' (the default, as before 0.11):
+    // the oldest toast leaves. 'collapse': the toasts on screen stay, the
+    // rest wait behind one "+N more" toast, and each comes in as one closes
+    // — a sticky alert nobody has read is never pushed off unseen.
+    overflow = "drop",
+    // Called with the held-back toasts when the "+N more" toast is clicked.
+    summaryAction = null
   } = {}) {
     super({ eventBus, logger });
     this.maxVisible = maxVisible;
+    this.overflow = overflow === "collapse" ? "collapse" : "drop";
+    this.summaryAction = typeof summaryAction === "function" ? summaryAction : null;
+    this.held = [];
     this.historyLimit = historyLimit;
     this.defaultDurationMs = defaultDurationMs;
     this.logLevels = new Set(logLevels ?? DEFAULT_LOG_LEVELS);
@@ -5143,6 +5153,13 @@ var NotificationCenter = class _NotificationCenter extends ComponentBase {
   show(notification) {
     const normalized = this.#normalizeNotification(notification);
     this.#consoleLog(normalized);
+    if (this.overflow === "collapse" && this.notifications.length >= this.maxVisible) {
+      this.held.push(normalized);
+      this.#recordHistory(normalized);
+      this.#render();
+      this.#announce(normalized);
+      return normalized.id;
+    }
     this.notifications.push(normalized);
     if (this.notifications.length > this.maxVisible) {
       const removed = this.notifications.shift();
@@ -5158,11 +5175,21 @@ var NotificationCenter = class _NotificationCenter extends ComponentBase {
   dismiss(notificationId, reason = "dismissed") {
     const idx = this.notifications.findIndex((item) => item.id === notificationId);
     if (idx === -1) {
-      return false;
+      const h = this.held.findIndex((item) => item.id === notificationId);
+      if (h === -1) return false;
+      const [gone] = this.held.splice(h, 1);
+      this.#recordHistory({ ...gone, dismissed: true, reason });
+      this.#render();
+      return true;
     }
     const [removed] = this.notifications.splice(idx, 1);
     this.#stopTimer(notificationId);
     this.#recordHistory({ ...removed, dismissed: true, reason });
+    if (this.held.length && this.notifications.length < this.maxVisible) {
+      const next = this.held.shift();
+      this.notifications.push(next);
+      this.#scheduleAutoDismiss(next);
+    }
     this.#render();
     return true;
   }
@@ -5422,6 +5449,24 @@ var NotificationCenter = class _NotificationCenter extends ComponentBase {
       });
       fragment.appendChild(item);
     });
+    if (this.held.length) {
+      const more = document.createElement("button");
+      more.type = "button";
+      more.className = "notification twm-notification--summary";
+      more.setAttribute("data-notification-summary", String(this.held.length));
+      more.textContent = `+${this.held.length} more`;
+      more.title = this.held.map((h) => h.title || h.message).join("\n");
+      more.addEventListener("click", () => {
+        const held = [...this.held];
+        try {
+          this.summaryAction?.(held);
+        } catch (err) {
+          this.logger?.warn?.("summaryAction failed", err);
+        }
+        this.eventBus?.emit?.("notification:summary", { held });
+      });
+      fragment.appendChild(more);
+    }
     this.listEl.appendChild(fragment);
   }
   #formatTimestamp(timestamp) {

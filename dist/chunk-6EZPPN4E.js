@@ -11,7 +11,7 @@ function modalHost() {
   return _modalHost;
 }
 var _modalSeq = 1;
-function openForm({ title, fields = [], defaults = {}, submitLabel = "OK" } = {}) {
+function openForm({ title, fields = [], defaults = {}, submitLabel = "OK", onFieldChange = null } = {}) {
   return new Promise((resolve) => {
     const body = document.createElement("div");
     body.className = "twm-modal__body-host";
@@ -66,7 +66,9 @@ function openForm({ title, fields = [], defaults = {}, submitLabel = "OK" } = {}
     const formFields = fields.filter((f) => !f.section);
     for (const f of formFields) {
       if (f.type === "select" && f.create) _wireComboboxHint(body, f);
+      if (f.type === "picker") _wirePicker(body, f);
     }
+    const rowHidden = (name) => !!body.querySelector(`[data-field-row="${name}"]`)?.hidden;
     const clearFieldError = (name) => {
       const row = body.querySelector(`[data-field-row="${name}"]`);
       const errEl2 = body.querySelector(`[data-field-error="${name}"]`);
@@ -90,6 +92,58 @@ function openForm({ title, fields = [], defaults = {}, submitLabel = "OK" } = {}
       el?.addEventListener("input", () => clearFieldError(f.name));
       el?.addEventListener("change", () => clearFieldError(f.name));
     }
+    if (typeof onFieldChange === "function") {
+      const fieldOf = (name) => formFields.find((f) => f.name === name) || null;
+      const api = {
+        setVisible(name, on) {
+          const row = body.querySelector(`[data-field-row="${name}"]`);
+          if (!row) return;
+          row.hidden = !on;
+          row.style.display = on ? "" : "none";
+          clearFieldError(name);
+          for (const el of row.querySelectorAll("input, select, textarea")) {
+            if (!on && el.required) {
+              el.required = false;
+              el.dataset.twmRequired = "1";
+            } else if (on && el.dataset.twmRequired) {
+              el.required = true;
+              delete el.dataset.twmRequired;
+            }
+          }
+        },
+        get(name) {
+          const el = body.querySelector(`[name="${name}"]`);
+          if (!el) return void 0;
+          return el.type === "checkbox" ? !!el.checked : el.value;
+        },
+        set(name, value) {
+          const el = body.querySelector(`[name="${name}"]`);
+          if (!el) return;
+          if (el.type === "checkbox") {
+            el.checked = !!value;
+            return;
+          }
+          el.value = value == null ? "" : String(value);
+          const f = fieldOf(name);
+          if (f?.type === "picker") {
+            const display = body.querySelector(`[data-picker-display="${name}"]`);
+            if (display) display.value = _pickerLabel(f, el.value);
+          }
+        }
+      };
+      const fire = (name) => {
+        try {
+          onFieldChange(name, name == null ? void 0 : api.get(name), api);
+        } catch (err) {
+          console.error("[modal] onFieldChange threw", err);
+        }
+      };
+      for (const f of formFields) {
+        const el = body.querySelector(`[name="${f.name}"]`);
+        el?.addEventListener("change", () => fire(f.name));
+      }
+      fire(null);
+    }
     body.querySelector("form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const submitBtn = body.querySelector('button[type="submit"]');
@@ -107,20 +161,21 @@ function openForm({ title, fields = [], defaults = {}, submitLabel = "OK" } = {}
           v = el.value;
         }
         if (f.type === "select" && f.create) {
+          const spec = _createSpec(f);
           const known = new Set(_optionValues(f.options));
           if (v && !known.has(v)) {
             if (submitBtn) submitBtn.disabled = true;
             let created;
             let failMsg = null;
             try {
-              created = await f.create.onCreate(v);
+              created = await spec.onCreate(v);
             } catch (err) {
               created = null;
               failMsg = err?.message || String(err);
             }
             if (submitBtn) submitBtn.disabled = false;
             if (created == null) {
-              const hint = f.create && f.create.hint || f.label.toLowerCase();
+              const hint = spec.hint || f.label.toLowerCase();
               showError(failMsg ? `Couldn't create ${hint} "${v}": ${failMsg}` : `Couldn't create ${hint} "${v}". See the toast for details.`);
               return;
             }
@@ -132,12 +187,16 @@ function openForm({ title, fields = [], defaults = {}, submitLabel = "OK" } = {}
       let firstBadName = null;
       for (const f of formFields) {
         clearFieldError(f.name);
-        if (typeof f.validator !== "function") continue;
+        if (rowHidden(f.name)) continue;
         let msg = null;
-        try {
-          msg = f.validator(data[f.name], data);
-        } catch (err) {
-          msg = err?.message || String(err);
+        if (f.type === "picker" && f.required && !data[f.name]) msg = "Required.";
+        else if (typeof f.validator !== "function") continue;
+        else {
+          try {
+            msg = f.validator(data[f.name], data);
+          } catch (err) {
+            msg = err?.message || String(err);
+          }
         }
         if (msg) {
           setFieldError(f.name, msg);
@@ -145,13 +204,15 @@ function openForm({ title, fields = [], defaults = {}, submitLabel = "OK" } = {}
         }
       }
       if (firstBadName) {
-        body.querySelector(`[name="${firstBadName}"]`)?.focus();
+        body.querySelector(`[data-picker="${firstBadName}"]`)?.focus();
+        body.querySelector(`[name="${firstBadName}"]:not([type="hidden"])`)?.focus();
         return;
       }
       close(data);
     });
     requestAnimationFrame(() => {
-      body.querySelector("input, select, textarea")?.focus();
+      const first = [...body.querySelectorAll('input:not([type="hidden"]), select, textarea')].find((el) => !el.closest("[data-field-row]")?.hidden);
+      first?.focus();
     });
   });
 }
@@ -409,12 +470,57 @@ function _estimateWidth(fields) {
 function _optionValues(options) {
   return (options || []).map((o) => typeof o === "object" ? o.value : o);
 }
+function _createSpec(f) {
+  if (!f || !f.create) return null;
+  if (f.create === true) return { onCreate: async (v) => v, hint: null };
+  return {
+    onCreate: typeof f.create.onCreate === "function" ? f.create.onCreate : async (v) => v,
+    hint: f.create.hint ?? null
+  };
+}
+function _pickerLabel(f, value) {
+  if (typeof f.displayFor !== "function") return value == null ? "" : String(value);
+  try {
+    return String(f.displayFor(value) ?? "");
+  } catch (err) {
+    console.warn("[modal] displayFor threw", err);
+    return String(value ?? "");
+  }
+}
+function _wirePicker(host, f) {
+  const hidden = host.querySelector(`input[type="hidden"][name="${f.name}"]`);
+  const display = host.querySelector(`[data-picker-display="${f.name}"]`);
+  const btn = host.querySelector(`[data-picker="${f.name}"]`);
+  if (!hidden || !display || !btn || typeof f.pick !== "function") return;
+  let busy = false;
+  const open = async () => {
+    if (busy) return;
+    busy = true;
+    let picked;
+    try {
+      picked = await f.pick(hidden.value);
+    } catch (err) {
+      console.warn("[modal] pick threw", err);
+      picked = null;
+    } finally {
+      busy = false;
+    }
+    if (picked == null) return;
+    const isPair = typeof picked === "object";
+    hidden.value = String((isPair ? picked.value : picked) ?? "");
+    display.value = isPair && picked.label != null ? String(picked.label) : _pickerLabel(f, hidden.value);
+    hidden.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+  btn.addEventListener("click", open);
+  display.addEventListener("click", open);
+}
 function _wireComboboxHint(host, f) {
   const input = host.querySelector(`input[name="${f.name}"]`);
   const hintEl = host.querySelector(`.twm-combobox__hint[data-for="${f.name}"]`);
   if (!input || !hintEl) return;
+  if (f.create === true) return;
   const known = new Set(_optionValues(f.options));
-  const label = f.create && f.create.hint || "new entry";
+  const label = _createSpec(f).hint || "new entry";
   const update = () => {
     const v = input.value.trim();
     if (v && !known.has(v)) {
@@ -429,7 +535,8 @@ function _wireComboboxHint(host, f) {
 }
 function _renderEntry(f, value) {
   if (f && f.section != null) {
-    return `<div class="twm-modal__section">${_esc(f.section)}</div>`;
+    const attr = f.name ? ` data-field-row="${f.name}"` : "";
+    return `<div class="twm-modal__section"${attr}>${_esc(f.section)}</div>`;
   }
   return _renderField(f, value);
 }
@@ -467,6 +574,20 @@ function _renderField(f, value) {
     return wrap(`<textarea name="${f.name}" ${rows} ${placeholder2} ${required}>${_esc(v2)}</textarea>`);
   }
   const v = value == null ? "" : String(value);
+  if (f.type === "picker") {
+    const placeholder2 = f.placeholder ? `placeholder="${_esc(f.placeholder)}"` : "";
+    return wrap(`
+            <div class="twm-picker">
+                <input type="hidden" name="${f.name}" value="${_esc(v)}">
+                <input class="twm-picker__display" data-picker-display="${f.name}" type="text"
+                       value="${_esc(_pickerLabel(f, v))}" ${placeholder2} readonly>
+                <button type="button" class="twm-btn twm-picker__btn" data-picker="${f.name}"
+                        aria-label="Search" title="Search">
+                    <span class="material-symbols-outlined" aria-hidden="true">search</span>
+                </button>
+            </div>
+        `);
+  }
   if (f.type === "select" && f.create) {
     const dlId = `ea-dl-${f.name}-${_modalSeq}`;
     const opts = _optionValues(f.options).map((ov) => `<option value="${_esc(ov)}"></option>`).join("");
@@ -505,4 +626,4 @@ export {
   openConfirm,
   openModal
 };
-//# sourceMappingURL=chunk-6NG7YVBG.js.map
+//# sourceMappingURL=chunk-6EZPPN4E.js.map

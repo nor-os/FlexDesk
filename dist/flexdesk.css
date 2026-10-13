@@ -279,6 +279,22 @@
     flex-direction: column;
     gap: var(--space-lg);
 }
+
+/* NotificationCenter `overflow: 'collapse'`: the toasts past maxVisible, as one. */
+.twm-notification--summary {
+    display: block;
+    width: 100%;
+    padding: 6px 12px;
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    color: var(--text-secondary, #9a9a9a);
+    background: var(--surface-2, #2d2d2d);
+    border: 1px dashed var(--border-strong, #383838);
+    border-radius: var(--radius-md, 6px);
+    cursor: pointer;
+}
+.twm-notification--summary:hover { color: var(--text-primary, #e0e0e0); }
 .twm-notification__header {
     display: flex;
     align-items: center;
@@ -5064,6 +5080,36 @@ button.twm-about-dialog__btn--close:focus {
     font-size: 10.5px;
     color: var(--ea-accent);
     font-style: italic;
+}
+/* Picker = a read-only display of the looked-up value + its search button.
+ * The display takes the field-well styling of the text inputs above. */
+.twm-managed-window--modal .twm-picker {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+.twm-managed-window--modal .twm-picker .twm-picker__display {
+    flex: 1 1 auto;
+    min-width: 0;
+    cursor: pointer;
+}
+.twm-managed-window--modal .twm-picker__btn {
+    flex: 0 0 auto;
+    min-height: 22px;
+    padding: 0 6px;
+    border-radius: 0;
+}
+.twm-managed-window--modal .twm-picker__btn .material-symbols-outlined {
+    font-size: 15px;
+}
+/* A row (or named section) hidden by openForm's `setVisible`. `[hidden]`
+ * carries only the UA sheet's `display: none`, which the grid and flex rules
+ * on `.twm-modal__row` / `.twm-modal__section` beat — so a hidden row stayed
+ * on screen. */
+.twm-modal__row[hidden],
+.twm-modal__section[hidden] {
+    display: none !important;
 }
 /* Action strip — true footer band, flush against the modal edges,
  * darker chrome bg, top border + 1px highlight above. Right-aligned

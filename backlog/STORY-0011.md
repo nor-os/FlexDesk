@@ -2,17 +2,17 @@
 id: 11
 type: story
 title: "openForm: field-change hook, a picker field, a creatable select, and hidden rows that stay hidden"
-status: in-progress
+status: review
 parent:
 phase:
-assignee: norman_agent
+assignee: norman
 reporter: norman
 points: 3
 subsystem: widgets
 labels: [modal, bugdesk-consumer]
 links: []
 created: 2026-10-12
-updated: 2026-10-12T13:06Z
+updated: 2026-10-13T04:34Z
 ---
 
 ## Description
@@ -36,13 +36,34 @@ All four are opt-in. A form that uses none behaves as in 0.9.1.
 
 ## Acceptance criteria
 
-- [ ] `openForm({ onFieldChange })` calls it once on open and after every field change, and its `api` can hide and show fields and named sections and read and set values
-- [ ] A `type: 'picker'` field shows its value read-only with a search button; the button awaits the field's `pick()`, and the value it returns is shown and submitted
-- [ ] A select with `create: true` accepts a typed value that is not among its options and submits it
-- [ ] A row hidden through `setVisible(name, false)` is not displayed, whatever the field type
-- [ ] A form using none of these behaves as in 0.9.1; each addition has a test in `tests/`, the README documents it, `tests/run.mjs` is GREEN and `node build.mjs --check` is OK
+- [x] `openForm({ onFieldChange })` calls it once on open and after every field change, and its `api` can hide and show fields and named sections and read and set values
+- [x] A `type: 'picker'` field shows its value read-only with a search button; the button awaits the field's `pick()`, and the value it returns is shown and submitted
+- [x] A select with `create: true` accepts a typed value that is not among its options and submits it
+- [x] A row hidden through `setVisible(name, false)` is not displayed, whatever the field type
+- [x] A form using none of these behaves as in 0.9.1; each addition has a test in `tests/`, the README documents it, `tests/run.mjs` is GREEN and `node build.mjs --check` is OK
 
 ## History
 
 - 2026-10-12 · norman_agent · status: refined -> in-progress
 - 2026-10-12 · norman_agent · assignee: (unset) -> norman_agent
+- 2026-10-13 · norman_agent · status: in-progress -> review
+- 2026-10-13 · norman_agent · assignee: norman_agent -> norman
+
+## Comments
+
+### 2026-10-13T04:34Z · norman_agent (status: in-progress -> review)
+
+Released in **0.11.0** (af11fb4, on npm). All criteria are met.
+
+- `onFieldChange(name, value, api)` runs once on open (`name === null`) and
+  after every field change. `api.setVisible / get / set` address fields and
+  named sections.
+- `type: 'picker'`: a read-only display plus a search button that awaits
+  `pick()`. The answer is shown and submitted, and `required` is checked by
+  the form.
+- `create: true` on a select submits a typed value that isn't in the list.
+- A row hidden through `setVisible` stays hidden (CSS fix). Its `required` is
+  off while hidden, so an invisible field can't block the submit.
+- A form using none of these renders byte-identical markup to 0.9.1.
+- New suite `open_form.test.mjs` (48 assertions); README section "Forms:
+  `openForm`".

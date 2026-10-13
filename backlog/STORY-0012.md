@@ -2,17 +2,17 @@
 id: 12
 type: story
 title: "DataTable: a column chooser - columns hidden by default, shown and hidden from the header menu, remembered"
-status: refined
+status: in-progress
 parent: 1
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 points: 3
 subsystem: datatable
 labels: [datatable, bugdesk-consumer]
 links: []
 created: 2026-10-12
-updated: 2026-10-12T13:22Z
+updated: 2026-10-13T04:34Z
 ---
 
 ## Description
@@ -34,3 +34,8 @@ Opt-in: a table that does not ask for it draws every column, as in 0.9.1.
 - [ ] `setColumnVisible(colIdx, on)` and `getHiddenColumns()` do the same from code, and an `onColumnsChange(hidden)` callback reports every change
 - [ ] Sorting and filtering by a hidden column's value keep working through the API, and a column sorted on when it is hidden drops its sort indicator but keeps the order
 - [ ] A table given none of these options behaves as in 0.9.1; the feature has a test in `tests/`, the README documents it, `tests/run.mjs` is GREEN and `node build.mjs --check` is OK
+
+## History
+
+- 2026-10-13 · norman_agent · status: refined -> in-progress
+- 2026-10-13 · norman_agent · assignee: (unset) -> norman_agent

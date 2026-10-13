@@ -2,17 +2,17 @@
 id: 10
 type: story
 title: "DataTable: what BugDesk's copy still adds - a right-click item list, a render hook and displayed rows, a remembered page"
-status: in-progress
+status: review
 parent: 1
 phase:
-assignee: norman_agent
+assignee: norman
 reporter: norman
 points: 5
 subsystem: datatable
 labels: [datatable, bugdesk-consumer]
 links: []
 created: 2026-10-12
-updated: 2026-10-12T13:06Z
+updated: 2026-10-13T04:34Z
 ---
 
 ## Description
@@ -40,13 +40,39 @@ All three are opt-in. A table that passes none behaves exactly as 0.9.1.
 
 ## Acceptance criteria
 
-- [ ] `contextMenuItems` (array or `(row, rowIdx) => items`) puts those items in the table's right-click menu for the row under the pointer, and choosing one calls `onContextMenuAction(action, rowIdx, row)`; separators and disabled items draw as in the existing context menu
-- [ ] `onRender(table)` is called after every render, and `getDisplayedRows()` returns the filtered, sorted rows across every page, not only the current one
-- [ ] With `persistPage: true` and a `persistKey`, the client page is restored on mount with the sort and filters; without it, or after a sort while `resetPageOnSort` is on, the table opens on page 1
-- [ ] A table given none of the new options renders and behaves as in 0.9.1, which the existing suites prove
-- [ ] Each feature has a test in `tests/`, the README documents the options, `tests/run.mjs` is GREEN and `node build.mjs --check` is OK
+- [x] `contextMenuItems` (array or `(row, rowIdx) => items`) puts those items in the table's right-click menu for the row under the pointer, and choosing one calls `onContextMenuAction(action, rowIdx, row)`; separators and disabled items draw as in the existing context menu
+- [x] `onRender(table)` is called after every render, and `getDisplayedRows()` returns the filtered, sorted rows across every page, not only the current one
+- [x] With `persistPage: true` and a `persistKey`, the client page is restored on mount with the sort and filters; without it, or after a sort while `resetPageOnSort` is on, the table opens on page 1
+- [x] A table given none of the new options renders and behaves as in 0.9.1, which the existing suites prove
+- [x] Each feature has a test in `tests/`, the README documents the options, `tests/run.mjs` is GREEN and `node build.mjs --check` is OK
 
 ## History
 
 - 2026-10-12 · norman_agent · status: refined -> in-progress
 - 2026-10-12 · norman_agent · assignee: (unset) -> norman_agent
+- 2026-10-13 · norman_agent · status: in-progress -> review
+- 2026-10-13 · norman_agent · assignee: norman_agent -> norman
+
+## Comments
+
+### 2026-10-13T04:34Z · norman_agent (status: in-progress -> review)
+
+Released in **0.11.0** (af11fb4, on npm). All criteria are met.
+
+- `contextMenuItems`: an array, or `(row, rowIdx, ctx) => items`. The items go
+  first in the table's own right-click menu, then the copy items.
+  `onContextMenuAction(action, rowIdx, row, ctx)` fires after the menu closes.
+- `onRender(table)` runs after every render. `getDisplayedRows()` returns the
+  filtered, sorted rows across every page, as a copy.
+- `persistPage` (off by default) saves the client page with the sort and
+  filters under `persistKey`, clamped to the last page. A new filter, or a
+  sort under `resetPageOnSort`, saves page 1.
+- Not in the story, but BugDesk's copy needed it: `keyboardNav` (Up/Down/
+  Home/End/Shift move the selection) and `onRowKeyDown(rowIdx, row, ev)`, so a
+  consumer can bind Enter, Ctrl+Enter and Alt chords on the highlighted row.
+- Tests: `context_menu_items`, `render_hook`, `persist_page`, `row_keys`, each
+  with a "without the options" section. README updated. tests/run.mjs GREEN
+  (85), build --check OK.
+- Not added: remembering the highlighted row by key across a sort or refresh.
+  BugDesk can do that from outside with `onSelectionChange` / `setSelection`,
+  and I'd file it separately if wanted upstream.

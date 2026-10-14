@@ -332,5 +332,43 @@ console.log('§10 CSS');
     ok('every twm-alerts class the pane sets is styled', missing.length === 0, missing.join(', '));
 }
 
+console.log('§9 older entries load as you scroll');
+{
+    const server = Array.from({ length: 9 }, (_, i) => ({ id: `p${i}`, at: minutesAgo(i).toISOString(), title: `n${i}` }));
+    const loads = [];
+    const log = createAlertLog({ limit: 3, source: {
+        async load({ offset, limit }) {
+            loads.push(offset);
+            return { entries: server.slice(offset, offset + limit), more: offset + limit < server.length };
+        },
+        async markRead() {},
+    } });
+    const host = document.createElement('div');
+    document.getElementById('root').replaceChildren(host);
+    const pane = mountAlertsPane(host, { log });
+    await tick(3);
+    const list = host.querySelector('.twm-alerts__log');
+    // jsdom has no layout: the box says what a browser would.
+    const box = { scrollHeight: 300, clientHeight: 100 };
+    Object.defineProperty(list, 'scrollHeight', { get: () => box.scrollHeight, configurable: true });
+    Object.defineProperty(list, 'clientHeight', { get: () => box.clientHeight, configurable: true });
+    const scrollTo = (top) => { list.scrollTop = top; list.dispatchEvent(new dom.window.Event('scroll')); };
+    scrollTo(50);
+    await tick(3);
+    ok('a scroll far from the end loads nothing', loads.join() === '0', loads.join());
+    scrollTo(200);
+    scrollTo(205);
+    await tick(3);
+    ok('near the end, the next page — once, however many scrolls', loads.join() === '0,3', loads.join());
+    ok('…and its rows are drawn', host.querySelectorAll('.twm-alerts__row').length === 6);
+    scrollTo(200);
+    await tick(3);
+    scrollTo(200);
+    await tick(3);
+    ok('to the last page, then no more', loads.join() === '0,3,6' && !log.hasMore(), loads.join());
+    ok('Load older is gone with nothing left', !host.querySelector('.twm-alerts__more'));
+    pane.destroy();
+}
+
 console.log(failures ? `\n${failures} FAILED` : '\nalerts pane: all assertions passed');
 process.exit(failures ? 1 : 0);

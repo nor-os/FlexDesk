@@ -22,11 +22,19 @@
  * button is down inside the pane a repaint waits, and runs once it is up.
  * The bar (chips, the filter, the buttons) is built once and updated in
  * place, so typing in the filter never loses the caret either.
+ *
+ * OLDER ENTRIES LOAD AS YOU SCROLL (Tables STORY-0293): when the list is
+ * scrolled to within :data:`MORE_WITHIN_PX` of its end and the source has
+ * more, the next page is asked for — once at a time.  *Load older* stays at the
+ * end, for a list too short to scroll and for the keyboard.
  */
 
 import { ALERT_LEVELS, ago, dayLabel, normalizeLevel } from './alert_log.js';
 
 const CHIPS = [['all', 'All'], ['alert', 'Alert'], ['warning', 'Warning'], ['info', 'Info']];
+
+/** How near the end of the list a scroll asks for the next page. */
+export const MORE_WITHIN_PX = 48;
 
 /**
  * @param {HTMLElement} host
@@ -270,6 +278,14 @@ export function mountAlertsPane(host, {
         else if (act === 'edit-rules') rules?.onEdit?.();
     });
     input.addEventListener('input', () => { q = input.value; paint(); });
+
+    let loadingMore = false;
+    list.addEventListener('scroll', () => {
+        if (loadingMore || !log.hasMore()) return;
+        if (list.scrollTop + list.clientHeight < list.scrollHeight - MORE_WITHIN_PX) return;
+        loadingMore = true;
+        Promise.resolve(log.loadMore()).catch(() => {}).finally(() => { loadingMore = false; });
+    });
 
     const unsubscribe = log.subscribe(() => paint());
     // "5 min ago" moves on its own.

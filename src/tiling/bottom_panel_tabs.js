@@ -20,7 +20,9 @@
  * tab comes to the front, `persist()` before the panel goes, `destroy()` when
  * it is gone for good. A pane is mounted the first time it is shown — or at
  * once, with `eager: true`, when its tab carries a count that must be right
- * before anyone opens it (bugdesk's Alerts).
+ * before anyone opens it (bugdesk's Alerts). Those two mount INSIDE this call,
+ * before it has answered: a pane reaches the host through its `api` argument
+ * (`api.setBadge(…)`), never through the variable the call is being assigned to.
  *
  * `store` is the pane's OWN persistence, from the embedder's `store(pane)`, or
  * null. COLLAPSING A PANEL DESTROYS ITS CONTENT (the tile leaf goes, and its
@@ -107,7 +109,13 @@ export function createBottomPanelTabs(container, {
         body.appendChild(el);
         const entry = { el, instance: null };
         mounted.set(id, entry);
-        entry.instance = pane.mount?.(el, store ? store(pane) : null, api) ?? null;
+        // ONE PANE THAT THROWS IS ONE EMPTY TAB, not a dead panel: the strip
+        // and every other pane go on working.
+        try {
+            entry.instance = pane.mount?.(el, store ? store(pane) : null, api) ?? null;
+        } catch (err) {
+            console.error(`[bottom-panel] pane "${id}" failed to mount`, err);
+        }
         return entry;
     }
 

@@ -228,6 +228,20 @@ console.log('§7 destroy');
     ok('a second destroy is harmless', log.length === 4);
 }
 
+console.log('§7b a pane that throws, and the api during construction');
+{
+    const host = fresh();
+    const err = console.error; console.error = () => {};
+    const tabs = createBottomPanelTabs(host, { panes: [
+        { id: 'bad', label: 'Bad', mount() { throw new Error('boom'); } },
+        { id: 'alerts', label: 'Alerts', eager: true, mount(el, store, api) { api.setBadge('alerts', 2, 'alert'); return {}; } },
+    ] });
+    console.error = err;
+    ok('a pane that throws leaves the host working', tabs.active() === 'bad' && (tabs.select('alerts'), tabs.active()) === 'alerts');
+    ok('an eager pane sets its badge through api, inside the call',
+       host.querySelector('[data-pane="alerts"] .twm-bp__badge').textContent === '2');
+}
+
 console.log('§8 CSS');
 {
     const css = readFileSync(resolvePath(HERE, '../css/flexdesk.css'), 'utf8');

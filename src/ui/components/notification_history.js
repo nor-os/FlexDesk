@@ -4,13 +4,33 @@
  * Bell icon in the global-bottom-bar that opens a popover listing past notifications.
  * Reads from NotificationCenter.history (no modifications to NotificationCenter needed).
  * Tracks unread count via lastSeenCount delta and updates a badge on the bell icon.
+ *
+ * THREE OPTIONS, all additive (FlexDesk STORY-0020); without them it is the bell
+ * it always was:
+ *
+ *   mountPoint  the element the bell is appended to. Without it, the hard-coded
+ *               `.twm-global-bottom-bar .twm-bar-right`, which only FlexDesk's own
+ *               bottom bar has.
+ *   alertLog    an alert log (`alert_log.js`). The badge is then the log's unread
+ *               count, in the worst unread level's colour, and nothing when all is
+ *               read — not a delta of a toast history the user may never have
+ *               opened. A click opens the bottom panel's Alerts tab instead of the
+ *               popover, and the toasts' "+N more" (`notification:summary`) does too.
+ *   alertsTab   the tab a click asks for, `bottompanel:show { tab }`; 'alerts'.
+ *   onOpen      a click, instead of the bus event — for an embedder with no bus,
+ *               or whose panel must be opened before a tab can be chosen.
  */
 
 export class NotificationHistory {
-    constructor({ notificationCenter, eventBus, logger } = {}) {
+    constructor({ notificationCenter, eventBus, logger, mountPoint = null, alertLog = null,
+                  alertsTab = 'alerts', onOpen = null } = {}) {
         this.notificationCenter = notificationCenter;
         this.eventBus = eventBus || null;
         this.logger = logger || console;
+        this.mountPoint = mountPoint;
+        this.alertLog = alertLog;
+        this.alertsTab = alertsTab;
+        this.onOpen = typeof onOpen === 'function' ? onOpen : null;
 
         this.triggerEl = null;
         this.badgeEl = null;
@@ -20,7 +40,8 @@ export class NotificationHistory {
     }
 
     mount() {
-        const barRight = document.querySelector('.twm-global-bottom-bar .twm-bar-right');
+        const barRight = this.mountPoint
+            || document.querySelector('.twm-global-bottom-bar .twm-bar-right');
         if (!barRight) {
             this.logger.warn?.('[NotificationHistory] .bar-right not found');
             return;
@@ -45,8 +66,19 @@ export class NotificationHistory {
 
         this.triggerEl.addEventListener('click', (e) => {
             e.stopPropagation();
-            this.#togglePanel();
+            if (this.alertLog) this.#openAlerts();
+            else this.#togglePanel();
         });
+
+        if (this.alertLog) {
+            this.triggerEl.setAttribute('data-tooltip', 'Alerts');
+            this.triggerEl.setAttribute('aria-label', 'Alerts');
+            this._subscriptions.push(this.alertLog.subscribe(() => this.#updateBadge()));
+            const summary = this.eventBus?.on?.('notification:summary', () => this.#openAlerts());
+            if (summary) this._subscriptions.push(() => summary.dispose?.());
+            this.#updateBadge();
+            return;
+        }
 
         // Sync initial count so existing history doesn't show as unread
         this.lastSeenCount = this.notificationCenter?.history?.length ?? 0;
@@ -81,11 +113,29 @@ export class NotificationHistory {
         });
     }
 
+    /** The Alerts tab, asked for on the bus — or the embedder's own verb. */
+    #openAlerts() {
+        if (this.onOpen) {
+            try { this.onOpen(); } catch (err) { this.logger.warn?.('[NotificationHistory] onOpen failed', err); }
+            return;
+        }
+        this.eventBus?.emit?.('bottompanel:show', { tab: this.alertsTab });
+    }
+
     #updateBadge() {
         const historyLen = this.notificationCenter?.history?.length ?? 0;
-        const unread = Math.max(0, historyLen - this.lastSeenCount);
+        const unread = this.alertLog
+            ? this.alertLog.unreadCount()
+            : Math.max(0, historyLen - this.lastSeenCount);
 
         if (!this.badgeEl) return;
+
+        if (this.alertLog) {
+            const level = unread > 0 ? this.alertLog.worstUnread() : null;
+            this.badgeEl.className = 'twm-notification-history__badge'
+                + (level ? ` twm-notification-history__badge--${level}` : '');
+            this.triggerEl?.classList.toggle('twm-notification-history__trigger--unread', unread > 0);
+        }
 
         if (unread > 0) {
             this.badgeEl.textContent = unread > 99 ? '99+' : String(unread);

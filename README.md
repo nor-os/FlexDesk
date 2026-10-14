@@ -1671,6 +1671,43 @@ const nc = new NotificationCenter({ eventBus, maxVisible: 3, overflow: 'collapse
 nc.mount(document.body);
 ```
 
+### Alerts with history: a log, a pane, a tab host and a bell (0.14.0)
+
+A toast is the moment. The **alert log** keeps what came in until it is
+dismissed, and four pieces draw it. Each works without the others:
+
+| Piece | Entry point | Does |
+|---|---|---|
+| `createAlertLog({ source, limit })` | `widgets` | Entries `{id, at, level, title, body?, ref?, read}`, newest first; `add`, `receive`, `markRead`, `dismiss`, `unreadCount`, `worstUnread`, `subscribe`, `loadMore` |
+| `localSource({ read, write })` | `widgets` | Keeps the whole log in one stored value (localStorage, a workspace file) |
+| `mountAlertsPane(el, { log, onOpen, onBadge, rules?, stillMatches? })` | `widgets` | Level chips with counts, a filter, day groups, relative times, Open / Dismiss / Mark all read / Clear, *Load older* |
+| `createBottomPanelTabs(el, { panes, remember, store, eventBus })` | `wm` | The `.twm-bp` tab strip: `select`, `setBadge(id, n, level)`, `bottompanel:show {tab}` |
+| `new NotificationHistory({ alertLog, mountPoint, alertsTab, onOpen })` | `widgets` | The bell shows the log's unread count in the worst level's colour; a click (and "+N more") opens the Alerts tab |
+
+A **source** is where entries live: `load({offset, limit})` answers
+`{entries, more?, unread?}`, plus `markRead(ids | null)` and, optionally,
+`dismiss(ids | null)`. Without `dismiss`, the pane offers no Dismiss or Clear.
+Levels are `info`, `warning` and `alert`; `warn`, `error` and `danger` are read as
+those.
+
+```js
+const log = createAlertLog({ source: {
+    load: ({ offset, limit }) => api.notifications({ offset, limit }),
+    markRead: (ids) => (ids ? Promise.all(ids.map(api.readNotification)) : api.readAll()),
+} });
+const tabs = createBottomPanelTabs(panelEl, { eventBus, panes: [
+    { id: 'alerts', label: 'Alerts', eager: true,
+      mount: (el, store, api) => mountAlertsPane(el, { log, onOpen: openRef,
+          onBadge: ({ unread, level }) => api.setBadge('alerts', unread, level) }) },
+] });
+new NotificationHistory({ notificationCenter: nc, eventBus, alertLog: log, mountPoint: statusBarEl }).mount();
+```
+
+An eager pane, and the first one shown, mount inside `createBottomPanelTabs`
+before it returns. Reach the host through `mount`'s `api` argument, not the
+variable being assigned. Without `alertLog` and `mountPoint`, `NotificationHistory`
+is the bell it was.
+
 ## The host port
 
 FlexDesk never touches `pywebview`, `fetch`, `localStorage` or the filesystem. It

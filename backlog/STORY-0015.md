@@ -2,10 +2,10 @@
 id: 15
 type: story
 title: "A Photino host for @flexdesk/host: photino_host.js beside pywebview_host.js"
-status: refined
+status: in-progress
 parent: 23
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 3
@@ -13,7 +13,7 @@ subsystem: host
 labels: [host, desktop, bugdesk-consumer]
 links: []
 created: 2026-10-13
-updated: 2026-10-14T14:31Z
+updated: 2026-10-14T14:40Z
 ---
 
 ## Description
@@ -39,6 +39,8 @@ later.
 ## History
 
 - 2026-10-14 · norman_agent · status: draft -> refined
+- 2026-10-14 · norman_agent · status: refined -> in-progress
+- 2026-10-14 · norman_agent · assignee: (unset) -> norman_agent
 
 ## Comments
 

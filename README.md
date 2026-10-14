@@ -885,6 +885,39 @@ list.setColumnVisible(3, true);
 A column sorted on and then hidden keeps the order; its arrow comes back with
 the column.
 
+### DataTable: a select mode (0.12.0)
+
+A list whose click opens a row can still let people pick many rows: a toggle
+in the table's own header turns on a select mode, with a checkbox per row and
+a click that ticks instead of opening. A table that sets none of these options
+draws and behaves as in 0.11.
+
+```js
+const list = DataTable.mount(host, {
+    headers, rows,
+    getRowKey: (row) => row[0],            // keeps the ticks across new rows
+    onRowActivate: (i, row) => open(row),  // not called while selecting
+    selectToggle: true,
+    onSelectModeChange: (on) => bar.hidden = !on,
+    onSelectionChange: (ticked) => bar.count = ticked.length,
+});
+list.setSelectMode(true);
+```
+
+| Option | What it does |
+|---|---|
+| `selectToggle: true` | Draws a narrow leading column whose header holds a toggle button. While the mode is on, every row shows a checkbox and the header a select-all box. Needs a multi-row `selectable` (on `false` or `'single'` it is ignored, with a console warning). |
+| `selectMode: true` | Starts in the mode. Draws the column even without `selectToggle`; the consumer then leaves the mode with `setSelectMode(false)`. |
+| `setSelectMode(on)` / `isSelectMode()` | Turns the mode on or off from code (returns whether it changed), and says whether it is on. The selection is kept either way. |
+| `onSelectModeChange(on)` | Called after every change of the mode: the toggle, Escape, `setSelectMode`. |
+| In the mode | A plain click or Space ticks or unticks one row; Shift-click adds the range from the last row ticked. The arrows move a cursor without changing the ticks (Shift ticks the rows passed). A right-click keeps the ticks. Escape clears them, and a second Escape leaves the mode. Nothing opens a row: `onRowActivate` is not called (`onRowClick` still is, so a consumer that opens rows from it checks `isSelectMode()`). New rows (`setData`) keep the ticks by `getRowKey`. |
+| Select-all | Ticks every row the filters let through, on every page; when all are ticked it clears them. It shows checked, mixed or clear. |
+
+The select column is not a data column: it is not in a copy, a CSV,
+`ctx.colIdx` or `hiddenColumns`, and it cannot be resized. It is drawn for the
+table's whole life, so remembered widths stay on their columns when the mode
+flips, and widths saved by a table without it land on the same columns.
+
 ### Scrollbars
 
 `installAutoScrollbars(root)` (from `@flexdesk/widgets`) replaces the browser's

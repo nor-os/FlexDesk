@@ -763,8 +763,21 @@ var DataTable = class {
       hiddenColumns: null,
       columnChooser: false,
       onColumnsChange: null,
+      // STORY-0016. Off — no select column, as in 0.11 — until set.
+      selectToggle: false,
+      selectMode: false,
+      onSelectModeChange: null,
       ...config
     };
+    {
+      const sel = this.config.selectable;
+      const asked = !!this.config.selectToggle || !!this.config.selectMode;
+      this._gutter = asked && !!sel && sel !== "single";
+      if (asked && !this._gutter) {
+        console.warn("[DataTable] selectToggle/selectMode need a multi-row `selectable`; ignored.");
+      }
+      this._selecting = this._gutter && !!this.config.selectMode;
+    }
     this._expanded = new Set((this.config.expandedRows || []).map((k) => String(k)));
     this._detailHeights = /* @__PURE__ */ new Map();
     this._source = null;
@@ -879,8 +892,10 @@ var DataTable = class {
     }
     if (blob.colWidths && typeof blob.colWidths === "object") {
       this._colWidths = {};
+      const shift = this._lead().select - (Number(blob.colWidthsLead) || 0);
       for (const [k, v] of Object.entries(blob.colWidths)) {
-        this._colWidths[Number(k)] = v;
+        const i = Number(k) + shift;
+        if (i >= this._lead().select) this._colWidths[i] = v;
       }
       this._colWidthsSig = this._colSig();
       applied = true;
@@ -906,6 +921,9 @@ var DataTable = class {
       sortAscending: this._state.sortAscending,
       filters: [...this._state.filters.entries()],
       colWidths: { ...this._colWidths },
+      // STORY-0016. Where the widths start, so a blob read by a table
+      // with or without the select column lands on the same columns.
+      ...this._gutter ? { colWidthsLead: 1 } : {},
       // STORY-0010. Only for a table that asked: one that did not writes
       // the 0.9.1 blob, key for key.
       ...this.config.persistPage ? { offset: this._state.offset } : {},
@@ -935,18 +953,24 @@ var DataTable = class {
   /** The cells a drawn row has: the shown columns, and the row number. */
   _domColCount() {
     const n = Math.max(0, (this.config.headers?.length || 0) - this._hidden.size);
-    return n + (this.config.showRowNumbers ? 1 : 0);
+    return n + this._lead().all;
+  }
+  /** STORY-0016. The drawn columns in front of the data: the select column
+   *  (`select`, 0 or 1, always first) and the row number. */
+  _lead() {
+    const select = this._gutter ? 1 : 0;
+    return { select, all: select + (this.config.showRowNumbers ? 1 : 0) };
   }
   /** A data column's drawn index (row number included), or -1 when hidden. */
   _domIdxOf(colIdx) {
     if (this._isHidden(colIdx)) return -1;
-    let dom = this.config.showRowNumbers ? 1 : 0;
+    let dom = this._lead().all;
     for (const h of this._hidden) if (h < colIdx) dom--;
     return dom + colIdx;
   }
   /** A drawn cell's data column, or null for the row number. */
   _dataIdxOfDom(domIdx) {
-    let i = domIdx - (this.config.showRowNumbers ? 1 : 0);
+    let i = domIdx - this._lead().all;
     if (i < 0) return null;
     const n = this.config.headers?.length || 0;
     for (let c = 0; c < n; c++) {
@@ -993,7 +1017,7 @@ var DataTable = class {
     this._setHidden([...next]);
     if (kept) {
       const widths = {};
-      if (this.config.showRowNumbers && old[0] != null) widths[0] = old[0];
+      for (let i = 0; i < this._lead().all; i++) if (old[i] != null) widths[i] = old[i];
       for (let c = 0; c < n; c++) {
         const from = domBefore[c];
         const to = this._domIdxOf(c);
@@ -1039,6 +1063,7 @@ var DataTable = class {
    * @param {Object} updates - Partial config updates (headers, rows, etc.)
    */
   setData(updates) {
+    const keepTicks = updates.rows && this._selecting && typeof this.config.getRowKey === "function" && this._state.selected.size ? new Set(this.getSelection().map((i) => this._rowKey(this.config.rows[i], i)).filter((k) => k !== null)) : null;
     if (updates.headers && this._state.filters.size > 0) {
       const oldHeaders = this.config.headers;
       const newHeaders = updates.headers;
@@ -1087,9 +1112,15 @@ var DataTable = class {
     if (Object.prototype.hasOwnProperty.call(updates, "columnTypes") && !updates.rows) {
       this._columnTypes = this._detectColumnTypes();
     }
+    if (keepTicks) {
+      (this.config.rows || []).forEach((r, i) => {
+        if (keepTicks.has(this._rowKey(r, i))) this._state.selected.add(i);
+      });
+    }
     this._processedRows = null;
     this._processedIndexMap = null;
     this.render();
+    if (keepTicks) this._notifySelectionChange();
   }
   /**
    * Show / hide a translucent loading overlay over the table body.
@@ -1414,6 +1445,7 @@ var DataTable = class {
       headerTable.className = this._tableClassName();
       const thead = document.createElement("thead");
       const tr = document.createElement("tr");
+      if (this._gutter) tr.appendChild(this._buildSelectHead());
       if (showRowNumbers) {
         const th = document.createElement("th");
         th.className = "num";
@@ -1922,6 +1954,11 @@ var DataTable = class {
     const { showRowNumbers } = this.config;
     const tr = document.createElement("tr");
     tr.className = "twm-data-table__filter-row";
+    if (this._gutter) {
+      const th = document.createElement("th");
+      th.className = "data-table__filter-cell data-table__filter-cell--empty twm-dt-select-cell";
+      tr.appendChild(th);
+    }
     if (showRowNumbers) {
       const th = document.createElement("th");
       th.className = "data-table__filter-cell data-table__filter-cell--empty";
@@ -2268,7 +2305,7 @@ var DataTable = class {
     if (!row) return null;
     const cells = Array.from(row.children);
     const idx = cells.indexOf(cell);
-    return this._hidden.size ? this._dataIdxOfDom(idx) : this.config.showRowNumbers ? idx - 1 : idx;
+    return this._dataIdxOfDom(idx);
   }
   _restoreFilterFocus(colIdx) {
     const filterRow = this._wrapperEl?.querySelector(".twm-data-table__filter-row");
@@ -2740,6 +2777,7 @@ var DataTable = class {
     table.tabIndex = 0;
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
+    if (this._gutter) headerRow.appendChild(this._buildSelectHead());
     if (showRowNumbers) {
       const th = document.createElement("th");
       th.className = "num";
@@ -2898,7 +2936,7 @@ var DataTable = class {
     const colgroup = document.createElement("colgroup");
     for (let i = 0; i < n; i++) {
       const col = document.createElement("col");
-      const w = this._colWidths?.[i];
+      const w = i < this._lead().select ? this._selectColWidth() : this._colWidths?.[i];
       if (w != null && this._colWidthsSig === this._colSig()) col.style.width = `${w}px`;
       colgroup.appendChild(col);
     }
@@ -3306,6 +3344,18 @@ var DataTable = class {
    *  update than it did on load. */
   _fillRowCells(tr, row, globalIdx, showRowNumbers) {
     tr.replaceChildren();
+    if (this._gutter) {
+      const td = document.createElement("td");
+      td.className = "twm-dt-select-cell";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.className = "twm-dt-select-box";
+      box.tabIndex = -1;
+      box.checked = this._state.selected.has(globalIdx);
+      box.setAttribute("aria-label", "Select row");
+      td.appendChild(box);
+      tr.appendChild(td);
+    }
     if (showRowNumbers) {
       const td = document.createElement("td");
       td.className = "num";
@@ -3418,7 +3468,7 @@ var DataTable = class {
       minWidth: td.style.minWidth,
       maxWidth: td.style.maxWidth
     })) : null;
-    const showRowNumbers = this.config.showRowNumbers !== false && tr.firstElementChild?.classList.contains("num");
+    const showRowNumbers = this.config.showRowNumbers !== false && !!tr.querySelector(":scope > td.num");
     this._fillRowCells(tr, row, index, showRowNumbers);
     if (widths) {
       widths.forEach((saved, i) => {
@@ -4575,6 +4625,8 @@ var DataTable = class {
     const names = this.config.readonly ? ["twm-preview-table", "twm-preview-table--readonly"] : ["twm-preview-table"];
     if (this.config.firstColumn === "plain") names.push("twm-dt--first-plain");
     if (this._isClickable()) names.push("twm-dt--clickable");
+    if (this._gutter) names.push("twm-dt--select");
+    if (this._selecting) names.push("twm-dt--selecting");
     return names.join(" ");
   }
   /** `clickable` when it is said; otherwise exactly when rows open. */
@@ -4658,6 +4710,7 @@ var DataTable = class {
     const multi = !!sel && sel !== "single";
     const fire = (tr, ev) => {
       if (!this._wrapperEl || typeof this.config.onRowActivate !== "function") return;
+      if (this._selecting) return;
       try {
         this.config.onRowActivate(tr.__rowIndex, tr.__row, ev);
       } catch (err) {
@@ -5018,7 +5071,7 @@ var DataTable = class {
    */
   autoSizeColumn(domIdx, opts = {}) {
     const natural = this._measureNaturalWidths({ sample: true });
-    if (!natural || domIdx < 0 || domIdx >= natural.length) return false;
+    if (!natural || domIdx < this._lead().select || domIdx >= natural.length) return false;
     this._colWidths[domIdx] = this._autoWidth(natural[domIdx], opts);
     this._colWidthsSig = this._colSig();
     this._savePersisted();
@@ -5044,7 +5097,7 @@ var DataTable = class {
     const natural = this._measureNaturalWidths({ sample: true });
     if (!natural) return false;
     this._colWidths = {};
-    for (let i = 0; i < natural.length; i++) {
+    for (let i = this._lead().select; i < natural.length; i++) {
       this._colWidths[i] = this._autoWidth(natural[i], opts);
     }
     this._colWidthsSig = this._colSig();
@@ -5076,7 +5129,7 @@ var DataTable = class {
    */
   _allColumnsPinned(n) {
     if (!n || this._colWidthsSig !== this._colSig()) return false;
-    for (let i = 0; i < n; i++) {
+    for (let i = this._lead().select; i < n; i++) {
       if (this._colWidths[i] == null) return false;
     }
     return true;
@@ -5101,10 +5154,12 @@ var DataTable = class {
     const wrap = this._tableWrapEl;
     const headerWrap = this._headerWrapEl;
     const avail = wrap ? wrap.clientWidth : 0;
-    const firstIdx = this.config.showRowNumbers && n > 1 ? 1 : 0;
+    const lead = this._lead().all;
+    const firstIdx = lead && n > lead ? lead : 0;
     const widths = this._fitColumnWidths(natural, avail, {
       firstIdx,
-      overrides: this._colWidths,
+      // STORY-0016. The select column is as wide as its controls, always.
+      overrides: this._gutter ? { ...this._colWidths, 0: this._selectColWidth() } : this._colWidths,
       fit: this.config.columnFit,
       floors: this._filterFloors
     });
@@ -5336,6 +5391,7 @@ var DataTable = class {
     if (!headRow) return;
     [...headRow.children].forEach((th, domIdx) => {
       if (th.querySelector(".twm-dt-col-resizer")) return;
+      if (th.classList.contains("twm-dt-select-cell")) return;
       th.classList.add("twm-dt-col");
       const grip = document.createElement("div");
       grip.className = "twm-dt-col-resizer";
@@ -5508,6 +5564,19 @@ var DataTable = class {
           if (!(was && (event.metaKey || event.ctrlKey))) selected.add(idx);
           else DESELECTING_CLICKS.add(event);
           this._state.anchorIndex = selected.size ? idx : null;
+        } else if (this._selecting) {
+          if (event.shiftKey && this._state.anchorIndex != null) {
+            const order = this._processedIndexMap || this.config.rows.map((_, i) => i);
+            const a = order.indexOf(this._state.anchorIndex);
+            const b = order.indexOf(idx);
+            if (a >= 0 && b >= 0) {
+              for (let i = Math.min(a, b); i <= Math.max(a, b); i++) selected.add(order[i]);
+            } else selected.add(idx);
+          } else if (selected.has(idx)) selected.delete(idx);
+          else selected.add(idx);
+          this._state.anchorIndex = idx;
+          this._navCursor = idx;
+          this._markCursor();
         } else if (event.shiftKey && this._state.anchorIndex != null) {
           const start = Math.min(this._state.anchorIndex, idx);
           const end = Math.max(this._state.anchorIndex, idx);
@@ -5559,7 +5628,7 @@ var DataTable = class {
         if (!order.length) return;
         ev.preventDefault();
         const selected = this._state.selected;
-        const cur = this._navCursor != null && selected.has(this._navCursor) ? this._navCursor : this._state.anchorIndex;
+        const cur = this._navCursor != null && (this._selecting || selected.has(this._navCursor)) ? this._navCursor : this._state.anchorIndex;
         let pos = order.indexOf(cur);
         if (ev.key === "Home") pos = 0;
         else if (ev.key === "End") pos = order.length - 1;
@@ -5568,6 +5637,20 @@ var DataTable = class {
         const idx = order[pos];
         this._navCursor = idx;
         const anchorPos = order.indexOf(this._state.anchorIndex);
+        if (this._selecting) {
+          if (ev.shiftKey) {
+            const from = order.indexOf(cur);
+            if (from >= 0) {
+              for (let i = Math.min(from, pos); i <= Math.max(from, pos); i++) selected.add(order[i]);
+            } else selected.add(idx);
+            this._updateRowSelection();
+            this._notifySelectionChange();
+          }
+          this._state.anchorIndex = idx;
+          this._markCursor();
+          this.scrollToRow(idx);
+          return;
+        }
         if (ev.shiftKey && selectable !== "single" && anchorPos !== -1) {
           const [a, b] = anchorPos <= pos ? [anchorPos, pos] : [pos, anchorPos];
           selected.clear();
@@ -5583,6 +5666,25 @@ var DataTable = class {
       };
       table.addEventListener("keydown", onNavKey);
       this._disposers.push(() => table.removeEventListener("keydown", onNavKey));
+    }
+    if (this._gutter) {
+      const onSpace = (ev) => {
+        if (!this._selecting || ev.key !== " " || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+        if (isRowControl(ev.target, table)) return;
+        const idx = this._navCursor ?? this._state.anchorIndex;
+        if (idx == null || !this.config.rows[idx]) return;
+        ev.preventDefault();
+        const selected = this._state.selected;
+        if (selected.has(idx)) selected.delete(idx);
+        else selected.add(idx);
+        this._state.anchorIndex = idx;
+        this._updateRowSelection();
+        this._notifySelectionChange();
+      };
+      table.addEventListener("keydown", onSpace);
+      this._disposers.push(() => table.removeEventListener("keydown", onSpace));
+      this._paintSelectHead();
+      this._markCursor();
     }
     if (typeof this.config.onRowActivate === "function") {
       this._installActivation(tbody, table);
@@ -5625,7 +5727,7 @@ var DataTable = class {
         }
         event.preventDefault();
         event.stopPropagation();
-        if (idx !== void 0 && !this._state.selected.has(idx)) {
+        if (idx !== void 0 && !this._state.selected.has(idx) && !this._selecting) {
           this._state.selected.clear();
           this._state.selected.add(idx);
           this._state.anchorIndex = idx;
@@ -5650,20 +5752,7 @@ var DataTable = class {
             event.preventDefault();
           } else if (key === "a" && selectable) {
             event.preventDefault();
-            this._state.selected.clear();
-            const indexMap = this._processedIndexMap;
-            if (indexMap) {
-              for (const originalIdx of indexMap) {
-                this._state.selected.add(originalIdx);
-              }
-            } else {
-              for (let i = 0; i < this.config.rows.length; i++) {
-                this._state.selected.add(i);
-              }
-            }
-            this._state.anchorIndex = this.config.rows.length - 1;
-            this._updateRowSelection();
-            this._notifySelectionChange();
+            this._selectAllShown();
           } else if (key === "c") {
             event.preventDefault();
             this.copyToClipboard(event.shiftKey ? "csv" : "tsv");
@@ -5671,6 +5760,8 @@ var DataTable = class {
         } else if (event.key === "Escape") {
           if (this._state.selected.size) {
             this.clearSelection();
+          } else if (this._selecting && this.config.selectToggle) {
+            this.setSelectMode(false);
           }
           this._hideContextMenu();
         }
@@ -5684,9 +5775,111 @@ var DataTable = class {
     this._tbodyEl.querySelectorAll("tr").forEach((tr) => {
       const idx = tr.__rowIndex;
       if (idx !== void 0) {
-        tr.classList.toggle("selected", this._state.selected.has(idx));
+        const on = this._state.selected.has(idx);
+        tr.classList.toggle("selected", on);
+        const box = this._gutter ? tr.querySelector(":scope > td.twm-dt-select-cell > input") : null;
+        if (box) box.checked = on;
       }
     });
+    this._paintSelectHead();
+  }
+  /* ── STORY-0016: select mode ─────────────────────────────────────── */
+  /** Whether the table is in select mode. */
+  isSelectMode() {
+    return !!this._selecting;
+  }
+  /**
+   * Turn select mode on or off. The ticks are kept either way (a selection
+   * is a selection); the consumer clears it if leaving means "never mind".
+   * Does nothing on a table without the select column.
+   *
+   * @param {boolean} on
+   * @returns {boolean} whether the mode changed
+   */
+  setSelectMode(on) {
+    if (!this._gutter || !!on === this._selecting) return false;
+    this._selecting = !!on;
+    this._navCursor = this._selecting ? this._state.anchorIndex : null;
+    if (this._wrapperEl) this.render();
+    try {
+      this.config.onSelectModeChange?.(this._selecting);
+    } catch (err) {
+      console.error("[DataTable] onSelectModeChange threw", err);
+    }
+    return true;
+  }
+  /** The rows the filters let through, on every page, by original index. */
+  _shownIndices() {
+    if (this._isServerSide()) return this.config.rows.map((_, i) => i);
+    this._getProcessedRows();
+    return this._processedIndexMap ? [...this._processedIndexMap] : this.config.rows.map((_, i) => i);
+  }
+  /** Ctrl+A and the select-all box: every row the filters let through. */
+  _selectAllShown() {
+    this._state.selected.clear();
+    for (const i of this._shownIndices()) this._state.selected.add(i);
+    this._state.anchorIndex = this.config.rows.length - 1;
+    this._updateRowSelection();
+    this._notifySelectionChange();
+  }
+  /** The select column's width: its controls, never a drag. */
+  _selectColWidth() {
+    return this._selecting ? this.config.selectToggle ? 56 : 32 : 32;
+  }
+  /** The select column's header: the toggle and, in the mode, select-all. */
+  _buildSelectHead() {
+    const th = document.createElement("th");
+    th.className = "twm-dt-select-cell twm-dt-select-head";
+    if (this._selecting) {
+      const all = document.createElement("input");
+      all.type = "checkbox";
+      all.className = "twm-dt-select-all";
+      all.setAttribute("aria-label", "Select all rows");
+      all.title = "Select all rows";
+      all.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const shown = this._shownIndices();
+        const every = shown.length > 0 && shown.every((i) => this._state.selected.has(i));
+        if (every) this.clearSelection();
+        else this._selectAllShown();
+      });
+      th.appendChild(all);
+    }
+    if (this.config.selectToggle) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "material-symbols-outlined twm-dt-select-toggle";
+      btn.textContent = this._selecting ? "close" : "checklist";
+      btn.setAttribute("aria-pressed", this._selecting ? "true" : "false");
+      const label = this._selecting ? "Stop selecting" : "Select multiple";
+      btn.setAttribute("aria-label", label);
+      btn.title = label;
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        this.setSelectMode(!this._selecting);
+      });
+      th.appendChild(btn);
+    }
+    th.classList.toggle("twm-dt-select-head--on", this._selecting);
+    return th;
+  }
+  /** The select-all box: checked, mixed or clear, as the ticks are. */
+  _paintSelectHead() {
+    if (!this._gutter || !this._wrapperEl) return;
+    const all = this._wrapperEl.querySelector(".twm-dt-select-all");
+    if (!all) return;
+    const shown = this._shownIndices();
+    const n = shown.filter((i) => this._state.selected.has(i)).length;
+    all.checked = n > 0 && n === shown.length;
+    all.indeterminate = n > 0 && n < shown.length;
+  }
+  /** The keyboard's row in select mode, marked so it can be seen. */
+  _markCursor() {
+    if (!this._tbodyEl) return;
+    for (const tr of this._tbodyEl.children) {
+      if (tr.__rowIndex === void 0) continue;
+      tr.classList.toggle("twm-dt-row--cursor", this._selecting && tr.__rowIndex === this._navCursor);
+    }
   }
   _notifySelectionChange() {
     this.config.onSelectionChange?.(this.getSelection());
@@ -5975,4 +6168,4 @@ export {
   resolvePaging,
   DataTable
 };
-//# sourceMappingURL=chunk-6CGH73BC.js.map
+//# sourceMappingURL=chunk-M2L4XW2U.js.map

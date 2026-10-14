@@ -1,10 +1,10 @@
 import {
   HelpModal,
   showContextMenu
-} from "./chunk-5QPGYHBN.js";
+} from "./chunk-CWPMLX67.js";
 import {
   openForm
-} from "./chunk-6EZPPN4E.js";
+} from "./chunk-NNFTETK3.js";
 import {
   ManagedWindow,
   isRowActivation
@@ -3420,7 +3420,7 @@ var TileRenderer = class {
     const kindKey = this._leafKindKey(leaf);
     let entry = this._leafCache.get(leaf.id);
     if (entry && entry.kindKey === kindKey) {
-      entry.titleEl.textContent = leaf.title || (leaf.content ? leaf.content.kind : "empty");
+      entry.titleEl.textContent = entry.liveTitle || leaf.title || (leaf.content ? leaf.content.kind : "empty");
       _paintLeafIcon(entry.iconEl, leaf, entry.content, this.ctx);
       if (this.tabLayout === "header") this._refreshHeaderLabels(leaf, entry);
       return entry.wrapEl;
@@ -3545,11 +3545,26 @@ var TileRenderer = class {
       this.ctx.onLeafAction?.(leaf.id, btn.dataset.action);
     });
     let content = {};
+    let liveTitle = null;
+    let liveEntry = null;
     if (leaf.content) {
-      const leafCtx = { ...this.ctx, leafId: leaf.id };
+      const setTitle = (text) => {
+        const next = text == null || text === "" ? null : String(text);
+        if (!liveEntry) {
+          liveTitle = next;
+          title.textContent = next || leaf.title || leaf.content.kind;
+          return;
+        }
+        if (this._leafCache.get(leaf.id) !== liveEntry) return;
+        liveEntry.liveTitle = next;
+        const now = this.tree?.get?.(leaf.id) || leaf;
+        liveEntry.titleEl.textContent = next || now.title || (now.content ? now.content.kind : "empty");
+      };
+      const leafCtx = { ...this.ctx, leafId: leaf.id, setTitle };
       const activeProps = activeTab?.props ?? leaf.content.props;
       content = this.content.mount(leaf.content.kind, body, activeProps, leafCtx);
       if (content.title) title.textContent = content.title;
+      if (liveTitle) title.textContent = liveTitle;
       _paintLeafIcon(icon, leaf, content, this.ctx);
       _paintContentActions(contentActions, content.chromeActions);
       _vetoStructuralActions(actions, content.chrome);
@@ -3575,9 +3590,12 @@ var TileRenderer = class {
       // mounts into. Null under the `bottom` layout, which is plain
       // markup this file writes itself.
       tabStrip: null,
-      tabStripHostEl: null
+      tabStripHostEl: null,
+      // C41. Null until the content calls `ctx.setTitle`.
+      liveTitle
     };
     this._leafCache.set(leaf.id, entry);
+    liveEntry = entry;
     this._renderTabBar(leaf, entry);
     return wrap;
   }

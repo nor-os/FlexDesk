@@ -17,7 +17,9 @@ function openForm({ title, fields = [], defaults = {}, submitLabel = "OK", onFie
     body.className = "twm-modal__body-host";
     body.innerHTML = `
             <form class="twm-modal__form">
-                ${fields.map((f) => _renderEntry(f, defaults[f.name] ?? f.default)).join("")}
+                <div class="twm-modal__fields">
+                    ${fields.map((f) => _renderEntry(f, defaults[f.name] ?? f.default)).join("")}
+                </div>
                 <div class="twm-modal__error" data-role="form-error" hidden></div>
                 <div class="twm-modal__actions">
                     <button type="button" class="twm-btn" data-action="cancel">Cancel</button>
@@ -453,8 +455,10 @@ function _estimateHeight(fields) {
       const rows = Number(f.rows) || 4;
       body += 32 + rows * 18;
       if (f.hint) body += 16;
-    } else if (f.type === "checkbox") body += 32;
-    else {
+    } else if (f.type === "checkbox") {
+      body += 32;
+      if (f.hint) body += 16;
+    } else {
       body += 46;
       if (f.hint) body += 16;
     }
@@ -626,4 +630,4 @@ export {
   openConfirm,
   openModal
 };
-//# sourceMappingURL=chunk-6EZPPN4E.js.map
+//# sourceMappingURL=chunk-NNFTETK3.js.map

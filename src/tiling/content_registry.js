@@ -9,6 +9,11 @@
  * The tile renderer calls the factory once when the leaf is first
  * mounted with a given (kind, props) pair, and `destroy()` on unmount.
  *
+ * `ctx` is the shell's ctx plus, per leaf, `leafId` and `setTitle(text)` —
+ * rename the pane's chrome title from inside the content, at mount or any
+ * time after; it survives repaints, and `setTitle(null)` gives the title back
+ * to the tree (tile_renderer.js, C41).
+ *
  * ── ONE REGISTRY PER SHELL ────────────────────────────────────────────
  * This module used to hold a module-level `Map` plus a `register(kind, fn)`
  * export. Two problems, both structural:

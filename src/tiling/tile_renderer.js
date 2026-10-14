@@ -75,6 +75,22 @@
  * no content factory is unmounted and nothing mounted in a tile — a grid with
  * staged edits, an editor with an undo stack — notices that it happened.
  *
+ * ── C41. A CONTENT CAN RENAME ITS OWN PANE ───────────────────────────────
+ *
+ * The per-leaf ctx carries `setTitle(text)`. A factory's returned `title` is
+ * read once, after the mount, and the next repaint puts `leaf.title` back — and
+ * for a `panel:*` leaf that is PANEL_TITLES, which `wm._canonicalize` rewrites
+ * on every pass. So a bottom panel with tabs of its own could never say which
+ * one it was showing: it read "Console" whatever it held.
+ *
+ * `ctx.setTitle(text)` paints the chrome's title now and keeps it on the cache
+ * entry, where every cached repaint prefers it to `leaf.title`. Called DURING
+ * the mount it wins over the returned `title`. `setTitle(null)` or `''` hands
+ * the title back to the tree. It changes what the chrome SHOWS only: the tree,
+ * the tab labels and what is persisted are untouched, so a reload shows the
+ * tree's title until the content mounts and says otherwise. A call from a
+ * content whose leaf has since been rebuilt does nothing.
+ *
  * ── C33. A TAB DRAGGED INTO A TILE ───────────────────────────────────────
  *
  * *"I would like to be able to drag & drop tabs into tiles, too."* A tab could
@@ -526,7 +542,10 @@ export class TileRenderer {
 
         let entry = this._leafCache.get(leaf.id);
         if (entry && entry.kindKey === kindKey) {
-            entry.titleEl.textContent = leaf.title || (leaf.content ? leaf.content.kind : 'empty');
+            // C41. A title the content set through `ctx.setTitle` wins over
+            // the tree's: a panel leaf's `title` is rewritten to PANEL_TITLES
+            // by every canonicalize, and this repaint follows it.
+            entry.titleEl.textContent = entry.liveTitle || leaf.title || (leaf.content ? leaf.content.kind : 'empty');
             // C19. Re-read the glyph beside the title, and for the same reason:
             // a cached leaf is NOT re-mounted, so anything the chrome shows
             // that can change while the content stays put has to be refreshed
@@ -797,8 +816,27 @@ export class TileRenderer {
         // `wm.openFromContext(ctx, ...)` instead of always hitting
         // the primary tile.
         let content = {};
+        // C41. The title the content set through `ctx.setTitle`, held here
+        // until the cache entry exists (a call made DURING the mount) and on
+        // the entry after that.
+        let liveTitle = null;
+        let liveEntry = null;
         if (leaf.content) {
-            const leafCtx = { ...this.ctx, leafId: leaf.id };
+            const setTitle = (text) => {
+                const next = text == null || text === '' ? null : String(text);
+                if (!liveEntry) {
+                    liveTitle = next;
+                    title.textContent = next || leaf.title || leaf.content.kind;
+                    return;
+                }
+                // A leaf rebuilt since — its old content still holding this
+                // ctx — must not write into the new one's chrome.
+                if (this._leafCache.get(leaf.id) !== liveEntry) return;
+                liveEntry.liveTitle = next;
+                const now = this.tree?.get?.(leaf.id) || leaf;
+                liveEntry.titleEl.textContent = next || now.title || (now.content ? now.content.kind : 'empty');
+            };
+            const leafCtx = { ...this.ctx, leafId: leaf.id, setTitle };
             // Mount with the ACTIVE TAB's props, not `content.props`.
             // `wm.updateActiveTabProps` (the canonical per-tile view-state
             // store — survives reload + desktop switches via desktops.json)
@@ -810,6 +848,7 @@ export class TileRenderer {
             const activeProps = activeTab?.props ?? leaf.content.props;
             content = this.content.mount(leaf.content.kind, body, activeProps, leafCtx);
             if (content.title) title.textContent = content.title;
+            if (liveTitle) title.textContent = liveTitle;
             // C19. `icon` is the natural sibling of `title` and is read the
             // same way: AFTER the mount, because that is the first moment the
             // content knows what it is — a canvas pane you emptied is the same
@@ -848,8 +887,11 @@ export class TileRenderer {
                   // C22. The `top` layout's NotebookTabBar, and the child it
                   // mounts into. Null under the `bottom` layout, which is plain
                   // markup this file writes itself.
-                  tabStrip: null, tabStripHostEl: null };
+                  tabStrip: null, tabStripHostEl: null,
+                  // C41. Null until the content calls `ctx.setTitle`.
+                  liveTitle };
         this._leafCache.set(leaf.id, entry);
+        liveEntry = entry;
 
         // Render tab strip last so it has access to the cached entry.
         this._renderTabBar(leaf, entry);

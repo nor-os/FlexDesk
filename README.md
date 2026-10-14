@@ -130,6 +130,28 @@ await createShell({
 });
 ```
 
+### A pane that names what it shows: `ctx.setTitle` (0.12.1)
+
+A content factory receives `(hostEl, props, ctx)`, and `ctx` carries, per pane,
+`setTitle(text)`. It renames the pane's chrome title, at mount or any time
+after, and the title survives repaints — including a panel's, whose tree title
+the shell resets to Navigator / Inspector / Console on every layout pass:
+
+```js
+content: {
+    'panel:bottom': (hostEl, props, ctx) => {
+        // …a panel with tabs of its own…
+        const show = (tab) => { /* swap the body */ ctx.setTitle(tab.label); };
+        show(tabs[0]);
+        return { destroy() {} };
+    },
+},
+```
+
+`setTitle(null)` or `''` gives the title back to the tree. It changes what the
+chrome shows only — the tree, the tab labels and the saved layout are left
+alone — and a call from content whose pane has since been rebuilt does nothing.
+
 ### Your desktops beside the app's (0.10.0)
 
 Pass `chrome.desktops` and the shell paints a desktop bar: a chip per desktop

@@ -4965,36 +4965,54 @@ button.twm-about-dialog__btn--close:focus {
     color: #fff;
 }
 /* Content area — drop the host padding so the body host controls its
- * own zones (form rows + flush-bottom action strip). */
+ * own zones (form rows + flush-bottom action strip). The content never
+ * scrolls itself: the zone above the strip does, so the strip stays whole
+ * and in view when the fields outgrow the window. */
 .twm-managed-window--modal .twm-managed-window__content {
     background: var(--ea-bg-content);
     padding: 0;
-    overflow: auto;
+    overflow: hidden;
 }
 .twm-managed-window--modal .twm-modal__body-host {
     display: flex;
     flex-direction: column;
-    min-height: 100%;
+    height: 100%;
 }
-/* Form sits inside the body host as a flex column so the actions row
- * gets pushed to the bottom via margin-top:auto. */
+/* Form sits inside the body host as a flex column: the fields take the
+ * room left over and scroll, the error banner and the actions row keep
+ * their height below them. */
 .twm-managed-window--modal .twm-modal__form {
     display: flex;
     flex-direction: column;
     flex: 1 1 auto;
+    min-height: 0;
     padding: 0;
+    overflow: hidden;
+}
+.twm-managed-window--modal .twm-modal__fields {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding-bottom: 14px;
+}
+.twm-managed-window--modal .twm-modal__form > .twm-modal__error,
+.twm-managed-window--modal .twm-modal__form > .twm-modal__actions {
+    flex: 0 0 auto;
+}
+.twm-managed-window--modal .twm-modal__form > .twm-modal__error {
+    margin-bottom: 8px;
 }
 /* Field rows get inset margins so the action strip can run edge-to-edge
  * as a true bottom band. */
-.twm-managed-window--modal .twm-modal__form > .twm-modal__row,
-.twm-managed-window--modal .twm-modal__form > .twm-modal__section,
+.twm-managed-window--modal .twm-modal__fields > .twm-modal__row,
+.twm-managed-window--modal .twm-modal__fields > .twm-modal__section,
 .twm-managed-window--modal .twm-modal__form > .twm-modal__error,
 .twm-managed-window--modal .twm-modal__body {
     margin-left: 14px;
     margin-right: 14px;
 }
-.twm-managed-window--modal .twm-modal__form > .twm-modal__row:first-of-type,
-.twm-managed-window--modal .twm-modal__form > .twm-modal__section:first-child,
+.twm-managed-window--modal .twm-modal__fields > .twm-modal__row:first-of-type,
+.twm-managed-window--modal .twm-modal__fields > .twm-modal__section:first-child,
 .twm-managed-window--modal .twm-modal__body:first-child {
     margin-top: 14px;
 }
@@ -5235,6 +5253,8 @@ button.twm-about-dialog__btn--close:focus {
     line-height: 1.5;
     color: var(--ea-text);
     flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
 }
 /* Form-level error banner — left accent stripe, dim red panel. */
 .twm-managed-window--modal .twm-modal__error {

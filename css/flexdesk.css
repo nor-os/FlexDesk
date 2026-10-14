@@ -706,6 +706,82 @@ body.twm-dt-col-resizing {
 .twm-preview-table tbody tr.twm-dt-row--active > td:first-child {
     box-shadow: inset 2px 0 0 0 var(--accent-bright, #007acc);
 }
+/* STORY-0016 `selectToggle` / `selectMode` — the select column. Narrow, never
+ * the time column (it is the first child, so the time rules reach it: (0,3,2)
+ * here beats them), and the time styling moves to the first column after it,
+ * so a table looks as it did before the column was added. Its boxes show only
+ * in select mode; the header's toggle always. */
+.twm-preview-table.twm-dt--select tr > .twm-dt-select-cell {
+    width: 32px;
+    min-width: 0;
+    max-width: none;
+    padding-left: 6px;
+    padding-right: 2px;
+    text-align: left;
+    color: inherit;
+    font-weight: inherit;
+    white-space: nowrap;
+}
+.twm-preview-table.twm-dt--select:not(.twm-dt--first-plain) tr > .twm-dt-select-cell + th,
+.twm-preview-table.twm-dt--select:not(.twm-dt--first-plain) tr > .twm-dt-select-cell + td {
+    width: 120px;
+    min-width: 100px;
+    font-weight: 500;
+    color: #bbb;
+}
+.twm-preview-table.twm-dt--select:not(.twm-dt--first-plain) tr > th.twm-dt-select-cell + th {
+    font-weight: 600;
+    color: #aaa;
+}
+.twm-preview-table.twm-dt--select td.twm-dt-select-cell .twm-dt-select-box {
+    display: none;
+    margin: 0;
+    vertical-align: middle;
+    cursor: pointer;
+}
+.twm-preview-table.twm-dt--selecting td.twm-dt-select-cell .twm-dt-select-box {
+    display: inline-block;
+}
+.twm-preview-table.twm-dt--select th.twm-dt-select-cell .twm-dt-select-all {
+    margin: 0 4px 0 0;
+    vertical-align: middle;
+    cursor: pointer;
+}
+.twm-preview-table.twm-dt--select th.twm-dt-select-cell .twm-dt-select-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    margin: -3px 0;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: inherit;
+    font-size: 16px;
+    line-height: 1;
+    vertical-align: middle;
+    cursor: pointer;
+    opacity: 0.7;
+}
+.twm-preview-table.twm-dt--select th.twm-dt-select-cell .twm-dt-select-toggle:hover,
+.twm-preview-table.twm-dt--select th.twm-dt-select-cell .twm-dt-select-toggle[aria-pressed="true"] {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.08);
+}
+.twm-preview-table.twm-dt--select th.twm-dt-select-cell .twm-dt-select-toggle:focus-visible {
+    opacity: 1;
+    outline: 1px solid var(--accent-bright, #007acc);
+}
+/* In the mode a click ticks: a pointer on every row, and the keyboard's row
+ * (the arrows move it, Space ticks it) drawn as an outline. */
+.twm-preview-table.twm-dt--selecting tbody tr:not(.twm-dt-spacer):not(.data-table__empty-row) {
+    cursor: pointer;
+}
+.twm-preview-table.twm-dt--selecting tbody tr.twm-dt-row--cursor > td {
+    box-shadow: inset 0 1px 0 0 var(--accent-bright, #007acc), inset 0 -1px 0 0 var(--accent-bright, #007acc);
+}
 /* `rowIcon` — drawn from `data-twm-icon` so the icon's NAME is not cell
  * text (not in a copy, not in the clipped-cell tooltip). The span carries the
  * icon font's class; the pseudo-element inherits its font and ligatures. Top

@@ -46,6 +46,7 @@ import {
     is3DChart,
     buildTrace,
     buildIndicatorTrace,
+    buildOverlayShapes,
 } from '../src/charts/chart_types.js';
 import { COLOR_PALETTE, getSeriesColor } from '../src/charts/plotly_wrapper.js';
 
@@ -274,6 +275,41 @@ console.log('\ncharts: pie, donut, funnel, and the indicator\n');
     check('and relative is passed through', inverted.delta.relative, true);
 
     ok('a null delta is no delta', !('delta' in buildIndicatorTrace({ value: 1, delta: null })));
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 6. VERTICAL MARKERS IN buildOverlayShapes (0.13.0)
+// ════════════════════════════════════════════════════════════════════════
+//
+// A burndown's "today" line. Additive: a call that does not pass
+// `verticalLines` builds exactly what it built before they existed.
+{
+    const refs = { referenceLines: [{ value: 5, label: 'Target' }],
+                   shadedBands: [{ x0: 1, x1: 2, label: 'Freeze' }] };
+    const before = buildOverlayShapes(refs);
+    check('without verticalLines: the same shapes as before',
+          before.shapes.map((s) => [s.type, s.xref, s.yref]),
+          [['rect', 'x', 'paper'], ['line', 'paper', 'y']]);
+    check('…and annotations', before.annotations.map((a) => a.text), ['Freeze', 'Target']);
+    check('an empty list changes nothing', buildOverlayShapes({ ...refs, verticalLines: [] }), before);
+    check('no options at all is still empty', buildOverlayShapes(), { shapes: [], annotations: [] });
+
+    const marked = buildOverlayShapes({ ...refs, verticalLines: [
+        { x: '2026-10-14', label: 'Today' },
+        { x: 0, color: '#123456', lineStyle: 'solid', lineWidth: 2 },
+        { x: null }, { x: NaN }, null,
+    ] });
+    check('markers come after the existing shapes, which are untouched',
+          marked.shapes.slice(0, 2), before.shapes);
+    const [today, zero] = marked.shapes.slice(2);
+    check('a vertical line at x, full height',
+          [today.type, today.xref, today.yref, today.x0, today.x1, today.y0, today.y1, today.line.dash],
+          ['line', 'x', 'paper', '2026-10-14', '2026-10-14', 0, 1, 'dash']);
+    check('x = 0 is a real x; style passes through', [zero.x0, zero.line], [0, { color: '#123456', width: 2, dash: 'solid' }]);
+    check('null / NaN / missing markers are skipped', marked.shapes.length, 4);
+    check('the label is an annotation at the top of the line',
+          marked.annotations.slice(2).map((a) => [a.text, a.x, a.xref, a.yref, a.y]),
+          [['Today', '2026-10-14', 'x', 'paper', 1]]);
 }
 
 console.log(failures === 0

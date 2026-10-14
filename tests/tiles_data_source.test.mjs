@@ -309,6 +309,24 @@ console.log('\ntiles: per-tile data source, the two lifecycle hooks, and the men
     grid.dispose();
 }
 
+// A grid with neither data nor a data source — the embedder feeds each tile
+// through `setData` — still tells the tile its geometry settled; otherwise a
+// chart keeps its old size until the window itself resizes.
+{
+    const { grid } = mountGrid();
+    const tile = grid.addTile('probe', { x: 0, y: 0, w: 4, h: 3 });
+    await tick();
+    const handle = tile.element.querySelector('.tile-resize-handle');
+    handle.dispatchEvent(new dom.window.MouseEvent('pointerdown', {
+        bubbles: true, cancelable: true, button: 0, clientX: 100, clientY: 100 }));
+    dom.window.document.dispatchEvent(new dom.window.MouseEvent('pointermove', {
+        bubbles: true, clientX: 300, clientY: 260 }));
+    dom.window.document.dispatchEvent(new dom.window.MouseEvent('pointerup', { bubbles: true }));
+    await tick();
+    check('a settled resize with no data and no source still tells the tile', tile.calls.resize, 1);
+    grid.dispose();
+}
+
 // ════════════════════════════════════════════════════════════════════════
 // 5. THE ⋯ MENU IS A HOOK, NOT A LITERAL
 // ════════════════════════════════════════════════════════════════════════

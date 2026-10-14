@@ -27,6 +27,7 @@ import {
   hasPlot,
   hexToRgba,
   is3DChart,
+  lttb,
   makeDefaultSubplot,
   migrateData,
   migrateSingleChart,
@@ -37,9 +38,11 @@ import {
   resize,
   restyle,
   setPlotlySource,
+  strideDownsampleShared,
+  strideIndices,
   uid,
   updateChart
-} from "./chunk-2LEJQD4H.js";
+} from "./chunk-IYMNDPWH.js";
 import {
   createRafResizeObserver
 } from "./chunk-M2L4XW2U.js";
@@ -659,78 +662,6 @@ function closeDataSeriesPlotWindow(seriesId) {
     win.close();
     _openPlotWindows.delete(seriesId);
   }
-}
-
-// src/charts/downsample.js
-function strideIndices(n, targetPoints) {
-  if (!Number.isFinite(n) || n <= 0) return null;
-  const target = Math.max(2, Math.floor(targetPoints) || 0);
-  if (n <= target) return null;
-  const step = (n - 1) / (target - 1);
-  const idx = new Array(target);
-  for (let i = 0; i < target; i++) idx[i] = Math.round(i * step);
-  idx[target - 1] = n - 1;
-  let w = 0;
-  for (let r = 0; r < idx.length; r++) {
-    if (w === 0 || idx[r] > idx[w - 1]) idx[w++] = idx[r];
-  }
-  idx.length = w;
-  return idx;
-}
-function strideDownsampleShared(time, series, targetPoints) {
-  const idx = strideIndices(time?.length ?? 0, targetPoints);
-  if (!idx) return { time, series };
-  const dsTime = idx.map((i) => time[i]);
-  const dsSeries = {};
-  for (const [name, arr] of Object.entries(series || {})) {
-    if (!Array.isArray(arr)) {
-      dsSeries[name] = arr;
-      continue;
-    }
-    dsSeries[name] = idx.map((i) => i < arr.length ? arr[i] : null);
-  }
-  return { time: dsTime, series: dsSeries };
-}
-function lttb(x, y, threshold) {
-  const n = Math.min(x?.length ?? 0, y?.length ?? 0);
-  const target = Math.floor(threshold) || 0;
-  if (target <= 0 || target >= n) return { x: x.slice(0, n), y: y.slice(0, n) };
-  if (target < 3) return { x: [x[0], x[n - 1]], y: [y[0], y[n - 1]] };
-  const num = (v) => Number.isFinite(v) ? v : 0;
-  const outX = [x[0]];
-  const outY = [y[0]];
-  const bucketSize = (n - 2) / (target - 2);
-  let a = 0;
-  for (let i = 0; i < target - 2; i++) {
-    let nextStart = Math.floor((i + 1) * bucketSize) + 1;
-    let nextEnd = Math.min(Math.floor((i + 2) * bucketSize) + 1, n);
-    if (nextEnd <= nextStart) nextEnd = Math.min(nextStart + 1, n);
-    let avgX = 0, avgY = 0;
-    const count = nextEnd - nextStart;
-    for (let j = nextStart; j < nextEnd; j++) {
-      avgX += x[j];
-      avgY += num(y[j]);
-    }
-    avgX /= count;
-    avgY /= count;
-    const curStart = Math.floor(i * bucketSize) + 1;
-    const curEnd = Math.min(Math.floor((i + 1) * bucketSize) + 1, n);
-    const ax = x[a], ay = num(y[a]);
-    let maxArea = -1, chosen = curStart;
-    for (let j = curStart; j < curEnd; j++) {
-      const area = Math.abs((ax - avgX) * (num(y[j]) - ay) - (ax - x[j]) * (avgY - ay));
-      if (area > maxArea) {
-        maxArea = area;
-        chosen = j;
-      }
-    }
-    outX.push(x[chosen]);
-    outY.push(y[chosen]);
-    a = chosen;
-  }
-  outX.push(x[n - 1]);
-  outY.push(y[n - 1]);
-  return { x: outX, y: outY };
 }
 export {
   ALL_CHART_TYPES,

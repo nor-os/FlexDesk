@@ -45,7 +45,7 @@ manager, and neither of them should drag in a plotting engine or a code editor.
 | `@flexdesk/wm` | 166 kB | Tiling window manager: tabs, splits, desktops, command palette, taxonomy, `createShell()` |
 | `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus |
 | `@flexdesk/charts` | 26 kB | Plotly wrapper, chart types, subplot layouts, downsampling, plot windows |
-| `@flexdesk/tiles` | 67 kB | Draggable/resizable widget grid, tile base class, widget registry, layout persistence |
+| `@flexdesk/tiles` | 67 kB | Draggable/resizable widget grid, tile base class, widget registry, layout persistence, chart and KPI tiles |
 | `@flexdesk/editor` | 62 kB | Monaco loader + factory, multi-file tab bar, search, split panes, undo manager |
 | `@flexdesk/canvas` | 14 kB | The canvas kernel: a pannable, zoomable surface, the edge router, a generic graph layer ([Flow editors](#flow-editors)) |
 | `@flexdesk/flow` | 381 kB | The flow-editor kit and the canvas, outline and lane editors ([Flow editors](#flow-editors)) |
@@ -1730,6 +1730,38 @@ the configuration step is explicit rather than lazy.
 
 A layout is keyed by *something* — a document, a user, a run — and the library has
 no opinion about which. It calls that a `contextId`.
+
+### Chart and KPI tiles (0.13.0)
+
+`@flexdesk/tiles` ships two widgets: `flexdesk.chart` (line, bar, area, scatter,
+pie, donut, funnel, histogram — Plotly, so `setPlotlySource` first) and
+`flexdesk.kpi` (one number, a label and an optional delta; plain DOM, no Plotly).
+Nothing registers at import — call `registerChartTiles()` (idempotent). You hand
+a tile **already-computed** series; turning records into series is yours:
+
+```js
+import { registerChartTiles } from '@flexdesk/tiles';
+registerChartTiles();
+const chart = grid.addTile('flexdesk.chart', { x: 0, y: 0, w: 6, h: 4 },
+                           { chart_type: 'line', title: 'Burndown', unit: 'pts' });
+chart.onPointClick = ({ customdata }) => openItem(customdata);
+chart.setData({
+    series: [
+        { x: days, y: remaining, name: 'Remaining', interpolation: 'step', customdata: ids },
+        { x: days, y: ideal, name: 'Ideal', lineStyle: 'dashed' },
+    ],
+    markers: [{ x: today, label: 'Today' }],   // vertical lines
+    note: 'From 41 stories',                    // a line under the figure
+});
+grid.addTile('flexdesk.kpi', { x: 6, y: 0, w: 3, h: 2 }, { title: 'Open', unit: 'bugs' })
+    .setData({ value: 42, reference: 37 });     // ▲ +5 bugs
+```
+
+`setData(null)` or an empty series is the empty state, and it releases any figure
+still drawing. A pie takes `{labels, values}`, a histogram `{values}`. The config
+(`chart_type`, `title`, `unit`, …) round-trips through `getLayout()`/`setLayout()`.
+`buildOverlayShapes` gained `verticalLines: [{x, label?, color?, lineStyle?}]` for
+the same marker outside a tile.
 
 ## Styling
 

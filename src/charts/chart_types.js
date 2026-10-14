@@ -566,12 +566,17 @@ export function buildLegendLayout(position) {
  *   `yAxisId` matches an axis id in sp.yAxes[].id; omitted → first axis.
  * @param {Array<{x0:number, x1:number, label?:string, color?:string, opacity?:number, labelY?:number, labelColor?:string}>} [opts.shadedBands]
  *   Vertical stripes (rectangles spanning full y range) to mark policy/recession periods.
+ * @param {Array<{x:(number|string|Date), label?:string, color?:string, lineStyle?:string, lineWidth?:number, labelY?:number}>} [opts.verticalLines]
+ *   Vertical markers at one x — a "today" line on a burndown. Drawn full height
+ *   (`yref: 'paper'`), after the reference lines, so a call without them builds
+ *   exactly what it built before they existed. `x` is in the x axis's own units:
+ *   a number, a category, or a date string/Date on a date axis.
  * @param {Object<string,string>} [opts.yRefByAxisId]
  *   Mapping from subplot yAxes[i].id → Plotly yref ('y', 'y2', ...).
  * @returns {{shapes: Array, annotations: Array}}
  */
 export function buildOverlayShapes(opts = {}) {
-    const { referenceLines = [], shadedBands = [], yRefByAxisId = {} } = opts;
+    const { referenceLines = [], shadedBands = [], verticalLines = [], yRefByAxisId = {} } = opts;
     const shapes = [];
     const annotations = [];
     const dashMap = { solid: 'solid', dashed: 'dash', dotted: 'dot', dashdot: 'dashdot' };
@@ -639,6 +644,40 @@ export function buildOverlayShapes(opts = {}) {
                 yanchor: 'bottom',
                 bgcolor: 'rgba(20,22,26,0.6)',
                 borderpad: 2,
+            });
+        }
+    }
+
+    for (const mark of verticalLines) {
+        // `0` is a real x, so the test is null/undefined/NaN — never truthiness.
+        if (mark == null || mark.x == null || (typeof mark.x === 'number' && !Number.isFinite(mark.x))) continue;
+        const color = mark.color || 'rgba(255, 200, 0, 0.75)';
+        shapes.push({
+            type: 'line',
+            xref: 'x',
+            yref: 'paper',
+            x0: mark.x,
+            x1: mark.x,
+            y0: 0,
+            y1: 1,
+            line: {
+                color,
+                width: mark.lineWidth ?? 1.5,
+                dash: dashMap[mark.lineStyle || 'dashed'] || 'dash',
+            },
+            layer: 'above',
+        });
+        if (mark.label) {
+            annotations.push({
+                x: mark.x,
+                y: mark.labelY ?? 1.0,
+                xref: 'x',
+                yref: 'paper',
+                text: mark.label,
+                showarrow: false,
+                font: { size: 10, color },
+                xanchor: 'left',
+                yanchor: 'bottom',
             });
         }
     }

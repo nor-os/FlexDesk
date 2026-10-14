@@ -15,8 +15,20 @@ import {
   ActionDropdown
 } from "./chunk-O5OHMWBB.js";
 import {
-  openRawTracesWindow
-} from "./chunk-2LEJQD4H.js";
+  buildHistogramTrace,
+  buildLegendLayout,
+  buildOverlayShapes,
+  buildTrace,
+  buildXAxisLayout,
+  buildYAxisLayout,
+  createChart,
+  ensurePlotly,
+  getSeriesColor,
+  openRawTracesWindow,
+  purge,
+  resize,
+  strideDownsampleShared
+} from "./chunk-IYMNDPWH.js";
 import "./chunk-M2L4XW2U.js";
 import "./chunk-6JSOVNID.js";
 import "./chunk-FL5KFNQH.js";
@@ -166,525 +178,6 @@ function getNamespaceOptions(data) {
   }
   if (namespaces.size === 0) namespaces.add("Main");
   return Array.from(namespaces).sort().map((ns) => ({ value: ns, label: ns }));
-}
-
-// src/tiles/layout_persistence.js
-var LAYOUT_VERSION = 3;
-var DEFAULT_LAYOUTS_KEY = "twm.tiles.layouts";
-var DEFAULT_CONFIGS_KEY = "twm.tiles.configs";
-var LayoutPersistence = class {
-  constructor({
-    storage = typeof localStorage !== "undefined" ? localStorage : null,
-    layoutsKey = DEFAULT_LAYOUTS_KEY,
-    configsKey = DEFAULT_CONFIGS_KEY,
-    resolveTemplate = null,
-    logger = null
-  } = {}) {
-    this._cache = null;
-    this._storage = storage;
-    this._logger = logger;
-    this._layoutsKey = layoutsKey;
-    this._configsKey = configsKey;
-    this._resolveTemplate = typeof resolveTemplate === "function" ? resolveTemplate : null;
-  }
-  /**
-   * Get layout for a specific context.
-   * Falls back to template resolution when no saved layout exists.
-   * @param {string} contextId - Whatever the app keys layouts by.
-   * @param {Object} [context]  - Passed opaquely to `resolveTemplate`.
-   * @returns {Object} Layout object with tiles array
-   */
-  getLayout(contextId, context) {
-    const all = this._loadAll();
-    const layout = all[contextId];
-    if (layout && layout.version === LAYOUT_VERSION) {
-      return layout;
-    }
-    const instantiated = this._resolveTemplate?.(context) ?? null;
-    if (instantiated) {
-      return {
-        tiles: instantiated.tiles,
-        version: LAYOUT_VERSION,
-        templateId: instantiated.templateId,
-        templateModified: false
-      };
-    }
-    return { tiles: [], version: LAYOUT_VERSION };
-  }
-  /**
-   * Save layout for a specific context.
-   * @param {string} contextId - Whatever the app keys layouts by.
-   * @param {Array|Object} layout - Layout array or object with tiles property
-   */
-  saveLayout(contextId, layout) {
-    const all = this._loadAll();
-    const tilesArray = Array.isArray(layout) ? layout : layout?.tiles || [];
-    all[contextId] = {
-      tiles: tilesArray,
-      version: LAYOUT_VERSION,
-      updatedAt: Date.now(),
-      templateId: layout?.templateId || all[contextId]?.templateId || null,
-      templateModified: layout?.templateModified ?? true
-    };
-    this._saveAll(all);
-    this._logger?.info?.(`[LayoutPersistence] Saved layout for context ${contextId}`);
-  }
-  /**
-   * Delete layout for a specific context.
-   * @param {string} contextId - Whatever the app keys layouts by.
-   */
-  deleteLayout(contextId) {
-    const all = this._loadAll();
-    if (all[contextId]) {
-      delete all[contextId];
-      this._saveAll(all);
-      this._logger?.info?.(`[LayoutPersistence] Deleted layout for context ${contextId}`);
-    }
-  }
-  /**
-   * Reset a layout by re-resolving the best-matching template.
-   *
-   * With no `resolveTemplate` supplied, "reset" means "empty grid" — which is the
-   * honest answer for a library that has no templates. The previous code called
-   * `TemplateRegistry.instantiate()` unconditionally and read `.tiles` off the
-   * result, so a null resolver here would have been a TypeError.
-   *
-   * @param {string} contextId - Whatever the app keys layouts by.
-   * @param {Object} [context]  - Passed opaquely to `resolveTemplate`.
-   * @returns {Object} The resolved layout (empty if nothing resolves).
-   */
-  resetLayout(contextId, context) {
-    const instantiated = this._resolveTemplate?.(context) ?? null;
-    const layout = {
-      tiles: instantiated?.tiles ?? [],
-      version: LAYOUT_VERSION,
-      templateId: instantiated?.templateId ?? null,
-      templateModified: false
-    };
-    this.saveLayout(contextId, layout);
-    return layout;
-  }
-  /**
-   * Check if a context has a saved layout.
-   * @param {string} contextId - Whatever the app keys layouts by.
-   * @returns {boolean}
-   */
-  hasLayout(contextId) {
-    const all = this._loadAll();
-    return !!all[contextId];
-  }
-  /**
-   * Get all context IDs with saved layouts.
-   * @returns {Array<string>}
-   */
-  getAllContextIds() {
-    const all = this._loadAll();
-    return Object.keys(all);
-  }
-  /**
-   * Export all layouts as JSON string.
-   * @returns {string}
-   */
-  exportAll() {
-    const all = this._loadAll();
-    return JSON.stringify(all, null, 2);
-  }
-  /**
-   * Import layouts from JSON string.
-   * @param {string} json - JSON string of layouts
-   * @param {boolean} [merge=false] - Whether to merge with existing or replace
-   */
-  importAll(json, merge = false) {
-    try {
-      const imported = JSON.parse(json);
-      if (merge) {
-        const existing = this._loadAll();
-        this._saveAll({ ...existing, ...imported });
-      } else {
-        this._saveAll(imported);
-      }
-      this._cache = null;
-      this._logger?.info?.("[LayoutPersistence] Imported layouts");
-    } catch (err) {
-      console.error("[LayoutPersistence] Failed to import layouts:", err);
-    }
-  }
-  /**
-   * Clear all saved layouts.
-   */
-  clearAll() {
-    try {
-      this._storage?.removeItem(this._layoutsKey);
-      this._cache = null;
-      this._logger?.info?.("[LayoutPersistence] Cleared all layouts");
-    } catch (err) {
-      console.error("[LayoutPersistence] Failed to clear layouts:", err);
-    }
-  }
-  /**
-   * Load all layouts from storage.
-   * @returns {Object}
-   * @private
-   */
-  _loadAll() {
-    if (this._cache) {
-      return this._cache;
-    }
-    try {
-      const raw = this._storage?.getItem(this._layoutsKey);
-      if (raw) {
-        this._cache = JSON.parse(raw);
-        return this._cache;
-      }
-    } catch (err) {
-      console.error("[LayoutPersistence] Failed to load layouts:", err);
-    }
-    this._cache = {};
-    return this._cache;
-  }
-  /**
-   * Save all layouts to storage.
-   * @param {Object} data
-   * @private
-   */
-  _saveAll(data) {
-    try {
-      this._storage?.setItem(this._layoutsKey, JSON.stringify(data));
-      this._cache = data;
-    } catch (err) {
-      console.error("[LayoutPersistence] Failed to save layouts:", err);
-      if (err.name === "QuotaExceededError") {
-        this._pruneOldLayouts(data);
-      }
-    }
-  }
-  /**
-   * Remove oldest layouts to free up space.
-   * @param {Object} data
-   * @private
-   */
-  _pruneOldLayouts(data) {
-    const entries = Object.entries(data);
-    entries.sort((a, b) => (a[1].updatedAt || 0) - (b[1].updatedAt || 0));
-    const removeCount = Math.ceil(entries.length * 0.25);
-    for (let i = 0; i < removeCount; i++) {
-      delete data[entries[i][0]];
-    }
-    try {
-      this._storage?.setItem(this._layoutsKey, JSON.stringify(data));
-      this._cache = data;
-      this._logger?.warn?.("[LayoutPersistence] Pruned old layouts due to quota");
-    } catch (err) {
-      console.error("[LayoutPersistence] Still cannot save after pruning:", err);
-    }
-  }
-  /**
-   * Get the template ID associated with a saved layout.
-   * @param {string} contextId - Whatever the app keys layouts by.
-   * @returns {string|null} Template ID or null
-   */
-  getTemplateId(contextId) {
-    const all = this._loadAll();
-    return all[contextId]?.templateId || null;
-  }
-  /**
-   * Check if the user has modified the layout since the template was applied.
-   * @param {string} contextId - Whatever the app keys layouts by.
-   * @returns {boolean}
-   */
-  isTemplateModified(contextId) {
-    const all = this._loadAll();
-    return all[contextId]?.templateModified ?? false;
-  }
-  // =========================================================================
-  // NAMED CONFIGURATION MANAGEMENT
-  // =========================================================================
-  /**
-   * Get all saved configurations for a context.
-   * @param {string} contextId - Whatever the app keys layouts by.
-   * @returns {Object} { activeId: string, configs: { id: { name, tiles, createdAt } } }
-   */
-  getConfigurations(contextId) {
-    const all = this._loadConfigs();
-    const contextConfigs = all[contextId];
-    if (contextConfigs && Object.keys(contextConfigs.configs || {}).length > 0) {
-      return contextConfigs;
-    }
-    return {
-      activeId: null,
-      configs: {}
-    };
-  }
-  /**
-   * Save the current layout as a named configuration.
-   * Names are enforced to be unique - duplicates get "(2)", "(3)", etc. suffix.
-   * @param {string} contextId - Whatever the app keys layouts by.
-   * @param {string} name - Configuration name
-   * @param {Array|Object} layout - Layout to save
-   * @param {Object} [options] - Additional options
-   * @param {string} [options.templateId] - Template ID that generated this layout
-   * @returns {string} The new configuration ID
-   */
-  saveConfiguration(contextId, name, layout, options) {
-    const all = this._loadConfigs();
-    if (!all[contextId]) {
-      all[contextId] = { activeId: null, configs: {} };
-    }
-    const uniqueName = this._getUniqueName(all[contextId].configs, name);
-    const configId = `config-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const tilesArray = Array.isArray(layout) ? layout : layout?.tiles || [];
-    all[contextId].configs[configId] = {
-      name: uniqueName,
-      tiles: tilesArray,
-      version: LAYOUT_VERSION,
-      createdAt: Date.now(),
-      templateId: options?.templateId || null
-    };
-    if (!all[contextId].activeId) {
-      all[contextId].activeId = configId;
-    }
-    this._saveConfigs(all);
-    this._logger?.info?.(`[LayoutPersistence] Saved configuration "${uniqueName}" for context ${contextId}`);
-    return configId;
-  }
-  /**
-   * Generate a unique name by appending (2), (3), etc. if name already exists.
-   * @param {Object} configs - Existing configurations object
-   * @param {string} name - Desired name
-   * @returns {string} Unique name
-   * @private
-   */
-  _getUniqueName(configs, name) {
-    if (!configs) return name;
-    const existingNames = new Set(Object.values(configs).map((c) => c.name));
-    if (!existingNames.has(name)) {
-      return name;
-    }
-    let counter = 2;
-    let candidate = `${name} (${counter})`;
-    while (existingNames.has(candidate)) {
-      counter++;
-      candidate = `${name} (${counter})`;
-    }
-    return candidate;
-  }
-  /**
-   * Load a specific configuration.
-   * @param {string} contextId - Whatever the app keys layouts by.
-   * @param {string} configId - Configuration ID
-   * @returns {Object|null} Configuration layout or null if not found
-   */
-  loadConfiguration(contextId, configId) {
-    const all = this._loadConfigs();
-    const config = all[contextId]?.configs?.[configId];
-    if (config) {
-      all[contextId].activeId = configId;
-      this._saveConfigs(all);
-      return config;
-    }
-    return null;
-  }
-  /**
-   * Delete a saved configuration.
-   * @param {string} contextId - Whatever the app keys layouts by.
-   * @param {string} configId - Configuration ID
-   * @returns {boolean} True if deleted, false if not found
-   */
-  deleteConfiguration(contextId, configId) {
-    const all = this._loadConfigs();
-    if (!all[contextId]?.configs?.[configId]) {
-      return false;
-    }
-    delete all[contextId].configs[configId];
-    if (all[contextId].activeId === configId) {
-      const remaining = Object.keys(all[contextId].configs);
-      all[contextId].activeId = remaining.length > 0 ? remaining[0] : null;
-    }
-    this._saveConfigs(all);
-    this._logger?.info?.(`[LayoutPersistence] Deleted configuration ${configId} for context ${contextId}`);
-    return true;
-  }
-  /**
-   * Update an existing configuration's layout (without creating a new ID).
-   * @param {string} contextId - Whatever the app keys layouts by.
-   * @param {string} configId - Configuration ID
-   * @param {Array|Object} layout - New layout to save
-   * @returns {boolean} True if updated, false if not found
-   */
-  updateConfiguration(contextId, configId, layout) {
-    const all = this._loadConfigs();
-    if (!all[contextId]?.configs?.[configId]) {
-      return false;
-    }
-    const tilesArray = Array.isArray(layout) ? layout : layout?.tiles || [];
-    all[contextId].configs[configId].tiles = tilesArray;
-    all[contextId].configs[configId].version = LAYOUT_VERSION;
-    all[contextId].configs[configId].updatedAt = Date.now();
-    this._saveConfigs(all);
-    return true;
-  }
-  /**
-   * Update the templateId on an existing configuration.
-   * @param {string} contextId - Whatever the app keys layouts by.
-   * @param {string} configId - Configuration ID
-   * @param {string} templateId - New template ID
-   * @returns {boolean} True if updated, false if not found
-   */
-  updateConfigurationTemplateId(contextId, configId, templateId) {
-    const all = this._loadConfigs();
-    if (!all[contextId]?.configs?.[configId]) {
-      return false;
-    }
-    all[contextId].configs[configId].templateId = templateId;
-    this._saveConfigs(all);
-    return true;
-  }
-  /**
-   * Rename a configuration.
-   * Names are enforced to be unique - duplicates get "(2)", "(3)", etc. suffix.
-   * @param {string} contextId - Whatever the app keys layouts by.
-   * @param {string} configId - Configuration ID
-   * @param {string} newName - New name
-   * @returns {string|false} The actual name used (may differ if duplicate), or false if not found
-   */
-  renameConfiguration(contextId, configId, newName) {
-    const all = this._loadConfigs();
-    if (!all[contextId]?.configs?.[configId]) {
-      return false;
-    }
-    const otherConfigs = {};
-    Object.entries(all[contextId].configs).forEach(([id, config]) => {
-      if (id !== configId) {
-        otherConfigs[id] = config;
-      }
-    });
-    const uniqueName = this._getUniqueName(otherConfigs, newName);
-    all[contextId].configs[configId].name = uniqueName;
-    this._saveConfigs(all);
-    return uniqueName;
-  }
-  /**
-   * Get the active configuration for a context.
-   * @param {string} contextId - Whatever the app keys layouts by.
-   * @returns {Object|null} { id, name, tiles } or null
-   */
-  getActiveConfiguration(contextId) {
-    const all = this._loadConfigs();
-    const contextConfigs = all[contextId];
-    if (!contextConfigs?.activeId) {
-      return null;
-    }
-    const activeConfig = contextConfigs.configs[contextConfigs.activeId];
-    if (activeConfig) {
-      return {
-        id: contextConfigs.activeId,
-        ...activeConfig
-      };
-    }
-    return null;
-  }
-  /**
-   * Set the active configuration.
-   * @param {string} contextId - Whatever the app keys layouts by.
-   * @param {string} configId - Configuration ID
-   */
-  setActiveConfiguration(contextId, configId) {
-    const all = this._loadConfigs();
-    if (all[contextId]?.configs?.[configId]) {
-      all[contextId].activeId = configId;
-      this._saveConfigs(all);
-    }
-  }
-  /**
-   * List all configurations for a context.
-   * @param {string} contextId - Whatever the app keys layouts by.
-   * @returns {Array} Array of { id, name, createdAt, isActive }
-   */
-  listConfigurations(contextId) {
-    const all = this._loadConfigs();
-    const contextConfigs = all[contextId];
-    if (!contextConfigs?.configs) {
-      return [];
-    }
-    return Object.entries(contextConfigs.configs).map(([id, config]) => ({
-      id,
-      name: config.name,
-      createdAt: config.createdAt,
-      isActive: id === contextConfigs.activeId
-    })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  }
-  /**
-   * Get the template set fingerprint for a context.
-   * Used to detect when templates have changed and configs need regeneration.
-   * @param {string} contextId
-   * @returns {string|null}
-   */
-  getTemplateSetId(contextId) {
-    const all = this._loadConfigs();
-    return all[contextId]?.templateSetId || null;
-  }
-  /**
-   * Store the template set fingerprint for a context.
-   * @param {string} contextId
-   * @param {string} templateSetId
-   */
-  setTemplateSetId(contextId, templateSetId) {
-    const all = this._loadConfigs();
-    if (!all[contextId]) {
-      all[contextId] = { activeId: null, configs: {} };
-    }
-    all[contextId].templateSetId = templateSetId;
-    this._saveConfigs(all);
-  }
-  /**
-   * Delete ALL configurations for a context.
-   * @param {string} contextId
-   */
-  clearConfigurations(contextId) {
-    const all = this._loadConfigs();
-    delete all[contextId];
-    this._saveConfigs(all);
-  }
-  /**
-   * Load all configurations from storage.
-   * @returns {Object}
-   * @private
-   */
-  _loadConfigs() {
-    try {
-      const raw = this._storage?.getItem(this._configsKey);
-      if (raw) {
-        return JSON.parse(raw);
-      }
-    } catch (err) {
-      console.error("[LayoutPersistence] Failed to load configurations:", err);
-    }
-    return {};
-  }
-  /**
-   * Save all configurations to storage.
-   * @param {Object} data
-   * @private
-   */
-  _saveConfigs(data) {
-    try {
-      this._storage?.setItem(this._configsKey, JSON.stringify(data));
-    } catch (err) {
-      console.error("[LayoutPersistence] Failed to save configurations:", err);
-    }
-  }
-};
-var instance = null;
-var _options = {};
-function configureLayoutPersistence(options = {}) {
-  _options = options;
-  instance = null;
-}
-function getLayoutPersistence() {
-  if (!instance) {
-    instance = new LayoutPersistence(_options);
-  }
-  return instance;
 }
 
 // src/tiles/tile_base.js
@@ -1415,6 +908,1229 @@ var TileBase = class {
   }
 };
 
+// src/tiles/chart_tiles.js
+init_tile_registry();
+var CATEGORICAL_ONLY = /* @__PURE__ */ new Set(["pie", "donut", "funnel"]);
+var CHART_TILE_TYPES = Object.freeze([
+  { value: "line", label: "Line" },
+  { value: "bar", label: "Bar" },
+  { value: "bar-stacked", label: "Bar (stacked)" },
+  { value: "bar-horizontal", label: "Bar (horizontal)" },
+  { value: "area", label: "Area" },
+  { value: "area-stacked", label: "Area (stacked %)" },
+  { value: "scatter", label: "Scatter" },
+  { value: "pie", label: "Pie" },
+  { value: "donut", label: "Donut" },
+  { value: "funnel", label: "Funnel" },
+  { value: "histogram", label: "Histogram" }
+]);
+var AXIS_CHARTS = ["bar", "bar-stacked", "bar-horizontal", "line", "area", "area-stacked", "scatter"];
+var READS = Object.freeze({
+  legend: /* @__PURE__ */ new Set([...AXIS_CHARTS, "pie", "donut", "histogram"]),
+  axis_titles: /* @__PURE__ */ new Set([...AXIS_CHARTS, "histogram"]),
+  y_scale: /* @__PURE__ */ new Set(["bar", "bar-horizontal", "line", "area", "scatter"]),
+  y_range: /* @__PURE__ */ new Set(["bar", "bar-stacked", "bar-horizontal", "line", "area", "scatter"]),
+  show_markers: /* @__PURE__ */ new Set(["line", "area", "area-stacked"])
+});
+var TILE_MARGIN = { l: 48, r: 16, t: 8, b: 36 };
+var MAX_POINTS = 2e3;
+function normalizeChartData(data) {
+  if (data == null) return null;
+  let d = data;
+  if (Array.isArray(d)) d = { series: d };
+  else if (typeof d !== "object") return null;
+  else if (!Array.isArray(d.series)) {
+    const single = ["x", "y", "labels", "values"].some((k) => Array.isArray(d[k]));
+    d = { ...d, series: single ? [d] : [] };
+  }
+  const series = d.series.filter((s) => s && pointCount(s) > 0);
+  if (!series.length) return null;
+  return {
+    series,
+    markers: Array.isArray(d.markers) ? d.markers : [],
+    referenceLines: Array.isArray(d.referenceLines) ? d.referenceLines : [],
+    xKind: d.xKind || null,
+    note: typeof d.note === "string" ? d.note : ""
+  };
+}
+function pointCount(s) {
+  for (const k of ["y", "values", "x", "labels"]) {
+    if (Array.isArray(s[k])) return s[k].length;
+  }
+  return 0;
+}
+var ChartTile = class extends TileBase {
+  static TYPE = "flexdesk.chart";
+  static TITLE = "Chart";
+  static ICON = "insert_chart";
+  static DESCRIPTION = "Line, bar, area, pie, donut, funnel or histogram over series you supply.";
+  static DEFAULT_SIZE = { w: 6, h: 4 };
+  static SIZE_CONSTRAINTS = { minW: 3, minH: 3, maxW: 12, maxH: 10 };
+  /**
+   * @param {Object} options - TileBase's, plus:
+   * @param {Function} [options.onPointClick] - `({customdata, point, tile})`
+   *        on a click on a mark. Also assignable later as `tile.onPointClick`.
+   */
+  constructor(options = {}) {
+    super(options);
+    this.onPointClick = typeof options.onPointClick === "function" ? options.onPointClick : null;
+    this._plotEl = null;
+    this._drawn = false;
+    this._drawSeq = 0;
+  }
+  /** Pure and static-only — it runs inside `TileBase`'s constructor. */
+  getDefaultConfig() {
+    return {
+      title: "",
+      chart_type: "line",
+      unit: "",
+      legend: "bottom",
+      x_title: "",
+      y_title: "",
+      y_scale: "linear",
+      y_min: null,
+      y_max: null,
+      show_markers: false,
+      max_points: MAX_POINTS
+    };
+  }
+  getConfigSchema() {
+    return {
+      fields: [
+        { name: "title", type: "text", label: "Tile title" },
+        {
+          name: "chart_type",
+          type: "select",
+          label: "Chart type",
+          options: CHART_TILE_TYPES.map((o) => ({ ...o }))
+        },
+        {
+          name: "unit",
+          type: "text",
+          label: "Unit",
+          help: 'Shown with the value axis title, e.g. "pts" or "h".'
+        },
+        {
+          name: "legend",
+          type: "select",
+          label: "Legend",
+          visibleWhen: { field: "chart_type", in: [...READS.legend] },
+          options: [
+            { value: "bottom", label: "Below" },
+            { value: "top", label: "Above" },
+            { value: "right", label: "Right" },
+            { value: "left", label: "Left" },
+            { value: "hidden", label: "None" }
+          ]
+        },
+        {
+          name: "x_title",
+          type: "text",
+          label: "X axis title",
+          visibleWhen: { field: "chart_type", in: [...READS.axis_titles] }
+        },
+        {
+          name: "y_title",
+          type: "text",
+          label: "Y axis title",
+          visibleWhen: { field: "chart_type", in: [...READS.axis_titles] }
+        },
+        {
+          name: "y_scale",
+          type: "select",
+          label: "Y scale",
+          visibleWhen: { field: "chart_type", in: [...READS.y_scale] },
+          options: [{ value: "linear", label: "Linear" }, { value: "log", label: "Logarithmic" }]
+        },
+        {
+          name: "y_min",
+          type: "number",
+          label: "Y minimum",
+          visibleWhen: { field: "chart_type", in: [...READS.y_range] }
+        },
+        {
+          name: "y_max",
+          type: "number",
+          label: "Y maximum",
+          visibleWhen: { field: "chart_type", in: [...READS.y_range] }
+        },
+        {
+          name: "show_markers",
+          type: "checkbox",
+          label: "Show point markers",
+          visibleWhen: { field: "chart_type", in: [...READS.show_markers] }
+        }
+      ]
+    };
+  }
+  mount(container) {
+    super.mount(container);
+    applyTitle(this);
+  }
+  /**
+   * `null` here is "the grid has no data", not "clear this tile": TileGrid's
+   * config save calls `update(grid.data, newConfig)`, and a grid whose tiles
+   * are fed one by one through `setData` has `grid.data === null` — passed on,
+   * it would drop the tile's series and skip the redraw in the new chart type.
+   * `setData(null)` is how a tile is cleared.
+   */
+  update(data, config) {
+    super.update(data === null ? void 0 : data, config);
+    if (config) applyTitle(this);
+  }
+  /**
+   * Hand this tile its series. Unlike `update()`, an empty or null value is
+   * drawn — as the empty state — rather than ignored.
+   */
+  setData(data) {
+    if (this._disposed) return;
+    this.data = data ?? null;
+    if (this.contentElement) this.render(this.data);
+  }
+  /**
+   * Kick off the draw and return. Deliberately not `async`: nothing awaits
+   * `render`, so a returned promise would be a rejection nobody catches.
+   */
+  render(data) {
+    this._draw(data);
+  }
+  /** One relayout when a resize settles; nothing while a draw is in flight. */
+  onResize() {
+    if (!this._plotEl || !this._drawn) return;
+    resize(this._plotEl).catch(() => {
+    });
+  }
+  menuItems() {
+    return [{ action: "download-png", label: "Download PNG", icon: "image" }];
+  }
+  _onMenuAction(action) {
+    if (action === "download-png") this._downloadPng();
+  }
+  // ── the three states: each one invalidates the figure ───────────────
+  showLoading() {
+    this._invalidate();
+    super.showLoading();
+  }
+  showEmpty(message) {
+    this._invalidate();
+    super.showEmpty(message);
+  }
+  showError(message) {
+    this._invalidate();
+    super.showError(message);
+  }
+  /** Release the figure BEFORE the element goes — `TileBase.dispose` nulls it. */
+  dispose() {
+    this._invalidate();
+    super.dispose();
+  }
+  /** Any draw in flight is now stale, and the figure on screen is released. */
+  _invalidate() {
+    this._drawSeq += 1;
+    this._releasePlot();
+  }
+  /** Hand the current figure back to Plotly and forget it. Idempotent, and
+   *  not awaited: a rejected purge (Plotly absent, already purged) must not
+   *  surface as an unhandled rejection. */
+  _releasePlot() {
+    const el = this._plotEl;
+    this._plotEl = null;
+    this._drawn = false;
+    if (el) purge(el).catch(() => {
+    });
+  }
+  // ── the draw ────────────────────────────────────────────────────────
+  async _draw(data) {
+    this._drawSeq += 1;
+    const seq = this._drawSeq;
+    const content = this.contentElement;
+    if (!content) return;
+    this._releasePlot();
+    const norm = normalizeChartData(data);
+    if (!norm) {
+      this.showEmpty("No data to show.");
+      return;
+    }
+    let plan;
+    try {
+      plan = this._plan(norm);
+    } catch (err) {
+      this._failed(err);
+      return;
+    }
+    if (!plan) return;
+    const host = document.createElement("div");
+    host.className = "fd-chart-tile";
+    const parts = [host];
+    if (norm.note) {
+      const note = document.createElement("div");
+      note.className = "fd-chart-tile__note";
+      note.setAttribute("role", "note");
+      note.textContent = norm.note;
+      note.title = norm.note;
+      parts.push(note);
+    }
+    content.replaceChildren(...parts);
+    this._plotEl = host;
+    this._drawn = false;
+    try {
+      await createChart(host, plan.traces, plan.layout, {
+        scrollZoom: false,
+        displayModeBar: false,
+        responsive: true
+      });
+    } catch (err) {
+      if (this._disposed || seq !== this._drawSeq) return;
+      this._failed(err);
+      return;
+    }
+    if (this._disposed || seq !== this._drawSeq) {
+      purge(host).catch(() => {
+      });
+      return;
+    }
+    this._drawn = true;
+    this._wireClick(host);
+  }
+  /** Plotly's click, reduced to the point's own `customdata`. A pie's point
+   *  carries its slice index as `pointNumber` (older builds: `pointIndex`),
+   *  and its `customdata` is read off the trace by that index. */
+  _wireClick(host) {
+    if (typeof host.on !== "function") return;
+    host.on("plotly_click", (ev) => {
+      const point = ev?.points?.[0];
+      if (!point || typeof this.onPointClick !== "function") return;
+      const trace = point.data || {};
+      let customdata = point.customdata;
+      if (trace.type === "pie" || customdata === void 0) {
+        const i = point.pointNumber ?? point.pointIndex;
+        if (Array.isArray(trace.customdata) && i != null) customdata = trace.customdata[i];
+      }
+      try {
+        this.onPointClick({ customdata, point, tile: this });
+      } catch (err) {
+        console.error("[ChartTile] onPointClick threw:", err);
+      }
+    });
+  }
+  /**
+   * Turn normalised data into `{traces, layout}`, or put the tile in the
+   * empty state and answer `null`.
+   */
+  _plan(norm) {
+    const type = this.config.chart_type || "line";
+    const { series } = norm;
+    if (CATEGORICAL_ONLY.has(type)) {
+      const s = series[0];
+      const labels = s.labels ?? s.x ?? [];
+      const values = s.values ?? s.y ?? [];
+      const trace = buildTrace({
+        chartType: type,
+        x: labels.map((v) => v === null || v === void 0 ? "\u2014" : String(v)),
+        y: values,
+        name: s.name || "",
+        colors: s.colors || null
+      });
+      if (Array.isArray(s.customdata)) trace.customdata = s.customdata;
+      return {
+        traces: [trace],
+        layout: {
+          margin: type === "funnel" ? { ...TILE_MARGIN, l: 96 } : TILE_MARGIN,
+          ...this._legend()
+        }
+      };
+    }
+    if (type === "histogram") {
+      const traces2 = series.map((s, i) => {
+        const raw = s.values ?? s.y ?? s.x ?? [];
+        const trace = {
+          ...buildHistogramTrace({
+            x: raw.map(toNumber).filter((v) => v !== null),
+            color: s.color || getSeriesColor(i),
+            name: s.name || `Series ${i + 1}`,
+            ...s.nbins ? { nbins: s.nbins } : {}
+          }),
+          opacity: series.length > 1 ? 0.7 : 1
+        };
+        return trace;
+      });
+      return {
+        traces: traces2,
+        layout: {
+          margin: TILE_MARGIN,
+          ...this._legend(),
+          barmode: "overlay",
+          xaxis: buildXAxisLayout({ title: this.config.x_title || "" }),
+          yaxis: buildYAxisLayout({ axisId: "yaxis", title: this.config.y_title || "Count" })
+        }
+      };
+    }
+    const kind = norm.xKind || inferXKind(series);
+    const base = type.startsWith("bar") ? "bar" : type;
+    const target = Number(this.config.max_points) || MAX_POINTS;
+    const showMarkers = READS.show_markers.has(type) && this.config.show_markers === true;
+    const traces = series.map((s, i) => {
+      let x = Array.isArray(s.x) ? s.x : (s.y || []).map((_, j) => j);
+      let y = Array.isArray(s.y) ? s.y : s.values || [];
+      let customdata = Array.isArray(s.customdata) ? s.customdata : null;
+      if (kind !== "category") {
+        const cut = strideDownsampleShared(x, customdata ? { y, customdata } : { y }, target);
+        x = cut.time;
+        y = cut.series.y;
+        if (customdata) customdata = cut.series.customdata;
+      }
+      const trace = buildTrace({
+        chartType: base,
+        x,
+        y,
+        name: s.name || `Series ${i + 1}`,
+        color: s.color || null,
+        lineStyle: s.lineStyle || "solid",
+        interpolation: s.interpolation || "linear",
+        ...s.lineWidth ? { lineWidth: s.lineWidth } : {},
+        seriesIndex: i,
+        showMarkers
+      });
+      if (s.line && typeof s.line === "object") trace.line = { ...trace.line || {}, ...s.line };
+      if (customdata) trace.customdata = customdata;
+      return trace;
+    });
+    const xaxis = buildXAxisLayout({ title: this.config.x_title || "", scaleType: "linear" });
+    if (kind !== "number") xaxis.type = kind === "date" ? "date" : "category";
+    const log = READS.y_scale.has(type) && this.config.y_scale === "log";
+    const yaxis = buildYAxisLayout({
+      axisId: "yaxis",
+      title: this._valueTitle(series),
+      scaleType: log ? "log" : "linear",
+      min: READS.y_range.has(type) ? axisBound(this.config.y_min, log) : null,
+      max: READS.y_range.has(type) ? axisBound(this.config.y_max, log) : null
+    });
+    const layout = { margin: TILE_MARGIN, xaxis, yaxis, ...this._legend() };
+    if (type === "bar") layout.barmode = "group";
+    if (type === "bar-stacked") layout.barmode = "stack";
+    if (type === "bar-horizontal") {
+      layout.barmode = "group";
+      for (const t of traces) {
+        [t.x, t.y] = [t.y, t.x];
+        t.orientation = "h";
+      }
+      [layout.xaxis, layout.yaxis] = [yaxis, xaxis];
+      layout.margin = { ...TILE_MARGIN, l: 96 };
+    }
+    const overlay = buildOverlayShapes({
+      verticalLines: type === "bar-horizontal" ? [] : norm.markers,
+      referenceLines: norm.referenceLines
+    });
+    if (overlay.shapes.length) layout.shapes = overlay.shapes;
+    if (overlay.annotations.length) layout.annotations = overlay.annotations;
+    return { traces, layout };
+  }
+  /** The value axis title: the configured one, else the single series' name,
+   *  with the unit beside it. */
+  _valueTitle(series) {
+    const unit = (this.config.unit || "").trim();
+    const base = this.config.y_title || (series.length === 1 ? series[0].name || "" : "");
+    if (!unit) return base;
+    return base ? `${base} (${unit})` : unit;
+  }
+  /**
+   * `showlegend` and `legend`, lifted out by name: `buildLegendLayout`'s
+   * top-level `font` would replace the theme's whole font object. Below the
+   * plot it is anchored to the CONTAINER, so the axis title sits above it
+   * however tall the tick labels are.
+   */
+  _legend() {
+    if (!READS.legend.has(this.config.chart_type || "line")) return { showlegend: false };
+    const position = this.config.legend || "bottom";
+    const spec = buildLegendLayout(position);
+    const out = { showlegend: spec.showlegend === true };
+    if (spec.legend) out.legend = spec.legend;
+    if (position === "bottom" && out.legend) {
+      out.legend = { ...out.legend, yref: "container", y: 0, yanchor: "bottom" };
+    }
+    return out;
+  }
+  async _downloadPng() {
+    if (!this._plotEl || !this._drawn) return;
+    try {
+      const P = await ensurePlotly();
+      const uri = await P.toImage(this._plotEl, { format: "png", scale: 2 });
+      const a = document.createElement("a");
+      a.href = uri;
+      a.download = `${slug(this.config.title || this.constructor.TITLE)}.png`;
+      a.click();
+    } catch (err) {
+      this._notify("Download failed", `The image could not be made: ${err?.message || err}`, "error");
+    }
+  }
+  _failed(err) {
+    if (this._disposed) return;
+    this.showError(`This chart could not be drawn: ${err?.message || err}`);
+    this.eventBus?.emit?.("tile:render-failed", {
+      tileId: this.id,
+      message: err?.message || String(err)
+    });
+  }
+};
+var KpiTile = class extends TileBase {
+  static TYPE = "flexdesk.kpi";
+  static TITLE = "KPI";
+  static ICON = "speed";
+  static DESCRIPTION = "One number with a label and an optional comparison.";
+  static DEFAULT_SIZE = { w: 3, h: 2 };
+  static SIZE_CONSTRAINTS = { minW: 2, minH: 2, maxW: 12, maxH: 6 };
+  getDefaultConfig() {
+    return {
+      title: "",
+      label: "",
+      unit: "",
+      format: "number",
+      decimals: null,
+      prefix: "",
+      suffix: "",
+      currency: null,
+      delta_relative: false,
+      invert_delta: false,
+      foot: ""
+    };
+  }
+  getConfigSchema() {
+    return {
+      fields: [
+        { name: "title", type: "text", label: "Tile title" },
+        { name: "label", type: "text", label: "Label" },
+        { name: "unit", type: "text", label: "Unit", help: 'Shown after the number, e.g. "pts".' },
+        {
+          name: "format",
+          type: "select",
+          label: "Format",
+          options: [
+            { value: "number", label: "Number" },
+            { value: "percent", label: "Percentage (of a ratio)" },
+            { value: "currency", label: "Currency" },
+            { value: "duration", label: "Duration (seconds)" },
+            { value: "text", label: "Text" }
+          ]
+        },
+        { name: "decimals", type: "number", label: "Decimals", min: 0, max: 6 },
+        {
+          name: "currency",
+          type: "text",
+          label: "Currency code",
+          help: "ISO 4217, e.g. EUR. Left empty, the number is shown without a symbol."
+        },
+        { name: "prefix", type: "text", label: "Prefix" },
+        { name: "suffix", type: "text", label: "Suffix" },
+        { name: "delta_relative", type: "checkbox", label: "Show the change as a percentage" },
+        {
+          name: "invert_delta",
+          type: "checkbox",
+          label: "A fall is good",
+          help: "For a cost, a queue length or a latency: a smaller number is the better one."
+        },
+        { name: "foot", type: "text", label: "Caption" }
+      ]
+    };
+  }
+  mount(container) {
+    super.mount(container);
+    applyTitle(this);
+  }
+  /** `null` is "the grid has no data" — see `ChartTile.update`. And a value of
+   *  `0` is a value: `TileBase.update` re-renders truthy data only. */
+  update(data, config) {
+    if (this._disposed) return;
+    super.update(data === null ? void 0 : data, config);
+    if (config) applyTitle(this);
+    const d = this.data;
+    if (d !== null && d !== void 0 && !d && this.contentElement) this.render(d);
+  }
+  /** `{value, reference?, label?, note?}` or a bare number; null is the empty state. */
+  setData(data) {
+    if (this._disposed) return;
+    this.data = data ?? null;
+    if (this.contentElement) this.render(this.data);
+  }
+  render(data) {
+    const content = this.contentElement;
+    if (!content) return;
+    const d = typeof data === "number" ? { value: data } : data;
+    if (!d || typeof d !== "object" || d.value === null || d.value === void 0 || d.value === "") {
+      this.showEmpty("No value to show.");
+      return;
+    }
+    content.replaceChildren();
+    const box = document.createElement("div");
+    box.className = "fd-kpi";
+    const labelText = d.label || this.config.label || "";
+    if (labelText) {
+      const label = document.createElement("div");
+      label.className = "fd-kpi__label";
+      label.textContent = labelText;
+      label.title = labelText;
+      box.append(label);
+    }
+    const big = document.createElement("div");
+    big.className = "fd-kpi__value";
+    big.textContent = this._format(d.value, true);
+    big.title = String(d.value);
+    box.append(big);
+    const delta = this._buildDelta(d.value, d.reference);
+    if (delta) box.append(delta);
+    const foot = [this.config.foot, d.note].filter(Boolean).join(" \xB7 ");
+    if (foot) {
+      const el = document.createElement("div");
+      el.className = "fd-kpi__foot";
+      el.textContent = foot;
+      el.title = foot;
+      box.append(el);
+    }
+    content.append(box);
+  }
+  /** The comparison line, or `null` when there is nothing to compare against.
+   *  `0` is a real reference — the test is finiteness, never truthiness. */
+  _buildDelta(rawValue, rawReference) {
+    const value = Number(rawValue);
+    if (rawReference === null || rawReference === void 0 || rawReference === "") return null;
+    const reference = Number(rawReference);
+    if (!Number.isFinite(value) || !Number.isFinite(reference)) return null;
+    const change = value - reference;
+    const el = document.createElement("div");
+    el.className = "fd-kpi__delta";
+    if (change > 0) el.classList.add(this.config.invert_delta ? "fd-kpi__delta--down" : "fd-kpi__delta--up");
+    else if (change < 0) el.classList.add(this.config.invert_delta ? "fd-kpi__delta--up" : "fd-kpi__delta--down");
+    const arrow = change > 0 ? "\u25B2" : change < 0 ? "\u25BC" : "\u2013";
+    const magnitude = this.config.delta_relative ? reference === 0 ? null : formatValue(Math.abs(change / reference), {
+      format: "percent",
+      decimals: this.config.decimals ?? 1
+    }) : this._format(Math.abs(change), false);
+    const sign = change > 0 ? "+" : change < 0 ? "-" : "";
+    el.textContent = magnitude === null ? `${arrow} \u2014` : `${arrow} ${sign}${magnitude}`;
+    el.title = `Compared with ${this._format(reference, false)}`;
+    return el;
+  }
+  _format(value, withAffixes) {
+    const format = this.config.format || "number";
+    const body = formatValue(value, {
+      format: format === "text" && !withAffixes ? "number" : format,
+      decimals: this.config.decimals,
+      currency: this.config.currency,
+      prefix: withAffixes ? this.config.prefix : "",
+      suffix: withAffixes ? this.config.suffix : ""
+    });
+    const unit = (this.config.unit || "").trim();
+    return unit && body !== "\u2014" ? `${body} ${unit}` : body;
+  }
+};
+function registerChartTiles() {
+  for (const Tile of [ChartTile, KpiTile]) {
+    if (getWidget(Tile.TYPE) !== Tile) registerWidget(Tile);
+  }
+}
+function applyTitle(tile) {
+  tile.setTitle(tile.config.title || tile.constructor.TITLE);
+}
+function inferXKind(series) {
+  let sawAny = false;
+  let allNumbers = true;
+  let allDates = true;
+  for (const s of series) {
+    for (const v of Array.isArray(s.x) ? s.x : []) {
+      if (v === null || v === void 0) continue;
+      sawAny = true;
+      if (typeof v !== "number") allNumbers = false;
+      if (!(v instanceof Date) && !(typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v))) allDates = false;
+      if (!allNumbers && !allDates) return "category";
+    }
+  }
+  if (!sawAny || allNumbers) return "number";
+  return allDates ? "date" : "category";
+}
+function toNumber(value) {
+  if (value === null || value === void 0 || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+function axisBound(value, log) {
+  const n = toNumber(value);
+  if (n === null || !log) return n;
+  return n > 0 ? Math.log10(n) : null;
+}
+function fractionDigits(decimals) {
+  const d = Math.max(0, Math.min(20, Number(decimals) || 0));
+  return { minimumFractionDigits: d, maximumFractionDigits: d };
+}
+function formatDuration(seconds) {
+  if (!Number.isFinite(seconds)) return "\u2014";
+  const sign = seconds < 0 ? "-" : "";
+  let rest = Math.abs(Math.round(seconds));
+  const days = Math.floor(rest / 86400);
+  rest -= days * 86400;
+  const hours = Math.floor(rest / 3600);
+  rest -= hours * 3600;
+  const minutes = Math.floor(rest / 60);
+  const secs = rest - minutes * 60;
+  if (days) return `${sign}${days}d ${hours}h`;
+  if (hours) return `${sign}${hours}h ${minutes}m`;
+  if (minutes) return `${sign}${minutes}m ${secs}s`;
+  return `${sign}${secs}s`;
+}
+function formatValue(value, {
+  format = "number",
+  decimals = null,
+  prefix = "",
+  suffix = "",
+  currency = null
+} = {}) {
+  if (value === null || value === void 0 || value === "") return "\u2014";
+  const n = Number(value);
+  const body = (() => {
+    switch (format) {
+      case "number":
+        if (!Number.isFinite(n)) return String(value);
+        return decimals === null || decimals === void 0 ? n.toLocaleString() : n.toLocaleString(void 0, fractionDigits(decimals));
+      case "percent":
+        if (!Number.isFinite(n)) return String(value);
+        return `${(n * 100).toLocaleString(void 0, fractionDigits(decimals ?? 1))}%`;
+      case "currency":
+        if (!Number.isFinite(n)) return String(value);
+        if (!currency) return n.toLocaleString(void 0, fractionDigits(decimals ?? 2));
+        try {
+          return n.toLocaleString(void 0, { style: "currency", currency, ...fractionDigits(decimals ?? 2) });
+        } catch {
+          return n.toLocaleString(void 0, fractionDigits(decimals ?? 2));
+        }
+      case "duration":
+        return formatDuration(n);
+      default:
+        return String(value);
+    }
+  })();
+  return `${prefix || ""}${body}${suffix || ""}`;
+}
+function slug(text) {
+  return String(text).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "chart";
+}
+
+// src/tiles/layout_persistence.js
+var LAYOUT_VERSION = 3;
+var DEFAULT_LAYOUTS_KEY = "twm.tiles.layouts";
+var DEFAULT_CONFIGS_KEY = "twm.tiles.configs";
+var LayoutPersistence = class {
+  constructor({
+    storage = typeof localStorage !== "undefined" ? localStorage : null,
+    layoutsKey = DEFAULT_LAYOUTS_KEY,
+    configsKey = DEFAULT_CONFIGS_KEY,
+    resolveTemplate = null,
+    logger = null
+  } = {}) {
+    this._cache = null;
+    this._storage = storage;
+    this._logger = logger;
+    this._layoutsKey = layoutsKey;
+    this._configsKey = configsKey;
+    this._resolveTemplate = typeof resolveTemplate === "function" ? resolveTemplate : null;
+  }
+  /**
+   * Get layout for a specific context.
+   * Falls back to template resolution when no saved layout exists.
+   * @param {string} contextId - Whatever the app keys layouts by.
+   * @param {Object} [context]  - Passed opaquely to `resolveTemplate`.
+   * @returns {Object} Layout object with tiles array
+   */
+  getLayout(contextId, context) {
+    const all = this._loadAll();
+    const layout = all[contextId];
+    if (layout && layout.version === LAYOUT_VERSION) {
+      return layout;
+    }
+    const instantiated = this._resolveTemplate?.(context) ?? null;
+    if (instantiated) {
+      return {
+        tiles: instantiated.tiles,
+        version: LAYOUT_VERSION,
+        templateId: instantiated.templateId,
+        templateModified: false
+      };
+    }
+    return { tiles: [], version: LAYOUT_VERSION };
+  }
+  /**
+   * Save layout for a specific context.
+   * @param {string} contextId - Whatever the app keys layouts by.
+   * @param {Array|Object} layout - Layout array or object with tiles property
+   */
+  saveLayout(contextId, layout) {
+    const all = this._loadAll();
+    const tilesArray = Array.isArray(layout) ? layout : layout?.tiles || [];
+    all[contextId] = {
+      tiles: tilesArray,
+      version: LAYOUT_VERSION,
+      updatedAt: Date.now(),
+      templateId: layout?.templateId || all[contextId]?.templateId || null,
+      templateModified: layout?.templateModified ?? true
+    };
+    this._saveAll(all);
+    this._logger?.info?.(`[LayoutPersistence] Saved layout for context ${contextId}`);
+  }
+  /**
+   * Delete layout for a specific context.
+   * @param {string} contextId - Whatever the app keys layouts by.
+   */
+  deleteLayout(contextId) {
+    const all = this._loadAll();
+    if (all[contextId]) {
+      delete all[contextId];
+      this._saveAll(all);
+      this._logger?.info?.(`[LayoutPersistence] Deleted layout for context ${contextId}`);
+    }
+  }
+  /**
+   * Reset a layout by re-resolving the best-matching template.
+   *
+   * With no `resolveTemplate` supplied, "reset" means "empty grid" — which is the
+   * honest answer for a library that has no templates. The previous code called
+   * `TemplateRegistry.instantiate()` unconditionally and read `.tiles` off the
+   * result, so a null resolver here would have been a TypeError.
+   *
+   * @param {string} contextId - Whatever the app keys layouts by.
+   * @param {Object} [context]  - Passed opaquely to `resolveTemplate`.
+   * @returns {Object} The resolved layout (empty if nothing resolves).
+   */
+  resetLayout(contextId, context) {
+    const instantiated = this._resolveTemplate?.(context) ?? null;
+    const layout = {
+      tiles: instantiated?.tiles ?? [],
+      version: LAYOUT_VERSION,
+      templateId: instantiated?.templateId ?? null,
+      templateModified: false
+    };
+    this.saveLayout(contextId, layout);
+    return layout;
+  }
+  /**
+   * Check if a context has a saved layout.
+   * @param {string} contextId - Whatever the app keys layouts by.
+   * @returns {boolean}
+   */
+  hasLayout(contextId) {
+    const all = this._loadAll();
+    return !!all[contextId];
+  }
+  /**
+   * Get all context IDs with saved layouts.
+   * @returns {Array<string>}
+   */
+  getAllContextIds() {
+    const all = this._loadAll();
+    return Object.keys(all);
+  }
+  /**
+   * Export all layouts as JSON string.
+   * @returns {string}
+   */
+  exportAll() {
+    const all = this._loadAll();
+    return JSON.stringify(all, null, 2);
+  }
+  /**
+   * Import layouts from JSON string.
+   * @param {string} json - JSON string of layouts
+   * @param {boolean} [merge=false] - Whether to merge with existing or replace
+   */
+  importAll(json, merge = false) {
+    try {
+      const imported = JSON.parse(json);
+      if (merge) {
+        const existing = this._loadAll();
+        this._saveAll({ ...existing, ...imported });
+      } else {
+        this._saveAll(imported);
+      }
+      this._cache = null;
+      this._logger?.info?.("[LayoutPersistence] Imported layouts");
+    } catch (err) {
+      console.error("[LayoutPersistence] Failed to import layouts:", err);
+    }
+  }
+  /**
+   * Clear all saved layouts.
+   */
+  clearAll() {
+    try {
+      this._storage?.removeItem(this._layoutsKey);
+      this._cache = null;
+      this._logger?.info?.("[LayoutPersistence] Cleared all layouts");
+    } catch (err) {
+      console.error("[LayoutPersistence] Failed to clear layouts:", err);
+    }
+  }
+  /**
+   * Load all layouts from storage.
+   * @returns {Object}
+   * @private
+   */
+  _loadAll() {
+    if (this._cache) {
+      return this._cache;
+    }
+    try {
+      const raw = this._storage?.getItem(this._layoutsKey);
+      if (raw) {
+        this._cache = JSON.parse(raw);
+        return this._cache;
+      }
+    } catch (err) {
+      console.error("[LayoutPersistence] Failed to load layouts:", err);
+    }
+    this._cache = {};
+    return this._cache;
+  }
+  /**
+   * Save all layouts to storage.
+   * @param {Object} data
+   * @private
+   */
+  _saveAll(data) {
+    try {
+      this._storage?.setItem(this._layoutsKey, JSON.stringify(data));
+      this._cache = data;
+    } catch (err) {
+      console.error("[LayoutPersistence] Failed to save layouts:", err);
+      if (err.name === "QuotaExceededError") {
+        this._pruneOldLayouts(data);
+      }
+    }
+  }
+  /**
+   * Remove oldest layouts to free up space.
+   * @param {Object} data
+   * @private
+   */
+  _pruneOldLayouts(data) {
+    const entries = Object.entries(data);
+    entries.sort((a, b) => (a[1].updatedAt || 0) - (b[1].updatedAt || 0));
+    const removeCount = Math.ceil(entries.length * 0.25);
+    for (let i = 0; i < removeCount; i++) {
+      delete data[entries[i][0]];
+    }
+    try {
+      this._storage?.setItem(this._layoutsKey, JSON.stringify(data));
+      this._cache = data;
+      this._logger?.warn?.("[LayoutPersistence] Pruned old layouts due to quota");
+    } catch (err) {
+      console.error("[LayoutPersistence] Still cannot save after pruning:", err);
+    }
+  }
+  /**
+   * Get the template ID associated with a saved layout.
+   * @param {string} contextId - Whatever the app keys layouts by.
+   * @returns {string|null} Template ID or null
+   */
+  getTemplateId(contextId) {
+    const all = this._loadAll();
+    return all[contextId]?.templateId || null;
+  }
+  /**
+   * Check if the user has modified the layout since the template was applied.
+   * @param {string} contextId - Whatever the app keys layouts by.
+   * @returns {boolean}
+   */
+  isTemplateModified(contextId) {
+    const all = this._loadAll();
+    return all[contextId]?.templateModified ?? false;
+  }
+  // =========================================================================
+  // NAMED CONFIGURATION MANAGEMENT
+  // =========================================================================
+  /**
+   * Get all saved configurations for a context.
+   * @param {string} contextId - Whatever the app keys layouts by.
+   * @returns {Object} { activeId: string, configs: { id: { name, tiles, createdAt } } }
+   */
+  getConfigurations(contextId) {
+    const all = this._loadConfigs();
+    const contextConfigs = all[contextId];
+    if (contextConfigs && Object.keys(contextConfigs.configs || {}).length > 0) {
+      return contextConfigs;
+    }
+    return {
+      activeId: null,
+      configs: {}
+    };
+  }
+  /**
+   * Save the current layout as a named configuration.
+   * Names are enforced to be unique - duplicates get "(2)", "(3)", etc. suffix.
+   * @param {string} contextId - Whatever the app keys layouts by.
+   * @param {string} name - Configuration name
+   * @param {Array|Object} layout - Layout to save
+   * @param {Object} [options] - Additional options
+   * @param {string} [options.templateId] - Template ID that generated this layout
+   * @returns {string} The new configuration ID
+   */
+  saveConfiguration(contextId, name, layout, options) {
+    const all = this._loadConfigs();
+    if (!all[contextId]) {
+      all[contextId] = { activeId: null, configs: {} };
+    }
+    const uniqueName = this._getUniqueName(all[contextId].configs, name);
+    const configId = `config-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const tilesArray = Array.isArray(layout) ? layout : layout?.tiles || [];
+    all[contextId].configs[configId] = {
+      name: uniqueName,
+      tiles: tilesArray,
+      version: LAYOUT_VERSION,
+      createdAt: Date.now(),
+      templateId: options?.templateId || null
+    };
+    if (!all[contextId].activeId) {
+      all[contextId].activeId = configId;
+    }
+    this._saveConfigs(all);
+    this._logger?.info?.(`[LayoutPersistence] Saved configuration "${uniqueName}" for context ${contextId}`);
+    return configId;
+  }
+  /**
+   * Generate a unique name by appending (2), (3), etc. if name already exists.
+   * @param {Object} configs - Existing configurations object
+   * @param {string} name - Desired name
+   * @returns {string} Unique name
+   * @private
+   */
+  _getUniqueName(configs, name) {
+    if (!configs) return name;
+    const existingNames = new Set(Object.values(configs).map((c) => c.name));
+    if (!existingNames.has(name)) {
+      return name;
+    }
+    let counter = 2;
+    let candidate = `${name} (${counter})`;
+    while (existingNames.has(candidate)) {
+      counter++;
+      candidate = `${name} (${counter})`;
+    }
+    return candidate;
+  }
+  /**
+   * Load a specific configuration.
+   * @param {string} contextId - Whatever the app keys layouts by.
+   * @param {string} configId - Configuration ID
+   * @returns {Object|null} Configuration layout or null if not found
+   */
+  loadConfiguration(contextId, configId) {
+    const all = this._loadConfigs();
+    const config = all[contextId]?.configs?.[configId];
+    if (config) {
+      all[contextId].activeId = configId;
+      this._saveConfigs(all);
+      return config;
+    }
+    return null;
+  }
+  /**
+   * Delete a saved configuration.
+   * @param {string} contextId - Whatever the app keys layouts by.
+   * @param {string} configId - Configuration ID
+   * @returns {boolean} True if deleted, false if not found
+   */
+  deleteConfiguration(contextId, configId) {
+    const all = this._loadConfigs();
+    if (!all[contextId]?.configs?.[configId]) {
+      return false;
+    }
+    delete all[contextId].configs[configId];
+    if (all[contextId].activeId === configId) {
+      const remaining = Object.keys(all[contextId].configs);
+      all[contextId].activeId = remaining.length > 0 ? remaining[0] : null;
+    }
+    this._saveConfigs(all);
+    this._logger?.info?.(`[LayoutPersistence] Deleted configuration ${configId} for context ${contextId}`);
+    return true;
+  }
+  /**
+   * Update an existing configuration's layout (without creating a new ID).
+   * @param {string} contextId - Whatever the app keys layouts by.
+   * @param {string} configId - Configuration ID
+   * @param {Array|Object} layout - New layout to save
+   * @returns {boolean} True if updated, false if not found
+   */
+  updateConfiguration(contextId, configId, layout) {
+    const all = this._loadConfigs();
+    if (!all[contextId]?.configs?.[configId]) {
+      return false;
+    }
+    const tilesArray = Array.isArray(layout) ? layout : layout?.tiles || [];
+    all[contextId].configs[configId].tiles = tilesArray;
+    all[contextId].configs[configId].version = LAYOUT_VERSION;
+    all[contextId].configs[configId].updatedAt = Date.now();
+    this._saveConfigs(all);
+    return true;
+  }
+  /**
+   * Update the templateId on an existing configuration.
+   * @param {string} contextId - Whatever the app keys layouts by.
+   * @param {string} configId - Configuration ID
+   * @param {string} templateId - New template ID
+   * @returns {boolean} True if updated, false if not found
+   */
+  updateConfigurationTemplateId(contextId, configId, templateId) {
+    const all = this._loadConfigs();
+    if (!all[contextId]?.configs?.[configId]) {
+      return false;
+    }
+    all[contextId].configs[configId].templateId = templateId;
+    this._saveConfigs(all);
+    return true;
+  }
+  /**
+   * Rename a configuration.
+   * Names are enforced to be unique - duplicates get "(2)", "(3)", etc. suffix.
+   * @param {string} contextId - Whatever the app keys layouts by.
+   * @param {string} configId - Configuration ID
+   * @param {string} newName - New name
+   * @returns {string|false} The actual name used (may differ if duplicate), or false if not found
+   */
+  renameConfiguration(contextId, configId, newName) {
+    const all = this._loadConfigs();
+    if (!all[contextId]?.configs?.[configId]) {
+      return false;
+    }
+    const otherConfigs = {};
+    Object.entries(all[contextId].configs).forEach(([id, config]) => {
+      if (id !== configId) {
+        otherConfigs[id] = config;
+      }
+    });
+    const uniqueName = this._getUniqueName(otherConfigs, newName);
+    all[contextId].configs[configId].name = uniqueName;
+    this._saveConfigs(all);
+    return uniqueName;
+  }
+  /**
+   * Get the active configuration for a context.
+   * @param {string} contextId - Whatever the app keys layouts by.
+   * @returns {Object|null} { id, name, tiles } or null
+   */
+  getActiveConfiguration(contextId) {
+    const all = this._loadConfigs();
+    const contextConfigs = all[contextId];
+    if (!contextConfigs?.activeId) {
+      return null;
+    }
+    const activeConfig = contextConfigs.configs[contextConfigs.activeId];
+    if (activeConfig) {
+      return {
+        id: contextConfigs.activeId,
+        ...activeConfig
+      };
+    }
+    return null;
+  }
+  /**
+   * Set the active configuration.
+   * @param {string} contextId - Whatever the app keys layouts by.
+   * @param {string} configId - Configuration ID
+   */
+  setActiveConfiguration(contextId, configId) {
+    const all = this._loadConfigs();
+    if (all[contextId]?.configs?.[configId]) {
+      all[contextId].activeId = configId;
+      this._saveConfigs(all);
+    }
+  }
+  /**
+   * List all configurations for a context.
+   * @param {string} contextId - Whatever the app keys layouts by.
+   * @returns {Array} Array of { id, name, createdAt, isActive }
+   */
+  listConfigurations(contextId) {
+    const all = this._loadConfigs();
+    const contextConfigs = all[contextId];
+    if (!contextConfigs?.configs) {
+      return [];
+    }
+    return Object.entries(contextConfigs.configs).map(([id, config]) => ({
+      id,
+      name: config.name,
+      createdAt: config.createdAt,
+      isActive: id === contextConfigs.activeId
+    })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  }
+  /**
+   * Get the template set fingerprint for a context.
+   * Used to detect when templates have changed and configs need regeneration.
+   * @param {string} contextId
+   * @returns {string|null}
+   */
+  getTemplateSetId(contextId) {
+    const all = this._loadConfigs();
+    return all[contextId]?.templateSetId || null;
+  }
+  /**
+   * Store the template set fingerprint for a context.
+   * @param {string} contextId
+   * @param {string} templateSetId
+   */
+  setTemplateSetId(contextId, templateSetId) {
+    const all = this._loadConfigs();
+    if (!all[contextId]) {
+      all[contextId] = { activeId: null, configs: {} };
+    }
+    all[contextId].templateSetId = templateSetId;
+    this._saveConfigs(all);
+  }
+  /**
+   * Delete ALL configurations for a context.
+   * @param {string} contextId
+   */
+  clearConfigurations(contextId) {
+    const all = this._loadConfigs();
+    delete all[contextId];
+    this._saveConfigs(all);
+  }
+  /**
+   * Load all configurations from storage.
+   * @returns {Object}
+   * @private
+   */
+  _loadConfigs() {
+    try {
+      const raw = this._storage?.getItem(this._configsKey);
+      if (raw) {
+        return JSON.parse(raw);
+      }
+    } catch (err) {
+      console.error("[LayoutPersistence] Failed to load configurations:", err);
+    }
+    return {};
+  }
+  /**
+   * Save all configurations to storage.
+   * @param {Object} data
+   * @private
+   */
+  _saveConfigs(data) {
+    try {
+      this._storage?.setItem(this._configsKey, JSON.stringify(data));
+    } catch (err) {
+      console.error("[LayoutPersistence] Failed to save configurations:", err);
+    }
+  }
+};
+var instance = null;
+var _options = {};
+function configureLayoutPersistence(options = {}) {
+  _options = options;
+  instance = null;
+}
+function getLayoutPersistence() {
+  if (!instance) {
+    instance = new LayoutPersistence(_options);
+  }
+  return instance;
+}
+
 // src/tiles/tile_grid.js
 init_tile_registry();
 var TileGrid = class {
@@ -1884,7 +2600,7 @@ var TileGrid = class {
         if (this.data) {
           state.tile.fullData = this.fullData;
           state.tile.update(this.data);
-        } else if (this.dataSource) {
+        } else {
           state.tile.onResize?.();
         }
       }
@@ -2169,7 +2885,10 @@ var TileGrid = class {
 // tiles.js
 init_tile_registry();
 export {
+  CHART_TILE_TYPES,
+  ChartTile,
   FieldTypes,
+  KpiTile,
   LayoutPersistence,
   TileBase,
   TileGrid,
@@ -2187,6 +2906,8 @@ export {
   getWidgetMetadata,
   hasWidget,
   mergeWithDefaults,
+  normalizeChartData,
+  registerChartTiles,
   registerWidget,
   setTileLogger,
   validateConfig,

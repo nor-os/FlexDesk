@@ -2,7 +2,7 @@
 id: 22
 type: story
 title: "Chart and KPI tiles that render @flexdesk/charts traces on a TileGrid"
-status: draft
+status: review
 parent: 21
 phase:
 assignee:
@@ -12,7 +12,7 @@ subsystem: tiles
 labels: [dashboards, charts, tiles, additive]
 links: []
 created: 2026-10-14
-updated: 2026-10-14T10:20Z
+updated: 2026-10-14T16:00Z
 ---
 
 ## Description
@@ -37,4 +37,10 @@ burndown there needs step interpolation, a dashed second series and a vertical "
 
 ## History
 
+- 2026-10-14 · norman_agent · status: draft -> review
+
 ## Comments
+
+### 2026-10-14T16:00Z · norman_agent
+
+Built and released in 0.13.0. Tables' chart and KPI tiles are now in FlexDesk as `src/tiles/chart_tiles.js`, registered as `flexdesk.chart` / `flexdesk.kpi` through `registerChartTiles()`. `buildOverlayShapes` takes `verticalLines` for the "today" marker. Moving to FlexDesk fixed two bugs: a redraw that is still running is dropped when the tile goes empty, loading or error, and saving a tile's config no longer wipes its data. A settled tile resize now reaches `onResize` even when the grid has no data source. Not met: redrawing on a light/dark switch. Charts still use `DARK_THEME_LAYOUT`, and BugDesk, the first user, has no light theme.

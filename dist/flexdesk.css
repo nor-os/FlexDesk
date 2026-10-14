@@ -3448,6 +3448,83 @@ body.twm-window-maximized .twm-resize-handle {
 .twm-tile-error .material-symbols-outlined {
     font-size: 32px;
 }
+
+/* ── the chart and KPI tiles (0.13.0, src/tiles/chart_tiles.js) ──────── */
+/* The figure flexes into what `.tile-content`'s column leaves; the note takes
+   its own line BELOW it, so the height chain above is untouched. */
+.fd-chart-tile {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    position: relative;
+}
+
+/* Plotly puts `.js-plotly-plot` on the figure itself, and the rule above makes
+   that `height: 100% !important` — which, beside a note, pushes the note out of
+   the tile. Here the flex column sizes the figure instead. */
+.tile-content .fd-chart-tile.js-plotly-plot {
+    height: auto !important;
+}
+
+.fd-chart-tile__note {
+    flex: 0 0 auto;
+    padding: 2px 8px 0;
+    font-size: var(--font-size-xs);
+    line-height: 1.35;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.fd-kpi {
+    --fd-kpi-value: 30px;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 2px;
+    min-height: 0;
+}
+
+.fd-kpi__label {
+    color: var(--text-secondary);
+    font-size: var(--font-size-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
+
+.fd-kpi__value {
+    font-size: var(--fd-kpi-value);
+    font-weight: 700;
+    color: var(--text-bright);
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
+
+/* AN ARROW AND A SIGN, not a colour alone: the modifiers change the colour,
+   the character in front of the number survives a monochrome display. */
+.fd-kpi__delta {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: var(--font-size-sm);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+}
+.fd-kpi__delta--up { color: var(--color-success); }
+.fd-kpi__delta--down { color: var(--color-danger); }
+
+.fd-kpi__foot {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
 /* ===================================================================
    REUSABLE ACTION DROPDOWN COMPONENT
    Used by Add Scenario, Add Widget, and other action dropdowns

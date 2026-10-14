@@ -601,11 +601,12 @@ export class TileGrid {
                 if (this.data) {
                     state.tile.fullData = this.fullData;
                     state.tile.update(this.data);
-                } else if (this.dataSource) {
+                } else {
                     // Re-rendering from a dataset already in hand is free; asking
                     // the server again because a tile got 40 px wider is not. A
-                    // self-fetching tile is told the geometry settled and decides
-                    // what that costs it — for a chart, one `Plotly.Plots.resize`.
+                    // self-fetching tile — or one the embedder feeds through
+                    // `setData` — is told the geometry settled and decides what
+                    // that costs it — for a chart, one `Plotly.Plots.resize`.
                     state.tile.onResize?.();
                 }
             }

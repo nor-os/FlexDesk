@@ -28,8 +28,8 @@ import {
   purge,
   resize,
   strideDownsampleShared
-} from "./chunk-IYMNDPWH.js";
-import "./chunk-M2L4XW2U.js";
+} from "./chunk-RQM5Z2MU.js";
+import "./chunk-FBGP5KN5.js";
 import "./chunk-6JSOVNID.js";
 import "./chunk-FL5KFNQH.js";
 import {
@@ -1355,9 +1355,17 @@ var ChartTile = class extends TileBase {
     try {
       const P = await ensurePlotly();
       const uri = await P.toImage(this._plotEl, { format: "png", scale: 2 });
+      const filename = `${slug(this.config.title || this.constructor.TITLE)}.png`;
+      const dialogs = this.host?.dialogs;
+      const result = dialogs ? await dialogs.saveFile({ data: uri.split(",")[1], filename, kind: "png" }) : null;
+      if (result) {
+        if (result.ok) this._notify("Download", `Chart saved to ${result.path}`, "success");
+        else if (!result.cancelled) this._notify("Download failed", result.error || "The image could not be saved", "error");
+        return;
+      }
       const a = document.createElement("a");
       a.href = uri;
-      a.download = `${slug(this.config.title || this.constructor.TITLE)}.png`;
+      a.download = filename;
       a.click();
     } catch (err) {
       this._notify("Download failed", `The image could not be made: ${err?.message || err}`, "error");

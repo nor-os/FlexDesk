@@ -683,6 +683,7 @@ var DataTable = class {
       onRowContextMenu: null,
       onCellContextMenu: null,
       showExportButton: false,
+      exportFilename: null,
       // The host port. TOP LEVEL, deliberately — NOT inside `services`,
       // which most call sites never pass. Supplies the native save
       // dialog for downloadCSV(); absent => Blob fallback.
@@ -2400,7 +2401,7 @@ var DataTable = class {
     const displayedRows = isServerSide ? rows.length : Math.min(pageSize, effectiveTotal - offset);
     const endRow = Math.min(offset + displayedRows, effectiveTotal);
     const totalPages = Math.max(1, Math.ceil(effectiveTotal / pageSize));
-    if (totalPages <= 1 && !isFiltered) return null;
+    if (totalPages <= 1 && !isFiltered) return this._createExportOnlyStrip();
     const currentPage = Math.floor(offset / pageSize) + 1;
     const hasPrev = offset > 0;
     const hasNext = offset + pageSize < effectiveTotal;
@@ -2471,15 +2472,33 @@ var DataTable = class {
     el.appendChild(lastBtn);
     el.appendChild(jumpInput);
     el.appendChild(jumpBtn);
-    if (this.config.showExportButton) {
-      const exportBtn = this._createPaginationBtn(
-        "download",
-        "Download visible rows as CSV",
-        false,
-        () => this.downloadCSV("data.csv")
-      );
-      el.appendChild(exportBtn);
-    }
+    if (this.config.showExportButton) el.appendChild(this._createExportBtn());
+    return el;
+  }
+  /** The export button: downloadCSV() under the configured file name. */
+  _createExportBtn() {
+    const name = this.config.exportFilename;
+    const filename = (typeof name === "function" ? name(this) : name) || "data.csv";
+    return this._createPaginationBtn(
+      "download",
+      "Download visible rows as CSV",
+      false,
+      () => this.downloadCSV(filename)
+    );
+  }
+  /**
+   * The strip on a table with one page: nothing, as always, unless the export
+   * button needs somewhere to be. Then the button alone, with no page
+   * buttons (0.14.1).
+   */
+  _createExportOnlyStrip() {
+    if (!this.config.showExportButton) return null;
+    const el = document.createElement("div");
+    el.className = "twm-pagination-controls twm-pagination-controls--export-only";
+    el.style.cssText = "display:flex; align-items:center; gap:6px; padding:2px 8px; border-bottom:1px solid #2a2a2a; font-size:11px;";
+    const spacer = document.createElement("div");
+    spacer.style.flex = "1";
+    el.append(spacer, this._createExportBtn());
     return el;
   }
   _createPaginationBtn(icon, tooltip, disabled, onClick, textLabel = null) {
@@ -4277,8 +4296,8 @@ var DataTable = class {
     const pn = this._pageNav({ offset, held: drawn, total, hasMore: hasMoreKnown, pageSize });
     const { hasPrev, hasNext, page } = pn;
     const totalPages = pn.pages;
-    if (known && totalPages <= 1 && !isFiltered && !hasPrev) return null;
-    if (!known && !hasPrev && !hasNext) return null;
+    if (known && totalPages <= 1 && !isFiltered && !hasPrev) return this._createExportOnlyStrip();
+    if (!known && !hasPrev && !hasNext) return this._createExportOnlyStrip();
     const maxJump = Number.isFinite(c.maxJumpOffset) ? c.maxJumpOffset : null;
     const go = (newOffset) => {
       if (source) {
@@ -4372,14 +4391,7 @@ var DataTable = class {
     }, "Go");
     jumpBtn.dataset.pager = "go";
     el.append(info, spacer, firstBtn, prevBtn, pageInfo, nextBtn, lastBtn, jumpInput, jumpBtn);
-    if (c.showExportButton) {
-      el.appendChild(this._createPaginationBtn(
-        "download",
-        "Download visible rows as CSV",
-        false,
-        () => this.downloadCSV("data.csv")
-      ));
-    }
+    if (c.showExportButton) el.appendChild(this._createExportBtn());
     return el;
   }
   // ─────────────────────────────────────────────────────────────────
@@ -6168,4 +6180,4 @@ export {
   resolvePaging,
   DataTable
 };
-//# sourceMappingURL=chunk-M2L4XW2U.js.map
+//# sourceMappingURL=chunk-FBGP5KN5.js.map

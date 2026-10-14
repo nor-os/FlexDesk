@@ -42,10 +42,10 @@ import {
   strideIndices,
   uid,
   updateChart
-} from "./chunk-IYMNDPWH.js";
+} from "./chunk-RQM5Z2MU.js";
 import {
   createRafResizeObserver
-} from "./chunk-M2L4XW2U.js";
+} from "./chunk-FBGP5KN5.js";
 import {
   ManagedWindow
 } from "./chunk-6JSOVNID.js";

@@ -2,10 +2,10 @@
 id: 26
 type: story
 title: "Custom window chrome in a Photino window: the host says so, and the title-bar buttons and drag area work for any app"
-status: refined
+status: in-progress
 parent: 23
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 3
@@ -13,7 +13,7 @@ subsystem: host
 labels: [desktop]
 links: []
 created: 2026-10-14
-updated: 2026-10-14T18:16Z
+updated: 2026-10-14T18:17Z
 ---
 
 ## Description
@@ -61,6 +61,8 @@ The pywebview host and a browser tab behave exactly as today.
 ## History
 
 - 2026-10-14 · norman_agent · status: draft -> refined
+- 2026-10-14 · norman_agent · status: refined -> in-progress
+- 2026-10-14 · norman_agent · assignee: (unset) -> norman_agent
 
 ## Comments
 

@@ -7737,6 +7737,28 @@ tr:hover .twm-row-action { opacity: 1; }
     color: var(--text-bright);
     border-bottom-color: #fff;
 }
+/* A tab's count (createBottomPanelTabs' setBadge): Alerts' unread in the
+ * worst unread level's colour, a Changes count in the neutral one. */
+.twm-bp__badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    margin-left: 6px;
+    padding: 0 4px;
+    box-sizing: border-box;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 10.5px;
+    line-height: 16px;
+    text-transform: none;
+}
+.twm-bp__badge[hidden] { display: none; }
+.twm-bp__badge--info    { background: color-mix(in srgb, var(--color-info) 35%, var(--surface-0)); }
+.twm-bp__badge--warning { background: color-mix(in srgb, var(--color-warning) 35%, var(--surface-0)); }
+.twm-bp__badge--alert   { background: color-mix(in srgb, var(--color-danger) 45%, var(--surface-0)); }
 .twm-bp__body {
     flex: 1 1 auto;
     min-height: 0;

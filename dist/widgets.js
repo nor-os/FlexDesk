@@ -5050,9 +5050,13 @@ var MIN_WIDTH = 500;
 var MIN_HEIGHT = 350;
 var DRAG_THRESHOLD = 4;
 var WindowChromeController = class {
-  constructor({ eventBus, logger, host } = {}) {
+  constructor({ eventBus, logger, host, topBar = ".twm-global-top-bar", controls = null, noDrag = "" } = {}) {
     this.eventBus = eventBus;
     this.logger = logger || console;
+    this._topBarOpt = topBar;
+    this._controlsOpt = controls;
+    this._noDrag = noDrag;
+    this._createdControls = null;
     this.win = host?.window || null;
     this.resizingActive = false;
     this.lastDblClickTs = 0;
@@ -5064,12 +5068,21 @@ var WindowChromeController = class {
   /**
    * Initialize the window chrome controller
    */
-  initialize() {
-    if (this._disposed) return;
-    if (!this.win || this.win.chrome() !== "custom") {
-      this.logger.info?.("[WindowChrome] Native/browser chrome detected \u2014 custom window chrome disabled");
-      return;
+  async initialize() {
+    if (this._disposed) return false;
+    let chrome = "native";
+    try {
+      chrome = this.win ? await this.win.chrome() : "native";
+    } catch (_) {
+      chrome = "native";
     }
+    if (this._disposed) return false;
+    if (chrome !== "custom") {
+      this.logger.info?.("[WindowChrome] Native/browser chrome detected \u2014 custom window chrome disabled");
+      return false;
+    }
+    document.body.classList.add("twm-custom-chrome");
+    this.#createWindowControls();
     this.#wireWindowButtons();
     this.#createResizeHandles();
     this.#wireTopBarDrag();
@@ -5077,6 +5090,43 @@ var WindowChromeController = class {
     this.#wireNativeStateSync();
     this.#initializeState();
     this.logger.info?.("[WindowChrome] Initialized");
+    return true;
+  }
+  /** An element from a selector or an element; null when there is none. */
+  #resolve(target, within = document) {
+    if (!target) return null;
+    if (typeof target !== "string") return target;
+    return within.querySelector(target);
+  }
+  /**
+   * Draw minimise, maximise/restore and close, unless the page has its own
+   * `#win-*` buttons (EcoSim's markup), which are then wired instead.
+   */
+  #createWindowControls() {
+    if (document.getElementById("win-minimize") || document.getElementById("win-close")) return;
+    const bar = this.#resolve(this._topBarOpt);
+    const host = this.#resolve(this._controlsOpt) || bar?.querySelector(".twm-bar-right") || bar;
+    if (!host) return;
+    const box = document.createElement("div");
+    box.className = "twm-window-controls";
+    const button = (id, icon, label, extra = "") => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.id = id;
+      b.className = `twm-window-controls__btn${extra}`;
+      b.setAttribute("aria-label", label);
+      b.title = label;
+      const i = document.createElement("span");
+      i.className = "material-symbols-outlined";
+      i.textContent = icon;
+      b.appendChild(i);
+      box.appendChild(b);
+    };
+    button("win-minimize", "remove", "Minimize");
+    button("win-maximize", "check_box_outline_blank", "Maximize");
+    button("win-close", "close", "Close", " twm-window-controls__btn--close");
+    host.appendChild(box);
+    this._createdControls = box;
   }
   /**
    * Wire minimize, maximize, close buttons
@@ -5122,6 +5172,7 @@ var WindowChromeController = class {
     const tooltipText = isMax ? "Restore" : "Maximize";
     window.LatexTooltip?.set(maxBtn, tooltipText);
     maxBtn.setAttribute("aria-label", tooltipText);
+    maxBtn.title = tooltipText;
     document.body.classList.toggle("twm-window-maximized", isMax);
   }
   /**
@@ -5188,8 +5239,30 @@ var WindowChromeController = class {
       }
     };
     let activePointerId = null;
+    const EDGE = {
+      right: "e",
+      left: "w",
+      top: "n",
+      bottom: "s",
+      cornerBR: "se",
+      cornerBL: "sw",
+      cornerTR: "ne",
+      cornerTL: "nw"
+    };
     const startDrag = async (e) => {
+      if (e.button != null && e.button !== 0) return;
       e.preventDefault();
+      if (this.win.startNativeResize) {
+        this.resizingActive = true;
+        let handled = false;
+        try {
+          handled = await this.win.startNativeResize(EDGE[mode]);
+        } catch (_) {
+          handled = false;
+        }
+        this.resizingActive = false;
+        if (handled) return;
+      }
       this.resizingActive = true;
       startX = e.clientX;
       startY = e.clientY;
@@ -5300,9 +5373,25 @@ var WindowChromeController = class {
    * Setup top bar dragging for window movement
    */
   #wireTopBarDrag() {
-    this.topBar = document.querySelector(".twm-global-top-bar");
+    this.topBar = this.#resolve(this._topBarOpt);
     if (!this.topBar) return;
-    const NO_DRAG_SELECTOR = ".no-drag, button, input, select, textarea, .menu-item, .menu-dropdown, .window-controls, .panel-toggles, .global-search-dropdown";
+    const NO_DRAG_SELECTOR = [
+      ".no-drag",
+      "button",
+      "a",
+      "input",
+      "select",
+      "textarea",
+      "label",
+      '[role="button"]',
+      '[role="menuitem"]',
+      '[role="tab"]',
+      '[contenteditable="true"]',
+      ".twm-window-controls",
+      ".window-controls",
+      ".panel-toggles",
+      this._noDrag
+    ].filter(Boolean).join(", ");
     let dragging = false;
     let startSX = 0, startSY = 0, startX = null, startY = null, winW = 0, winH = 0;
     let wasMax = false;
@@ -5479,8 +5568,7 @@ var WindowChromeController = class {
     this.topBar.addEventListener("mousedown", blocker, true);
     this.topBar.addEventListener("pointerdown", blocker, true);
     const dblClickHandler = async (e) => {
-      const interactiveSelector = 'button, input, select, textarea, a, [role="button"], [role="menuitem"], .menu-bar, .fl-bar, .fl-item, .global-search-wrapper, .panel-toggle-btn';
-      if (e.target.closest(interactiveSelector)) {
+      if (isInteractiveTarget(e.target)) {
         return;
       }
       this.lastDblClickTs = Date.now();
@@ -5586,6 +5674,9 @@ var WindowChromeController = class {
       }
     });
     this.handles = {};
+    this._createdControls?.remove();
+    this._createdControls = null;
+    document.body.classList.remove("twm-custom-chrome", "twm-window-maximized", "window-fullscreen");
     this.logger.info?.("[WindowChrome] Disposed");
   }
 };

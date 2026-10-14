@@ -14,7 +14,8 @@ var HOST_CONTRACT = Object.freeze({
       "getBounds",
       "setBounds"
     ]),
-    optional: Object.freeze(["startNativeDrag"])
+    // `chrome()` answers 'native' or 'custom', or a promise of one.
+    optional: Object.freeze(["startNativeDrag", "startNativeResize"])
   }),
   dialogs: Object.freeze({ required: Object.freeze(["saveFile"]), optional: Object.freeze([]) }),
   state: Object.freeze({ required: Object.freeze(["read", "write"]), optional: Object.freeze([]) })
@@ -177,7 +178,8 @@ function createPhotinoHost(opts = {}) {
     external = typeof window !== "undefined" ? window.external : void 0,
     timeoutMs = 1e4,
     onEvent = null,
-    logger = console
+    logger = console,
+    chrome = "auto"
   } = opts;
   if (!isPhotinoWindow(external)) return NULL_HOST;
   const { call, request } = createPhotinoTransport({ external, timeoutMs, onEvent, logger });
@@ -193,11 +195,30 @@ function createPhotinoHost(opts = {}) {
   const fire = (cap, op, ...args) => {
     void soft(null, cap, op, ...args);
   };
+  let frame = chrome === "custom" || chrome === "native" ? chrome : null;
+  let asking = null;
+  const askFrame = () => {
+    if (frame) return frame;
+    asking ??= request("host", "describe", [], { wait: 3e3 }).then((d) => d && d.frame === "custom" ? "custom" : "native", () => "native").then((f) => {
+      frame = f;
+      return f;
+    });
+    return asking;
+  };
+  const gesture = async (op, ...args) => {
+    try {
+      await request("window", op, args, { wait: 0 });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  };
   const defaults = {
     window: {
-      // Photino draws a decorated, native window on every OS: FlexDesk's
-      // own min/max/close buttons would be a second set.
-      chrome: () => "native",
+      // 'native' (the OS draws the frame: FlexDesk's own buttons would be
+      // a second set) or 'custom' (the native side made the window
+      // frameless). A promise until the native side has said which.
+      chrome: () => askFrame(),
       minimize: () => {
         fire("window", "minimize");
       },
@@ -213,6 +234,8 @@ function createPhotinoHost(opts = {}) {
         if (!b || typeof b !== "object") return null;
         return { x: b.x, y: b.y, width: b.width, height: b.height };
       },
+      startNativeDrag: () => gesture("startDrag"),
+      startNativeResize: (edge) => gesture("startResize", String(edge || "")),
       // Not async, like pywebview's: a rAF hot path during a drag; nobody awaits.
       setBounds({ x = null, y = null, width = null, height = null } = {}) {
         fire("window", "setBounds", { x, y, width, height });

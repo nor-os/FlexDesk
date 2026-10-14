@@ -2,7 +2,7 @@
 id: 20
 type: story
 title: "The bell shows real unread state, mounts anywhere and opens the Alerts tab"
-status: draft
+status: refined
 parent: 17
 phase:
 assignee:
@@ -12,7 +12,7 @@ subsystem: ui
 labels: [alerts, notifications, status-bar, additive]
 links: []
 created: 2026-10-14
-updated: 2026-10-14T09:43Z
+updated: 2026-10-14T09:50Z
 ---
 
 ## Description
@@ -31,4 +31,10 @@ Alerts tab (`bottompanel:show`). NotificationCenter's "+N more" can open the sam
 
 ## History
 
+- 2026-10-14 · norman_agent · status: draft -> refined
+
 ## Comments
+
+### 2026-10-14T09:50Z · norman_agent
+
+Refined: 5 acceptance criteria, 3 points, parented to 17. Filed from the product owner's 2026-10-14 vision (notifications only from workflows; a notification area with history, shared through FlexDesk).

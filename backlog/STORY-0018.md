@@ -2,7 +2,7 @@
 id: 18
 type: story
 title: "A bottom-panel tab host with badges, for any embedder"
-status: draft
+status: refined
 parent: 17
 phase:
 assignee:
@@ -12,7 +12,7 @@ subsystem: tiling
 labels: [bottom-panel, additive]
 links: []
 created: 2026-10-14
-updated: 2026-10-14T09:43Z
+updated: 2026-10-14T09:50Z
 ---
 
 ## Description
@@ -31,4 +31,10 @@ adapter, and a `bottompanel:show {tab}` bus event that opens the panel on a tab.
 
 ## History
 
+- 2026-10-14 · norman_agent · status: draft -> refined
+
 ## Comments
+
+### 2026-10-14T09:50Z · norman_agent
+
+Refined: 5 acceptance criteria, 5 points, parented to 17. Filed from the product owner's 2026-10-14 vision (notifications only from workflows; a notification area with history, shared through FlexDesk).

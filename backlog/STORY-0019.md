@@ -2,7 +2,7 @@
 id: 19
 type: story
 title: "An alert log and an Alerts pane with history, filters and read state"
-status: draft
+status: refined
 parent: 17
 phase:
 assignee:
@@ -12,7 +12,7 @@ subsystem: ui
 labels: [alerts, notifications, additive]
 links: []
 created: 2026-10-14
-updated: 2026-10-14T09:43Z
+updated: 2026-10-14T09:50Z
 ---
 
 ## Description
@@ -34,4 +34,10 @@ and "still matches" for bugdesk. Neutral `twm-alerts__*` classes; never rebuilt 
 
 ## History
 
+- 2026-10-14 · norman_agent · status: draft -> refined
+
 ## Comments
+
+### 2026-10-14T09:50Z · norman_agent
+
+Refined: 5 acceptance criteria, 8 points, parented to 17. Filed from the product owner's 2026-10-14 vision (notifications only from workflows; a notification area with history, shared through FlexDesk).

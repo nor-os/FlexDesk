@@ -1688,6 +1688,22 @@ createHost({
 
 `NULL_HOST` is a valid host with nothing behind it.
 
+Two adapters ship ready-made. `createPywebviewHost()` speaks to a pywebview
+window, and `createPhotinoHost()` (0.14.0) to a Photino.NET window over
+`window.external.sendMessage` / `receiveMessage`:
+
+```js
+import { createPhotinoHost } from '@flexdesk/host';
+
+// In a browser tab this is NULL_HOST. Keep a capability of your own by passing
+// it in, or leave one out with null.
+const host = createPhotinoHost({ state: myServerState, onEvent: (name, value) => {} });
+```
+
+Its `window.chrome()` answers `'native'`, `dialogs.saveFile` falls back to a
+Blob download when the window refuses, and the messages the C# side has to
+answer are in [`src/host/photino_host.md`](src/host/photino_host.md).
+
 ## Peer dependencies
 
 `@flexdesk/charts` needs Plotly (4.4 MB). `@flexdesk/editor` needs Monaco (14 MB).

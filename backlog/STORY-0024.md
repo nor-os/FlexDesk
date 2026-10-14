@@ -2,10 +2,10 @@
 id: 24
 type: story
 title: "A chart tile's Download PNG uses the host's save dialog"
-status: refined
+status: in-progress
 parent: 23
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 1
@@ -13,7 +13,7 @@ subsystem: tiles
 labels: [desktop, tiles, charts]
 links: []
 created: 2026-10-14
-updated: 2026-10-14T17:06Z
+updated: 2026-10-14T17:08Z
 ---
 
 ## Description
@@ -30,6 +30,8 @@ updated: 2026-10-14T17:06Z
 ## History
 
 - 2026-10-14 · norman_agent · status: draft -> refined
+- 2026-10-14 · norman_agent · status: refined -> in-progress
+- 2026-10-14 · norman_agent · assignee: (unset) -> norman_agent
 
 ## Comments
 

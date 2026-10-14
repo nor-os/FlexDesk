@@ -907,6 +907,20 @@ list.setColumnVisible(3, true);
 A column sorted on and then hidden keeps the order; its arrow comes back with
 the column.
 
+### DataTable: the CSV button on every table (0.14.1)
+
+`showExportButton: true` draws "Download visible rows as CSV" in the pagination
+strip, and now draws the strip for it on a table that fits on one page too (the
+button alone, no page buttons). `exportFilename` — a string, or `(table) =>
+string` — names the file (default `data.csv`). With a `host` that has `dialogs`
+the button opens the native Save dialog, suggesting that name; without one it
+is a browser download.
+
+```js
+DataTable.mount(el, { headers, rows, pagination: true, showExportButton: true,
+                      exportFilename: 'bugs.csv', host });
+```
+
 ### DataTable: a select mode (0.12.0)
 
 A list whose click opens a row can still let people pick many rows: a toggle
@@ -1815,6 +1829,11 @@ still drawing. A pie takes `{labels, values}`, a histogram `{values}`. The confi
 (`chart_type`, `title`, `unit`, …) round-trips through `getLayout()`/`setLayout()`.
 `buildOverlayShapes` gained `verticalLines: [{x, label?, color?, lineStyle?}]` for
 the same marker outside a tile.
+
+A chart tile's **Download PNG** (0.14.1) goes through the grid's `host`
+(`new TileGrid({ host })`): with `dialogs`, the native Save dialog — a save
+toasts where the file went, a cancel says nothing — and with no host, or a
+`saveFile` that answers null, the browser download it always was.
 
 ## Styling
 

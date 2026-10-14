@@ -327,7 +327,8 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {Function} [onRowClick] - Row click handler: (rowIdx, row, ev) => void. Receives the original (unfiltered) row index.
  * @property {Function} [onRowContextMenu] - Row right-click handler: (rowIdx, row, ev) => void. Fires before the default context menu; call ev.preventDefault() to suppress the default.
  * @property {Function} [onCellContextMenu] - Cell right-click handler: (colIdx, rowIdx, value, td, ev) => void. Fires before onRowContextMenu; same suppression semantics.
- * @property {boolean} [showExportButton=false] - Adds a "CSV" download button to the pagination strip that invokes `downloadCSV()`.
+ * @property {boolean} [showExportButton=false] - Adds a "CSV" download button to the pagination strip that invokes `downloadCSV()`. The strip is drawn for it even when the table fits on one page (0.14.1).
+ * @property {string|function(DataTable): string} [exportFilename='data.csv'] - The file the export button saves (0.14.1); in a desktop host, the name the Save dialog suggests.
  * @property {Object} [host] - A Host (see ui/js/host/host.js). Its `dialogs` capability backs `downloadCSV()`'s native save dialog; without it CSV export falls back to a Blob download.
  * @property {Object} [stateStore] - `{ ready(), get(key), set(key, state) }` — REQUIRED when `persistKey` is set. Built by `createTableStateStore()`.
  * @property {'container'|'content'} [columnFit='container'] - How the automatic fit pass sizes a column the user has NOT dragged. 'container' squeezes every column into the wrap: a 360px cap, a more generous one for the first column, and water-fill-shrink toward the 40px floor when they do not fit. 'content' sizes each column to its own content through the same `_autoWidth` a grip double-click uses (520px cap) and lets the body scroll sideways rather than squeezing. A pinned column is honoured verbatim under both.
@@ -466,6 +467,7 @@ export class DataTable {
             onRowContextMenu: null,
             onCellContextMenu: null,
             showExportButton: false,
+            exportFilename: null,
             // The host port. TOP LEVEL, deliberately — NOT inside `services`,
             // which most call sites never pass. Supplies the native save
             // dialog for downloadCSV(); absent => Blob fallback.
@@ -2623,7 +2625,7 @@ export class DataTable {
         // Don't render the strip when there's only one page — the row
         // count is uninformative (the table itself shows every row) and
         // the nav buttons would all be disabled.
-        if (totalPages <= 1 && !isFiltered) return null;
+        if (totalPages <= 1 && !isFiltered) return this._createExportOnlyStrip();
         const currentPage = Math.floor(offset / pageSize) + 1;
         const hasPrev = offset > 0;
         const hasNext = offset + pageSize < effectiveTotal;
@@ -2719,13 +2721,32 @@ export class DataTable {
         // CSV export button (opt-in). Re-uses the existing downloadCSV
         // method which already handles the host save dialog + browser
         // fallback.
-        if (this.config.showExportButton) {
-            const exportBtn = this._createPaginationBtn(
-                'download', 'Download visible rows as CSV', false,
-                () => this.downloadCSV('data.csv'));
-            el.appendChild(exportBtn);
-        }
+        if (this.config.showExportButton) el.appendChild(this._createExportBtn());
 
+        return el;
+    }
+
+    /** The export button: downloadCSV() under the configured file name. */
+    _createExportBtn() {
+        const name = this.config.exportFilename;
+        const filename = (typeof name === 'function' ? name(this) : name) || 'data.csv';
+        return this._createPaginationBtn('download', 'Download visible rows as CSV', false,
+                                         () => this.downloadCSV(filename));
+    }
+
+    /**
+     * The strip on a table with one page: nothing, as always, unless the export
+     * button needs somewhere to be. Then the button alone, with no page
+     * buttons (0.14.1).
+     */
+    _createExportOnlyStrip() {
+        if (!this.config.showExportButton) return null;
+        const el = document.createElement('div');
+        el.className = 'twm-pagination-controls twm-pagination-controls--export-only';
+        el.style.cssText = 'display:flex; align-items:center; gap:6px; padding:2px 8px; border-bottom:1px solid #2a2a2a; font-size:11px;';
+        const spacer = document.createElement('div');
+        spacer.style.flex = '1';
+        el.append(spacer, this._createExportBtn());
         return el;
     }
 
@@ -4738,8 +4759,8 @@ export class DataTable {
         const pn = this._pageNav({ offset, held: drawn, total, hasMore: hasMoreKnown, pageSize });
         const { hasPrev, hasNext, page } = pn;
         const totalPages = pn.pages;
-        if (known && totalPages <= 1 && !isFiltered && !hasPrev) return null;
-        if (!known && !hasPrev && !hasNext) return null;
+        if (known && totalPages <= 1 && !isFiltered && !hasPrev) return this._createExportOnlyStrip();
+        if (!known && !hasPrev && !hasNext) return this._createExportOnlyStrip();
         const maxJump = Number.isFinite(c.maxJumpOffset) ? c.maxJumpOffset : null;
 
         const go = (newOffset) => {
@@ -4817,10 +4838,7 @@ export class DataTable {
         jumpBtn.dataset.pager = 'go';
 
         el.append(info, spacer, firstBtn, prevBtn, pageInfo, nextBtn, lastBtn, jumpInput, jumpBtn);
-        if (c.showExportButton) {
-            el.appendChild(this._createPaginationBtn('download', 'Download visible rows as CSV', false,
-                                                     () => this.downloadCSV('data.csv')));
-        }
+        if (c.showExportButton) el.appendChild(this._createExportBtn());
         return el;
     }
 

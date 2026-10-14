@@ -16,6 +16,7 @@
  *   §8  the config round-trips through TileGrid.getLayout()/setLayout()
  *   §9  the empty state, and onResize only on a drawn figure
  *   §10 the grid's config save (grid.data === null) keeps a tile's own data
+ *   §11 Download PNG goes through the host's save dialog, else the link
  *
  * ── HOW TO RUN ───────────────────────────────────────────────────────────
  *
@@ -444,6 +445,75 @@ console.log('\ntiles: the chart and KPI tiles\n');
     kpi.setData(null);
     ok('setData(null) is still the way to clear it', !!kpi.contentElement.querySelector('.tile-empty'));
     grid.dispose();
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 11. DOWNLOAD PNG: THE HOST'S SAVE DIALOG, ELSE THE LINK (STORY-0024)
+// ════════════════════════════════════════════════════════════════════════
+// A host with `dialogs` gets the image as base64 and answers with where it
+// went, or that it was cancelled, or why it failed. No host, or a `saveFile`
+// that answers null (no dialog behind it), downloads through an <a download>.
+{
+    const P = fakePlotly();
+    P.toImage = async () => 'data:image/png;base64,QUJD';
+    globalThis.Plotly = P;
+    const toasts = [];
+    const eventBus = { emit(name, d) { if (name === 'toast:show') toasts.push(d); } };
+    const clicks = [];
+    const realClick = window.HTMLAnchorElement.prototype.click;
+    window.HTMLAnchorElement.prototype.click = function () { clicks.push(this.download); };
+    const hostAnswering = (answer) => {
+        const calls = [];
+        return { calls, dialogs: { async saveFile(arg) { calls.push(arg); return answer; } } };
+    };
+    const drawn = async (host) => {
+        const t = mountTile(ChartTile, { title: 'Open bugs / week' }, { host, eventBus });
+        t.setData({ x: [1, 2], y: [2, 1] });
+        await ticks();
+        return t;
+    };
+    try {
+        let host = hostAnswering({ ok: true, path: 'C:/out/open.png' });
+        let t = await drawn(host);
+        toasts.length = 0; clicks.length = 0;
+        t._onMenuAction('download-png');
+        await ticks();
+        check('a host with dialogs gets base64, a name from the title and kind png', host.calls,
+              [{ data: 'QUJD', filename: 'open-bugs-week.png', kind: 'png' }]);
+        check('…and the link is not used', clicks, []);
+        check('a save says where the file went', toasts.map((x) => [x.type, x.message]),
+              [['success', 'Chart saved to C:/out/open.png']]);
+
+        host = hostAnswering({ ok: false, cancelled: true });
+        t = await drawn(host);
+        toasts.length = 0; clicks.length = 0;
+        t._onMenuAction('download-png');
+        await ticks();
+        ok('a cancelled save writes nothing and says nothing', host.calls.length === 1 && clicks.length === 0
+           && toasts.length === 0, JSON.stringify({ clicks, toasts }));
+
+        host = hostAnswering({ ok: false, error: 'Disk full' });
+        t = await drawn(host);
+        toasts.length = 0; clicks.length = 0;
+        t._onMenuAction('download-png');
+        await ticks();
+        check('a failed save says why', toasts.map((x) => [x.type, x.message]), [['error', 'Disk full']]);
+
+        host = hostAnswering(null);
+        t = await drawn(host);
+        toasts.length = 0; clicks.length = 0;
+        t._onMenuAction('download-png');
+        await ticks();
+        check('a saveFile that answers null falls back to the link', clicks, ['open-bugs-week.png']);
+
+        t = await drawn(null);
+        clicks.length = 0;
+        t._onMenuAction('download-png');
+        await ticks();
+        check('no host downloads through the link, as before', clicks, ['open-bugs-week.png']);
+    } finally {
+        window.HTMLAnchorElement.prototype.click = realClick;
+    }
 }
 
 ok('no unhandled rejection anywhere in the suite', unhandled === 0);

@@ -2,17 +2,17 @@
 id: 16
 type: story
 title: "DataTable: a select mode - a per-table toggle, a checkbox column, and a click that ticks rows instead of opening them"
-status: in-progress
+status: review
 parent: 1
 phase:
-assignee: norman_agent
+assignee: norman
 reporter: norman
 points: 3
 subsystem: datatable
 labels: [datatable, bugdesk-consumer]
 links: []
 created: 2026-10-14
-updated: 2026-10-14T06:29Z
+updated: 2026-10-14T08:19Z
 ---
 
 ## Description
@@ -31,20 +31,22 @@ without it draws and behaves exactly as before.
 
 ## Acceptance criteria
 
-- [ ] A table built with `selectToggle: true` (and a multi-row `selectable`) shows a toggle button in a narrow leading column header; a table without it renders exactly as before
-- [ ] Pressing the toggle (or `setSelectMode(true)`) shows a checkbox in every row of that column and a select-all checkbox in its header; pressing it again hides them; `isSelectMode()` and `onSelectModeChange(on)` report it
-- [ ] In select mode a plain click on a row (or its checkbox) ticks or unticks just that row, Shift-click adds the range from the last ticked row, and Space ticks the current row
-- [ ] In select mode no gesture opens a row: `onRowActivate` does not fire for click, double-click or Enter
-- [ ] The header checkbox selects every row the filters let through (on every page) when not all are selected, clears the selection otherwise, and shows checked / mixed / unchecked to match
-- [ ] Remembered column widths, hidden columns, sort, filters and copy keep working with the extra column, and a remembered width does not shift onto a different column when the mode flips
-- [ ] `selectToggle` on a `selectable: 'single'` or `false` table is ignored with a console warning
-- [ ] Tests cover the above; the full suite passes
+- [x] A table built with `selectToggle: true` (and a multi-row `selectable`) shows a toggle button in a narrow leading column header; a table without it renders exactly as before
+- [x] Pressing the toggle (or `setSelectMode(true)`) shows a checkbox in every row of that column and a select-all checkbox in its header; pressing it again hides them; `isSelectMode()` and `onSelectModeChange(on)` report it
+- [x] In select mode a plain click on a row (or its checkbox) ticks or unticks just that row, Shift-click adds the range from the last ticked row, and Space ticks the current row
+- [x] In select mode no gesture opens a row: `onRowActivate` does not fire for click, double-click or Enter
+- [x] The header checkbox selects every row the filters let through (on every page) when not all are selected, clears the selection otherwise, and shows checked / mixed / unchecked to match
+- [x] Remembered column widths, hidden columns, sort, filters and copy keep working with the extra column, and a remembered width does not shift onto a different column when the mode flips
+- [x] `selectToggle` on a `selectable: 'single'` or `false` table is ignored with a console warning
+- [x] Tests cover the above; the full suite passes
 
 ## History
 
 - 2026-10-14 · norman_agent · status: draft -> refined
 - 2026-10-14 · norman_agent · status: refined -> in-progress
 - 2026-10-14 · norman_agent · assignee:  -> norman_agent
+- 2026-10-14 · norman_agent · status: in-progress -> review
+- 2026-10-14 · norman_agent · assignee: norman_agent -> norman
 
 ## Comments
 
@@ -53,3 +55,14 @@ without it draws and behaves exactly as before.
 Filed, refined and taken on together, for the user's request in a BugDesk
 session ("a button for each table to toggle select multiple"; the user placed it
 in FlexDesk). 8 criteria, 3 points, under EPIC-0001.
+
+### 2026-10-14T08:19Z · norman_agent
+
+Built and released: 67e765d (select mode, tests/select_mode.test.mjs §0-§8),
+published as flexdesk 0.12.0 (d69256d, README section "DataTable: a select
+mode"). Options `selectToggle`, `selectMode`, `onSelectModeChange`; methods
+`setSelectMode`, `isSelectMode`. Click, Shift-click and Space tick; Escape
+clears, then leaves the mode; no gesture activates a row in the mode. Saved
+widths carry `colWidthsLead: 1`, and older blobs are shifted past the checkbox
+column. Full suite green (87 suites) in a clean worktree. BugDesk vendors it
+for STORY-0029. Back to norman for review.

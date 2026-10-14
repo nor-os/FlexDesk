@@ -560,6 +560,7 @@ function createAlertLog({ source = null, limit = 300 } = {}) {
 
 // src/ui/components/alerts_pane.js
 var CHIPS = [["all", "All"], ["alert", "Alert"], ["warning", "Warning"], ["info", "Info"]];
+var MORE_WITHIN_PX = 48;
 function mountAlertsPane(host, {
   log,
   onOpen = null,
@@ -802,6 +803,16 @@ function mountAlertsPane(host, {
   input.addEventListener("input", () => {
     q = input.value;
     paint();
+  });
+  let loadingMore = false;
+  list.addEventListener("scroll", () => {
+    if (loadingMore || !log.hasMore()) return;
+    if (list.scrollTop + list.clientHeight < list.scrollHeight - MORE_WITHIN_PX) return;
+    loadingMore = true;
+    Promise.resolve(log.loadMore()).catch(() => {
+    }).finally(() => {
+      loadingMore = false;
+    });
   });
   const unsubscribe = log.subscribe(() => paint());
   const timer = setInterval(paint, 6e4);
@@ -7183,6 +7194,7 @@ export {
   HelpModal,
   ISO_DATE,
   ISO_DATETIME,
+  MORE_WITHIN_PX,
   ManagedWindow,
   NotificationCenter,
   NotificationHistory,

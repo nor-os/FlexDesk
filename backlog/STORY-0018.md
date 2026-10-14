@@ -2,17 +2,17 @@
 id: 18
 type: story
 title: "A bottom-panel tab host with badges, for any embedder"
-status: refined
+status: in-progress
 parent: 17
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 points: 5
 subsystem: tiling
 labels: [bottom-panel, additive]
 links: []
 created: 2026-10-14
-updated: 2026-10-14T09:50Z
+updated: 2026-10-14T14:27Z
 ---
 
 ## Description
@@ -32,6 +32,8 @@ adapter, and a `bottompanel:show {tab}` bus event that opens the panel on a tab.
 ## History
 
 - 2026-10-14 · norman_agent · status: draft -> refined
+- 2026-10-14 · norman_agent · status: refined -> in-progress
+- 2026-10-14 · norman_agent · assignee: (none) -> norman_agent
 
 ## Comments
 

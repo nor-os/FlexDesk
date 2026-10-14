@@ -21,6 +21,9 @@
  *     it actually overflows. They fade out a moment after the pointer leaves
  *     or the scrolling stops. Nested scroll areas each show their own.
  *   - The thumb drags and the track pages, as a native bar does.
+ *   - The layer is above everything, so a bar would also draw over whatever
+ *     covers its element — a popover, a menu, a dialog. A bar whose track is
+ *     covered anywhere is not drawn; it comes back when it is uncovered.
  *
  * Discovery is lazy: the pointer and scroll events name the elements worth
  * measuring, so nothing walks the DOM looking for scroll areas.
@@ -47,6 +50,22 @@ export function thumbGeometry(scrollSize, clientSize, scrollPos, trackLen) {
     const size = Math.min(trackLen, Math.max(MIN_THUMB, trackLen * clientSize / scrollSize));
     const pos = (trackLen - size) * Math.min(1, Math.max(0, scrollPos / max));
     return { size, pos };
+}
+
+/**
+ * Whether something else covers `el` at any of the points a bar runs along.
+ * Pure, so it can be tested without a layout engine.
+ *
+ * @param {Element} el
+ * @param {Element[][]} stacks  what `elementsFromPoint` gave at each point,
+ *   topmost first. The overlay layer's own bars are skipped.
+ * @returns {boolean}
+ */
+export function barCovered(el, stacks) {
+    return stacks.some((stack) => {
+        const top = (stack || []).find((h) => !h.closest?.('.twm-autoscroll-layer'));
+        return Boolean(top) && top !== el && !el.contains(top);
+    });
 }
 
 /** Whether an element scrolls on an axis: its overflow allows it and its
@@ -151,6 +170,9 @@ export function installAutoScrollbars(root = document.body, { exclude = null } =
         return rec;
     };
 
+    const coveredAlong = (el, points) => typeof doc.elementsFromPoint === 'function'
+        && barCovered(el, points.map(([x, y]) => doc.elementsFromPoint(x, y)));
+
     /** Place and size an element's bars; drop the element when it is gone. */
     const place = (el) => {
         const rec = managed.get(el);
@@ -178,12 +200,16 @@ export function installAutoScrollbars(root = document.body, { exclude = null } =
                 const g = thumbGeometry(el.scrollHeight * z, el.clientHeight * z, el.scrollTop * z, len);
                 if (!g) { bar.style.display = 'none'; continue; }
                 Object.assign(thumb.style, { top: `${g.pos}px`, height: `${g.size}px`, left: '0', width: '100%' });
+                const x = right - BAR / 2 - 1;
+                if (coveredAlong(el, [[x, top + 2], [x, top + len / 2], [x, bottom - 2]])) bar.style.display = 'none';
             } else {
                 const len = right - left;
                 Object.assign(bar.style, { left: `${left}px`, top: `${bottom - BAR - 1}px`, width: `${len}px`, height: `${BAR}px` });
                 const g = thumbGeometry(el.scrollWidth * z, el.clientWidth * z, el.scrollLeft * z, len);
                 if (!g) { bar.style.display = 'none'; continue; }
                 Object.assign(thumb.style, { left: `${g.pos}px`, width: `${g.size}px`, top: '0', height: '100%' });
+                const y = bottom - BAR / 2 - 1;
+                if (coveredAlong(el, [[left + 2, y], [left + len / 2, y], [right - 2, y]])) bar.style.display = 'none';
             }
         }
     };
@@ -256,6 +282,9 @@ export function installAutoScrollbars(root = document.body, { exclude = null } =
     doc.addEventListener('mouseout', onLeaveWindow, true);
     doc.addEventListener('scroll', onScroll, true);
     win.addEventListener('resize', onResize);
+    // A popover or dialog takes the focus as it opens, often over a bar that
+    // is showing because the pointer has not moved: look again once it is drawn.
+    doc.addEventListener('focusin', onResize, true);
 
     return {
         dispose() {
@@ -263,6 +292,7 @@ export function installAutoScrollbars(root = document.body, { exclude = null } =
             doc.removeEventListener('mouseout', onLeaveWindow, true);
             doc.removeEventListener('scroll', onScroll, true);
             win.removeEventListener('resize', onResize);
+            doc.removeEventListener('focusin', onResize, true);
             for (const el of [...managed.keys()]) drop(el);
             root.classList.remove(ROOT_CLASS);
         },

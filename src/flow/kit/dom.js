@@ -154,6 +154,10 @@ export function openPopover({ anchor, content, label, className = '', onClose = 
         handle.close('escape');
     };
     const onResize = () => place();
+    // Placed before its content is drawn — a picker fills its list after this
+    // returns — so it is placed again whenever its size changes, or it would
+    // run past the window's edge.
+    const sized = typeof ResizeObserver === 'function' ? new ResizeObserver(() => place()) : null;
 
     const handle = {
         el: pop,
@@ -168,6 +172,7 @@ export function openPopover({ anchor, content, label, className = '', onClose = 
             document.removeEventListener('mousedown', onPress, true);
             pop.removeEventListener('keydown', onKey);
             window.removeEventListener('resize', onResize);
+            sized?.disconnect();
             pop.remove();
             if (ACTIVE === handle) ACTIVE = null;
             // Focus that LEFT the popover (a Tab out of it) is going somewhere the
@@ -185,6 +190,7 @@ export function openPopover({ anchor, content, label, className = '', onClose = 
     }, 0);
     pop.addEventListener('keydown', onKey);
     window.addEventListener('resize', onResize);
+    sized?.observe(pop);
     place();
     (focus || pop).focus?.({ preventScroll: true });
     return handle;

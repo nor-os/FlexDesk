@@ -8,7 +8,7 @@
  *
  *     node tests/auto_scrollbars.test.mjs
  */
-import { thumbGeometry } from '../src/ui/utils/auto_scrollbars.js';
+import { barCovered, thumbGeometry } from '../src/ui/utils/auto_scrollbars.js';
 
 let failures = 0;
 function check(name, actual, expected) {
@@ -27,6 +27,21 @@ check('a very long list still has a thumb you can grab', r(thumbGeometry(1e6, 50
 check('...which reaches the end of the track exactly', r(thumbGeometry(1e6, 500, 1e6 - 500, 500)), { size: 30, pos: 470 });
 check('an over-scroll (elastic, rounding) never pushes the thumb past the track', r(thumbGeometry(1000, 500, 900, 500)), { size: 250, pos: 250 });
 check('a zero-length track shows nothing', thumbGeometry(1000, 500, 0, 0), null);
+
+// A bar is not drawn over what covers its element (a popover, a menu).
+const node = (name, parent = null, inLayer = false) => ({
+    name, contains: (o) => { for (let x = o; x; x = x.parent) if (x === node.all[name]) return true; return false; },
+    closest: (sel) => (sel === '.twm-autoscroll-layer' && inLayer ? {} : null), parent,
+});
+node.all = {};
+const scroller = node.all.scroller = node('scroller');
+const row = node('row', scroller);
+const popover = node('popover');
+const bar = node('bar', null, true);
+check('its own content on top: drawn', barCovered(scroller, [[row, scroller], [scroller]]), false);
+check('its own bar on top is not cover', barCovered(scroller, [[bar, row, scroller]]), false);
+check('a popover over any point of the track: not drawn', barCovered(scroller, [[row], [popover, row], [row]]), true);
+check('a point off screen hits nothing, which is no cover', barCovered(scroller, [[], [row]]), false);
 
 console.log(failures ? `\n${failures} assertion(s) FAILED` : '\nall assertions passed');
 process.exit(failures ? 1 : 0);

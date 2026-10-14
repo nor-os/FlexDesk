@@ -238,14 +238,18 @@ function _renderInto(container, segments) {
         const isLast = i === segments.length - 1;
         if (isLast || !seg.onClick) {
             li.classList.add('twm-topbar-breadcrumb__item--current');
+            // The current level, for assistive technology; the title carries
+            // the full label once a host's CSS truncates it (Tables BUG-0109).
+            li.setAttribute('aria-current', 'page');
             li.innerHTML = `
                 <span class="material-symbols-outlined twm-topbar-breadcrumb__icon">${_esc(seg.icon)}</span>
-                <span class="twm-topbar-breadcrumb__current">${_esc(seg.label)}</span>
+                <span class="twm-topbar-breadcrumb__current" title="${_esc(seg.label)}">${_esc(seg.label)}</span>
             `;
         } else {
             const btn = document.createElement('button');
             btn.className = 'twm-topbar-breadcrumb__link';
             btn.type = 'button';
+            btn.title = String(seg.label ?? '');
             btn.innerHTML = `
                 <span class="material-symbols-outlined twm-topbar-breadcrumb__icon">${_esc(seg.icon)}</span>
                 <span>${_esc(seg.label)}</span>

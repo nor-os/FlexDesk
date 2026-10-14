@@ -283,7 +283,9 @@ what a tile's factory returned. To draw the page's levels, call
 `renderBreadcrumb(container, segments)` from `@flexdesk/wm`, with
 `segments = [{ label, icon?, onClick? }]`. It uses the tile breadcrumb's
 markup, so it looks the same, and each `onClick` is yours: the last segment,
-and any without `onClick`, is drawn as plain text.
+and any without `onClick`, is drawn as plain text. The current segment's item
+carries `aria-current="page"`, and every label has a `title` with its full text,
+so a label your CSS truncates still reads whole (0.15.1).
 
 ### Column sizing
 

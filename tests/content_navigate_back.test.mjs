@@ -32,8 +32,9 @@
  *       after a press in a floating window, the WINDOW's content, not the
  *       tile's behind it (the 0.4.7 review)
  *   §5  `renderBreadcrumb` draws the tile breadcrumb's markup with segments the
- *       caller routes — against a recording `document`, with no jsdom, so it
- *       always runs
+ *       caller routes, marks the current one `aria-current="page"` and titles
+ *       every label (Tables BUG-0109) — against a recording `document`, with
+ *       no jsdom, so it always runs
  *
  *     node tests/content_navigate_back.test.mjs
  */
@@ -257,8 +258,10 @@ console.log('\n§5 renderBreadcrumb');
 {
     const make = (tag) => {
         const el = {
-            tagName: tag.toUpperCase(), className: '', type: '', children: [], listeners: {}, html: '',
+            tagName: tag.toUpperCase(), className: '', type: '', title: '', children: [], listeners: {}, html: '',
+            attrs: {},
             classList: { add(c) { el.className = `${el.className} ${c}`.trim(); } },
+            setAttribute(k, v) { el.attrs[k] = String(v); },
             appendChild(child) { el.children.push(child); return child; },
             addEventListener(type, fn) { (el.listeners[type] ||= []).push(fn); },
             set innerHTML(v) { el.html = v; el.children = []; },
@@ -286,7 +289,22 @@ console.log('\n§5 renderBreadcrumb');
     check('every segment but the last is a link', links.map((b) => b?.className ?? null),
         ['twm-topbar-breadcrumb__link', 'twm-topbar-breadcrumb__link', null]);
     check('the last is the current one, as text',
-        [items[2].className.includes('--current'), /__current">Alpha</.test(items[2].innerHTML)], [true, true]);
+        [items[2].className.includes('--current'), /__current"[^>]*>Alpha</.test(items[2].innerHTML)], [true, true]);
+    check('only the current item carries aria-current="page"',
+        items.map((li) => li.attrs['aria-current'] ?? null), [null, null, 'page']);
+    check('every link is titled with its full label (a truncated one still reads whole)',
+        links.slice(0, 2).map((b) => b.title), ['Acme', 'Projects']);
+    check('the current span is titled with its full label',
+        /class="twm-topbar-breadcrumb__current" title="Alpha"/.test(items[2].innerHTML), true);
+    renderBreadcrumb(nav, [{ label: 'A "quoted" <name>' }]);
+    check('a current label is escaped in its title attribute',
+        /title="A &quot;quoted&quot; &lt;name&gt;"/.test(nav.children[0].children[0].innerHTML), true);
+    renderBreadcrumb(nav, [
+        { label: 'Acme', icon: 'corporate_fare', onClick: () => went.push('Acme') },
+        { label: 'Projects', icon: 'folder', onClick: () => went.push('Projects') },
+        { label: 'Alpha', icon: 'folder', onClick: () => went.push('Alpha') },
+    ]);
+    links.splice(0, links.length, ...nav.children[0].children.map((li) => li.children.find((c) => c.tagName === 'BUTTON')));
     links[1].listeners.click[0]();
     check('a segment\'s click is the caller\'s, not the WM\'s', went, ['Projects']);
     renderBreadcrumb(nav, []);

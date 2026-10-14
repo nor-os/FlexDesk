@@ -8,10 +8,29 @@
  * - F11 fullscreen toggle
  *
  * Talks to the embedder ONLY through a Host's `window` capability
- * (see ui/js/host/host.js). A host with no `window` capability — a browser
+ * (see src/host/host.js). A host with no `window` capability — a browser
  * tab, a VS Code webview, the standalone demo — is legal: we simply don't
  * install custom chrome. That degraded path is also the production path on
  * Linux, macOS and `--browser`, where the OS/browser draws the title bar.
+ *
+ * THREE MODES, decided by `host.window.chrome()` (which may answer with a
+ * promise: the Photino host asks its native side): a browser tab and a window
+ * with native chrome get NOTHING from this class (no handles, no buttons, no
+ * body class), and only a window that answers `custom` gets the chrome.
+ *
+ * NATIVE GESTURES. A host that offers `startNativeDrag()` and
+ * `startNativeResize(edge)` gets drags on the top bar and presses on the
+ * resize handles handed to the OS, which brings snapping and a resize that
+ * keeps up with the pointer. A host without them gets the JS move and resize
+ * over getBounds/setBounds.
+ *
+ * @param {object} [opts]
+ * @param {object} [opts.host]          a Host; only its `window` capability is used
+ * @param {string|Element} [opts.topBar='.twm-global-top-bar']  the bar that drags the window
+ * @param {string|Element} [opts.controls]  where to draw minimise/maximise/close when
+ *        the page has no `#win-minimize`/`#win-maximize`/`#win-close` of its own
+ *        (default: the top bar's `.twm-bar-right`, else the top bar itself)
+ * @param {string} [opts.noDrag]        more selectors that never start a drag
  */
 
 const SUPPORTS_POINTER = typeof window !== 'undefined' && 'onpointerdown' in window;
@@ -20,9 +39,13 @@ const MIN_HEIGHT = 350;
 const DRAG_THRESHOLD = 4;
 
 export class WindowChromeController {
-    constructor({ eventBus, logger, host } = {}) {
+    constructor({ eventBus, logger, host, topBar = '.twm-global-top-bar', controls = null, noDrag = '' } = {}) {
         this.eventBus = eventBus;
         this.logger = logger || console;
+        this._topBarOpt = topBar;
+        this._controlsOpt = controls;
+        this._noDrag = noDrag;
+        this._createdControls = null;
 
         // The host's window capability, or null. Never throw on a missing
         // one — see the class comment.
@@ -40,17 +63,22 @@ export class WindowChromeController {
     /**
      * Initialize the window chrome controller
      */
-    initialize() {
-        if (this._disposed) return;
+    async initialize() {
+        if (this._disposed) return false;
 
-        if (!this.win || this.win.chrome() !== 'custom') {
+        let chrome = 'native';
+        try { chrome = this.win ? await this.win.chrome() : 'native'; } catch (_) { chrome = 'native'; }
+        if (this._disposed) return false;
+        if (chrome !== 'custom') {
             // Native window decorations (Linux/macOS) or the browser already
             // provide a title bar + window controls; our custom chrome would be
             // a redundant second set. Skip it entirely.
             this.logger.info?.('[WindowChrome] Native/browser chrome detected — custom window chrome disabled');
-            return;
+            return false;
         }
 
+        document.body.classList.add('twm-custom-chrome');
+        this.#createWindowControls();
         this.#wireWindowButtons();
         this.#createResizeHandles();
         this.#wireTopBarDrag();
@@ -59,6 +87,47 @@ export class WindowChromeController {
         this.#initializeState();
         
         this.logger.info?.('[WindowChrome] Initialized');
+        return true;
+    }
+
+    /** An element from a selector or an element; null when there is none. */
+    #resolve(target, within = document) {
+        if (!target) return null;
+        if (typeof target !== 'string') return target;
+        return within.querySelector(target);
+    }
+
+    /**
+     * Draw minimise, maximise/restore and close, unless the page has its own
+     * `#win-*` buttons (EcoSim's markup), which are then wired instead.
+     */
+    #createWindowControls() {
+        if (document.getElementById('win-minimize') || document.getElementById('win-close')) return;
+        const bar = this.#resolve(this._topBarOpt);
+        const host = this.#resolve(this._controlsOpt)
+            || bar?.querySelector('.twm-bar-right')
+            || bar;
+        if (!host) return;
+        const box = document.createElement('div');
+        box.className = 'twm-window-controls';
+        const button = (id, icon, label, extra = '') => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.id = id;
+            b.className = `twm-window-controls__btn${extra}`;
+            b.setAttribute('aria-label', label);
+            b.title = label;
+            const i = document.createElement('span');
+            i.className = 'material-symbols-outlined';
+            i.textContent = icon;
+            b.appendChild(i);
+            box.appendChild(b);
+        };
+        button('win-minimize', 'remove', 'Minimize');
+        button('win-maximize', 'check_box_outline_blank', 'Maximize');
+        button('win-close', 'close', 'Close', ' twm-window-controls__btn--close');
+        host.appendChild(box);
+        this._createdControls = box;
     }
 
     /**
@@ -110,6 +179,7 @@ export class WindowChromeController {
         const tooltipText = isMax ? 'Restore' : 'Maximize';
         window.LatexTooltip?.set(maxBtn, tooltipText);
         maxBtn.setAttribute('aria-label', tooltipText);
+        maxBtn.title = tooltipText;
         
         document.body.classList.toggle('twm-window-maximized', isMax);
     }
@@ -188,8 +258,23 @@ export class WindowChromeController {
 
         let activePointerId = null;
 
+        const EDGE = {
+            right: 'e', left: 'w', top: 'n', bottom: 's',
+            cornerBR: 'se', cornerBL: 'sw', cornerTR: 'ne', cornerTL: 'nw',
+        };
+
         const startDrag = async (e) => {
+            if (e.button != null && e.button !== 0) return;
             e.preventDefault();
+            // ── Native resize: the OS runs its own size loop (it blocks until
+            // mouse-up), so the edge stays under the pointer. ──
+            if (this.win.startNativeResize) {
+                this.resizingActive = true;
+                let handled = false;
+                try { handled = await this.win.startNativeResize(EDGE[mode]); } catch (_) { handled = false; }
+                this.resizingActive = false;
+                if (handled) return;
+            }
             this.resizingActive = true;
             startX = e.clientX;
             startY = e.clientY;
@@ -313,10 +398,18 @@ export class WindowChromeController {
      * Setup top bar dragging for window movement
      */
     #wireTopBarDrag() {
-        this.topBar = document.querySelector('.twm-global-top-bar');
+        this.topBar = this.#resolve(this._topBarOpt);
         if (!this.topBar) return;
 
-        const NO_DRAG_SELECTOR = '.no-drag, button, input, select, textarea, .menu-item, .menu-dropdown, .window-controls, .panel-toggles, .global-search-dropdown';
+        // What never starts a drag: anything you can click or type into. An
+        // embedder adds its own with `noDrag`. (`.window-controls` and
+        // `.panel-toggles` are kept for EcoSim-shaped markup.)
+        const NO_DRAG_SELECTOR = [
+            '.no-drag', 'button', 'a', 'input', 'select', 'textarea', 'label',
+            '[role="button"]', '[role="menuitem"]', '[role="tab"]', '[contenteditable="true"]',
+            '.twm-window-controls', '.window-controls', '.panel-toggles',
+            this._noDrag,
+        ].filter(Boolean).join(', ');
 
         let dragging = false;
         let startSX = 0, startSY = 0, startX = null, startY = null, winW = 0, winH = 0;
@@ -533,8 +626,7 @@ export class WindowChromeController {
         // Double-click to toggle maximize (only on blank surfaces)
         const dblClickHandler = async (e) => {
             // Skip maximize if double-click is on interactive elements
-            const interactiveSelector = 'button, input, select, textarea, a, [role="button"], [role="menuitem"], .menu-bar, .fl-bar, .fl-item, .global-search-wrapper, .panel-toggle-btn';
-            if (e.target.closest(interactiveSelector)) {
+            if (isInteractiveTarget(e.target)) {
                 return;
             }
 
@@ -646,13 +738,16 @@ export class WindowChromeController {
         });
         this._disposers = [];
 
-        // Remove resize handles
+        // Remove resize handles, and the buttons this drew
         Object.values(this.handles).forEach(handle => {
             if (handle && handle.parentNode) {
                 handle.parentNode.removeChild(handle);
             }
         });
         this.handles = {};
+        this._createdControls?.remove();
+        this._createdControls = null;
+        document.body.classList.remove('twm-custom-chrome', 'twm-window-maximized', 'window-fullscreen');
 
         this.logger.info?.('[WindowChrome] Disposed');
     }

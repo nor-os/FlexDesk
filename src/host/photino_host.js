@@ -99,6 +99,10 @@ export function createPhotinoTransport({ external, timeoutMs = 10000, onEvent = 
  * @param {number} [opts.timeoutMs=10000]
  * @param {(name: string, value: any) => void} [opts.onEvent]
  * @param {object} [opts.logger=console]
+ * @param {'auto'|'native'|'custom'} [opts.chrome='auto']  who draws the window's
+ *        title bar and borders. `auto` asks the native side once (`host.describe`,
+ *        its `frame` field), the first time somebody needs to know; `native`
+ *        or `custom` fixes the answer without asking. See photino_host.md.
  * @param {object|null} [opts.window]   replace the window capability, or `null` to leave it out
  * @param {object|null} [opts.dialogs]  replace the dialogs capability, or `null` to leave it out
  * @param {object|null} [opts.state]    replace the state capability, or `null` to leave it out
@@ -110,6 +114,7 @@ export function createPhotinoHost(opts = {}) {
         timeoutMs = 10000,
         onEvent = null,
         logger = console,
+        chrome = 'auto',
     } = opts;
     if (!isPhotinoWindow(external)) return NULL_HOST;
 
@@ -121,11 +126,32 @@ export function createPhotinoHost(opts = {}) {
     };
     const fire = (cap, op, ...args) => { void soft(null, cap, op, ...args); };
 
+    // Who draws the frame. Asked once and remembered: a string once known, the
+    // pending question before that. A native side that predates `frame`, or
+    // doesn't answer within 3 s, has native chrome.
+    let frame = chrome === 'custom' || chrome === 'native' ? chrome : null;
+    let asking = null;
+    const askFrame = () => {
+        if (frame) return frame;
+        asking ??= request('host', 'describe', [], { wait: 3000 })
+            .then((d) => (d && d.frame === 'custom' ? 'custom' : 'native'), () => 'native')
+            .then((f) => { frame = f; return f; });
+        return asking;
+    };
+    // A drag or resize handed to the OS: the reply comes when the mouse is
+    // released, however long that takes. Refused (a native side without the op,
+    // or a window with native chrome) means "not handled": the caller does it in JS.
+    const gesture = async (op, ...args) => {
+        try { await request('window', op, args, { wait: 0 }); return true; }
+        catch (e) { return false; }
+    };
+
     const defaults = {
         window: {
-            // Photino draws a decorated, native window on every OS: FlexDesk's
-            // own min/max/close buttons would be a second set.
-            chrome: () => 'native',
+            // 'native' (the OS draws the frame: FlexDesk's own buttons would be
+            // a second set) or 'custom' (the native side made the window
+            // frameless). A promise until the native side has said which.
+            chrome: () => askFrame(),
             minimize: () => { fire('window', 'minimize'); },
             close: () => { fire('window', 'close'); },
             isMaximized: async () => (await soft(false, 'window', 'isMaximized')) === true,
@@ -137,6 +163,8 @@ export function createPhotinoHost(opts = {}) {
                 if (!b || typeof b !== 'object') return null;
                 return { x: b.x, y: b.y, width: b.width, height: b.height };
             },
+            startNativeDrag: () => gesture('startDrag'),
+            startNativeResize: (edge) => gesture('startResize', String(edge || '')),
             // Not async, like pywebview's: a rAF hot path during a drag; nobody awaits.
             setBounds({ x = null, y = null, width = null, height = null } = {}) {
                 fire('window', 'setBounds', { x, y, width, height });

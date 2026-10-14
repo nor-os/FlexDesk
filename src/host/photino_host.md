@@ -28,6 +28,7 @@ host → page   {"event": "window.maximizedChanged", "value": true}
 
 | `cap.op` | `args` | reply `value` | Photino |
 |---|---|---|---|
+| `host.describe` | `[]` | `{frame: "native" \| "custom", …}` | asked once, for `chrome()` (see below) |
 | `window.minimize` | `[]` | anything | `Minimized = true` |
 | `window.close` | `[]` | anything | `Close()` |
 | `window.isMaximized` | `[]` | `bool` | `Maximized` |
@@ -36,13 +37,65 @@ host → page   {"event": "window.maximizedChanged", "value": true}
 | `window.toggleFullscreen` | `[]` | `bool`, the state now | `FullScreen = !FullScreen` |
 | `window.getBounds` | `[]` | `{x, y, width, height}` | `Location`, `Size` |
 | `window.setBounds` | `[{x, y, width, height}]`, any of them `null` = leave alone | anything | `Location`, `Size` |
+| `window.startDrag` | `[]` | anything, **after mouse-up** | custom chrome only: the OS move loop (below) |
+| `window.startResize` | `[edge]`: `n` `s` `e` `w` `ne` `nw` `se` `sw` | anything, **after mouse-up** | custom chrome only: the OS size loop (below) |
 | `dialogs.saveFile` | `[{data, filename, kind}]` | see below | `ShowSaveFile(...)` + write |
 | `state.read` | `[key]` | the stored value, or `null` | a file per key |
 | `state.write` | `[key, value]` | `true` | a file per key |
 
-`window.chrome()` is answered by the adapter itself (`'native'`): Photino draws a
-native title bar, so FlexDesk draws no buttons of its own. `startNativeDrag` is
-not offered.
+## Native or custom chrome
+
+A FlexDesk app runs in one of three ways, and the page needs no switch for it:
+
+| | title bar and borders | `chrome()` | FlexDesk draws |
+|---|---|---|---|
+| a browser tab | the browser's | (no Photino host) | nothing |
+| a Photino window, native frame | the OS's | `'native'` | nothing |
+| a Photino window, custom frame | none: the page's top bar | `'custom'` | buttons, resize handles, drag |
+
+`window.chrome()` asks the native side once, with `host.describe`, the first
+time it's called (that is `WindowChromeController.initialize()`). It resolves
+`'custom'` when the reply's `frame` is `"custom"`, and `'native'` for anything
+else: no `frame` field, an `ok: false`, no answer within 3 s. An app that knows
+already can say so: `createPhotinoHost({ chrome: 'custom' })` or `'native'`
+answers without asking.
+
+**What the native side does for a custom frame (Windows).** Don't use
+Photino's `SetChromeless(true)`: that makes a bare popup window, with no
+snapping, no Win+arrows, no shadow and square corners, and Photino then reports
+it as fullscreen. Keep the normal window and stop drawing its frame:
+
+1. After the window exists, add `WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX |
+   WS_MAXIMIZEBOX | WS_SYSMENU` to its style, and subclass it
+   (`SetWindowSubclass`). These styles are what make Windows treat it as a
+   normal window: Aero Snap, Win+arrows, the shadow, the rounded corners on
+   Windows 11.
+2. In the subclass, answer `WM_NCCALCSIZE` (with `wParam` true) with `0`, so
+   the whole window is client area and nothing of the frame is drawn. While
+   maximised (`IsZoomed`), set the proposed rect to the monitor's work area
+   first: a maximised window is larger than the monitor by the frame's
+   thickness, and the taskbar must stay visible.
+3. Answer `WM_NCACTIVATE` with `DefSubclassProc(h, msg, wParam, -1)`, so
+   Windows repaints no caption on activation.
+4. `DwmExtendFrameIntoClientArea` with a top margin of 1 keeps DWM drawing
+   the shadow. `DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_ROUND` asks for the
+   rounded corners.
+5. Call `SetWindowPos(..., SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE |
+   SWP_NOZORDER)` to apply it.
+
+The WebView covers the whole window, so the window never sees the mouse. That
+is what `startDrag` and `startResize` are for. The page asks when the mouse
+goes down on its top bar or on a resize handle. On the window's thread, call
+`ReleaseCapture()`, then `SendMessage(hwnd, WM_NCLBUTTONDOWN, hit, cursor)`
+with `HTCAPTION` for a drag, or `HTTOP` / `HTBOTTOM` / `HTLEFT` / `HTRIGHT` /
+`HTTOPLEFT` / … for the edge. Windows then runs its own move or size loop,
+exactly as for a click on a real caption or border, and `SendMessage` returns
+when the mouse is released. Reply then. The page waits without a timeout, and a
+reply of `ok: false` makes it move or resize the window from JS instead.
+
+`describe`'s reply says `frame: "custom"` only when all of this was done. A
+Photino window on Linux or macOS keeps its native frame and says `"native"`, or
+leaves `frame` out.
 
 **`dialogs.saveFile`.** `kind` is the file type the caller is saving, `'csv'`
 or `'png'` today. `data` is the file's text for `csv` and the file's bytes,

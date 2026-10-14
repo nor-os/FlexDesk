@@ -145,7 +145,7 @@ check('isPhotinoWindow needs both halves', [isPhotinoWindow({ sendMessage() {} }
     });
     const host = createPhotinoHost({ external: ext, logger: quiet });
     check('all three capabilities', Object.keys(host).sort(), ['dialogs', 'state', 'window']);
-    check('chrome() is native', host.window.chrome(), 'native');
+    check('chrome() is native when describe is refused', await host.window.chrome(), 'native');
     check('isMaximized', await host.window.isMaximized(), true);
     check('setMaximized answers the new state', await host.window.setMaximized(1), true);
     check('getBounds keeps x, y, width, height', await host.window.getBounds(), { x: 10, y: 20, width: 800, height: 600 });
@@ -196,6 +196,47 @@ check('isPhotinoWindow needs both halves', [isPhotinoWindow({ sendMessage() {} }
     let threw = false;
     try { createPhotinoHost({ external: fakeExternal(), dialogs: {} }); } catch { threw = true; }
     check('an incomplete replacement is still refused at boot', threw, true);
+}
+
+// ── §6 native or custom chrome, and gestures handed to the OS ───────────
+{
+    const answer = (frame) => autoExternal((req) => {
+        const k = `${req.cap}.${req.op}`;
+        if (k === 'host.describe') return { ok: true, value: frame === undefined ? { host: 'photino' } : { host: 'photino', frame } };
+        if (k === 'window.startDrag' || k === 'window.startResize') return { ok: true, value: null };
+        return { ok: false, error: `unknown request ${k}` };
+    });
+    const ext = answer('custom');
+    const host = createPhotinoHost({ external: ext, logger: quiet });
+    check('nothing is asked before chrome() is needed', ext.sent.length, 0);
+    check('frame: "custom" → custom', await host.window.chrome(), 'custom');
+    check('…asked once, with host.describe', ext.sent.map((m) => `${m.cap}.${m.op}`), ['host.describe']);
+    check('…and remembered: a string from then on, no second ask', [host.window.chrome(), ext.sent.length], ['custom', 1]);
+    check('frame: "native" → native', await createPhotinoHost({ external: answer('native'), logger: quiet }).window.chrome(), 'native');
+    check('no frame field → native', await createPhotinoHost({ external: answer(undefined), logger: quiet }).window.chrome(), 'native');
+    check('an unknown value → native', await createPhotinoHost({ external: answer('fancy'), logger: quiet }).window.chrome(), 'native');
+
+    const fixed = fakeExternal();
+    const pinned = createPhotinoHost({ external: fixed, chrome: 'custom', logger: quiet });
+    check('chrome: "custom" answers without asking', [pinned.window.chrome(), fixed.sent.length], ['custom', 0]);
+    check('chrome: "native" too', createPhotinoHost({ external: fakeExternal(), chrome: 'native', logger: quiet }).window.chrome(), 'native');
+
+    check('startNativeDrag → true when the host ran the drag', await host.window.startNativeDrag(), true);
+    check('startNativeResize sends its edge', [await host.window.startNativeResize('se'), ext.last().op, ext.last().args], [true, 'startResize', ['se']]);
+    const refusing = createPhotinoHost({ external: autoExternal(() => ({ ok: false, error: 'no' })), logger: quiet });
+    check('a refused drag → false (the caller moves the window from JS)', await refusing.window.startNativeDrag(), false);
+    check('a refused resize → false', await refusing.window.startNativeResize('n'), false);
+
+    // The gesture waits for mouse-up, however long: no timeout.
+    const slow = fakeExternal();
+    const sh = createPhotinoHost({ external: slow, timeoutMs: 20, logger: quiet });
+    let done = null;
+    sh.window.startNativeDrag().then((v) => { done = v; });
+    await new Promise((r) => setTimeout(r, 60));
+    check('a drag still in progress after the timeout is not given up', done, null);
+    slow.reply({ id: slow.last().id, ok: true, value: null });
+    await tick();
+    check('…and resolves when the host answers', done, true);
 }
 
 console.log(failures === 0

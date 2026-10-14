@@ -1751,9 +1751,41 @@ import { createPhotinoHost } from '@flexdesk/host';
 const host = createPhotinoHost({ state: myServerState, onEvent: (name, value) => {} });
 ```
 
-Its `window.chrome()` answers `'native'`, `dialogs.saveFile` falls back to a
-Blob download when the window refuses, and the messages the C# side has to
-answer are in [`src/host/photino_host.md`](src/host/photino_host.md).
+`dialogs.saveFile` falls back to a Blob download when the window refuses, and
+the messages the C# side has to answer are in
+[`src/host/photino_host.md`](src/host/photino_host.md).
+
+### A window with its own chrome (0.15.0)
+
+The same app runs three ways, and the page needs no switch for it:
+
+| | title bar and borders | FlexDesk draws |
+|---|---|---|
+| a browser tab | the browser's | nothing |
+| a Photino window, native frame | the OS's | nothing |
+| a Photino window, custom frame | none: your top bar is the title bar | minimise / maximise / close, resize handles, drag |
+
+```js
+import { WindowChromeController } from '@flexdesk/widgets';
+
+new WindowChromeController({
+    host,                                  // createPhotinoHost(), or any Host
+    topBar: '.my-top-bar',                 // drags the window (default .twm-global-top-bar)
+    controls: '.my-top-bar .right',        // where the three buttons go (default: the bar's .twm-bar-right)
+    noDrag: '.my-search',                  // more that never starts a drag
+}).initialize();                           // resolves true only with custom chrome
+```
+
+`host.window.chrome()` decides. The Photino host asks its native side once
+(`host.describe`, its `frame` field) and answers `'custom'` only when the
+window was made frameless, so a browser tab and a native-frame window get no
+handles, no buttons and no CSS. With custom chrome, a drag on the top bar and
+a press on a resize handle go to the host's `startNativeDrag()` /
+`startNativeResize(edge)`. On Windows the native side hands them to the OS,
+so the window snaps, takes Win+arrows and resizes like any other.
+[`photino_host.md`](src/host/photino_host.md) has the native half: keep the
+frame styles, return the whole window from `WM_NCCALCSIZE`, start gestures with
+`WM_NCLBUTTONDOWN`. Don't use Photino's `SetChromeless`, which loses all of that.
 
 ## Peer dependencies
 

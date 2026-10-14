@@ -1920,6 +1920,40 @@ body.twm-dt-col-resizing {
 body.twm-window-maximized .twm-resize-handle {
     display: none;
 }
+/* Where the handles are. WindowChromeController creates them only for a
+   window with custom chrome, so none of this reaches a browser tab. */
+.twm-resize-handle { background: transparent; }
+.twm-resize-handle.right  { top: 0; right: 0;   width: 6px;  height: 100%; cursor: ew-resize; }
+.twm-resize-handle.left   { top: 0; left: 0;    width: 6px;  height: 100%; cursor: ew-resize; }
+.twm-resize-handle.top    { top: 0; left: 0;    width: 100%; height: 6px;  cursor: ns-resize; }
+.twm-resize-handle.bottom { bottom: 0; left: 0; width: 100%; height: 6px;  cursor: ns-resize; }
+.twm-resize-handle.corner { width: 12px; height: 12px; z-index: 10000; }
+.twm-resize-handle.corner.br { bottom: 0; right: 0; cursor: nwse-resize; }
+.twm-resize-handle.corner.tl { top: 0; left: 0;     cursor: nwse-resize; }
+.twm-resize-handle.corner.bl { bottom: 0; left: 0;  cursor: nesw-resize; }
+.twm-resize-handle.corner.tr { top: 0; right: 0;    cursor: nesw-resize; }
+/* Minimise, maximise/restore, close: drawn by WindowChromeController at the
+   right of the top bar, for a window with custom chrome only. */
+.twm-window-controls {
+    display: flex;
+    align-items: stretch;
+    align-self: stretch;
+    margin-left: 6px;
+}
+.twm-window-controls__btn {
+    width: 46px;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: var(--text-secondary, #ccc);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: default;
+}
+.twm-window-controls__btn .material-symbols-outlined { font-size: 18px; }
+.twm-window-controls__btn:hover { background: rgba(255, 255, 255, 0.08); }
+.twm-window-controls__btn--close:hover { background: #c42b1c; color: #fff; }
 /* Shared sidebar controls (filter + icon buttons) - used by data, functions, etc. */
 .twm-sidebar-controls {
     display: flex;

@@ -19,7 +19,8 @@ export const HOST_CONTRACT = Object.freeze({
     window: Object.freeze({
         required: Object.freeze(['chrome', 'minimize', 'close', 'isMaximized', 'setMaximized',
                                  'isFullscreen', 'toggleFullscreen', 'getBounds', 'setBounds']),
-        optional: Object.freeze(['startNativeDrag']),
+        // `chrome()` answers 'native' or 'custom', or a promise of one.
+        optional: Object.freeze(['startNativeDrag', 'startNativeResize']),
     }),
     dialogs: Object.freeze({ required: Object.freeze(['saveFile']), optional: Object.freeze([]) }),
     state:   Object.freeze({ required: Object.freeze(['read', 'write']), optional: Object.freeze([]) }),

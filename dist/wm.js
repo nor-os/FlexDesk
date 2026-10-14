@@ -16,6 +16,150 @@ import {
 import "./chunk-WVFGV5FT.js";
 import "./chunk-JYWURG5T.js";
 
+// src/tiling/bottom_panel_tabs.js
+var BADGE_LEVELS = Object.freeze(["info", "warning", "alert"]);
+function createBottomPanelTabs(container, {
+  panes = [],
+  remember = null,
+  store = null,
+  eventBus = null,
+  onSelect = null,
+  initial = null
+} = {}) {
+  const doc = container.ownerDocument;
+  const root = doc.createElement("div");
+  root.className = "twm-bp";
+  const strip = doc.createElement("div");
+  strip.className = "twm-bp__tabs";
+  strip.setAttribute("role", "tablist");
+  const body = doc.createElement("div");
+  body.className = "twm-bp__body";
+  root.append(strip, body);
+  container.appendChild(root);
+  const byId = new Map(panes.map((pane) => [pane.id, pane]));
+  const tabs = /* @__PURE__ */ new Map();
+  const mounted = /* @__PURE__ */ new Map();
+  let active = null;
+  let chosen = false;
+  let destroyed = false;
+  for (const pane of panes) {
+    const tab = doc.createElement("button");
+    tab.type = "button";
+    tab.className = "twm-bp__tab";
+    tab.dataset.pane = pane.id;
+    tab.setAttribute("role", "tab");
+    tab.setAttribute("aria-selected", "false");
+    const label = doc.createElement("span");
+    label.className = "twm-bp__label";
+    label.textContent = pane.label;
+    const badge = doc.createElement("span");
+    badge.className = "twm-bp__badge";
+    badge.hidden = true;
+    tab.append(label, badge);
+    tab.addEventListener("click", () => api.select(pane.id));
+    strip.appendChild(tab);
+    tabs.set(pane.id, tab);
+  }
+  function mount(id) {
+    if (mounted.has(id)) return mounted.get(id);
+    const pane = byId.get(id);
+    const el = doc.createElement("div");
+    el.className = "twm-bp-pane";
+    el.dataset.pane = id;
+    el.setAttribute("role", "tabpanel");
+    el.hidden = id !== active;
+    body.appendChild(el);
+    const entry = { el, instance: null };
+    mounted.set(id, entry);
+    try {
+      entry.instance = pane.mount?.(el, store ? store(pane) : null, api) ?? null;
+    } catch (err) {
+      console.error(`[bottom-panel] pane "${id}" failed to mount`, err);
+    }
+    return entry;
+  }
+  function show(id) {
+    if (destroyed || !byId.has(id)) return false;
+    active = id;
+    for (const [key, tab] of tabs) {
+      const on = key === id;
+      tab.classList.toggle("twm-bp__tab--on", on);
+      tab.setAttribute("aria-selected", String(on));
+    }
+    for (const [key, entry] of mounted) entry.el.hidden = key !== id;
+    mount(id).instance?.onShow?.();
+    onSelect?.(id, byId.get(id));
+    return true;
+  }
+  const api = {
+    root,
+    /** Bring a tab to the front, and remember it. */
+    select(id) {
+      if (!show(id)) return;
+      chosen = true;
+      try {
+        remember?.write?.(id);
+      } catch {
+      }
+    },
+    /** The tab in front, or null. */
+    active: () => active,
+    /** `count` on a tab, coloured by `level`; nothing at zero. */
+    setBadge(id, count, level = null) {
+      const badge = tabs.get(id)?.querySelector(".twm-bp__badge");
+      if (!badge) return;
+      const n = Number(count) || 0;
+      badge.hidden = n <= 0;
+      badge.textContent = n > 99 ? "99+" : String(Math.max(n, 0));
+      badge.className = "twm-bp__badge" + (BADGE_LEVELS.includes(level) ? ` twm-bp__badge--${level}` : "");
+    },
+    /** A mounted pane's live instance, or null — how one tab hands work to
+     *  another. `select` it first, which mounts it. */
+    instance: (id) => mounted.get(id)?.instance ?? null,
+    /** The panel is on screen again (its tile re-mounted): tell the pane in front. */
+    reshow() {
+      if (active) mounted.get(active)?.instance?.onShow?.();
+    },
+    /** Before the panel is torn down: every mounted pane saves. */
+    async persist() {
+      for (const entry of mounted.values()) await entry.instance?.persist?.();
+    },
+    /** Gone for good: panes save, then are destroyed; the bus is let go. */
+    async destroy() {
+      if (destroyed) return;
+      await api.persist();
+      destroyed = true;
+      try {
+        subscription?.dispose?.();
+      } catch {
+      }
+      for (const entry of mounted.values()) {
+        try {
+          entry.instance?.destroy?.();
+        } catch (err) {
+          console.warn("[bottom-panel] pane destroy failed", err);
+        }
+      }
+      mounted.clear();
+      root.remove();
+    }
+  };
+  for (const pane of panes) if (pane.eager) mount(pane.id);
+  const subscription = eventBus?.on?.(
+    "bottompanel:show",
+    (payload) => api.select(payload?.tab ?? panes[0]?.id)
+  ) ?? null;
+  show(byId.has(initial) ? initial : panes[0]?.id);
+  if (remember?.read) {
+    Promise.resolve().then(() => remember.read()).then((saved) => {
+      if (chosen || destroyed) return;
+      if (byId.has(saved)) show(saved);
+    }).catch(() => {
+    });
+  }
+  return api;
+}
+
 // src/tiling/command_palette.js
 var ROOT_ID = "twm-cmdpal";
 var STATIC_COMMANDS = [
@@ -8732,6 +8876,7 @@ function _tileContextMenu(wm, leafId, x, y) {
   });
 }
 export {
+  BADGE_LEVELS,
   DesktopManager,
   PLACEHOLDER_KIND,
   PanelKeyRouter,
@@ -8751,6 +8896,7 @@ export {
   attachLandingShell,
   attachLandingTableBehavior,
   clampZoom,
+  createBottomPanelTabs,
   createCommandPalette,
   createContentRegistry,
   createEntityCatalog,

@@ -199,6 +199,7 @@ function openPopover({ anchor, content, label, className = "", onClose = null, f
     handle.close("escape");
   };
   const onResize = () => place();
+  const sized = typeof ResizeObserver === "function" ? new ResizeObserver(() => place()) : null;
   const handle = {
     el: pop,
     anchor,
@@ -212,6 +213,7 @@ function openPopover({ anchor, content, label, className = "", onClose = null, f
       document.removeEventListener("mousedown", onPress, true);
       pop.removeEventListener("keydown", onKey);
       window.removeEventListener("resize", onResize);
+      sized?.disconnect();
       pop.remove();
       if (ACTIVE === handle) ACTIVE = null;
       if (held && reason !== "blur" && anchor?.isConnected) anchor.focus?.({ preventScroll: true });
@@ -226,6 +228,7 @@ function openPopover({ anchor, content, label, className = "", onClose = null, f
   }, 0);
   pop.addEventListener("keydown", onKey);
   window.addEventListener("resize", onResize);
+  sized?.observe(pop);
   place();
   (focus || pop).focus?.({ preventScroll: true });
   return handle;

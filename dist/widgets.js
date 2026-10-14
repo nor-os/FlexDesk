@@ -326,6 +326,503 @@ function showAboutDialog(product = {}) {
   });
 }
 
+// src/ui/components/alert_log.js
+var ALERT_LEVELS = Object.freeze({
+  info: Object.freeze({ label: "Info", icon: "info" }),
+  warning: Object.freeze({ label: "Warning", icon: "warning" }),
+  alert: Object.freeze({ label: "Alert", icon: "notifications_active" })
+});
+var LEVEL_ALIASES = { warn: "warning", error: "alert", danger: "alert", critical: "alert", success: "info" };
+function normalizeLevel(level) {
+  const l = String(level ?? "").toLowerCase();
+  if (ALERT_LEVELS[l]) return l;
+  return LEVEL_ALIASES[l] ?? "info";
+}
+function worstLevel(entries) {
+  let worst = null;
+  for (const e of entries || []) {
+    const l = normalizeLevel(e?.level);
+    if (l === "alert") return "alert";
+    if (l === "warning") worst = "warning";
+    else if (!worst) worst = "info";
+  }
+  return worst;
+}
+function ago(at, now = /* @__PURE__ */ new Date()) {
+  const s = Math.max(0, (now - at) / 1e3);
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  return at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+function dayLabel(at, now = /* @__PURE__ */ new Date()) {
+  const d = new Date(at.getFullYear(), at.getMonth(), at.getDate());
+  const t = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const days = Math.round((t - d) / 864e5);
+  if (days === 0) return "TODAY";
+  if (days === 1) return "YESTERDAY";
+  return at.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short", year: "numeric" }).toUpperCase();
+}
+var _seq = 0;
+function normalizeEntry(raw) {
+  const at = raw.at instanceof Date ? raw.at : new Date(raw.at ?? Date.now());
+  return {
+    ...raw,
+    id: String(raw.id ?? `${Date.now().toString(36)}-${(_seq++).toString(36)}`),
+    at: Number.isNaN(at.getTime()) ? /* @__PURE__ */ new Date() : at,
+    level: normalizeLevel(raw.level),
+    title: String(raw.title ?? ""),
+    read: !!raw.read
+  };
+}
+function localSource({ read, write, limit = 300 } = {}) {
+  let all = null;
+  const save = () => {
+    try {
+      write?.(all.map((e) => ({ ...e, at: e.at.toISOString() })));
+    } catch (err) {
+      console.warn("[alert-log] the log could not be saved", err);
+    }
+  };
+  const ensure = async () => {
+    if (all) return all;
+    let saved = [];
+    try {
+      saved = await read?.() ?? [];
+    } catch (err) {
+      console.warn("[alert-log] the log could not be read", err);
+    }
+    all = (Array.isArray(saved) ? saved : []).filter((e) => e && typeof e === "object").map(normalizeEntry).sort((a, b) => b.at - a.at).slice(0, limit);
+    return all;
+  };
+  return {
+    local: true,
+    async load({ offset = 0, limit: n = limit } = {}) {
+      const list = await ensure();
+      return { entries: list.slice(offset, offset + n), more: offset + n < list.length };
+    },
+    async add(entry) {
+      const list = await ensure();
+      list.unshift(entry);
+      if (list.length > limit) list.length = limit;
+      save();
+    },
+    async markRead(ids) {
+      const want = ids ? new Set(ids) : null;
+      for (const e of await ensure()) if (!want || want.has(e.id)) e.read = true;
+      save();
+    },
+    async dismiss(ids) {
+      const want = ids ? new Set(ids) : null;
+      all = (await ensure()).filter((e) => want && !want.has(e.id));
+      save();
+    }
+  };
+}
+function createAlertLog({ source = null, limit = 300 } = {}) {
+  let entries = [];
+  let more = false;
+  let remoteUnread = null;
+  let loaded = false;
+  let loading = null;
+  const listeners = /* @__PURE__ */ new Set();
+  const changed = () => {
+    for (const fn of [...listeners]) {
+      try {
+        fn(log);
+      } catch (err) {
+        console.warn("[alert-log] listener failed", err);
+      }
+    }
+  };
+  const tell = (verb, ...args) => {
+    const fn = source?.[verb];
+    if (typeof fn !== "function") return;
+    Promise.resolve().then(() => fn.apply(source, args)).catch((err) => {
+      console.warn(`[alert-log] the source refused ${verb}`, err);
+      log.refresh();
+    });
+  };
+  const page = async (offset) => {
+    const res = await source?.load?.({ offset, limit }) ?? {};
+    const got = (res.entries ?? []).map(normalizeEntry);
+    return { got, more: !!res.more, unread: Number.isFinite(res.unread) ? res.unread : null };
+  };
+  const log = {
+    /** Loaded entries, newest first. */
+    entries: () => entries,
+    loaded: () => loaded,
+    /** Whether the source has older entries than those loaded. */
+    hasMore: () => more,
+    /** Whether entries can be dismissed: a log with no source, or a source that can. */
+    canDismiss: () => !source || typeof source.dismiss === "function",
+    /** Unread entries: the source's count when it knows one, else the loaded ones. */
+    unreadCount() {
+      const here = entries.filter((e) => !e.read).length;
+      return remoteUnread === null ? here : Math.max(remoteUnread, here);
+    },
+    /** The worst level among unread entries, or null. */
+    worstUnread: () => worstLevel(entries.filter((e) => !e.read)),
+    get: (id) => entries.find((e) => e.id === String(id)) ?? null,
+    /** `fn(log)` after every change; answers the unsubscribe. */
+    subscribe(fn) {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    /** The first page, again. */
+    refresh() {
+      if (!source?.load) {
+        loaded = true;
+        changed();
+        return Promise.resolve(log);
+      }
+      loading = page(0).then(({ got, more: m, unread }) => {
+        entries = got;
+        more = m;
+        remoteUnread = unread;
+        loaded = true;
+        changed();
+        return log;
+      }).catch((err) => {
+        console.warn("[alert-log] the log could not be loaded", err);
+        loaded = true;
+        changed();
+        return log;
+      }).finally(() => {
+        loading = null;
+      });
+      return loading;
+    },
+    /** Load once; later calls answer the same promise or nothing. */
+    load() {
+      return loading ?? (loaded ? Promise.resolve(log) : log.refresh());
+    },
+    /** The next page, after the loaded ones. */
+    async loadMore() {
+      if (!more || !source?.load) return log;
+      const { got, more: m, unread } = await page(entries.length);
+      const seen = new Set(entries.map((e) => e.id));
+      entries = [...entries, ...got.filter((e) => !seen.has(e.id))];
+      more = m;
+      if (unread !== null) remoteUnread = unread;
+      changed();
+      return log;
+    },
+    /** A new entry raised HERE (bugdesk's rules): kept, and handed to the source to save. */
+    add(raw) {
+      const entry = normalizeEntry(raw);
+      entries = [entry, ...entries.filter((e) => e.id !== entry.id)];
+      if (entries.length > limit) entries.length = limit;
+      if (remoteUnread !== null && !entry.read) remoteUnread += 1;
+      tell("add", entry);
+      changed();
+      return entry;
+    },
+    /** Entries that arrived from the source's side (a push): shown, not saved back. */
+    receive(raws) {
+      const got = (Array.isArray(raws) ? raws : [raws]).map(normalizeEntry);
+      const ids = new Set(got.map((e) => e.id));
+      const fresh = got.filter((e) => !entries.some((x) => x.id === e.id));
+      entries = [...got, ...entries.filter((e) => !ids.has(e.id))].sort((a, b) => b.at - a.at).slice(0, limit);
+      if (remoteUnread !== null) remoteUnread += fresh.filter((e) => !e.read).length;
+      changed();
+    },
+    /** Mark these read — all of them when `ids` is omitted. */
+    markRead(ids = null) {
+      const want = ids ? new Set(ids.map(String)) : null;
+      let n = 0;
+      for (const e of entries) if (!e.read && (!want || want.has(e.id))) {
+        e.read = true;
+        n++;
+      }
+      if (remoteUnread !== null) remoteUnread = want ? Math.max(0, remoteUnread - n) : 0;
+      if (!n && want) return;
+      tell("markRead", want ? [...want] : null);
+      changed();
+    },
+    /** Remove these — all of them when `ids` is omitted. Nothing, when the source cannot. */
+    dismiss(ids = null) {
+      if (!log.canDismiss()) return;
+      const want = ids ? new Set(ids.map(String)) : null;
+      const gone = entries.filter((e) => !want || want.has(e.id));
+      if (!gone.length) return;
+      entries = want ? entries.filter((e) => !want.has(e.id)) : [];
+      if (remoteUnread !== null) {
+        remoteUnread = want ? Math.max(0, remoteUnread - gone.filter((e) => !e.read).length) : 0;
+      }
+      tell("dismiss", want ? [...want] : null);
+      changed();
+    }
+  };
+  if (!source?.load) loaded = true;
+  return log;
+}
+
+// src/ui/components/alerts_pane.js
+var CHIPS = [["all", "All"], ["alert", "Alert"], ["warning", "Warning"], ["info", "Info"]];
+function mountAlertsPane(host, {
+  log,
+  onOpen = null,
+  onBadge = null,
+  rules = null,
+  stillMatches = null,
+  describe = null,
+  status = "",
+  empty = {}
+} = {}) {
+  const doc = host.ownerDocument;
+  const el = (tag, cls, text) => {
+    const n = doc.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== void 0) n.textContent = text;
+    return n;
+  };
+  const icon = (name) => el("span", "material-symbols-outlined", name);
+  let level = "all";
+  let rule = null;
+  let q = "";
+  let pointerDown = false;
+  let pending = false;
+  let destroyed = false;
+  const root = el("div", "twm-alerts");
+  let ruleList = null;
+  if (rules) {
+    const side = el("div", "twm-alerts__rules");
+    const head = el("div", "twm-alerts__head");
+    head.append(el("span", "twm-alerts__caps", "RULES"), el("span", "twm-alerts__spacer"));
+    if (rules.onEdit) {
+      const edit = el("button", "twm-alerts__link", "Edit rules");
+      edit.type = "button";
+      edit.dataset.act = "edit-rules";
+      head.append(edit);
+    }
+    ruleList = el("div", "twm-alerts__rulelist");
+    side.append(head, ruleList);
+    if (rules.foot) side.append(el("div", "twm-alerts__foot", rules.foot));
+    root.append(side);
+  }
+  const main = el("div", "twm-alerts__main");
+  const bar = el("div", "twm-alerts__bar");
+  const chips = el("div", "twm-alerts__chips");
+  chips.setAttribute("role", "group");
+  chips.setAttribute("aria-label", "Level");
+  const chipEls = /* @__PURE__ */ new Map();
+  for (const [key, label] of CHIPS) {
+    const chip = el("button", "twm-alerts__chip");
+    chip.type = "button";
+    chip.dataset.level = key;
+    chip.append(doc.createTextNode(`${label} `), el("span", "twm-alerts__count", "0"));
+    chips.append(chip);
+    chipEls.set(key, chip);
+  }
+  const input = el("input", "twm-alerts__q");
+  input.type = "text";
+  input.autocomplete = "off";
+  input.spellcheck = false;
+  input.placeholder = "Filter";
+  input.setAttribute("aria-label", "Filter alerts");
+  const readAll = el("button", "twm-btn twm-alerts__btn", "Mark all read");
+  readAll.type = "button";
+  readAll.dataset.act = "read-all";
+  const clear = el("button", "twm-btn twm-alerts__btn", "Clear");
+  clear.type = "button";
+  clear.dataset.act = "clear";
+  bar.append(chips, input, el("span", "twm-alerts__spacer"), readAll, clear);
+  const list = el("div", "twm-alerts__log");
+  const foot = el("div", "twm-alerts__status", status);
+  foot.hidden = !status;
+  main.append(bar, list, foot);
+  root.append(main);
+  host.append(root);
+  const byRule = () => rule ? log.entries().filter((e) => String(e.ruleId) === rule) : log.entries();
+  const shown = () => {
+    const needle = q.trim().toLowerCase();
+    return byRule().filter((e) => level === "all" || e.level === level).filter((e) => !needle || `${e.ref ?? ""} ${e.title} ${e.body ?? ""} ${e.rule ?? ""}`.toLowerCase().includes(needle));
+  };
+  function row(entry, now) {
+    const lv = ALERT_LEVELS[normalizeLevel(entry.level)];
+    const r = el("div", `twm-alerts__row twm-alerts__row--${entry.level}${entry.read ? "" : " twm-alerts__row--unread"}`);
+    r.dataset.id = entry.id;
+    const mark = el("span", "twm-alerts__unread");
+    mark.setAttribute("aria-label", entry.read ? "Read" : "Unread");
+    const ic = icon(lv.icon);
+    ic.classList.add("twm-alerts__icon");
+    ic.title = lv.label;
+    const time = el("span", "twm-alerts__time", ago(entry.at, now));
+    time.title = entry.at.toLocaleString();
+    const text = el("span", "twm-alerts__text");
+    text.append(el("span", "twm-alerts__title", entry.title));
+    if (entry.body) text.append(el("span", "twm-alerts__body", entry.body));
+    const cells = [mark, ic, time];
+    if (rules) cells.push(el("span", "twm-alerts__rule", entry.rule ?? ""));
+    const tag = describe?.(entry);
+    cells.push(el("span", tag ? "twm-alerts__tag" : "twm-alerts__tag twm-alerts__tag--none", tag ?? ""));
+    const ref = el(entry.ref && onOpen ? "button" : "span", "twm-alerts__ref", entry.ref ?? "");
+    if (ref.tagName === "BUTTON") {
+      ref.type = "button";
+      ref.dataset.open = entry.id;
+    }
+    cells.push(ref, text);
+    if (stillMatches) {
+      const still = stillMatches(entry);
+      cells.push(el(
+        "span",
+        `twm-alerts__state${still === false ? " twm-alerts__state--gone" : ""}`,
+        still === true ? "still matches" : still === false ? "no longer matches" : ""
+      ));
+    }
+    const acts = el("span", "twm-alerts__acts");
+    if (onOpen) {
+      const open = el("button", "twm-alerts__icon-btn");
+      open.type = "button";
+      open.dataset.open = entry.id;
+      open.title = "Open";
+      open.setAttribute("aria-label", "Open");
+      open.append(icon("open_in_new"));
+      acts.append(open);
+    }
+    if (log.canDismiss()) {
+      const dis = el("button", "twm-alerts__icon-btn");
+      dis.type = "button";
+      dis.dataset.dismiss = entry.id;
+      dis.title = "Dismiss";
+      dis.setAttribute("aria-label", "Dismiss");
+      dis.append(icon("close"));
+      acts.append(dis);
+    }
+    cells.push(acts);
+    r.append(...cells);
+    return r;
+  }
+  function paint() {
+    if (destroyed) return;
+    if (pointerDown) {
+      pending = true;
+      return;
+    }
+    pending = false;
+    const now = /* @__PURE__ */ new Date();
+    const all = log.entries();
+    const scoped = byRule();
+    for (const [key, chip] of chipEls) {
+      const on = level === key;
+      chip.classList.toggle("twm-alerts__chip--on", on);
+      chip.setAttribute("aria-pressed", String(on));
+      chip.querySelector(".twm-alerts__count").textContent = String(scoped.filter((e) => key === "all" || e.level === key).length);
+    }
+    readAll.disabled = !all.some((e) => !e.read) && log.unreadCount() === 0;
+    clear.hidden = !log.canDismiss();
+    clear.disabled = !all.length;
+    if (ruleList) {
+      const items = [{ id: null, name: "All alerts", meta: String(all.length) }, ...rules.list?.() ?? []];
+      ruleList.replaceChildren(...items.map((r) => {
+        const key = r.id === null ? null : String(r.id);
+        const b = el("button", `twm-alerts__rulebtn${rule === key ? " twm-alerts__rulebtn--on" : ""}${r.off ? " twm-alerts__rulebtn--off" : ""}`);
+        b.type = "button";
+        b.dataset.rule = key ?? "";
+        b.setAttribute("aria-pressed", String(rule === key));
+        b.append(
+          el("span", `twm-alerts__dot${r.level ? ` twm-alerts__dot--${normalizeLevel(r.level)}` : ""}`),
+          el("span", "twm-alerts__rulename", r.name || "Unnamed rule"),
+          el("span", "twm-alerts__meta", r.meta ?? "")
+        );
+        return b;
+      }));
+    }
+    const rows = [];
+    let lastDay = "";
+    for (const entry of shown()) {
+      const day = dayLabel(entry.at, now);
+      if (day !== lastDay) rows.push(el("div", "twm-alerts__day", day));
+      lastDay = day;
+      rows.push(row(entry, now));
+    }
+    if (!rows.length) {
+      rows.push(el("div", "twm-alerts__none", !log.loaded() ? "Loading\u2026" : all.length ? empty.filtered ?? "No alerts match." : empty.none ?? "Nothing yet."));
+    }
+    if (log.hasMore()) {
+      const older = el("button", "twm-btn twm-alerts__more", "Load older");
+      older.type = "button";
+      older.dataset.act = "more";
+      rows.push(older);
+    }
+    const scroll = list.scrollTop;
+    list.replaceChildren(...rows);
+    list.scrollTop = scroll;
+    onBadge?.({ unread: log.unreadCount(), level: log.worstUnread() });
+  }
+  const onDown = () => {
+    pointerDown = true;
+  };
+  const onUp = () => {
+    if (!pointerDown) return;
+    setTimeout(() => {
+      pointerDown = false;
+      if (pending) paint();
+    }, 0);
+  };
+  root.addEventListener("mousedown", onDown, true);
+  root.addEventListener("pointerdown", onDown, true);
+  doc.addEventListener("mouseup", onUp, true);
+  doc.addEventListener("pointerup", onUp, true);
+  doc.addEventListener("pointercancel", onUp, true);
+  root.addEventListener("click", (event) => {
+    const t = event.target;
+    const chip = t.closest("[data-level]");
+    if (chip) {
+      level = chip.dataset.level;
+      paint();
+      return;
+    }
+    const r = t.closest("[data-rule]");
+    if (r) {
+      rule = r.dataset.rule || null;
+      paint();
+      return;
+    }
+    const open = t.closest("[data-open]");
+    if (open) {
+      const entry = log.get(open.dataset.open);
+      if (!entry) return;
+      log.markRead([entry.id]);
+      onOpen?.(entry);
+      return;
+    }
+    const dis = t.closest("[data-dismiss]");
+    if (dis) {
+      log.dismiss([dis.dataset.dismiss]);
+      return;
+    }
+    const act = t.closest("[data-act]")?.dataset.act;
+    if (act === "read-all") log.markRead();
+    else if (act === "clear") log.dismiss();
+    else if (act === "more") log.loadMore();
+    else if (act === "edit-rules") rules?.onEdit?.();
+  });
+  input.addEventListener("input", () => {
+    q = input.value;
+    paint();
+  });
+  const unsubscribe = log.subscribe(() => paint());
+  const timer = setInterval(paint, 6e4);
+  paint();
+  log.load?.();
+  return {
+    root,
+    refresh: paint,
+    destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      clearInterval(timer);
+      unsubscribe();
+      doc.removeEventListener("mouseup", onUp, true);
+      doc.removeEventListener("pointerup", onUp, true);
+      doc.removeEventListener("pointercancel", onUp, true);
+      root.remove();
+    }
+  };
+}
+
 // src/ui/components/sortable_list.js
 var SortableList = class {
   /**
@@ -2573,10 +3070,22 @@ async function mountGalleryPicker(hostEl, opts = {}) {
 
 // src/ui/components/notification_history.js
 var NotificationHistory = class {
-  constructor({ notificationCenter, eventBus, logger } = {}) {
+  constructor({
+    notificationCenter,
+    eventBus,
+    logger,
+    mountPoint = null,
+    alertLog = null,
+    alertsTab = "alerts",
+    onOpen = null
+  } = {}) {
     this.notificationCenter = notificationCenter;
     this.eventBus = eventBus || null;
     this.logger = logger || console;
+    this.mountPoint = mountPoint;
+    this.alertLog = alertLog;
+    this.alertsTab = alertsTab;
+    this.onOpen = typeof onOpen === "function" ? onOpen : null;
     this.triggerEl = null;
     this.badgeEl = null;
     this.lastSeenCount = 0;
@@ -2584,7 +3093,7 @@ var NotificationHistory = class {
     this._subscriptions = [];
   }
   mount() {
-    const barRight = document.querySelector(".twm-global-bottom-bar .twm-bar-right");
+    const barRight = this.mountPoint || document.querySelector(".twm-global-bottom-bar .twm-bar-right");
     if (!barRight) {
       this.logger.warn?.("[NotificationHistory] .bar-right not found");
       return;
@@ -2598,8 +3107,18 @@ var NotificationHistory = class {
     barRight.appendChild(this.triggerEl);
     this.triggerEl.addEventListener("click", (e) => {
       e.stopPropagation();
-      this.#togglePanel();
+      if (this.alertLog) this.#openAlerts();
+      else this.#togglePanel();
     });
+    if (this.alertLog) {
+      this.triggerEl.setAttribute("data-tooltip", "Alerts");
+      this.triggerEl.setAttribute("aria-label", "Alerts");
+      this._subscriptions.push(this.alertLog.subscribe(() => this.#updateBadge()));
+      const summary = this.eventBus?.on?.("notification:summary", () => this.#openAlerts());
+      if (summary) this._subscriptions.push(() => summary.dispose?.());
+      this.#updateBadge();
+      return;
+    }
     this.lastSeenCount = this.notificationCenter?.history?.length ?? 0;
     this.#subscribeEvents();
   }
@@ -2630,10 +3149,27 @@ var NotificationHistory = class {
       this._subscriptions.push(() => this.eventBus.off(name, badgeUpdate));
     });
   }
+  /** The Alerts tab, asked for on the bus — or the embedder's own verb. */
+  #openAlerts() {
+    if (this.onOpen) {
+      try {
+        this.onOpen();
+      } catch (err) {
+        this.logger.warn?.("[NotificationHistory] onOpen failed", err);
+      }
+      return;
+    }
+    this.eventBus?.emit?.("bottompanel:show", { tab: this.alertsTab });
+  }
   #updateBadge() {
     const historyLen = this.notificationCenter?.history?.length ?? 0;
-    const unread = Math.max(0, historyLen - this.lastSeenCount);
+    const unread = this.alertLog ? this.alertLog.unreadCount() : Math.max(0, historyLen - this.lastSeenCount);
     if (!this.badgeEl) return;
+    if (this.alertLog) {
+      const level = unread > 0 ? this.alertLog.worstUnread() : null;
+      this.badgeEl.className = "twm-notification-history__badge" + (level ? ` twm-notification-history__badge--${level}` : "");
+      this.triggerEl?.classList.toggle("twm-notification-history__trigger--unread", unread > 0);
+    }
     if (unread > 0) {
       this.badgeEl.textContent = unread > 99 ? "99+" : String(unread);
       this.badgeEl.style.display = "";
@@ -5589,6 +6125,12 @@ function thumbGeometry(scrollSize, clientSize, scrollPos, trackLen) {
   const pos = (trackLen - size) * Math.min(1, Math.max(0, scrollPos / max));
   return { size, pos };
 }
+function barCovered(el, stacks) {
+  return stacks.some((stack) => {
+    const top = (stack || []).find((h) => !h.closest?.(".twm-autoscroll-layer"));
+    return Boolean(top) && top !== el && !el.contains(top);
+  });
+}
 function scrollsOn(el, axis) {
   if (!(el instanceof Element)) return false;
   const cs = getComputedStyle(el);
@@ -5677,6 +6219,7 @@ function installAutoScrollbars(root = document.body, { exclude = null } = {}) {
     }
     return rec;
   };
+  const coveredAlong = (el, points) => typeof doc.elementsFromPoint === "function" && barCovered(el, points.map(([x, y]) => doc.elementsFromPoint(x, y)));
   const place = (el) => {
     const rec = managed.get(el);
     if (!rec) return;
@@ -5711,6 +6254,8 @@ function installAutoScrollbars(root = document.body, { exclude = null } = {}) {
           continue;
         }
         Object.assign(thumb.style, { top: `${g.pos}px`, height: `${g.size}px`, left: "0", width: "100%" });
+        const x = right - BAR / 2 - 1;
+        if (coveredAlong(el, [[x, top + 2], [x, top + len / 2], [x, bottom - 2]])) bar.style.display = "none";
       } else {
         const len = right - left;
         Object.assign(bar.style, { left: `${left}px`, top: `${bottom - BAR - 1}px`, width: `${len}px`, height: `${BAR}px` });
@@ -5720,6 +6265,8 @@ function installAutoScrollbars(root = document.body, { exclude = null } = {}) {
           continue;
         }
         Object.assign(thumb.style, { left: `${g.pos}px`, width: `${g.size}px`, top: "0", height: "100%" });
+        const y = bottom - BAR / 2 - 1;
+        if (coveredAlong(el, [[left + 2, y], [left + len / 2, y], [right - 2, y]])) bar.style.display = "none";
       }
     }
   };
@@ -5791,12 +6338,14 @@ function installAutoScrollbars(root = document.body, { exclude = null } = {}) {
   doc.addEventListener("mouseout", onLeaveWindow, true);
   doc.addEventListener("scroll", onScroll, true);
   win.addEventListener("resize", onResize);
+  doc.addEventListener("focusin", onResize, true);
   return {
     dispose() {
       doc.removeEventListener("mouseover", onOver, true);
       doc.removeEventListener("mouseout", onLeaveWindow, true);
       doc.removeEventListener("scroll", onScroll, true);
       win.removeEventListener("resize", onResize);
+      doc.removeEventListener("focusin", onResize, true);
       for (const el of [...managed.keys()]) drop(el);
       root.classList.remove(ROOT_CLASS);
     }
@@ -6530,6 +7079,7 @@ if (typeof window !== "undefined") {
   window.LatexTooltip = TooltipService;
 }
 export {
+  ALERT_LEVELS,
   ActionDropdown,
   AutocompleteField,
   COLUMN_FIT,
@@ -6561,7 +7111,10 @@ export {
   TreeView,
   WindowChromeController,
   WindowTaskbar,
+  ago,
   attachInlineRenamer,
+  barCovered,
+  createAlertLog,
   createChipsFilter,
   createDetailHeader,
   createFactTable,
@@ -6572,6 +7125,7 @@ export {
   createTreeCategory,
   createTreeItem,
   createTreeNode,
+  dayLabel,
   endsTextSelection,
   filterTree,
   fitColumns,
@@ -6588,11 +7142,14 @@ export {
   installWorkspaceScrollbars,
   isRowActivation,
   isRowControl,
+  localSource,
   matchDateFilter,
   matchDurationFilter,
   modalHost,
+  mountAlertsPane,
   mountAttributeListEditor,
   mountGalleryPicker,
+  normalizeLevel,
   openConfirm,
   openForm,
   openModal,
@@ -6621,6 +7178,7 @@ export {
   toastWarn,
   toggleCategory,
   toggleNode,
-  updateDetailHeader
+  updateDetailHeader,
+  worstLevel
 };
 //# sourceMappingURL=widgets.js.map

@@ -8536,7 +8536,7 @@ tr:hover .twm-row-action { opacity: 1; }
 /* ── the popover both pickers are drawn in ──────────────────────────── */
 .twm-flow-popover {
     position: fixed;
-    z-index: var(--z-popover);
+    z-index: var(--z-over-windows, 7100);  /* over the managed window it opened from */
     display: flex;
     flex-direction: column;
     box-sizing: border-box;
@@ -9863,7 +9863,7 @@ tr:hover .twm-row-action { opacity: 1; }
 /* the grip drag: a ghost under the pointer, and a drop line naming the place */
 .twm-flow-outline__ghost {
     position: fixed;
-    z-index: var(--z-popover);
+    z-index: var(--z-over-windows, 7100);  /* over the managed window it opened from */
     box-sizing: border-box;
     display: flex;
     align-items: center;

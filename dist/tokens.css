@@ -115,6 +115,10 @@
     --z-popover:  200;
     --z-modal:    1000;
     --z-toast:    10000;
+    /* What opens FROM a managed window and must draw over it: managed windows
+       stack from 6000 to 6999 (managed_window.js), so a popover at
+       --z-popover would open behind the window that opened it. */
+    --z-over-windows: 7100;
 
     /* ── Transitions ──────────────────────────────────────────── */
     --transition-fast:   120ms ease;

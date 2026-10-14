@@ -2,10 +2,10 @@
 id: 25
 type: story
 title: "DataTable's CSV button is there on a one-page table and names its file"
-status: refined
+status: in-progress
 parent: 23
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 1
@@ -13,7 +13,7 @@ subsystem: widgets
 labels: [desktop, data-table]
 links: []
 created: 2026-10-14
-updated: 2026-10-14T17:20Z
+updated: 2026-10-14T17:21Z
 ---
 
 ## Description
@@ -30,6 +30,8 @@ updated: 2026-10-14T17:20Z
 ## History
 
 - 2026-10-14 · norman_agent · status: draft -> refined
+- 2026-10-14 · norman_agent · status: refined -> in-progress
+- 2026-10-14 · norman_agent · assignee: (unset) -> norman_agent
 
 ## Comments
 

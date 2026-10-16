@@ -2,10 +2,10 @@
 id: 27
 type: story
 title: "Links leave a native window for the system browser: host shell.openExternal and routeExternalLinks"
-status: refined
+status: in-progress
 parent: 23
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 2
@@ -13,7 +13,7 @@ subsystem: host
 labels: [desktop]
 links: []
 created: 2026-10-16
-updated: 2026-10-16T07:12Z
+updated: 2026-10-16T07:13Z
 ---
 
 ## Description
@@ -45,3 +45,5 @@ BugDesk's NativeBridge answers `shell.openExternal`.
 ## History
 
 - 2026-10-16 · norman_agent · status: draft -> refined
+- 2026-10-16 · norman_agent · status: refined -> in-progress
+- 2026-10-16 · norman_agent · assignee: (unset) -> norman_agent

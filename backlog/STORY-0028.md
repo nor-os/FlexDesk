@@ -2,10 +2,10 @@
 id: 28
 type: story
 title: "Right-click shows the browser's menu only where it is useful: suppressNativeContextMenu"
-status: refined
+status: in-progress
 parent: 23
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 1
@@ -13,7 +13,7 @@ subsystem: widgets
 labels: [desktop]
 links: []
 created: 2026-10-16
-updated: 2026-10-16T07:12Z
+updated: 2026-10-16T07:13Z
 ---
 
 ## Description
@@ -41,3 +41,5 @@ The application half is BugDesk BUG-0017 (`../bugdesk/bugs/BUG-0017.md`).
 ## History
 
 - 2026-10-16 · norman_agent · status: draft -> refined
+- 2026-10-16 · norman_agent · status: refined -> in-progress
+- 2026-10-16 · norman_agent · assignee: (unset) -> norman_agent

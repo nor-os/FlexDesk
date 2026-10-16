@@ -24,6 +24,9 @@ export const HOST_CONTRACT = Object.freeze({
     }),
     dialogs: Object.freeze({ required: Object.freeze(['saveFile']), optional: Object.freeze([]) }),
     state:   Object.freeze({ required: Object.freeze(['read', 'write']), optional: Object.freeze([]) }),
+    // `openExternal(url)` hands a web address to the OS's default browser and
+    // resolves true when it did. See external_links.js.
+    shell:   Object.freeze({ required: Object.freeze(['openExternal']), optional: Object.freeze([]) }),
 });
 
 /**
@@ -49,7 +52,7 @@ export function validateCapability(name, cap) {
  * Throws at boot on an incomplete capability — a half-wired host is a bug,
  * and a bug at boot beats a silent degrade at click time.
  *
- * @param {{ window?: object, dialogs?: object, state?: object }} caps
+ * @param {{ window?: object, dialogs?: object, state?: object, shell?: object }} caps
  * @returns {Readonly<object>} the Host
  */
 export function createHost(caps = {}) {

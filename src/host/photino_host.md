@@ -40,6 +40,7 @@ host → page   {"event": "window.maximizedChanged", "value": true}
 | `window.startDrag` | `[]` | anything, **after mouse-up** | custom chrome only: the OS move loop (below) |
 | `window.startResize` | `[edge]`: `n` `s` `e` `w` `ne` `nw` `se` `sw` | anything, **after mouse-up** | custom chrome only: the OS size loop (below) |
 | `dialogs.saveFile` | `[{data, filename, kind}]` | see below | `ShowSaveFile(...)` + write |
+| `shell.openExternal` | `[url]` | `true` when opened | the OS's default browser (below) |
 | `state.read` | `[key]` | the stored value, or `null` | a file per key |
 | `state.write` | `[key, value]` | `true` | a file per key |
 
@@ -149,3 +150,20 @@ window.RegisterWebMessageReceivedHandler((sender, message) =>
 
 The handler runs on the window's thread; a save dialog shown from it is modal to
 the window, which is what you want.
+
+## Opening links in the system browser
+
+`shell.openExternal` takes one absolute URL and opens it with the OS's default
+handler: `Process.Start(new ProcessStartInfo(url) { UseShellExecute = true })`
+on Windows, `xdg-open` on Linux, `open` on macOS. Answer `true` once it has
+been handed over.
+
+**Refuse anything but `http:`, `https:` and `mailto:`** with `ok: false`. The
+URL comes from page content (a link in a record somebody else wrote), and a
+`file:` path or a custom protocol handed to the shell runs whatever the OS
+associates with it. Refused, the page falls back to `window.open`, which is
+no worse than a native side that doesn't have the op.
+
+The page side is `routeExternalLinks({ host })` (`external_links.js`). It
+sends external link clicks and `window.open` calls here; without a `shell`
+capability it changes nothing.

@@ -106,6 +106,7 @@ export function createPhotinoTransport({ external, timeoutMs = 10000, onEvent = 
  * @param {object|null} [opts.window]   replace the window capability, or `null` to leave it out
  * @param {object|null} [opts.dialogs]  replace the dialogs capability, or `null` to leave it out
  * @param {object|null} [opts.state]    replace the state capability, or `null` to leave it out
+ * @param {object|null} [opts.shell]    replace the shell capability, or `null` to leave it out
  * @returns {Readonly<object>} a Host, or NULL_HOST outside a Photino window
  */
 export function createPhotinoHost(opts = {}) {
@@ -181,6 +182,12 @@ export function createPhotinoHost(opts = {}) {
                 catch (e) { warn('dialogs', 'saveFile', e); }
                 return r && typeof r === 'object' ? r : null;
             },
+        },
+        shell: {
+            // True when the native side opened it in the system browser; false
+            // when it refused (a scheme it won't open, an older native side
+            // without the op): the caller falls back to window.open.
+            openExternal: async (url) => (await soft(false, 'shell', 'openExternal', String(url || ''))) === true,
         },
         state: {
             async read(key) {

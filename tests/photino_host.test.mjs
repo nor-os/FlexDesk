@@ -141,10 +141,11 @@ check('isPhotinoWindow needs both halves', [isPhotinoWindow({ sendMessage() {} }
         if (k === 'dialogs.saveFile') return { ok: true, value: { ok: true, path: 'C:/x/' + req.args[0].filename } };
         if (k === 'state.write') { store[req.args[0]] = req.args[1]; return { ok: true, value: true }; }
         if (k === 'state.read') return { ok: true, value: store[req.args[0]] ?? null };
+        if (k === 'shell.openExternal') return { ok: true, value: true };
         return { ok: false, error: `unknown request ${k}` };
     });
     const host = createPhotinoHost({ external: ext, logger: quiet });
-    check('all three capabilities', Object.keys(host).sort(), ['dialogs', 'state', 'window']);
+    check('all four capabilities', Object.keys(host).sort(), ['dialogs', 'shell', 'state', 'window']);
     check('chrome() is native when describe is refused', await host.window.chrome(), 'native');
     check('isMaximized', await host.window.isMaximized(), true);
     check('setMaximized answers the new state', await host.window.setMaximized(1), true);
@@ -165,12 +166,18 @@ check('isPhotinoWindow needs both halves', [isPhotinoWindow({ sendMessage() {} }
     check('state.write', await host.state.write('desktops', { a: 1 }), true);
     check('state.read gets the value back', await host.state.read('desktops'), { a: 1 });
     check('state.read of a missing key', await host.state.read('nope'), null);
+
+    check('shell.openExternal resolves true once the native side opened it',
+          await host.shell.openExternal('https://example.com/a'), true);
+    check('…sending the URL as its one arg', ext.last(), { id: ext.last().id, cap: 'shell', op: 'openExternal', args: ['https://example.com/a'] });
 }
 {
     const refusing = createPhotinoHost({ external: autoExternal(() => ({ ok: false, error: 'no' })), logger: quiet });
     check('saveFile refused → null (the caller downloads instead)', await refusing.dialogs.saveFile({ data: 'x', filename: 'a.csv', kind: 'csv' }), null);
     check('getBounds refused → null', await refusing.window.getBounds(), null);
     check('state.write refused → false', await refusing.state.write('k', 1), false);
+    check('openExternal refused → false (the caller falls back to window.open)',
+          await refusing.shell.openExternal('file:///etc/passwd'), false);
     const slowExt = fakeExternal();
     const slow = createPhotinoHost({ external: slowExt, timeoutMs: 20, logger: quiet });
     let settled = false;
@@ -192,7 +199,7 @@ check('isPhotinoWindow needs both halves', [isPhotinoWindow({ sendMessage() {} }
     const host = createPhotinoHost({ external: fakeExternal(), state: mine, logger: quiet });
     check('a passed capability replaces the Photino one', await host.state.read('x'), 'server');
     const noState = createPhotinoHost({ external: fakeExternal(), state: null, logger: quiet });
-    check('null leaves it out', Object.keys(noState).sort(), ['dialogs', 'window']);
+    check('null leaves it out', Object.keys(noState).sort(), ['dialogs', 'shell', 'window']);
     let threw = false;
     try { createPhotinoHost({ external: fakeExternal(), dialogs: {} }); } catch { threw = true; }
     check('an incomplete replacement is still refused at boot', threw, true);

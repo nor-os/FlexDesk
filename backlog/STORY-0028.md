@@ -2,18 +2,18 @@
 id: 28
 type: story
 title: "Right-click shows the browser's menu only where it is useful: suppressNativeContextMenu"
-status: draft
+status: refined
 parent: 23
 phase:
 assignee:
 reporter: norman
 due:
-points:
+points: 1
 subsystem: widgets
 labels: [desktop]
 links: []
 created: 2026-10-16
-updated: 2026-10-16T07:10Z
+updated: 2026-10-16T07:12Z
 ---
 
 ## Description
@@ -32,4 +32,12 @@ The application half is BugDesk BUG-0017 (`../bugdesk/bugs/BUG-0017.md`).
 
 ## Acceptance criteria
 
-_(not refined yet)_
+- [ ] `suppressNativeContextMenu({ root = document })` prevents the native menu on a right-click that no handler has already claimed (`defaultPrevented`)
+- [ ] A FlexDesk menu or an app handler that calls `preventDefault()` keeps working unchanged, including handlers on DataTable rows and headers, tabs and tiles
+- [ ] In an `<input>` (text-like types), `<textarea>`, `<select>` or a `contenteditable` element, the native menu still appears
+- [ ] A right-click on selected text inside the target still shows the native menu, so Copy stays one click away
+- [ ] An `allow(event)` option lets the app keep the native menu on more targets; it returns `dispose()`
+
+## History
+
+- 2026-10-16 · norman_agent · status: draft -> refined

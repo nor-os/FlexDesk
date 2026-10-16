@@ -18,7 +18,10 @@ var HOST_CONTRACT = Object.freeze({
     optional: Object.freeze(["startNativeDrag", "startNativeResize"])
   }),
   dialogs: Object.freeze({ required: Object.freeze(["saveFile"]), optional: Object.freeze([]) }),
-  state: Object.freeze({ required: Object.freeze(["read", "write"]), optional: Object.freeze([]) })
+  state: Object.freeze({ required: Object.freeze(["read", "write"]), optional: Object.freeze([]) }),
+  // `openExternal(url)` hands a web address to the OS's default browser and
+  // resolves true when it did. See external_links.js.
+  shell: Object.freeze({ required: Object.freeze(["openExternal"]), optional: Object.freeze([]) })
 });
 function validateCapability(name, cap) {
   const spec = HOST_CONTRACT[name];
@@ -256,6 +259,12 @@ function createPhotinoHost(opts = {}) {
         return r && typeof r === "object" ? r : null;
       }
     },
+    shell: {
+      // True when the native side opened it in the system browser; false
+      // when it refused (a scheme it won't open, an older native side
+      // without the op): the caller falls back to window.open.
+      openExternal: async (url) => await soft(false, "shell", "openExternal", String(url || "")) === true
+    },
     state: {
       async read(key) {
         const v = await soft(null, "state", "read", key);
@@ -279,6 +288,75 @@ function createPhotinoHost(opts = {}) {
   }
   return createHost(caps);
 }
+
+// src/host/external_links.js
+var SCHEMES = /* @__PURE__ */ new Set(["http:", "https:", "mailto:"]);
+function outbound(href, base) {
+  let url;
+  try {
+    url = new URL(String(href), base);
+  } catch {
+    return null;
+  }
+  return SCHEMES.has(url.protocol) ? url : null;
+}
+function routeExternalLinks({ host, root, win } = {}) {
+  const w = win ?? (typeof window !== "undefined" ? window : null);
+  const r = root ?? (typeof document !== "undefined" ? document : null);
+  const shell = host?.shell;
+  if (!shell || typeof shell.openExternal !== "function" || !w || !r) return { dispose() {
+  } };
+  const base = () => w.location?.href;
+  const origin = () => {
+    try {
+      return new URL(base()).origin;
+    } catch {
+      return null;
+    }
+  };
+  const nativeOpen = w.open;
+  const fallback = (href) => {
+    try {
+      nativeOpen?.call(w, href, "_blank", "noopener");
+    } catch {
+    }
+  };
+  const send = (href) => {
+    Promise.resolve().then(() => shell.openExternal(href)).then((opened) => {
+      if (opened !== true) fallback(href);
+    }, () => fallback(href));
+  };
+  const onClick = (e) => {
+    if (e.defaultPrevented) return;
+    if (e.type === "click" ? e.button !== 0 : e.button !== 1) return;
+    const a = e.target?.closest?.("a[href]");
+    if (!a || a.hasAttribute("download")) return;
+    const url = outbound(a.getAttribute("href"), base());
+    if (!url) return;
+    const leaves = url.protocol === "mailto:" || (a.getAttribute("target") || "").toLowerCase() === "_blank" || url.origin !== origin() || e.button === 1;
+    if (!leaves) return;
+    e.preventDefault();
+    send(url.href);
+  };
+  const routedOpen = function open(href, target, features) {
+    const url = href == null ? null : outbound(href, base());
+    if (url && (url.protocol === "mailto:" || url.origin !== origin())) {
+      send(url.href);
+      return null;
+    }
+    return nativeOpen.call(w, href, target, features);
+  };
+  r.addEventListener("click", onClick);
+  r.addEventListener("auxclick", onClick);
+  w.open = routedOpen;
+  return {
+    dispose() {
+      r.removeEventListener("click", onClick);
+      r.removeEventListener("auxclick", onClick);
+      if (w.open === routedOpen) w.open = nativeOpen;
+    }
+  };
+}
 export {
   HOST_CONTRACT,
   NULL_HOST,
@@ -287,6 +365,7 @@ export {
   createPhotinoTransport,
   createPywebviewHost,
   isPhotinoWindow,
+  routeExternalLinks,
   usesCustomWindowChrome,
   validateCapability
 };

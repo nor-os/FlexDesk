@@ -1789,6 +1789,32 @@ so the window snaps, takes Win+arrows and resizes like any other.
 frame styles, return the whole window from `WM_NCCALCSIZE`, start gestures with
 `WM_NCLBUTTONDOWN`. Don't use Photino's `SetChromeless`, which loses all of that.
 
+### Links out, and the browser's right-click menu (0.16.0)
+
+In a native window a `target="_blank"` link or a `window.open()` opens nothing,
+or a bare popup with no way back. Hand them to the system browser instead:
+
+```js
+import { routeExternalLinks } from '@flexdesk/host';
+import { suppressNativeContextMenu } from '@flexdesk/widgets';
+
+routeExternalLinks({ host });    // a no-op without host.shell, so call it anywhere
+suppressNativeContextMenu();     // only your own menus, plus the native one in text
+```
+
+`routeExternalLinks` sends http(s) and mailto links that leave the app (a
+`_blank` target, another origin, a middle click) and external `window.open`
+calls to `host.shell.openExternal(url)`. That is a new optional host
+capability, which `createPhotinoHost()` offers as `shell.openExternal`. If the
+native side refuses, the original `window.open` runs. In a browser tab the
+host has no `shell`, and nothing changes.
+
+`suppressNativeContextMenu` prevents the browser's or webview's own menu (Back,
+Reload, Print, Inspect) on any right-click that no handler claimed with
+`preventDefault()`. It keeps the native menu in editable text and on selected
+text, where Paste and Copy are the point, and wherever `allow(event)` says so.
+Both calls return `{ dispose }`.
+
 ## Peer dependencies
 
 `@flexdesk/charts` needs Plotly (4.4 MB). `@flexdesk/editor` needs Monaco (14 MB).

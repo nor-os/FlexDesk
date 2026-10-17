@@ -315,6 +315,15 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
 }
 
 
+/**
+ * `openConfirm` — a yes/no modal. Resolves `true` on confirm, `false` on
+ * cancel, Esc, X or backdrop.
+ *
+ * `message`, `confirmLabel` and `cancelLabel` are TEXT, never markup: callers
+ * put user-named things in them ("Delete flow "<name>"?"), so they are set
+ * with `textContent` and a `<` in a name shows as a `<`. A `\n` in `message`
+ * breaks the line (`white-space: pre-line` on `.twm-modal__body--text`).
+ */
 export function openConfirm({
     title, message, confirmLabel = 'OK',
     cancelLabel = 'Cancel',
@@ -323,14 +332,25 @@ export function openConfirm({
     return new Promise((resolve) => {
         const body = document.createElement('div');
         body.className = 'twm-modal__body-host';
-        const cls = danger ? 'twm-btn twm-btn--danger' : 'twm-btn twm-btn--primary';
-        body.innerHTML = `
-            <div class="twm-modal__body">${message}</div>
-            <div class="twm-modal__actions">
-                <button type="button" class="twm-btn" data-action="cancel">${cancelLabel}</button>
-                <button type="button" class="${cls}" data-action="confirm">${confirmLabel}</button>
-            </div>
-        `;
+
+        const messageEl = document.createElement('div');
+        messageEl.className = 'twm-modal__body twm-modal__body--text';
+        messageEl.textContent = message == null ? '' : String(message);
+
+        const actionsEl = document.createElement('div');
+        actionsEl.className = 'twm-modal__actions';
+        const button = (action, className, label) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = className;
+            btn.dataset.action = action;
+            btn.textContent = label == null ? '' : String(label);
+            actionsEl.appendChild(btn);
+        };
+        button('cancel', 'twm-btn', cancelLabel);
+        button('confirm', danger ? 'twm-btn twm-btn--danger' : 'twm-btn twm-btn--primary', confirmLabel);
+
+        body.append(messageEl, actionsEl);
 
         let _resolved = false;
         const win = new ManagedWindow({

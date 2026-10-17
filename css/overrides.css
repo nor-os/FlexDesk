@@ -502,6 +502,12 @@
     min-height: 0;
     overflow-y: auto;
 }
+/* openConfirm's message is text (BUG-0014): `\n` breaks the line, and a long
+ * unbroken name wraps instead of widening the dialog. */
+.twm-managed-window--modal .twm-modal__body--text {
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+}
 /* Form-level error banner — left accent stripe, dim red panel. */
 .twm-managed-window--modal .twm-modal__error {
     margin-top: 8px;

@@ -1666,6 +1666,25 @@ submit with "onCreate is not a function".
 `tests/open_form.test.mjs` mounts the real `openForm` in jsdom and covers all
 four, plus a plain form submitting as before.
 
+## Confirms show text, not markup (0.17.0)
+
+`openConfirm({ title, message, confirmLabel, cancelLabel, danger, icon })`
+resolves `true` or `false`. Its `message` and both labels are **text**: they
+are set with `textContent`, so a `<` shows as a `<`. Until 0.17.0 they went into
+`innerHTML`, and `showDeleteConfirmDialog` / `showCloseConfirmDialog` put
+`itemName` and `itemType` into that message raw: a flow named
+`<img src=x onerror=…>` rendered an image and ran its handler, and a name with
+an unclosed `<` swallowed the rest of the message.
+
+A caller that passed markup in `message` now sees the tags; write a `\n` for a
+line break instead (the message body is `white-space: pre-line`).
+`additionalMessage` on `showDeleteConfirmDialog` follows on its own paragraph
+exactly as before. A body that needs real markup is `openModal`'s job: it takes
+the caller's own DOM.
+
+`tests/confirm_escaping.test.mjs` opens each of them in jsdom with hostile
+names and labels.
+
 ## Notifications: `NotificationCenter`
 
 Toasts, from `toast:show` on the bus (or `toastInfo` / `toastWarn` /

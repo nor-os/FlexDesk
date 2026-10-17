@@ -65,10 +65,12 @@ export async function showDeleteConfirmDialog(options = {}) {
         itemType = 'item',
         additionalMessage = '',
     } = options;
+    // `openConfirm` renders the message as text, so a user-named item
+    // (`<b>x</b>`, an unclosed `<`) is shown exactly as it was typed.
     let message = `Delete ${itemType}`;
     if (itemName) message += ` "${itemName}"`;
     message += '?';
-    if (additionalMessage) message += `<br><br>${escapeHtml(additionalMessage)}`;
+    if (additionalMessage) message += `\n\n${additionalMessage}`;
     return openConfirm({
         title:        `Delete ${capitalize(itemType)}`,
         message,

@@ -6332,10 +6332,6 @@ button.twm-about-dialog__btn--close:focus {
     font-size: var(--font-size-xs);
     color: var(--twm-flow-muted);
 }
-.twm-flow-field__kept {
-    font-family: var(--font-family-mono);
-    color: var(--text-secondary);
-}
 .twm-flow-field__refusal {
     margin: 0;
     padding: 6px 8px;
@@ -6566,6 +6562,30 @@ button.twm-about-dialog__btn--close:focus {
 .twm-flow-togglechip:focus-visible {
     outline: 2px solid var(--twm-flow-focus);
     outline-offset: 1px;
+}
+
+/* ── a column typed by name, while the columns are not known ─────────── */
+.twm-flow-field__typed {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.twm-flow-typedchips:focus-within {
+    border-color: var(--twm-flow-focus);
+}
+.twm-flow-input.twm-flow-typedchips__input {
+    flex: 1 1 8em;
+    width: auto;
+    min-width: 6em;
+    height: 18px;
+    padding: 0 2px;
+    border: 0;
+    background: transparent;
+    font-size: var(--font-size-xs);
+}
+.twm-flow-input.twm-flow-typedchips__input:focus {
+    outline: none;
+    box-shadow: none;
 }
 
 /* ── choice-cards ───────────────────────────────────────────────────── */
@@ -8937,5 +8957,34 @@ button.twm-about-dialog__btn--close:focus {
 .twm-flow-lanes__menu-item .material-symbols-outlined {
     font-size: 16px;
     line-height: 1;
+}
+.twm-flow-lanes__menu-item.twm-flow-lanes__menu-item--refused {
+    height: auto;
+    min-height: 28px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+}
+.twm-flow-lanes__menu-words {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.twm-flow-lanes__menu-label {
+    white-space: nowrap;
+}
+.twm-flow-lanes__menu-reason {
+    max-width: 280px;
+    font-size: var(--font-size-xs);
+    white-space: normal;
+}
+.twm-flow-lanes__menu-sep {
+    height: 1px;
+    margin: 4px 6px;
+    background: var(--border-subtle);
+}
+.twm-flow-lanes__notice {
+    margin-left: 8px;
+    color: var(--twm-flow-warning);
+    font-size: var(--font-size-xs);
 }
 /* ══ end FLOW · LANES ══ */

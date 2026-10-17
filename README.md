@@ -1085,7 +1085,7 @@ character width and paints a viewport of no lines, and nothing repaints it.
 | `string-list` | Short strings |
 | `enum-chips` | A multi-select of `items.enum`, as chips, in the enum's order |
 | `choice-cards` | One of N as radio rows, each with its words |
-| `upstream-column`, `upstream-columns` | One or several columns of the step's input, by name, from the panel's `columns` |
+| `upstream-column`, `upstream-columns` | One or several columns of the step's input, by name, from the panel's `columns`. While `columns` answers `null` (the columns are not known yet) the name is typed instead — a text box, or a chip list that takes a name on Enter or a comma — under the hint *Columns not known yet*; once columns arrive the same setting is a select (or toggle chips) with the stored name chosen, and a name the columns lack is kept and marked *(not found)* (0.17.0) |
 
 | Schema hint | Meaning |
 |---|---|
@@ -1513,8 +1513,14 @@ input (`lanes_two_inputs`), a cycle (`lanes_cycle`) or two steps with one id
 read only with the sentence, is drawn as well as it can be, and is never
 repaired. The sizes are `LANE_GEOMETRY`: `regular` is 200 × 62 (the editor),
 `small` is 160 × 50 (two lines a card, for a narrower host) and `strip` is
-92 × 26 (`compact`). The pure edits — splice, add a source, remove, set an
-input, the input candidates, parameters — are `lanePipeline`.
+92 × 26 (`compact`). The pure edits — splice, add a source, remove, duplicate,
+set an input, the input candidates, parameters — are `lanePipeline`.
+`lanePipeline.duplicateStep(pipeline, catalogue, id)` (0.17.0) puts a copy right
+after the step: a fresh id, a label derived from its title (`Title (copy)`, then
+`(copy 2)`, …, words in `LANE_PIPELINE_STRINGS`), a deep copy of its config and
+the same lines in, none out. It answers `{ok: true, node}`, or `{ok: false,
+reason}` and changes nothing when there is no such step or its type is
+`unavailable`.
 
 | Option | Meaning |
 |---|---|
@@ -1536,6 +1542,7 @@ input, the input candidates, parameters — are `lanePipeline`.
 | `parameterTypes` | The parameter types a parameter may be: `text`, `number`, `integer`, `boolean`, `date` by default |
 | `select` | The step chosen on load (the first step, left to right, by default) |
 | `history` | `{limit, mergeMs}` |
+| `menuItems(step)` | Your own items on a card's menu, after the built-in ones: `[{id, label, icon?, danger?, disabled?, reason?, run}]`. `run({step, pipeline, editor})` gets a DRAFT of the flow to change in place (it may answer later, with a promise); what it changed is one undoable edit, `flow:step:menu`. Answering `false` takes nothing, and neither does a draft that answers after another edit. `disabled` greys the item with its `reason`; a read-only flow greys every one with the read-only reason (0.17.0) |
 | `onChange`, `onSelect({kind, id})`, `onStepsShow(mode)` | Callbacks |
 
 | Method | Does |
@@ -1548,11 +1555,15 @@ input, the input candidates, parameters — are `lanePipeline`.
 | `setReadOnly(false \| {reason})`, `readOnly` | — |
 | `setActionState(id, {disabled, reason, busy})`, `setStatus(text)` | A refused verb shows its reason beside it |
 | `select(id \| 'flow' \| null)`, `selected`, `focus()` | — |
-| `undo()`, `redo()`, `history` | Over whole snapshots. The actions are `LANE_ACTIONS` (`flow:step:add`, `:remove`, `:label`, `:config`, `flow:join:set`, `flow:source:add`, `flow:parameter:add`, `:change`, `:remove`, `flow:settings`) |
+| `undo()`, `redo()`, `history` | Over whole snapshots. The actions are `LANE_ACTIONS` (`flow:step:add`, `:remove`, `:label`, `:config`, `:duplicate`, `:menu`, `flow:join:set`, `flow:source:add`, `flow:parameter:add`, `:change`, `:remove`, `flow:settings`) |
 | `refreshPreview()` | Asks the providers now, without the debounce |
 | `inputColumns(stepId, port?)` | The columns of the frame a step reads, from the last description, else the last preview. The `upstream-column(s)` widgets read the same |
 | `layout`, `placed` | The current layout and its coordinates |
 | `destroy()` | Removes every listener, popover and table, and aborts the preview in flight |
+
+**Columns that arrive while you are in the settings** are drawn when the focus
+leaves them, so a column typed by name before the columns were known becomes a
+choice then, and nothing is rebuilt under the reader's caret.
 
 **The preview** is one request for the whole flow to each provider. It is sent
 800 ms after the last edit and once after a load. A rename does not send one,
@@ -1566,10 +1577,14 @@ business; the editor knows only what it is handed.
 
 **Keys.** These are the kit's, on the editor's root. ← → ↑ ↓ move between cards
 and between the step tabs. Enter opens a step's settings on their first field,
-and Escape goes back to the card. Delete removes the step and F2 renames it.
+and Escape goes back to the card. Delete removes the step, Ctrl/⌘+D duplicates
+it (the copy is chosen and focused) and F2 renames it.
 Ctrl/⌘+Z and Ctrl/⌘+Y undo and redo, and are stopped at the editor even inside
 a field. The context-menu key or a right press opens a card's menu: *Open its
-settings*, *Add a step after it*, *Remove step*. Backspace is never the
+settings*, *Add a step after it*, *Duplicate*, *Remove step*, then your
+`menuItems`. An item that cannot be chosen — *Duplicate* on a read-only flow, or
+on a step whose type is not available — is greyed with its reason in its own
+line, and a refused Ctrl/⌘+D says the reason beside the status. Backspace is never the
 editor's. The cards are one Tab stop, the chosen one, and its "+" comes next in
 the Tab order. The "+" shows on hover, on focus and on the chosen card, never
 on hover alone.

@@ -152,6 +152,35 @@ content: {
 chrome shows only — the tree, the tab labels and the saved layout are left
 alone — and a call from content whose pane has since been rebuilt does nothing.
 
+### A navigation panel you drive yourself: `mountNavPanel` (0.17.0)
+
+`mountNavPanel(hostEl, { modes })` (from `@flexdesk/wm`) builds a mode strip, a
+shared filter box and one lazily-mounted pane per mode. A strip click is no
+longer the only way to switch: the handle's `select(modeId)` takes the same
+path — it mounts the mode on first use, runs its `activate()`, restores that
+mode's filter text — and its promise resolves once `activate()` has run. An
+unknown id is ignored. `active()` names the mode shown.
+
+```js
+const nav = mountNavPanel(hostEl, {
+    modes: [
+        { id: 'files',  icon: 'folder',   label: 'Files',  mount: mountFiles },
+        { id: 'runs',   icon: 'history',  label: 'Runs',   mount: mountRuns,
+          filter: false },                // a pane with controls of its own
+    ],
+    showModeStrip: false,   // no strip: the app switches with select()
+    initialMode: 'runs',    // the mode shown at mount (default: the first)
+});
+await nav.select('files');  // mounted and activated
+nav.active();               // 'files'
+```
+
+A mode with `filter: false` hides the filter box while it is active, and its
+pane is never handed a query; the next mode with a filter shows its own saved
+text again. `showFilter: false` renders no filter box at all. All three options
+default to the old behaviour, so a panel built without them renders exactly as
+before.
+
 ### Your desktops beside the app's (0.10.0)
 
 Pass `chrome.desktops` and the shell paints a desktop bar: a chip per desktop

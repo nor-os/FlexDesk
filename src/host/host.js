@@ -22,7 +22,11 @@ export const HOST_CONTRACT = Object.freeze({
         // `chrome()` answers 'native' or 'custom', or a promise of one.
         optional: Object.freeze(['startNativeDrag', 'startNativeResize']),
     }),
-    dialogs: Object.freeze({ required: Object.freeze(['saveFile']), optional: Object.freeze([]) }),
+    // `openFile({accept, kind, encoding})` answers {ok: true, name, path?, text | data},
+    // {ok: false, cancelled: true}, {ok: false, error}, or null when there is
+    // no dialog behind it. Optional: pickFile() (file_picker.js) falls back to
+    // the browser's file chooser without it.
+    dialogs: Object.freeze({ required: Object.freeze(['saveFile']), optional: Object.freeze(['openFile']) }),
     state:   Object.freeze({ required: Object.freeze(['read', 'write']), optional: Object.freeze([]) }),
     // `openExternal(url)` hands a web address to the OS's default browser and
     // resolves true when it did. See external_links.js.

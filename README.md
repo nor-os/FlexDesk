@@ -2131,7 +2131,8 @@ library degrades rather than throwing.
 ```js
 createHost({
     state:   { read, write },              // layout persistence
-    dialogs: { saveFile },                 // optional — CSV export falls back to a Blob
+    dialogs: { saveFile, openFile? },      // optional — CSV export falls back to a Blob;
+                                           // openFile (itself optional) to pickFile()
     window:  { minimize, maximize, ... },  // optional — no native chrome buttons without it
 })
 ```
@@ -2153,6 +2154,45 @@ const host = createPhotinoHost({ state: myServerState, onEvent: (name, value) =>
 `dialogs.saveFile` falls back to a Blob download when the window refuses, and
 the messages the C# side has to answer are in
 [`src/host/photino_host.md`](src/host/photino_host.md).
+
+**The dialogs a pywebview bridge answers.** `createPywebviewHost()` calls these
+methods on `window.pywebview.api`, positionally. Each is optional: a missing
+one makes its capability answer `null`, and FlexDesk degrades.
+
+| Bridge method | Arguments | Reply | Behind |
+|---|---|---|---|
+| `save_file_dialog` | `(data, filename, kind)`: the file's text (`csv`) or base64 bytes (`png`), the suggested name, the type | `{ok: true, path}` \| `{ok: false, cancelled: true}` \| `{ok: false, error}` | `dialogs.saveFile` |
+| `read_file_dialog` (0.17.0) | `(accept, kind, encoding)`: a list of extensions or MIME types to filter by (`['.json']`, may be empty), a label for the filter or `null`, and `'text'` or `'base64'` | `{ok: true, name, path, text}` (`'text'`, read as UTF-8) or `{ok: true, name, path, data}` (`'base64'`, the bytes) \| `{ok: false, cancelled: true}` \| `{ok: false, error}` | `dialogs.openFile` |
+
+### Opening a file: `pickFile` (0.17.0)
+
+```js
+import { pickFile } from '@flexdesk/host';
+
+const r = await pickFile(host, { accept: ['.json'], kind: 'json' });   // encoding: 'text' (default) or 'base64'
+if (r.ok) load(JSON.parse(r.text));
+else if (r.error) toast(r.error);                                     // r.cancelled: say nothing
+```
+
+`pickFile(host, {accept, kind, encoding})` asks the host's
+`dialogs.openFile` first, a new optional member of `dialogs`: a host whose
+`dialogs` has only `saveFile` is still complete. Without it, or when it
+answers `null` (no dialog behind it), a transient hidden
+`<input type="file">` opens the browser's chooser, so the same call works in a
+browser tab, under `NULL_HOST`. Either way it resolves one of
+
+```
+{ok: true, name, path?, text}      encoding 'text'
+{ok: true, name, path?, data}      encoding 'base64': the file's bytes
+{ok: false, cancelled: true}       the user closed the chooser
+{ok: false, error}                 show it
+```
+
+`path` comes only from a native host. The pywebview adapter maps `openFile` to
+`read_file_dialog(accept, kind, encoding)` (the table above); the Photino
+adapter sends `dialogs.openFile`, documented in
+[`photino_host.md`](src/host/photino_host.md). The browser chooser reports a
+cancel through the input's `cancel` event, which every current engine fires.
 
 ### A window with its own chrome (0.15.0)
 

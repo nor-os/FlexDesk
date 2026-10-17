@@ -132,12 +132,7 @@ export class WindowManager {
             },
             onFocusChange: () => this._notifyChange(),
             onAfterRender: () => this._rehomeContainedWindows(),
-            // A finished splitter drag is a layout change like any other:
-            // save it, so the dragged size is what the next load restores.
-            onSplitResized: () => {
-                this._persist();
-                this._notifyChange('split-resized');
-            },
+            onSplitResized: () => this._onSplitResized(),
         });
         this._persistTimer = null;
         // Window-id → leaf-id mapping so a managed-window demote can
@@ -3169,27 +3164,15 @@ export class WindowManager {
      *  renderer cache keeps the mounted content (nav filter state, etc.). */
     _canonicalize(tree, desktop) {
         // 1. Find existing panel leaves.
-        const panel = {};
-        for (const leaf of tree.leaves()) {
-            const kind = leaf.content?.kind;
-            if (kind === 'panel:left')   panel.left   = leaf;
-            else if (kind === 'panel:right')  panel.right  = leaf;
-            else if (kind === 'panel:bottom') panel.bottom = leaf;
-        }
+        const panel = _panelLeaves(tree);
 
-        // 2. Measure each panel BEFORE anything is detached: its share of
-        //    the WM area along its own axis (width for left/right, height
-        //    for bottom). Detaching collapses the panel's split, so this is
-        //    the last moment the user's dragged size can be read. It is kept
-        //    on the desktop record (`panelShares`, serialized with it), so a
-        //    panel the user closes comes back at the size it had, even
-        //    across a reload while it was closed. A panel that is not on
-        //    the tree, or IS the root, measures nothing and keeps whatever
-        //    share it last had.
-        for (const side of ['left', 'right', 'bottom']) {
-            const measured = this._panelShare(tree, panel[side], side === 'bottom' ? 'v' : 'h');
-            if (measured != null) desktop.panelShares[side] = measured;
-        }
+        // 2. Measure each panel BEFORE anything is detached. Detaching
+        //    collapses the panel's split, so this is the last moment a size
+        //    the tree still holds can be read (a stored blob that predates
+        //    `panelShares`, a split resized without a drag). A tree a
+        //    structural change has just left non-canonical measures nothing
+        //    and the share recorded before it stands; see _recordPanelShares.
+        this._recordPanelShares(tree, desktop);
         const share = desktop.panelShares;
 
         // 3. Detach each panel leaf from its current parent. (We don't
@@ -3253,16 +3236,15 @@ export class WindowManager {
         //    over, which keeps the Navigator's width when the right panel is
         //    toggled. That quotient can pass 1 when the shares were taken at
         //    different times (the right panel dragged wide while the left was
-        //    closed), so it is capped to leave the content the same minimum
-        //    slot a splitter drag would.
+        //    closed), so it goes through the same clamp as every recorded
+        //    share: no split is built that a splitter drag could not produce.
         const willWrap = (side) => !!desktop.panels[side] && seededSide !== side;
         const DEFAULT_SHARE = 1 / 5;
-        const maxShare = 1 - TileRenderer.MIN_SLOT_FRACTION;
         const wrapShare = (side) => {
             const own = share[side];
             if (own == null) return null;
             if (side !== 'left' || !willWrap('right')) return own;
-            return Math.min(own / (1 - (share.right ?? DEFAULT_SHARE)), maxShare);
+            return _clampPanelShare(own / (1 - (share.right ?? DEFAULT_SHARE)));
         };
         const wrap = (panelLeaf, side) => {
             // Re-register the leaf if it was orphaned by detach.
@@ -3316,17 +3298,52 @@ export class WindowManager {
         }
     }
 
-    /** The share (0..1) of the WM area a panel leaf takes along `axis`:
-     *  the product of its shares in every ancestor split running that way
-     *  (splits across the axis do not change it). Null for a missing or
-     *  root leaf, or a degenerate split. */
-    _panelShare(tree, leaf, axis) {
+    /** A finished splitter drag is a layout change like any other: record
+     *  the panels' shares while the tree is still canonical (a drag never
+     *  changes its structure), then save, so the dragged size is what the
+     *  next load, or the next structural change, gives back. */
+    _onSplitResized() {
+        this._recordPanelShares(this._tree(), this.desktops.active());
+        this._persist();
+        this._notifyChange('split-resized');
+    }
+
+    /** Keep `desktop.panelShares` current: each panel's share of the WM area
+     *  along its own axis (width for left/right, height for bottom), kept on
+     *  the desktop record and serialized with it, so a panel the user closes
+     *  comes back at the size it had, even across a reload while it was
+     *  closed. A panel that measures nothing (not on the tree, the root, or
+     *  under a split that is not one of its canonical panel splits) keeps the
+     *  share it last had. Every share, measured or stored, is clamped here to
+     *  what a splitter drag allows, so a bad stored value is never saved. */
+    _recordPanelShares(tree, desktop) {
+        const panel = _panelLeaves(tree);
+        for (const side of ['left', 'right', 'bottom']) {
+            const v = _clampPanelShare(this._panelShare(tree, panel[side], side)
+                                       ?? desktop.panelShares[side]);
+            if (v == null) delete desktop.panelShares[side];
+            else desktop.panelShares[side] = v;
+        }
+    }
+
+    /** The share (0..1) of the WM area the `side` panel leaf takes along its
+     *  axis: the product of its shares in every ancestor split running that
+     *  way (splits across the axis do not change it). Only a CANONICAL
+     *  placement measures: the leaf's own parent is its `split-panel-<side>`
+     *  split and every ancestor is a panel split. Any other tree is one a
+     *  structural change has left in passing (the last content tile closed,
+     *  or a spawned content leaf wrapping the whole root), whose sizes are
+     *  not the user's; that, a missing or root leaf, or a degenerate split
+     *  gives null. */
+    _panelShare(tree, leaf, side) {
         if (!leaf?.parentId) return null;
+        if (!String(leaf.parentId).startsWith(`split-panel-${side}-`)) return null;
+        const axis = side === 'bottom' ? 'v' : 'h';
         let frac = 1;
         let node = leaf;
         while (node.parentId) {
             const parent = tree.get(node.parentId);
-            if (!parent) break;
+            if (!parent || !String(parent.id).startsWith('split-panel-')) return null;
             if (parent.dir === axis) {
                 const idx = parent.children.indexOf(node.id);
                 const total = parent.sizes.reduce((a, b) => a + b, 0);
@@ -3942,6 +3959,27 @@ export class WindowManager {
  *  created, so the bar names what the user opened rather than the kind
  *  of thing it is. The rename-bus listener in the WM keeps these in
  *  sync when the underlying entity is renamed. */
+/** The panel leaves of `tree`, by side. */
+function _panelLeaves(tree) {
+    const panel = {};
+    for (const leaf of tree.leaves()) {
+        const kind = leaf.content?.kind;
+        if (kind === 'panel:left')        panel.left   = leaf;
+        else if (kind === 'panel:right')  panel.right  = leaf;
+        else if (kind === 'panel:bottom') panel.bottom = leaf;
+    }
+    return panel;
+}
+
+/** A panel share held to the range a splitter drag allows a slot,
+ *  [MIN_SLOT_FRACTION, 1 - MIN_SLOT_FRACTION]; null for anything that is
+ *  not a finite number (no share). */
+function _clampPanelShare(v) {
+    if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+    const min = TileRenderer.MIN_SLOT_FRACTION;
+    return Math.min(Math.max(v, min), 1 - min);
+}
+
 function _tabTitle(kind, props) {
     if (props && typeof props.label === 'string' && props.label) return props.label;
     if (props && (typeof props.id === 'string' || typeof props.id === 'number')

@@ -5,12 +5,12 @@
  *   §2  appendChunk updates only the last message's DOM
  *   §3  scrolling up while streaming stops following and shows Jump to latest;
  *       clicking it follows again; content growing never unpins
- *   §4  Enter submits and clears; Shift+Enter inserts a newline; empty is ignored
- *   §5  setBusy(true) turns Send into Cancel; Esc or a click cancels once
+ *   §4  Enter submits and clears; Shift+Enter is left to the browser; empty is ignored
+ *   §5  setBusy(true) turns Send into Cancel; Esc (anywhere in the view) or a click cancels once
  *   §6  a render callback that throws shows plain text and the view keeps working
  *   §7  replaceAll restores 100 messages and scrolls to the bottom
  *   §8  the scroll position is readable and settable; destroy
- *   §9  the composer grows to its cap
+ *   §9  the composer grows to its cap, on input events
  *   §10 the entry exports it; every class the view sets is styled
  *
  *     node tests/conversation_view.test.mjs
@@ -180,6 +180,31 @@ console.log('§2 appendChunk updates only the last message\'s DOM');
         && !last.classList.contains('twm-chat__msg--streaming') && t.view.streamingId() === null);
     t.view.appendChunk('ignored');
     ok('a chunk with no stream open is ignored', t.view.messages()[2].text === 'Hello world');
+
+    const doneId = t.view.messages()[2].id;
+    const before = t.rows().map((r) => r.outerHTML);
+    let refused = false;
+    try { t.view.beginStream({ id: doneId }); } catch { refused = true; }
+    ok('beginStream with an id already present is refused', refused);
+    ok('…leaving streamingId() null and no row added', t.view.streamingId() === null
+        && t.rows().length === 3 && t.rows().every((r, i) => r.outerHTML === before[i]));
+    t.view.appendChunk(' MUTATED');
+    ok('…so a chunk after it does not touch the finished message',
+        t.view.messages()[2].text === 'Hello world' && t.rows()[2].textContent === 'Hello world');
+    const open = t.view.beginStream({ role: 'assistant' });
+    refused = false;
+    try { t.view.beginStream({ id: doneId }); } catch { refused = true; }
+    ok('a refused beginStream leaves an open stream open', refused && t.view.streamingId() === open
+        && t.rows()[3].classList.contains('twm-chat__msg--streaming'));
+    calls.length = 0;
+    t.view.appendChunk('more');
+    ok('…and its chunks still go to it', t.view.messages()[3].text === 'more'
+        && t.view.messages()[2].text === 'Hello world');
+    t.view.endStream();
+    const s2 = t.view.beginStream({ id: 'given', role: 'assistant' });
+    ok('a stream with a caller id renders streaming on its first draw', s2 === 'given'
+        && calls.some((c) => c.id === 'given' && c.streaming === true) && t.view.streamingId() === 'given');
+    t.view.endStream();
 }
 
 console.log('§3 scrolling up during streaming stops auto-scroll; Jump to latest resumes');
@@ -224,15 +249,15 @@ console.log('§3 scrolling up during streaming stops auto-scroll; Jump to latest
     t.view.endStream();
 }
 
-console.log('§4 the composer: Enter submits and clears; Shift+Enter inserts a newline');
+console.log('§4 the composer: Enter submits and clears; Shift+Enter is left to the browser');
 {
     const submitted = [];
     const t = fresh({ onSubmit: (text) => submitted.push(text) });
     typeInto(t.input, 'first line');
     const sh = key(t.input, 'Enter', { shiftKey: true });
-    ok('Shift+Enter does not submit', submitted.length === 0);
-    ok('Shift+Enter inserts a newline at the caret', t.input.value === 'first line\n' && sh.defaultPrevented);
-    t.input.setRangeText('second', t.input.selectionStart, t.input.selectionEnd, 'end');
+    ok('Shift+Enter does not submit', submitted.length === 0 && t.input.value === 'first line');
+    ok('Shift+Enter is not prevented, so the browser inserts the newline', !sh.defaultPrevented);
+    typeInto(t.input, 'first line\nsecond');   // what the browser typed
     const e = key(t.input, 'Enter');
     ok('Enter submits the whole text', submitted.length === 1 && submitted[0] === 'first line\nsecond');
     ok('…clears the composer', t.input.value === '' && t.view.getText() === '');
@@ -251,7 +276,7 @@ console.log('§4 the composer: Enter submits and clears; Shift+Enter inserts a n
     ok('Esc while idle is left alone', !esc.defaultPrevented);
 }
 
-console.log('§5 setBusy(true) turns Send into Cancel; Esc or a click cancels once');
+console.log('§5 setBusy(true) turns Send into Cancel; Esc anywhere in the view or a click cancels once');
 {
     let cancels = 0;
     const submitted = [];
@@ -284,6 +309,22 @@ console.log('§5 setBusy(true) turns Send into Cancel; Esc or a click cancels on
     t.view.setBusy(false);
     key(t.input, 'Escape');
     ok('Esc when idle does not cancel', cancels === 2);
+
+    t.view.setBusy(true);
+    const onButton = key(t.send, 'Escape');
+    ok('Esc with focus on the Cancel button cancels', cancels === 3 && onButton.defaultPrevented);
+    t.view.setBusy(false);
+    t.view.setBusy(true);
+    t.view.append({ role: 'user', text: 'x' });
+    key(t.rows()[0], 'Escape');
+    ok('Esc from inside the transcript cancels', cancels === 4);
+    t.view.setBusy(false);
+    t.view.setBusy(true);
+    key(t.host, 'Escape');
+    ok('Esc outside the view is not the view\'s', cancels === 4);
+    t.view.setBusy(false);
+    const idleEsc = key(t.send, 'Escape');
+    ok('Esc on the button while idle is left alone', !idleEsc.defaultPrevented && cancels === 4);
 }
 
 console.log('§6 a render callback that throws shows plain text and the view keeps working');
@@ -344,6 +385,24 @@ console.log('§7 replaceAll restores 100 messages and scrolls to the bottom');
     ok('a new message after it follows', t.rows().length === 101 && t.log.scrollTop === t.geo.max());
     const id = t.view.append({ role: 'user', text: 'auto' });
     ok('generated ids never collide with restored ones', !history.some((h) => h.id === id));
+
+    const r = fresh();
+    const keep = Array.from({ length: 8 }, (_, i) => r.view.append({ role: 'user', text: `k${i}` }));
+    r.view.setScrollTop(0);
+    const rowsBefore = r.rows();
+    let refused = false;
+    try { r.view.replaceAll([{ id: 'n1', text: 'a' }, { id: 'n2', text: 'b' }, { id: 'n1', text: 'c' }]); }
+    catch { refused = true; }
+    ok('replaceAll with a repeated id is refused', refused);
+    ok('…and changes nothing: messages, rows and slots as before',
+        r.view.messages().map((m) => m.id).join() === keep.join()
+        && r.rows().length === 8 && r.rows().every((row, i) => row === rowsBefore[i])
+        && keep.every((k) => r.view.slot(k) !== null) && r.view.slot('n1') === null);
+    ok('…nor the scroll position', !r.view.isPinned() && r.view.getScrollTop() === 0 && !r.jump.hidden);
+    r.view.replaceAll([{ text: 'gen' }, { id: 'm1', text: 'given' }, { id: 'm2', text: 'given too' }]);
+    const ids = r.view.messages().map((m) => m.id);
+    ok('a generated id in replaceAll avoids every id given later in the list',
+        ids.length === 3 && new Set(ids).size === 3 && ids[1] === 'm1' && ids[2] === 'm2');
     const u = fresh();
     u.view.replaceAll([{ id: 'm1', role: 'user', text: 'a' }, { id: 'm2', role: 'user', text: 'b' }]);
     const fresh1 = u.view.append({ role: 'user', text: 'c' });
@@ -365,8 +424,12 @@ console.log('§8 scroll position; destroy');
     t.view.setScrollTop(0);
     t.view.scrollToBottom();
     ok('scrollToBottom follows again', t.view.isPinned() && t.view.getScrollTop() === t.geo.max());
+    t.view.beginStream();
+    t.view.setBusy(true);
     t.view.destroy();
     ok('destroy removes the view', t.host.querySelector('.twm-chat') === null);
+    ok('…and forgets its stream and busy state', t.view.streamingId() === null && !t.view.isBusy()
+        && t.view.messages().length === 0);
     t.view.destroy();
     ok('destroy twice is harmless', true);
 }
@@ -380,8 +443,10 @@ console.log('§9 the composer grows to its cap');
     typeInto(t.input, 'a');
     ok('one line: its own height', t.input.style.height === '30px' && t.input.style.overflowY === 'hidden');
     sh = 90;
-    key(t.input, 'Enter', { shiftKey: true });
-    ok('Shift+Enter grows it', t.input.style.height === '90px');
+    const sh1 = key(t.input, 'Enter', { shiftKey: true });
+    typeInto(t.input, 'a\n');                    // the browser's newline arrives as an input event
+    ok('a newline from Shift+Enter grows it through the input event', !sh1.defaultPrevented
+        && t.input.style.height === '90px');
     sh = 400;
     typeInto(t.input, 'long\n'.repeat(20));
     ok('capped, and then it scrolls', t.input.style.height === '120px' && t.input.style.overflowY === 'auto');

@@ -71,9 +71,6 @@ export class SliderField {
         this.sliderInput.type = 'range';
         this.sliderInput.className = 'twm-slider-field__input';
         this.#writeRangeAttributes();
-        if (this.field.disabled) {
-            this.sliderInput.disabled = true;
-        }
 
         // Prevent parent interactions from interfering with slider dragging
         // Use stopImmediatePropagation to ensure no other handlers on this element run

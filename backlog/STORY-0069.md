@@ -1,0 +1,33 @@
+---
+id: 69
+type: story
+title: "0.17.0 ships the defect fixes and shell capabilities a full-chrome embedder needs"
+status: draft
+parent: 68
+phase:
+assignee:
+reporter: norman
+due:
+points: 3
+subsystem: build
+labels: [release]
+links: [blocked-by 31, blocked-by 32, blocked-by 33, blocked-by 34, blocked-by 35, blocked-by 36, blocked-by 37, blocked-by 38, blocked-by 62, blocked-by 39, blocked-by 43, blocked-by 44, blocked-by 50, relates-to BUG-0003, relates-to BUG-0004, relates-to BUG-0005, relates-to BUG-0006, relates-to BUG-0008, relates-to BUG-0009, relates-to BUG-0026, relates-to BUG-0011, relates-to BUG-0012, relates-to BUG-0013, relates-to BUG-0014, relates-to BUG-0015, relates-to BUG-0016, relates-to BUG-0017, relates-to BUG-0018, relates-to BUG-0019, relates-to BUG-0020, relates-to BUG-0023, relates-to BUG-0024, relates-to BUG-0025, relates-to BUG-0027, relates-to BUG-0028]
+created: 2026-10-17
+updated: 2026-10-17T07:55Z
+---
+
+## Description
+
+Contents: STORY-0031, STORY-0032, STORY-0033, STORY-0034, STORY-0035, STORY-0036, STORY-0037, STORY-0038, STORY-0062, STORY-0039, STORY-0043, STORY-0044, STORY-0050; the bugs listed in fixes_bugs; and the existing BUG-0001 (latex tooltip never visible) and BUG-0002 (flow popovers behind ManagedWindow).
+
+Related EcoSim records: EcoSim STORY-0025 (`../EcoSim/backlog/STORY-0025.md`).
+
+Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
+
+## Acceptance criteria
+
+- [ ] `npm view flexdesk@0.17.0 version` prints 0.17.0
+- [ ] Every listed story is marked done in the backlog
+- [ ] Each listed bug's steps to reproduce no longer reproduce against the published package
+- [ ] `npm run check` passes and dist/ matches a fresh build
+- [ ] The changelog lists every removed or renamed export with its replacement

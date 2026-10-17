@@ -848,6 +848,8 @@ export class TileGrid {
             tileType,
             config,
             schema,
+            // What `getFieldOptions` reads for a field with dynamic options.
+            data: this.data,
             variables: this.data ? this._getVariableList() : [],
             onSave: (newConfig) => {
                 const tile = this.tiles.get(tileId);

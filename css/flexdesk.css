@@ -4069,6 +4069,60 @@ body.twm-window-maximized .twm-resize-handle {
 .fd-scope-picker__btn--on:hover { background: var(--accent); color: #fff; }
 .fd-scope-picker__btn:focus-visible { outline: 1px solid var(--accent-bright); outline-offset: -2px; }
 
+/* ── the tile config form (0.17.0, tile_config_form.js) ──────────────────
+   One row per schema field: the label, the control, the description, the
+   inline error. A hidden row (visibleWhen) is `hidden`, never rebuilt. */
+.fd-tile-config {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    padding: var(--space-sm);
+    font-size: var(--font-size-sm);
+}
+.fd-tile-config__row {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+.fd-tile-config__row[hidden] { display: none; }
+.fd-tile-config__row--checkbox {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-xs);
+}
+.fd-tile-config__row--checkbox .fd-tile-config__help,
+.fd-tile-config__row--checkbox .fd-tile-config__error { flex-basis: 100%; }
+.fd-tile-config__label { color: var(--text-secondary); font-size: var(--font-size-xs); }
+.fd-tile-config__input,
+.fd-tile-config__select {
+    width: 100%;
+    box-sizing: border-box;
+    padding: var(--ea-input-pad, 4px 6px);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    background: var(--ea-input-bg, transparent);
+    color: var(--text-bright);
+    font: inherit;
+}
+.fd-tile-config__input:focus,
+.fd-tile-config__select:focus { outline: none; border-color: var(--accent-bright); }
+.fd-tile-config__input:disabled,
+.fd-tile-config__select:disabled,
+.fd-tile-config__checkbox:disabled,
+.fd-tile-config__color:disabled,
+.fd-tile-config__range:disabled { opacity: 0.6; cursor: default; }
+.fd-tile-config__row--invalid .fd-tile-config__input,
+.fd-tile-config__row--invalid .fd-tile-config__select { border-color: var(--color-danger); }
+.fd-tile-config__range-wrap { display: flex; align-items: center; gap: var(--space-sm); }
+.fd-tile-config__range { flex: 1 1 auto; }
+.fd-tile-config__range-value { min-width: 3ch; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.fd-tile-config__color { width: 48px; height: 24px; padding: 0; border: 1px solid var(--border-subtle); background: transparent; }
+.fd-tile-config__help { color: var(--text-muted); font-size: var(--font-size-xs); line-height: 1.4; }
+.fd-tile-config__error { color: var(--color-danger); font-size: var(--font-size-xs); line-height: 1.4; }
+.fd-tile-config__error[hidden] { display: none; }
+
 /* ===================================================================
    REUSABLE ACTION DROPDOWN COMPONENT
    Used by Add Scenario, Add Widget, and other action dropdowns

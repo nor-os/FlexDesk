@@ -345,6 +345,39 @@ text again. `showFilter: false` renders no filter box at all. All three options
 default to the old behaviour, so a panel built without them renders exactly as
 before.
 
+### Buttons that change with the pane: `ctx.setChromeActions` (0.17.0)
+
+A factory may return `chromeActions` — `[{icon, title, onClick}]`, drawn in the
+pane's chrome left of the split/float/close buttons — but those are read once.
+`ctx.setChromeActions(specs)` replaces them at any time, the way `setTitle`
+replaces the title: called during the mount it wins over the returned list, the
+later call wins, the list survives repaints, `null` or `[]` clears it, and a
+call from content whose pane has since been rebuilt does nothing. The content is
+never re-mounted.
+
+```js
+content: {
+    page: (hostEl, props, ctx) => {
+        let wide = false;
+        const paint = () => ctx.setChromeActions([
+            { icon: wide ? 'width_normal' : 'width_wide', title: 'Page width',
+              pressed: wide, onClick: () => { wide = !wide; paint(); } },
+            { separator: true },
+            { icon: 'add', label: 'New', title: 'Add a page', onClick: addPage },
+            { icon: 'publish', title: 'Nothing to publish yet', disabled: true },
+        ]);
+        paint();
+        return { destroy() {} };
+    },
+},
+```
+
+A spec may add **`label`** (text beside the glyph, or instead of it),
+**`pressed`** (`aria-pressed`, plus a pressed style; leave it out for a button
+that is not a toggle), **`disabled`** (greyed and inert, with its tooltip kept —
+it is `aria-disabled`, not the `disabled` attribute) and **`{separator: true}`**
+(a divider). A spec with none of them renders exactly as before.
+
 ### Your desktops beside the app's (0.10.0)
 
 Pass `chrome.desktops` and the shell paints a desktop bar: a chip per desktop

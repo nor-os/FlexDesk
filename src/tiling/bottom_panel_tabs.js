@@ -71,7 +71,8 @@ export function createBottomPanelTabs(container, {
     let chosen = false;
     let destroyed = false;
     // Eager panes and the first one shown mount inside `createTabs`, before it
-    // has answered; `mountPane` hands the strip over then.
+    // has answered; `mountPane` hands the strip (and `api.root`) over then, so
+    // a pane sees the whole api inside its `mount`.
     let strip = null;
 
     const api = {
@@ -81,8 +82,9 @@ export function createBottomPanelTabs(container, {
             if (destroyed || !byId.has(id)) return;
             chosen = true;
             if (strip.active() !== id) { strip.select(id); return; }
-            // Already in front: asked for again (a toast's "+N more"), so the
-            // pane is told again and the choice is remembered, as any select.
+            // Already in front: asked for again (a click on it, a toast's
+            // "+N more"), so the pane is told again and the choice is
+            // remembered, as any select.
             strip.instance(id)?.onShow?.();
             remembered(id);
         },
@@ -112,8 +114,8 @@ export function createBottomPanelTabs(container, {
     };
 
     function remembered(id) {
-        try { remember?.write?.(id); } catch { /* storage refused: not ours to fix */ }
         onSelect?.(id, byId.get(id));
+        try { remember?.write?.(id); } catch { /* storage refused: not ours to fix */ }
     }
 
     strip = createTabs(container, {
@@ -123,6 +125,7 @@ export function createBottomPanelTabs(container, {
         active: byId.has(initial) ? initial : panes[0]?.id,
         mountPane: (item, el, tabs) => {
             strip ??= tabs;
+            api.root ??= tabs.root;
             const pane = byId.get(item.id);
             return pane.mount?.(el, store ? store(pane) : null, api) ?? null;
         },
@@ -131,8 +134,11 @@ export function createBottomPanelTabs(container, {
             chosen = true;
             remembered(id);
         },
+        // A click on the tab already in front is a select here, as it always
+        // was: the pane hears onShow again and the choice is remembered.
+        onReselect: (id) => api.select(id),
     });
-    api.root = strip.root;
+    api.root ??= strip.root;
     if (strip.active() != null) onSelect?.(strip.active(), byId.get(strip.active()));
 
     // The bus is the bottom panel's, not the strip's: a `bottompanel:show` for

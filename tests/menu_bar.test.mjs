@@ -10,9 +10,11 @@
  *   §3  Alt (on its own) or F10 focuses the bar; Alt+letter and Shift+F10 do not
  *   §4  Left/Right move across menus; Up/Down move within one
  *   §5  Right opens a submenu and Left closes it
- *   §6  Esc closes one level, and the last Esc gives focus back
+ *   §6  Esc closes one level, and the last Esc gives focus back — to what had
+ *       it when the bar was entered THIS time, even after focus dropped to nothing
  *   §7  a function-valued submenu is rebuilt each time it opens
- *   §8  setEnabled / setChecked patch an open menu without rebuilding the bar
+ *   §8  setEnabled / setChecked patch an open menu without rebuilding the bar;
+ *       a radio group in a closed function submenu keeps exactly one checked
  *   §9  disabled items and separators are skipped by the keyboard and never
  *       reach onAction
  *   §10 the roles, and the ARIA structure they must form
@@ -266,6 +268,43 @@ section('§6 Esc closes one level and the last Esc returns focus to where it was
     press('F10'); press('ArrowDown'); press('Backspace'); press('Escape'); press('Escape');
     document.removeEventListener('keydown', spy);
     check('only F10 reached the document\'s bubble listeners — none did', leaked, []);
+    // Focus leaving the bar to NOTHING (a press on a non-focusable area, the
+    // window losing focus) also ends the bar's activation: the next Alt
+    // remembers what has focus then, not what had it the time before.
+    const fieldX = document.createElement('input');
+    const fieldY = document.createElement('input');
+    document.body.append(fieldX, fieldY);
+    fieldX.focus();
+    alt();
+    check('Alt from field X focuses the bar', focused(), 'File');
+    document.activeElement.blur();
+    check('the title blurs to nothing', document.activeElement === document.body, true);
+    fieldY.focus();
+    alt();
+    check('Alt from field Y focuses the bar again', focused(), 'File');
+    press('Escape');
+    ok('Esc gives focus back to Y, not to the stale X', document.activeElement === fieldY);
+    // The same with a menu open when focus drops to nothing.
+    fieldX.focus();
+    alt(); press('ArrowDown');
+    document.activeElement.blur();
+    check('focus dropping to nothing closes the open menu', openMenus().length, 0);
+    fieldY.focus();
+    press('F10');
+    press('Escape');
+    ok('…and the next F10, Esc returns to Y', document.activeElement === fieldY);
+    // A press in the bar never moves focus by itself, so it never drops to
+    // nothing on the way (the bar moves focus to the title on click).
+    fieldX.focus();
+    const pressed = mouse('mousedown', title('Edit'));
+    ok('mousedown on a title is default-prevented', pressed === false);
+    ok('…and focus has not moved yet', document.activeElement === fieldX);
+    click(title('Edit'));
+    check('the click opens the menu and focuses its title', [openMenus().length, focused()], [1, 'Edit']);
+    ok('mousedown on an item is default-prevented', mouse('mousedown', itemIn(openMenus()[0], 'Undo')) === false);
+    press('Escape'); press('Escape');
+    ok('Esc, Esc returns to X', document.activeElement === fieldX);
+    fieldX.remove(); fieldY.remove();
     reset();
 }
 
@@ -352,6 +391,47 @@ section('§8 setEnabled and setChecked update an open menu without rebuilding th
     check('…patched in place while open', itemIn(openMenus()[1], 'alpha.txt').hasAttribute('aria-disabled'), false);
     bar.setEnabled('save', false);
     reset();
+
+    // A radio group that lives in a FUNCTION submenu, set while it is closed.
+    const winHost = document.createElement('div');
+    document.body.appendChild(winHost);
+    const winActions = [];
+    const win = createMenuBar(winHost, {
+        menus: [{ id: 'window', label: 'Window', items: [
+            { id: 'pick', label: 'Pick', submenu: () => [
+                { id: 'w1', label: 'W1', radio: 'win', checked: true },
+                { id: 'w2', label: 'W2', radio: 'win', checked: false },
+                { id: 'w3', label: 'W3', radio: 'win', checked: false },
+            ] },
+        ] }],
+        onAction: (id, info) => winActions.push([id, info.checked]),
+    });
+    const winRadios = () => {
+        win.open('window');
+        mouse('mouseover', [...winHost.querySelectorAll('.twm-menubar__item')].find((b) => label(b) === 'Pick'));
+        const sub = [...winHost.querySelectorAll('[role="menu"]')][1];
+        const out = [...sub.querySelectorAll('.twm-menubar__item')].map((b) => b.getAttribute('aria-checked'));
+        win.close();
+        return out;
+    };
+    check('the function submenu\'s group starts as its model says', winRadios(), ['true', 'false', 'false']);
+    check('isChecked reads a closed function submenu', [win.isChecked('w1'), win.isChecked('w2')], [true, false]);
+    win.setChecked('w2', true);
+    check('setChecked while closed: isChecked agrees', [win.isChecked('w1'), win.isChecked('w2'), win.isChecked('w3')], [false, true, false]);
+    check('…and opening it shows exactly one checked radio', winRadios(), ['false', 'true', 'false']);
+    win.setChecked('w2', false);
+    check('unchecking the selected radio leaves none checked', winRadios(), ['false', 'false', 'false']);
+    win.setChecked('w3', true);
+    win.open('window');
+    mouse('mouseover', [...winHost.querySelectorAll('.twm-menubar__item')].find((b) => label(b) === 'Pick'));
+    const open1 = [...winHost.querySelectorAll('[role="menu"]')][1];
+    const [b1, , b3] = open1.querySelectorAll('.twm-menubar__item');
+    win.setChecked('w1', true);
+    check('setChecked while open patches the group in place', [b1.getAttribute('aria-checked'), b3.getAttribute('aria-checked')], ['true', 'false']);
+    ok('…in the same submenu', [...winHost.querySelectorAll('[role="menu"]')][1] === open1);
+    win.close();
+    win.dispose();
+    winHost.remove();
 }
 
 // ── §9 ───────────────────────────────────────────────────────────────────
@@ -467,6 +547,35 @@ section('§11 commands(): the same model as palette rows');
     check('…and a stale row for it runs nothing', actions.length, 2);
     bar.setEnabled('undo', true);
     reset();
+
+    // A palette row for a radio item of a closed FUNCTION submenu checks it
+    // and unchecks the rest of its group, which the bar cannot see.
+    const winHost = document.createElement('div');
+    document.body.appendChild(winHost);
+    const winActions = [];
+    const win = createMenuBar(winHost, {
+        menus: [{ id: 'window', label: 'Window', items: [
+            { id: 'pick', label: 'Pick', submenu: () => [
+                { id: 'w1', label: 'W1', radio: 'win', checked: true },
+                { id: 'w2', label: 'W2', radio: 'win', checked: false },
+            ] },
+        ] }],
+        onAction: (id, info) => winActions.push([id, info.checked]),
+    });
+    win.commands().find((r) => r.id === 'menubar:w2').action();
+    check('the palette row ran W2 as checked', winActions, [['w2', true]]);
+    check('isChecked: W2 alone', [win.isChecked('w1'), win.isChecked('w2')], [false, true]);
+    win.open('window');
+    mouse('mouseover', [...winHost.querySelectorAll('.twm-menubar__item')].find((b) => label(b) === 'Pick'));
+    const sub = [...winHost.querySelectorAll('[role="menu"]')][1];
+    check('opening the submenu shows exactly one checked radio',
+          [...sub.querySelectorAll('.twm-menubar__item')].map((b) => [label(b), b.getAttribute('aria-checked')]),
+          [['W1', 'false'], ['W2', 'true']]);
+    win.close();
+    win.commands().find((r) => r.id === 'menubar:w1').action();
+    check('running W1 from the palette moves the selection back', [win.isChecked('w1'), win.isChecked('w2')], [true, false]);
+    win.dispose();
+    winHost.remove();
 }
 
 // ── §12 ──────────────────────────────────────────────────────────────────
@@ -522,6 +631,9 @@ section('§13 createShell mounts it from chrome.menuBar, and the palette lists i
     let threw = false;
     try { await createShell({ ...base(), chrome: { menuBar: barEl } }); } catch (e) { threw = e instanceof TypeError; }
     ok('chrome.menuBar without a model is a boot error', threw);
+    threw = false;
+    try { await createShell({ ...base(), menuBar: { menus: MODEL() } }); } catch (e) { threw = e instanceof TypeError; }
+    ok('a menuBar model without chrome.menuBar is a boot error too', threw);
     const shell = await createShell({
         ...base(),
         palette: { layout: 'grouped', commands: () => [{ id: 'own', label: 'Own command', action: () => ran.push('own') }] },

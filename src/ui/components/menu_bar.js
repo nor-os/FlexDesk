@@ -54,9 +54,13 @@
  * `setEnabled(id, bool)` and `setChecked(id, bool)` record an override for
  * that id, which wins over what the model says from then on — including over
  * a function submenu's fresh items — and patch any open menu IN PLACE: the
- * bar is not rebuilt, and focus stays where it was. `commands()` returns the
- * same model as command-palette rows (`{ id, label, shortcut, context,
- * action }`), so the palette and the bar list identical verbs.
+ * bar is not rebuilt, and focus stays where it was. A radio group keeps ONE
+ * recorded selection, so it shows exactly one checked item however its menu
+ * is reached — opened later, a function submenu included. To find an id the
+ * bar calls function submenus (as `commands()` does), open or not.
+ * `commands()` returns the same model as command-palette rows (`{ id, label,
+ * shortcut, context, action }`), so the palette and the bar list identical
+ * verbs.
  *
  * ── Roles ─────────────────────────────────────────────────────────────
  * The WAI-ARIA menubar pattern: `role="menubar"` on the element you pass,
@@ -99,7 +103,8 @@ export class MenuBar {
         this._emptyLabel = emptyLabel;
         this._doc = el.ownerDocument;
         this._disabled = new Map();     // id -> boolean (override)
-        this._checked = new Map();      // id -> boolean (override)
+        this._checked = new Map();      // id -> boolean (override, check items)
+        this._radio = new Map();        // radio group -> the checked id (or null: none)
         this._models = new WeakMap();   // item element -> model item
         this._stack = [];               // open menus: [{ menu, parent }]
         this._openIdx = -1;             // which title's menu is open
@@ -189,14 +194,7 @@ export class MenuBar {
     /** Check or uncheck every item with this id; checking a radio item
      *  unchecks the rest of its group. An open menu is patched in place. */
     setChecked(id, checked) {
-        const item = this._findModel(id);
-        if (checked && item?.radio != null) {
-            for (const other of this._radioGroup(item.radio)) {
-                if (other.id !== id) { this._checked.set(other.id, false); this._patch(other.id); }
-            }
-        }
-        this._checked.set(id, !!checked);
-        this._patch(id);
+        this._check(this._findModel(id), id, checked);
     }
 
     /**
@@ -247,19 +245,34 @@ export class MenuBar {
     }
 
     _isChecked(item) {
+        if (item.radio != null && this._radio.has(item.radio)) return this._radio.get(item.radio) === item.id;
         return this._checked.has(item.id) ? this._checked.get(item.id) : !!item.checked;
     }
 
-    /** Every model item the bar knows of: the static model (function
-     *  submenus are not called for this) and whatever is on screen. */
+    /** Record a check. `item` is the model item when the bar knows it (a
+     *  radio item then records its group's selection); `id` alone is kept as
+     *  an override for an item the model does not hold yet. */
+    _check(item, id, checked) {
+        if (item?.radio != null) {
+            const group = item.radio;
+            if (checked) this._radio.set(group, id);
+            else if (this._isChecked(item)) this._radio.set(group, null);
+            this._patchGroup(group);
+            return;
+        }
+        this._checked.set(id, !!checked);
+        this._patch(id);
+    }
+
+    /** Every model item the bar knows of: the model, with every function
+     *  submenu called now (as `commands()` does), and whatever is on screen. */
     _knownItems() {
         const out = [];
         const walk = (items) => {
-            if (!Array.isArray(items)) return;
-            for (const it of items) {
+            for (const it of _resolve(items)) {
                 if (!it || it.separator) continue;
                 out.push(it);
-                walk(it.submenu);
+                if (it.submenu != null) walk(it.submenu);
             }
         };
         for (const m of this.menus) walk(m.items);
@@ -272,13 +285,19 @@ export class MenuBar {
 
     _findModel(id) { return this._knownItems().find((it) => it.id === id) || null; }
 
-    _radioGroup(group) { return this._knownItems().filter((it) => it.radio === group); }
-
     /** Re-apply the state of every rendered item with this id. */
     _patch(id) {
         for (const b of this.el.querySelectorAll(SEL_ITEM)) {
             const it = this._models.get(b);
             if (it && it.id === id) this._apply(b, it);
+        }
+    }
+
+    /** Re-apply the state of every rendered item of this radio group. */
+    _patchGroup(group) {
+        for (const b of this.el.querySelectorAll(SEL_ITEM)) {
+            const it = this._models.get(b);
+            if (it && it.radio === group) this._apply(b, it);
         }
     }
 
@@ -473,16 +492,22 @@ export class MenuBar {
     _fire(item) {
         if (!item || item.separator || item._empty || this._isDisabled(item) || item.submenu != null) return;
         let checked;
-        if (_kind(item) === 'menuitemradio') { this.setChecked(item.id, true); checked = true; }
-        else if (_kind(item) === 'menuitemcheckbox') { checked = !this._isChecked(item); this.setChecked(item.id, checked); }
+        // The item itself, not its id: it carries its own radio group even
+        // when it came from a function submenu that is not on screen.
+        if (_kind(item) === 'menuitemradio') { this._check(item, item.id, true); checked = true; }
+        else if (_kind(item) === 'menuitemcheckbox') { checked = !this._isChecked(item); this._check(item, item.id, checked); }
         this._onAction?.(item.id, { item, checked });
     }
 
     // ── events ────────────────────────────────────────────────────────
 
     _onMouseDown(e) {
-        // Before the button takes focus: remember what had it.
+        // Before the button could take focus: remember what had it. A press
+        // in the bar never moves focus by itself — the bar moves it (a title
+        // on click, an item on hover) — so focus never drops to nothing on
+        // the way, which would end the bar's activation (see _onFocusOut).
         if (e.target.closest?.(SEL_TITLE)) this._enter();
+        if (e.target.closest?.(`${SEL_TITLE}, ${SEL_ITEM}`)) e.preventDefault();
     }
 
     _onClick(e) {
@@ -520,9 +545,12 @@ export class MenuBar {
         if (!this._active) this._enter(e.relatedTarget);
     }
 
+    /** Focus left the bar: to an element outside it, or to nothing (a press
+     *  on a non-focusable area, the window losing focus). Either way the
+     *  activation ends, so the next Alt/F10 remembers what has focus THEN. */
     _onFocusOut(e) {
         const to = e.relatedTarget;
-        if (to && !this.el.contains(to)) this._deactivate();
+        if (!to || !this.el.contains(to)) this._deactivate();
     }
 
     _onKey(e) {

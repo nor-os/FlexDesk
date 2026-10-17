@@ -9,7 +9,9 @@
  * dialog, a hidden required form row and a LaTeX tooltip.
  *
  *   §1  allow-list keys are compared kebab-cased, whichever spelling an
- *       embedder lists (`fooBar` and `foo-bar` are one key)
+ *       embedder lists (`fooBar` and `foo-bar` are one key), in the global
+ *       list and in module overrides (`allow()` and `config.moduleOverrides`);
+ *       a capital letter maps as the DOM maps it (`rowID` is `row-i-d`)
  *   §2  the mangled entries are gone; the keys they stood for are allowed
  *   §3  EVERY literal data-attribute key written anywhere under `src/` passes
  *       a strict guard built from the defaults — a new widget key that is not
@@ -24,9 +26,11 @@
  */
 
 import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, resolve as resolvePath } from 'node:path';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync,
+         writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -105,9 +109,61 @@ section('§1 allow-list keys are compared kebab-cased');
     ok('a kebab entry allows dataset.bazQux', !threw(() => { el.dataset.bazQux = '1'; }));
     ok('an attribute entry is case-insensitive', !threw(() => el.setAttribute('data-upper-case', '1')));
     ok('an unlisted key still throws', !!threw(() => { el.dataset.notListed = '1'; }));
+}
+{
+    // A capital letter maps as the DOM maps it: '-' plus its lower-case form.
+    strictGuard({ ...DEFAULT_STATE_GUARD_CONFIG, allowedDatasetKeys: ['rowID'] });
+    const el = document.createElement('div');
+    ok('a "rowID" entry allows dataset.rowID', !threw(() => { el.dataset.rowID = '1'; }));
+    ok('…which is setAttribute("data-row-i-d")', !threw(() => el.setAttribute('data-row-i-d', '1')));
+    ok('…and not setAttribute("data-rowid")', !!threw(() => el.setAttribute('data-rowid', '1')));
+}
+{
+    // Module overrides normalise their keys the same way. The guard attributes
+    // a write to the first stack frame under a `js_new/` path, so the writes
+    // come from a fixture module placed under one.
+    const dir = mkdtempSync(join(tmpdir(), 'flexdesk-state-guard-'));
+    mkdirSync(join(dir, 'js_new'));
+    const fixture = join(dir, 'js_new', 'writer.mjs');
+    writeFileSync(fixture, [
+        'export function writeDataset(el, key) { el.dataset[key] = "1"; }',
+        'export function writeAttribute(el, name) { el.setAttribute(name, "1"); }',
+        '',
+    ].join('\n'));
+    try {
+        const writer = await import(pathToFileURL(fixture).href);
+        const fromWriter = (el) => [
+            ['dataset.fooBar', () => writer.writeDataset(el, 'fooBar')],
+            ['setAttribute("data-foo-bar")', () => writer.writeAttribute(el, 'data-foo-bar')],
+        ];
 
-    // Module overrides normalise their keys the same way; they are not
-    // exercised here because module attribution is BUG-0005's.
+        const viaAllow = strictGuard();
+        viaAllow.guard.allow('js_new/writer', [], { datasetKeys: ['fooBar'] });
+        const a = document.createElement('div');
+        for (const [what, fn] of fromWriter(a)) {
+            const e = threw(fn);
+            ok(`allow() with camelCase "fooBar" allows ${what} from that module`, !e, String(e?.message));
+        }
+        ok('…an unlisted key from that module still throws',
+           !!threw(() => writer.writeDataset(a, 'notListed')));
+        ok('…and "fooBar" is not allowed outside that module',
+           !!threw(() => { a.dataset.fooBar = '1'; }));
+
+        strictGuard({
+            ...DEFAULT_STATE_GUARD_CONFIG,
+            moduleOverrides: [{ pattern: 'js_new/writer', datasetKeys: ['fooBar'] }],
+        });
+        const b = document.createElement('div');
+        for (const [what, fn] of fromWriter(b)) {
+            const e = threw(fn);
+            ok(`config.moduleOverrides with "fooBar" allows ${what} from that module`, !e,
+               String(e?.message));
+        }
+        ok('…an unlisted key from that module still throws',
+           !!threw(() => writer.writeDataset(b, 'notListed')));
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
 }
 
 // ── §2 ──────────────────────────────────────────────────────────────────

@@ -6112,7 +6112,10 @@ button.twm-about-dialog__btn--close:focus {
  * Its body is the one that scrolls: `min-height: 0` on the box and the body is
  * what lets a flex child shrink below its content, without which a long
  * conversation grows the section, and the panel, past the window. If the
- * fixed sections alone outgrow the stack, the stack itself scrolls.
+ * fixed sections alone outgrow the stack, the stack itself scrolls; the open
+ * fill box then stops at its header's height (`min-height: 26px`, the header
+ * rule's `height`) so its header never lands on the next section's, and only
+ * its body shrinks away.
  *
  * `[hidden]` needs its own rule: the box is `display: flex`, and an author
  * `display` beats the UA's `[hidden] { display: none }`. */
@@ -6135,6 +6138,7 @@ button.twm-about-dialog__btn--close:focus {
 }
 .twm-section-stack > .twm-section-stack__section--fill.twm-section-stack__section--expanded {
     flex: 1 1 0;
+    min-height: 26px;
 }
 .twm-section-stack__section--fill > .twm-collapsible-content.visible {
     flex: 1 1 0;

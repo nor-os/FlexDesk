@@ -1017,7 +1017,8 @@ const off = stack.on('toggled', ({ id, expanded, source }) => { /* … */ });
   `map` is `{ [sectionId]: expanded }`, and it is written on every open and
   close under `key`. `read` may return a promise. Until it settles the
   sections show their defaults; a section somebody toggled in the meantime
-  keeps that choice. `stack.ready` resolves once the read has been applied. A
+  keeps that choice, and that toggle is written once the read has settled,
+  over the stored states of the sections nobody touched. `stack.ready` resolves once the read has been applied. A
   store that throws, rejects or returns anything other than a map leaves every
   section on its `defaultExpanded`. Without a store nothing is remembered.
 - **`setVisible(id, false)`** takes a section off the stack and keeps its

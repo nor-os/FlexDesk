@@ -502,12 +502,14 @@ export class MenuBar {
     // ── events ────────────────────────────────────────────────────────
 
     _onMouseDown(e) {
-        // Before the button could take focus: remember what had it. A press
-        // in the bar never moves focus by itself — the bar moves it (a title
-        // on click, an item on hover) — so focus never drops to nothing on
-        // the way, which would end the bar's activation (see _onFocusOut).
+        // Before the button could take focus: remember what had it. No press
+        // in the bar moves focus by itself — not on a title or an item, nor
+        // on a separator, a menu's padding or the bar's empty space — the bar
+        // moves it (a title on click, an item on hover), so focus never drops
+        // to nothing on the way, which would end the bar's activation (see
+        // _onFocusOut).
         if (e.target.closest?.(SEL_TITLE)) this._enter();
-        if (e.target.closest?.(`${SEL_TITLE}, ${SEL_ITEM}`)) e.preventDefault();
+        e.preventDefault();
     }
 
     _onClick(e) {

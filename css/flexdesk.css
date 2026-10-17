@@ -9116,6 +9116,151 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 }
 /* ══ end HELP MODAL ══ */
 
+/* ══ WIZARD (STORY-0047) ══════════════════════════════════════════════════
+ * A step indicator, a body slot and a footer. Steps are drawn done / current /
+ * upcoming / error and joined by a connector that fills once the step after it
+ * has been reached. Only a done (or errored) step before the current one is an
+ * enabled button; the rest are disabled and look inert. */
+.twm-wizard {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    color: var(--text-body);
+    font-size: var(--font-size-sm);
+}
+.twm-wizard__steps {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    margin: 0;
+    padding: var(--space-md) var(--space-lg);
+    list-style: none;
+    border-bottom: 1px solid var(--border-subtle);
+}
+.twm-wizard__step {
+    flex: 0 0 auto;
+    min-width: 0;
+}
+.twm-wizard__step-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-xxs) var(--space-xs);
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-muted);
+    font: inherit;
+    cursor: pointer;
+}
+.twm-wizard__step-btn:hover:not(:disabled) {
+    background: var(--state-hover);
+}
+.twm-wizard__step-btn:focus-visible {
+    outline: 1px solid var(--accent);
+    outline-offset: 1px;
+}
+.twm-wizard__step-btn:disabled {
+    cursor: default;
+}
+.twm-wizard__step-marker {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-circle);
+    font-size: var(--font-size-xs);
+    line-height: 1;
+}
+.twm-wizard__step-marker.material-symbols-outlined {
+    font-size: 14px;
+}
+.twm-wizard__step-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.twm-wizard__step--done .twm-wizard__step-btn {
+    color: var(--text-body);
+}
+.twm-wizard__step--done .twm-wizard__step-marker {
+    border-color: var(--color-success);
+    color: var(--color-success);
+}
+.twm-wizard__step--current .twm-wizard__step-btn {
+    color: var(--text-bright);
+    font-weight: var(--font-weight-semibold);
+}
+.twm-wizard__step--current .twm-wizard__step-marker {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--text-bright);
+}
+.twm-wizard__step--upcoming .twm-wizard__step-btn {
+    color: var(--text-dim);
+}
+.twm-wizard__step--error .twm-wizard__step-btn {
+    color: var(--color-danger);
+}
+.twm-wizard__step--error .twm-wizard__step-marker {
+    border-color: var(--color-danger);
+    color: var(--color-danger);
+}
+.twm-wizard__step--active .twm-wizard__step-label {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+.twm-wizard__connector {
+    flex: 1 1 16px;
+    min-width: 16px;
+    height: 1px;
+    background: var(--border-default);
+}
+.twm-wizard__connector--done {
+    background: var(--color-success);
+}
+.twm-wizard__body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: var(--space-lg);
+}
+.twm-wizard__footer {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-sm) var(--space-lg);
+    border-top: 1px solid var(--border-subtle);
+}
+.twm-wizard__message {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--text-muted);
+}
+.twm-wizard__message--hint {
+    color: var(--color-warning);
+}
+.twm-wizard__message--error {
+    color: var(--color-danger);
+}
+.twm-wizard__actions {
+    display: flex;
+    flex: 0 0 auto;
+    gap: var(--space-xs);
+}
+.twm-wizard--busy {
+    cursor: progress;
+}
+.twm-wizard--busy .twm-wizard__body {
+    opacity: 0.6;
+    pointer-events: none;
+}
+/* ══ end WIZARD ══ */
+
 /* ══ FLOW · KIT ═══════════════════════════════════════════════════════ */
 /* The shared flow-editor kit (36 §3, §3.12): the settings panel and its
  * fields, the generic widgets, reference chips and the chip input, the two

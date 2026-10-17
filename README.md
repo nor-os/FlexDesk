@@ -2024,6 +2024,44 @@ is a row of buttons, one pressed. `grid.setScope(value)` (or
 it, a grid with a data source reloads its tiles, and the grid's `onScopeChange`
 is told. What a scope means is yours; it is not part of the layout.
 
+### A tile's settings as a form: `mountTileConfigForm` (0.17.0)
+
+`getConfigSchema()` answers `{fields}`; `mountTileConfigForm` draws them, so a
+config panel is no longer a control written by hand per field:
+
+```js
+import { mountTileConfigForm, openTileConfig } from '@flexdesk/tiles';
+const form = mountTileConfigForm(host, {
+    schema: tile.getConfigSchema(),
+    config: tile.config,                       // defaults filled by mergeWithDefaults
+    data,                                      // what getFieldOptions reads for dynamic options
+    onChange: (key, value, config) => tile.update(undefined, config),
+    renderers: { variable: ({ field, value, data, readonly, commit }) => myPicker(...) },
+});
+form.getValues(); form.setValues(next); form.dispose();
+```
+
+- A field is `{key, type, label, description?, default?, required?, readonly?,
+  min?, max?, step?, options?, visibleWhen?}`. Every `FieldTypes` entry has a
+  control (text, number, checkbox, select, multiselect, color, range); any other
+  `type` needs a renderer, which answers an element or
+  `{element, setValue?, dispose?}` and calls `commit(value)` on an edit.
+- An edit is checked by `validateField`. An invalid one shows its error under the
+  field and is **not applied**; a valid one calls `onChange` with the field's key.
+- `visibleWhen: {field, in: [...]}` (or `{field, equals}`) hides the row, never
+  rebuilds the form, so the control being typed into keeps its focus.
+- A field with no `key` throws. **The built-in tiles' schemas now use `key` and
+  `description`** (they said `name` and `help`, which `validateConfig` and
+  `mergeWithDefaults` never read: BUG-0021). A consumer that read `field.name`
+  or `field.help` from them reads `field.key` and `field.description`.
+
+The grid's cogwheel emits `grid:config-modal-show`, which now also carries the
+grid's `data`. Nothing listens unless you ask:
+`openTileConfig(eventBus, {mode: 'slide-out', host})` shows the form in a
+`SlideOutPanel` over `host` and saves every valid edit as it is made;
+`{mode: 'modal'}` (the default) saves on Save. It answers a function that
+unsubscribes.
+
 ## Styling
 
 Three stylesheets, and that is the whole CSS contract:

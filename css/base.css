@@ -6204,6 +6204,64 @@ button.twm-about-dialog__btn--close:focus {
 }
 /* ══ end TOGGLE ══ */
 
+/* ══ DOCUMENT OUTLINE (0.17.0) ═══════════════════════════════════════
+ * `createDocumentOutline` (src/ui/components/document_outline.js). No height
+ * of its own: the host that holds it scrolls, if anything does. */
+.twm-doc-outline { display: block; min-width: 0; }
+.twm-doc-outline__items {
+    list-style: none;
+    margin: 0;
+    padding: 2px 0;
+}
+.twm-doc-outline__item { margin: 0; padding: 0; min-width: 0; }
+/* One step of indentation per level below the first, set inline per item as
+ * `--twm-doc-outline-depth` (0 for depth 1). */
+.twm-doc-outline__link {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: 3px 8px 3px calc(8px + var(--twm-doc-outline-depth, 0) * var(--twm-doc-outline-indent, 12px));
+    border: none;
+    border-left: 2px solid transparent;
+    background: transparent;
+    color: var(--text-secondary, #cccccc);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.twm-doc-outline__link:hover { background: var(--state-hover, rgba(255, 255, 255, 0.05)); color: var(--text-primary, #e0e0e0); }
+.twm-doc-outline__link:focus-visible { outline: 1px solid var(--accent-bright, #007acc); outline-offset: -1px; }
+.twm-doc-outline__item--level-1 > .twm-doc-outline__link { color: var(--text-primary, #e0e0e0); }
+.twm-doc-outline__number {
+    flex: 0 0 auto;
+    color: var(--text-muted, #888888);
+    font-variant-numeric: tabular-nums;
+}
+.twm-doc-outline__label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.twm-doc-outline__item.twm-doc-outline__item--active > .twm-doc-outline__link {
+    border-left-color: var(--accent-bright, #007acc);
+    background: rgba(0, 122, 204, 0.15);
+    color: var(--text-primary, #e0e0e0);
+}
+/* Listed, but nothing in the document answers to it. */
+.twm-doc-outline__item--unresolved > .twm-doc-outline__link { opacity: 0.6; }
+.twm-doc-outline__empty {
+    margin: 0;
+    padding: 8px;
+    color: var(--text-muted, #888888);
+    font-style: italic;
+}
+/* ══ end DOCUMENT OUTLINE ══ */
+
 /* ══ FLOW · KIT ═══════════════════════════════════════════════════════ */
 /* The shared flow-editor kit (36 §3, §3.12): the settings panel and its
  * fields, the generic widgets, reference chips and the chip input, the two

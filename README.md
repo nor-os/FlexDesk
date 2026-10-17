@@ -43,7 +43,7 @@ manager, and neither of them should drag in a plotting engine or a code editor.
 | `@flexdesk/core` | 30 kB | Event bus, settings store, logging, state machine, state guard |
 | `@flexdesk/host` | 5 kB | The host port (below) |
 | `@flexdesk/wm` | 166 kB | Tiling window manager: tabs, splits, desktops, command palette, taxonomy, `createShell()` |
-| `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus |
+| `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus, a document outline |
 | `@flexdesk/charts` | 26 kB | Plotly wrapper, chart types, subplot layouts, downsampling, plot windows |
 | `@flexdesk/tiles` | 67 kB | Draggable/resizable widget grid, tile base class, widget registry, layout persistence, chart and KPI tiles |
 | `@flexdesk/editor` | 62 kB | Monaco loader + factory, multi-file tab bar, search, split panes, undo manager |
@@ -1875,6 +1875,49 @@ checks jsdom has nothing to repair.
 `{ title, markdown }`; the modal renders it with `renderMarkdown` and the
 provider's optional `markdownOptions`. `{ title, html }` is unchanged:
 pre-rendered, **trusted** HTML, inserted as it is.
+
+## A document outline: `createDocumentOutline` (0.17.0)
+
+A long document's sections, listed and numbered, the one in view marked while
+the document scrolls, and a click that goes to one (in `@flexdesk/widgets`):
+
+```js
+const outline = createDocumentOutline(sidebarEl, {
+    entries: [{ id: 'intro', level: 1, label: 'Introduction' },
+              { id: 'scope', level: 2, label: 'Scope' }],
+    numbering: true,                 // 1, 1.1, 1.2, 2 …
+    maxDepth: 3,                     // deeper entries are drawn at depth 3
+    scrollContainer: articleEl,      // the element that scrolls; the spy's root
+    resolveTarget: (entry, container) => container.querySelector(`[data-section="${entry.id}"]`),
+    rootMargin: '0px 0px -70% 0px',  // the default: the top 30% is "in view"
+    onSelect: (id, entry) => { /* … */ },
+    emptyState: 'No headings',
+});
+outline.setEntries(next);            // the document has other sections now
+outline.refresh();                   // the same sections, re-rendered: resolve again
+outline.setActive('scope');  outline.getActive();
+const off = outline.onActiveChange((id, entry) => { /* … */ });
+outline.dispose();
+```
+
+Where the entries come from is yours: the outline is told `{id, level, label}`
+and, through `resolveTarget` (by default the element in the container whose
+`id` is the entry's), which element each one stands for. Labels are text.
+Numbers are hierarchical, and a skipped level is one step deeper, not two:
+levels 1, 3, 3, 2 are 1, 1.1, 1.2, 1.3.
+
+Of the targets an IntersectionObserver rooted at `scrollContainer` reports in
+view, the one listed first is active; with none in view the last one stays. An
+entry whose target does not resolve is listed, but never watched and never
+active, and `setActive` refuses it (`false`). A click marks its entry at once,
+scrolls its target into view (`scrollOnSelect: false` leaves that to
+`onSelect`) and suppresses the spy while the scroll passes the sections in
+between, until the container's `scrollend` or, without one, `scrollEndTimeout`
+(1000 ms). `dispose()` disconnects the observer and clears that timer. The
+indent per level is `--twm-doc-outline-indent` (12px).
+
+`tests/document_outline.test.mjs` drives it in jsdom with a hand-fired
+observer.
 
 ## Notifications: `NotificationCenter`
 

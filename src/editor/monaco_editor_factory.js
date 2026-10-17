@@ -391,8 +391,12 @@ export class MonacoEditorFactory {
         const monaco = this.#monaco;
         const language = options.language || 'plaintext';
 
-        const originalModel = monaco.editor.createModel(originalContent, language);
-        const modifiedModel = monaco.editor.createModel(modifiedContent, language);
+        // The pair currently attached to the diff editor. setModels() replaces it, and
+        // dispose() frees whichever pair is attached at that moment — not the first one.
+        let models = {
+            original: monaco.editor.createModel(originalContent, language),
+            modified: monaco.editor.createModel(modifiedContent, language),
+        };
 
         const diffEditor = monaco.editor.createDiffEditor(container, {
             theme: this.#currentTheme,
@@ -408,21 +412,26 @@ export class MonacoEditorFactory {
             enableSplitViewResizing: true,
         });
 
-        diffEditor.setModel({ original: originalModel, modified: modifiedModel });
+        diffEditor.setModel(models);
 
         return {
             editor: diffEditor,
             setModels(original, modified, lang) {
-                originalModel.dispose();
-                modifiedModel.dispose();
-                const newOrig = monaco.editor.createModel(original, lang || language);
-                const newMod = monaco.editor.createModel(modified, lang || language);
-                diffEditor.setModel({ original: newOrig, modified: newMod });
+                const previous = models;
+                models = {
+                    original: monaco.editor.createModel(original, lang || language),
+                    modified: monaco.editor.createModel(modified, lang || language),
+                };
+                // Attach the new pair first: a model must not be disposed while the
+                // diff editor still holds it.
+                diffEditor.setModel(models);
+                safeDispose(previous.original);
+                safeDispose(previous.modified);
             },
             dispose() {
                 safeDispose(diffEditor);
-                safeDispose(originalModel);
-                safeDispose(modifiedModel);
+                safeDispose(models.original);
+                safeDispose(models.modified);
             },
         };
     }

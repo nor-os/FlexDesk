@@ -187,6 +187,23 @@ section('§1 setOptions replaces the options while the form is open');
     await f.cancel();
 }
 
+{
+    // A select with no option selected reads '' — as it submits, and as it always has.
+    const g = grab();
+    const f = await open({
+        fields: [
+            { name: 'none', label: 'None', type: 'select', options: [] },
+            { name: 'town', label: 'Town', type: 'select', options: ['Oslo', 'Rome'] },
+        ],
+        onFieldChange: g.hook,
+    });
+    check('an empty select reads \'\'', g.api.get('none'), '');
+    g.api.set('town', 'Lima');
+    check('a select set to a value it does not offer reads \'\'', g.api.get('town'), '');
+    await f.submit();
+    check('…and both submit \'\', so get and submit agree', await f.result, { none: '', town: '' });
+}
+
 // ── §2 ──────────────────────────────────────────────────────────────────
 section('§2 a disabled option shows its reason and is never the submitted value');
 {
@@ -206,7 +223,7 @@ section('§2 a disabled option shows its reason and is never the submitted value
     check('…and so does its tooltip', pro.title, 'needs a licence');
     check('a default naming it does not select it: the first enabled option is', g.api.get('plan'), 'free');
     g.api.set('plan', 'pro');
-    check('api.set to it does not select it: the select is cleared', g.api.get('plan'), undefined);
+    check('api.set to it does not select it: the select is cleared, and reads \'\'', g.api.get('plan'), '');
     g.api.set('plan', 'free');
     check('(api.set to an enabled one selects it)', g.api.get('plan'), 'free');
     // A script (or a browser that lets it through) selects it anyway.
@@ -448,6 +465,13 @@ section('§7 one implementation: the flow kit\'s controls');
     ok('the kit no longer has its own select, chips or radio list',
        !/function (selectBox|toggleChips)\b/.test(kit) && !/radio\.type = 'radio'/.test(kit));
     ok('openForm no longer writes its own <select> markup', !/<select name=/.test(modal));
+    const controls = await import('../src/ui/components/choice_controls.js');
+    const kitIndex = await import('../src/flow/kit/index.js');
+    ok('the kit\'s public shownValue is choice_controls\' own, not a copy',
+       typeof controls.shownValue === 'function' && kitIndex.shownValue === controls.shownValue);
+    ok('…and widgets.js defines none of its own', !/const shownValue\s*=/.test(kit));
+    check('it still shows a string as itself and anything else as JSON',
+          [kitIndex.shownValue('a'), kitIndex.shownValue(2), kitIndex.shownValue(undefined)], ['a', '2', '']);
 }
 
 console.log(failures === 0

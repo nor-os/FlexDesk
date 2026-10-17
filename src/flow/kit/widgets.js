@@ -29,7 +29,7 @@
  */
 
 import { button, el, uid } from './dom.js';
-import { choiceList, selectBox, toggleChips } from '../../ui/components/choice_controls.js';
+import { choiceList, selectBox, shownValue, toggleChips } from '../../ui/components/choice_controls.js';
 import { createChipInput } from './chip_input.js';
 import { resolveSyntaxes } from './references.js';
 import { admittedTypes, enumLabel, fieldsFromSchema, primaryType, titleOf, visibleFields, whenKeys }
@@ -39,7 +39,7 @@ import { createStrings, say } from './strings.js';
 // ── values that keep their type ──────────────────────────────────────────
 
 /** A stored value as a one-line box shows it: a string as itself, anything else as JSON. */
-export const shownValue = (v) => (v === undefined ? '' : typeof v === 'string' ? v : JSON.stringify(v));
+export { shownValue };
 
 /**
  * The text typed into a box, as a value OF THE TYPE IT WAS:

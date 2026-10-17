@@ -32,7 +32,8 @@
  * caller's (`label`, `reason`, `description`, `notFound`).
  */
 
-const shown = (v) => (v === undefined ? '' : typeof v === 'string' ? v : JSON.stringify(v));
+/** A value as one line of text shows it: a string as itself, anything else as JSON. */
+export const shownValue = (v) => (v === undefined ? '' : typeof v === 'string' ? v : JSON.stringify(v));
 
 function el(tag, className, text) {
     const n = document.createElement(tag);
@@ -46,11 +47,11 @@ const isGroup = (o) => o !== null && typeof o === 'object' && Array.isArray(o.op
 /** One option, normalised: `{value, label, description, disabled, reason}`. */
 export function choiceOption(o) {
     if (o === null || typeof o !== 'object') {
-        return { value: o, label: shown(o), description: null, disabled: false, reason: null };
+        return { value: o, label: shownValue(o), description: null, disabled: false, reason: null };
     }
     return {
         value: o.value,
-        label: o.label != null ? String(o.label) : shown(o.value),
+        label: o.label != null ? String(o.label) : shownValue(o.value),
         description: o.description != null ? String(o.description) : null,
         disabled: Boolean(o.disabled),
         reason: o.reason != null && o.reason !== '' ? String(o.reason) : null,
@@ -127,7 +128,7 @@ export function selectBox(options, value, {
         if (keepMissing && v !== undefined && v !== null && v !== '') {
             // A stored value the list no longer offers is KEPT as its own option:
             // it must not silently become the first entry on the next save.
-            add(box, { value: v, label: notFound(shown(v)), description: null, disabled: false, reason: null,
+            add(box, { value: v, label: notFound(shownValue(v)), description: null, disabled: false, reason: null,
                        stray: true });
             box.selectedIndex = entries.length - 1;
             return;
@@ -218,7 +219,7 @@ export function toggleChips({ options, value, label, readOnly, onChange, notFoun
             }, { disabled: o.disabled, reason: o.disabled ? o.reason : null }));
         }
         for (const v of [...strays]) {
-            root.appendChild(chipFor(notFound(shown(v)), true, () => {
+            root.appendChild(chipFor(notFound(shownValue(v)), true, () => {
                 const i = strays.indexOf(v);
                 if (i >= 0) { strays.splice(i, 1); return false; }
                 strays.push(v);
@@ -276,7 +277,7 @@ export function choiceList({ options, value, name, label, readOnly, onChange, no
             root.appendChild(row);
         });
         if (keepMissing && current !== undefined && at < 0 && !list.some((o) => sameChoice(o.value, current, loose))) {
-            root.appendChild(el('p', 'twm-flow-field__note', notFound(shown(current))));
+            root.appendChild(el('p', 'twm-flow-field__note', notFound(shownValue(current))));
         }
     };
     const checkedAt = () => radios.findIndex((r) => r.checked);

@@ -112,7 +112,8 @@ let _modalSeq = 1;
  *   `{ setVisible(name, on), get(name), set(name, value), setOptions(name,
  *   options) }`, addressing fields and named sections by name. `get` reads the
  *   control as it stands (a checkbox as a boolean, a select or radio as its
- *   option's own value, a checklist as the array of chosen values, everything
+ *   option's own value — a select with no option selected as '', a radio
+ *   with none as null — a checklist as the array of chosen values, everything
  *   else as its string); `set` writes it (a value a select or radio does not
  *   offer, or offers only disabled, clears it) and does NOT call
  *   `onFieldChange` back, so a hook that fills one field from another cannot
@@ -319,7 +320,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                 let v;
                 if (choice) {
                     v = choice.read();
-                    // An empty select submits '' as it always has.
+                    // An option with no value submits '', as an empty select does.
                     if (v === undefined) v = f.type === 'select' ? '' : null;
                 } else if (f.type === 'checkbox') {
                     v = !!el.checked;
@@ -853,7 +854,9 @@ function _mountChoice(host, f, value, onChange) {
         if (f.required) c.box.required = true;
         slot.replaceWith(c.box);
         return {
-            read: c.valueOf,
+            // No option selected reads '', as an empty select always has (and
+            // as it submits); a selected option reads as its own value.
+            read: () => (c.entry() ? c.entry().value : ''),
             // A value the list does not offer enabled clears the select, as
             // writing an unknown `.value` always has (it then submits '').
             write: (v) => { if (!c.select(v)) c.box.selectedIndex = -1; },

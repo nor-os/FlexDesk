@@ -1610,8 +1610,13 @@ keystrokes ask the preview once.
 opens a modal form and resolves with `{ [name]: value }`, or `null` when it is
 cancelled. Fields are `text`, `number`, `password`, `select`, `textarea`,
 `checkbox`, `picker`, `checklist` and `radio`; `{ section: 'Label' }` entries
-are headings. Each of the additions below is opt-in, and a form that uses none
-of them renders and submits exactly as in 0.9.1.
+are headings. The additions below are opt-in, with one change every form
+sees, even one that uses none of them: a `select` or `radio` comes back with
+its option's OWN value and type (a numeric option submits `2`, not `'2'`; an
+option whose value is `null` submits `null`), a default of that type selects
+its option (`defaults: { s: 2 }` selects the option whose value is `2`), and an
+option object with no `label` shows its value. A select with no option
+selected still reads and submits `''`.
 
 ### A form that adapts: `onFieldChange`
 
@@ -1638,8 +1643,9 @@ every field's `change`. `api` addresses fields and named sections by name:
   and is still submitted, but it is not asked about: its `required` and its
   `validator` stand down until it is shown again.
 - `get(name)` reads the control as it stands: a checkbox as a boolean, a
-  select or radio as its option's own value, a checklist as the array of
-  chosen values, anything else as its string.
+  select or radio as its option's own value (a select with no option selected
+  as `''`, a radio with none as `null`), a checklist as the array of chosen
+  values, anything else as its string.
 - `set(name, value)` writes it. It does not call `onFieldChange` back, so a
   hook that fills one field from another cannot loop. A value a select or
   radio does not offer, or offers only disabled, clears it (a select then

@@ -24,7 +24,7 @@
  * The package resolves itself by name (Node's self-reference), so this runs
  * against this checkout's package.json with nothing installed.
  *
- * Against 0.16.0, §1 fails (ERR_PACKAGE_PATH_NOT_EXPORTED).
+ * Against 0.16.1, §1 fails (ERR_PACKAGE_PATH_NOT_EXPORTED).
  *
  *     node tests/css_exports.test.mjs
  */

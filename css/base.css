@@ -6598,18 +6598,6 @@ button.twm-about-dialog__btn--close:focus {
     font-size: var(--font-size-xs);
     color: var(--twm-flow-muted);
 }
-/* An option that cannot be chosen, and why (choice_controls.js). */
-.twm-flow-choice--disabled { cursor: default; color: var(--twm-flow-muted); }
-.twm-flow-choice__reason {
-    font-size: var(--font-size-xs);
-    font-style: italic;
-    color: var(--twm-flow-muted);
-}
-.twm-flow-togglechip__reason {
-    margin-left: 4px;
-    font-style: italic;
-}
-.twm-flow-togglechip__reason::before { content: '— '; }
 
 /* ── the popover both pickers are drawn in ──────────────────────────── */
 .twm-flow-popover {

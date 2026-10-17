@@ -253,7 +253,7 @@ section('§2 a disabled option shows its reason and is never the submitted value
     const [, large] = f.radios('size');
     ok('a disabled radio is disabled', large.disabled);
     ok('…and its reason is under it',
-       large.closest('.twm-flow-choice').querySelector('.twm-flow-choice__reason')?.textContent === 'sold out');
+       large.closest('.twm-flow-choice').querySelector('.twm-choice__reason')?.textContent === 'sold out');
     check('a default naming it chooses nothing', g.api.get('size'), null);
     large.checked = true;                           // a script checks it anyway
     await f.submit();

@@ -194,7 +194,7 @@ export function toggleChips({ options, value, label, readOnly, onChange, notFoun
         b.disabled = Boolean(readOnly) || disabled;
         if (reason) {
             b.title = reason;
-            b.appendChild(el('span', 'twm-flow-togglechip__reason', reason));
+            b.appendChild(el('span', 'twm-choice__reason', reason));
         }
         b.addEventListener('click', () => {
             const on = toggle();
@@ -260,7 +260,7 @@ export function choiceList({ options, value, name, label, readOnly, onChange, no
         root.replaceChildren();
         const at = list.findIndex((o) => !o.disabled && sameChoice(o.value, current, loose));
         list.forEach((o, i) => {
-            const row = el('label', `twm-flow-choice${o.disabled ? ' twm-flow-choice--disabled' : ''}`);
+            const row = el('label', `twm-flow-choice${o.disabled ? ' twm-choice--disabled' : ''}`);
             const radio = el('input', 'twm-flow-choice__radio');
             radio.type = 'radio';
             radio.name = name;
@@ -271,7 +271,7 @@ export function choiceList({ options, value, name, label, readOnly, onChange, no
             const words = el('span', 'twm-flow-choice__words');
             words.appendChild(el('span', 'twm-flow-choice__label', o.label));
             if (o.description !== null) words.appendChild(el('span', 'twm-flow-choice__sub', o.description));
-            if (o.disabled && o.reason) words.appendChild(el('span', 'twm-flow-choice__reason', o.reason));
+            if (o.disabled && o.reason) words.appendChild(el('span', 'twm-choice__reason', o.reason));
             row.append(radio, words);
             root.appendChild(row);
         });

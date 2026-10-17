@@ -1745,7 +1745,7 @@ The select, the chips and the radio list are the flow kit's
 `enum-chips`, `upstream-columns` and `choice-cards` draw with the same code, so
 a form and a settings panel cannot drift apart. In a form they are classed
 `.twm-flow-togglechips` / `.twm-flow-togglechip` and `.twm-flow-choices` /
-`.twm-flow-choice`, with `__reason` for the unavailable ones.
+`.twm-flow-choice`; an unavailable option's reason is `.twm-choice__reason`.
 
 `tests/open_form_choices.test.mjs` covers each of these in jsdom.
 

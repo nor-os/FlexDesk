@@ -378,17 +378,24 @@ export function installWorkspaceScrollbars(workspace, options = {}) {
 }
 
 /**
- * Auto-discover and install vertical overlay scrollbars on `.collapsible-content.visible`
- * elements inside `#fixed-200`. Uses a MutationObserver to handle dynamically created
- * content (pages mount lazily) and class toggles (expand/collapse).
+ * Auto-discover and install vertical overlay scrollbars on
+ * `.twm-collapsible-content.visible` elements under `root`. Sections already
+ * visible when this is called get a bar at once; a MutationObserver on `root`
+ * handles content mounted later (pages mount lazily) and class toggles
+ * (expand/collapse). Only class changes under `root` are watched.
+ *
+ * This used to look up a hard-coded `#twm-fixed-200` that nothing in FlexDesk
+ * creates, so the first pass never ran and the observer fell back to the whole
+ * document (BUG-0006). The caller names its own root now.
  *
  * Only adds the visual overlay bar — does NOT change overflow. Elements that are already
- * scrollable via CSS (e.g. accordion `.collapsible-content.visible { overflow-y: auto }`)
+ * scrollable via CSS (e.g. accordion `.twm-collapsible-content.visible { overflow-y: auto }`)
  * get the bar; non-scrollable elements get a no-op bar that stays hidden.
  *
+ * @param {Element} [root=document.body] The subtree to scan and watch.
  * @returns {Function} disconnect — stops watching
  */
-export function installCollapsibleScrollbars() {
+export function installCollapsibleScrollbars(root = document.body) {
     const installOnElement = (el) => {
         installOverlayScrollbar(el, {
             orientation: 'vertical',
@@ -397,15 +404,13 @@ export function installCollapsibleScrollbars() {
         });
     };
 
-    const root = document.getElementById('twm-fixed-200');
-    if (root) {
-        root.querySelectorAll('.twm-collapsible-content.visible').forEach(installOnElement);
-    }
+    if (root.matches?.('.twm-collapsible-content.visible')) installOnElement(root);
+    root.querySelectorAll('.twm-collapsible-content.visible').forEach(installOnElement);
 
     // Watch for new elements AND class changes (visible toggled by toggleCategory)
     const observer = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
-            // Class change — check if .collapsible-content just gained .visible
+            // Class change — check if .twm-collapsible-content just gained .visible
             if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
                 const el = mutation.target;
                 if (el.classList.contains('twm-collapsible-content') && el.classList.contains('visible')) {
@@ -424,8 +429,7 @@ export function installCollapsibleScrollbars() {
         }
     });
 
-    const target = root || document.body;
-    observer.observe(target, {
+    observer.observe(root, {
         childList: true,
         subtree: true,
         attributes: true,

@@ -966,6 +966,13 @@ layer, so a container that redraws its contents cannot lose its bar, and
 textareas get one too. Containers that already use `installOverlayScrollbar`
 keep their own.
 
+`installCollapsibleScrollbars(root = document.body)` gives every
+`.twm-collapsible-content.visible` section under `root` a vertical overlay
+bar: the ones already visible at once, and the ones mounted or expanded
+later. It watches `root` only and returns a disconnect. (It used to take no
+argument and look for a `#twm-fixed-200` that nothing created, so visible
+sections got no bar until a class changed — BUG-0006.)
+
 ## Flow editors
 
 *New in 0.6.0.* Both entries first ship in FlexDesk 0.6.0.

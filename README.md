@@ -2126,11 +2126,10 @@ ProgressBar options) and `steps`. Their handles gain `setProgress(next)`,
 `setStep(which, opts)` and **`result`**, a Promise that settles once with
 `{ status, message }`: `complete({ ok })` gives `done` or `error` (the bar and
 the phases show it), `cancelled()` gives `cancelled`, and so does **closing the
-dialog while it runs**. Closing by its × or Escape also calls `onCancel`, so the
-job is told; `close()` from the caller does not. `showComputingWindow` also gains
-`complete` and `cancelled`, after which it shows a Close button. A
-`showComputingWindow` handle now closes only its own window, not one opened
-after it.
+dialog while it runs** (by its ×, Escape, `close()`, or for `showComputingWindow`
+opening another). Closing never calls `onCancel`; only the Stop / Cancel button
+does, as before. `showComputingWindow` also gains `complete` and `cancelled`,
+after which it shows a Close button.
 
 ```js
 const dlg = showRunProgressDialog({ title: 'Export', steps: ['Prepare', 'Render', 'Write'],

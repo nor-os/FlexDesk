@@ -215,8 +215,8 @@ function capitalize(str) {
  * of the spinner; `steps` (StepProgress steps) shows the phases above it.
  * `result` settles once, with the final state: `complete({ok})` gives `done`
  * or `error`, `cancelled()` gives `cancelled`, and so does closing the dialog
- * while it runs — by its × or Escape, which also calls `onCancel`, or by
- * `close()`, which does not.
+ * while it runs (by its ×, Escape or `close()`). Closing never calls
+ * `onCancel`: only the Stop button does.
  *
  * @param {Object} [options]
  * @param {string} [options.title='Running Pipeline']
@@ -240,7 +240,6 @@ export function showRunProgressDialog(options = {}) {
 
     const dialogId = `run-progress-${++dialogIdCounter}`;
     let finished = false;
-    let closingFromHandle = false;
     let settle;
     const result = new Promise((resolve) => { settle = resolve; });
 
@@ -316,7 +315,6 @@ export function showRunProgressDialog(options = {}) {
         onClose: () => {
             if (finished) return;
             finish('cancelled', 'Cancelled.', 'is-cancelled');
-            if (!closingFromHandle && typeof onCancel === 'function') onCancel();
         },
     });
     dialogWindow.show();
@@ -344,9 +342,7 @@ export function showRunProgressDialog(options = {}) {
             finish('cancelled', msg || 'Cancelled.', 'is-cancelled');
         },
         close() {
-            closingFromHandle = true;
-            try { dialogWindow.close({ force: true }); } catch { /* already closed */ }
-            closingFromHandle = false;
+            try { dialogWindow.close(); } catch { /* already closed */ }
         },
     };
 }

@@ -14,9 +14,11 @@
  *   §3  StepProgress: phases done / active / pending / error, in order;
  *       "pass n of m".
  *   §4  showRunProgressDialog: bar and phases; `result` settles `done` /
- *       `error`; closing while running settles `cancelled` (× calls onCancel,
- *       `close()` does not).
- *   §5  showComputingWindow: the same.
+ *       `error`; closing while running (×, Escape, `close()`) settles
+ *       `cancelled` and never calls onCancel; Stop then Escape calls it once.
+ *   §5  showComputingWindow: the same, and opening another settles the first
+ *       `cancelled` without calling its onCancel; a handle's `close()` still
+ *       closes the active window.
  *   §6  The barrel exports the three classes; the stylesheet styles them.
  *
  *     node tests/progress.test.mjs
@@ -294,13 +296,19 @@ section('§4 showRunProgressDialog');
     ok('the window has a close button in its chrome', xBtn);
     xBtn.click();
     check('closing by × while running settles cancelled', await settled(running.result), { status: 'cancelled', message: 'Cancelled.' });
-    check('…and calls onCancel once', userCancels, 1);
+    check('…and does not call onCancel', userCancels, 0);
     ok('…and the dialog is gone', !windowEl());
 
     let esc = 0;
     const byEsc = showRunProgressDialog({ onCancel: () => { esc += 1; } });
     document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    check('Escape while running settles cancelled and calls onCancel', [await settled(byEsc.result), esc], [{ status: 'cancelled', message: 'Cancelled.' }, 1]);
+    check('Escape while running settles cancelled without calling onCancel', [await settled(byEsc.result), esc], [{ status: 'cancelled', message: 'Cancelled.' }, 0]);
+
+    let stops = 0;
+    const stopThenEsc = showRunProgressDialog({ onCancel: () => { stops += 1; } });
+    windowEl().querySelector('.twm-run-progress__stop-btn').click();
+    document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    check('Stop then Escape calls onCancel once and settles cancelled', [stops, await settled(stopThenEsc.result)], [1, { status: 'cancelled', message: 'Cancelled.' }]);
 
     let handleCancels = 0;
     const byHandle = showRunProgressDialog({ onCancel: () => { handleCancels += 1; } });
@@ -335,13 +343,21 @@ section('§5 showComputingWindow');
     let c2 = 0;
     const first = showComputingWindow({ onCancel: () => { c2 += 1; } });
     const firstEl = content();
-    const second = showComputingWindow({ message: 'Next' });
+    let c3 = 0;
+    const second = showComputingWindow({ message: 'Next', onCancel: () => { c3 += 1; } });
     check('opening another settles the first cancelled', await settled(first.result), { status: 'cancelled', message: 'Cancelled.' });
+    check('…without calling its onCancel', c2, 0);
     ok('…and replaces its window', !firstEl.isConnected && content());
-    first.close();
-    ok('…and the first handle no longer closes the second', content());
+    content().querySelector('.twm-computing-status__cancel-btn').click();
     document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    check('Escape while running settles cancelled', await settled(second.result), { status: 'cancelled', message: 'Cancelled.' });
+    check('Cancel then Escape calls onCancel once and settles cancelled', [c3, await settled(second.result)], [1, { status: 'cancelled', message: 'Cancelled.' }]);
+
+    let c4 = 0;
+    showComputingWindow({ onCancel: () => { c4 += 1; } });
+    const third = showComputingWindow({});
+    first.close();
+    ok('a handle\'s close() closes the active window, as before', !content());
+    check('…settling it cancelled without calling any onCancel', [await settled(third.result), c4], [{ status: 'cancelled', message: 'Cancelled.' }, 0]);
 
     const done = showComputingWindow({});
     done.setProgress(0.9);

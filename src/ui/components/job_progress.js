@@ -45,6 +45,5 @@ export function mountJobProgress(parent, { progress = null, steps = null, spinne
             else if (status === 'error') { bar?.setState('error'); stepper?.fail(); }
             else bar?.setState('cancelled');
         },
-        dispose() { bar?.dispose(); stepper?.dispose(); },
     };
 }

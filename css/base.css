@@ -6106,6 +6106,117 @@ button.twm-about-dialog__btn--close:focus {
 }
 /* ══ end HELP MODAL ══ */
 
+/* ══ MENU BAR ════════════════════════════════════════════════════════
+ *
+ * `MenuBar` (src/ui/components/menu_bar.js, STORY-0030): a row of titles,
+ * each opening a menu that may fly out submenus. Not `.twm-menu-bar`, which
+ * is the older strip of 25px icon buttons and keeps its meaning. A menu is
+ * `position: fixed` (the JS places it), so a bar inside a clipped chrome strip
+ * still drops its menus over the page. Same surface, border and shadow as
+ * `.twm-context-menu`: two menus that look different read as two systems.
+ * tests/menu_bar_css.test.mjs holds every class the bar sets to a rule here,
+ * both ways, and base.css to the same text. */
+.twm-menubar {
+    display: flex;
+    align-items: stretch;
+    gap: 1px;
+    min-height: 24px;
+    font-size: var(--font-size-md);
+    color: var(--text-body);
+    user-select: none;
+}
+.twm-menubar__entry {
+    position: relative;
+    display: flex;
+}
+.twm-menubar__title {
+    appearance: none;
+    background: none;
+    border: 0;
+    border-radius: var(--radius-sm);
+    color: inherit;
+    font: inherit;
+    padding: var(--space-xxs) var(--space-md);
+    cursor: default;
+}
+.twm-menubar__title:hover,
+.twm-menubar__title:focus-visible,
+.twm-menubar__title[aria-expanded="true"] {
+    background: var(--state-active);
+    color: var(--text-bright);
+    outline: none;
+}
+.twm-menubar__menu {
+    position: fixed;
+    z-index: var(--z-over-windows);
+    display: flex;
+    flex-direction: column;
+    min-width: 200px;
+    max-height: calc(100vh - 8px);
+    overflow-y: auto;
+    padding: var(--space-xs) 0;
+    background: var(--surface-0);
+    color: var(--text-body);
+    border: 1px solid var(--surface-3);
+    border-radius: var(--radius-md);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+}
+.twm-menubar__cell {
+    display: flex;
+}
+.twm-menubar__item {
+    appearance: none;
+    background: none;
+    border: 0;
+    width: 100%;
+    text-align: left;
+    color: inherit;
+    font: inherit;
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-xs) var(--space-lg) var(--space-xs) var(--space-xs);
+    cursor: default;
+    white-space: nowrap;
+}
+.twm-menubar__item:focus,
+.twm-menubar__item:hover:not(.twm-menubar__item--disabled),
+.twm-menubar__item[aria-expanded="true"] {
+    background: var(--state-selected);
+    outline: none;
+}
+.twm-menubar__item--submenu {
+    padding-right: var(--space-md);
+}
+.twm-menubar__item--disabled {
+    opacity: 0.4;
+    color: var(--text-muted);
+}
+.twm-menubar__check {
+    flex: 0 0 16px;
+    text-align: center;
+}
+.twm-menubar__item--check[aria-checked="true"] .twm-menubar__check::before { content: "\2713"; }
+.twm-menubar__item--radio[aria-checked="true"] .twm-menubar__check::before { content: "\2022"; }
+.twm-menubar__label {
+    flex: 1 1 auto;
+}
+.twm-menubar__shortcut {
+    margin-left: var(--space-2xl);
+    color: var(--text-muted);
+    font-size: var(--font-size-sm);
+}
+.twm-menubar__arrow::before {
+    content: "\25B8";
+    color: var(--text-muted);
+}
+.twm-menubar__separator {
+    height: 1px;
+    margin: var(--space-xs) var(--space-md);
+    background: var(--surface-3);
+}
+/* ══ end MENU BAR ══ */
+
 /* ══ FLOW · KIT ═══════════════════════════════════════════════════════ */
 /* The shared flow-editor kit (36 §3, §3.12): the settings panel and its
  * fields, the generic widgets, reference chips and the chip input, the two

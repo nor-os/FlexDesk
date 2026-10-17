@@ -8631,6 +8631,113 @@ tr:hover .twm-row-action { opacity: 1; }
  * status line sits at the foot. Only a pane holding the Alerts pane: other
  * panes keep their padding and their own height. */
 .twm-bp-pane:has(> .twm-alerts) { height: 100%; padding: 0; box-sizing: border-box; }
+/* The public tab strip (`createTabs`, STORY-0048). It SCROLLS, never wraps or
+ * shrinks its tabs, and hides the scrollbar; the wheel and the reveal of the
+ * tab in front are `strip_scroll.js`'s. `--compact` is the dense variant. The
+ * bottom panel draws the same component under its own `.twm-bp` block. */
+.twm-tabs {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    background: var(--surface-0);
+    color: var(--text-body);
+}
+.twm-tabs__tabs {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: stretch;
+    height: 30px;
+    min-width: 0;
+    background: var(--surface-1);
+    border-bottom: 1px solid var(--border-subtle);
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    white-space: nowrap;
+    user-select: none;
+}
+.twm-tabs__tabs::-webkit-scrollbar { width: 0; height: 0; display: none; }
+.twm-tabs__tab {
+    position: relative;
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    max-width: 220px;
+    padding: 0 var(--space-sm);
+    background: transparent;
+    color: var(--text-muted);
+    border: none;
+    border-right: 1px solid var(--border-subtle);
+    font: inherit;
+    font-size: var(--font-size-xs);
+    line-height: 1;
+    cursor: pointer;
+}
+.twm-tabs__tab:hover { background: var(--surface-2); color: var(--text-primary); }
+.twm-tabs__tab:focus-visible { outline: 1px solid var(--accent-bright, #1683c4); outline-offset: -1px; }
+.twm-tabs__tab--on { background: var(--surface-0); color: var(--text-bright); }
+.twm-tabs__tab--on::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 2px;
+    pointer-events: none;
+    background: var(--accent-bright, #1683c4);
+}
+.twm-tabs__label { overflow: hidden; text-overflow: ellipsis; }
+/* Two classes: Google's `.material-symbols-outlined { font-size: 24px }` loads
+ * after this sheet and would win a one-class tie. */
+.twm-tabs__icon,
+.twm-tabs__icon.material-symbols-outlined { flex: 0 0 auto; font-size: 14px; line-height: 1; }
+.twm-tabs__badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    box-sizing: border-box;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 10.5px;
+    line-height: 16px;
+}
+.twm-tabs__badge--info    { background: color-mix(in srgb, var(--color-info) 35%, var(--surface-0)); }
+.twm-tabs__badge--warning { background: color-mix(in srgb, var(--color-warning) 35%, var(--surface-0)); }
+.twm-tabs__badge--alert   { background: color-mix(in srgb, var(--color-danger) 45%, var(--surface-0)); }
+.twm-tabs__indicator {
+    flex: 0 0 auto;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-muted);
+}
+.twm-tabs__indicator--info    { background: var(--color-info); }
+.twm-tabs__indicator--warning { background: var(--color-warning); }
+.twm-tabs__indicator--alert   { background: var(--color-danger); }
+.twm-tabs__dirty { font-size: 10px; color: var(--text-primary); }
+.twm-tabs__close {
+    padding: 0 2px;
+    border-radius: var(--radius-sm);
+    opacity: 0.6;
+    font-size: 13px;
+}
+.twm-tabs__close:hover { opacity: 1; background: var(--surface-2); }
+/* A dirty, closable tab shows the dot until hovered, then the close mark. */
+.twm-tabs__tab--dirty:not(:hover) .twm-tabs__close { display: none; }
+.twm-tabs__tab--dirty:hover .twm-tabs__dirty { display: none; }
+.twm-tabs__badge[hidden],
+.twm-tabs__indicator[hidden] { display: none; }
+.twm-tabs__body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.twm-tabs-pane { height: 100%; box-sizing: border-box; }
+.twm-tabs-pane[hidden] { display: none; }
+.twm-tabs--compact .twm-tabs__tabs { height: 22px; }
+.twm-tabs--compact .twm-tabs__tab { padding: 0 var(--space-xs); gap: 3px; }
+.twm-tabs--compact .twm-tabs__icon,
+.twm-tabs--compact .twm-tabs__icon.material-symbols-outlined { font-size: 12px; }
 .twm-alerts .material-symbols-outlined { font-size: 15px; }
 .twm-alerts__spacer { flex: 1 1 auto; }
 .twm-alerts__rules { flex: 0 0 280px; display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--border-subtle); }

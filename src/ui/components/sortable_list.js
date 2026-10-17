@@ -19,6 +19,12 @@
 
 import { DragReorder } from './drag_reorder.js';
 
+/** The class every row carries, and therefore what DragReorder must match. */
+const ROW_CLASS = 'twm-sortable-list__row';
+const ROW_SELECTOR = `.${ROW_CLASS}`;
+const HANDLE_CLASS = 'twm-sortable-list__handle';
+const HANDLE_SELECTOR = `.${HANDLE_CLASS}`;
+
 export class SortableList {
     /**
      * Create a sortable list.
@@ -60,6 +66,7 @@ export class SortableList {
         this.root = null;
         this.listEl = null;
         this._dragReorder = null;
+        this._pressedHandle = false;
     }
 
     /**
@@ -198,15 +205,30 @@ export class SortableList {
         // placeholder). Created once, bound to the persistent list
         // element; re-attached after each refresh to wire the rebuilt
         // rows. Drag is restricted to the grip handle.
+        //
+        // The item selector is ROW_SELECTOR, the class #createRow puts on
+        // every row: a selector that matches no row makes nothing draggable.
+        //
+        // The handle restriction cannot read `dragstart`'s target: a browser
+        // fires `dragstart` at the draggable element itself (the row), never
+        // at the child the pointer went down on. So the press is recorded on
+        // `mousedown` (which does target the handle) and the guard reads that.
         if (this.allowReorder) {
             if (!this._dragReorder) {
+                this.listEl.addEventListener('mousedown', (e) => {
+                    this._pressedHandle = !!e.target.closest?.(HANDLE_SELECTOR);
+                });
                 this._dragReorder = new DragReorder({
                     container: this.listEl,
-                    itemSelector: '.sortable-list__row',
+                    itemSelector: ROW_SELECTOR,
                     keyAttr: 'index',
                     axis: 'y',
                     indicatorClass: 'twm-sortable-list__drop',
-                    draggableGuard: (e) => !!e.target.closest('.twm-sortable-list__handle'),
+                    draggableGuard: () => {
+                        const fromHandle = this._pressedHandle;
+                        this._pressedHandle = false;
+                        return fromHandle;
+                    },
                     onReorder: (order) => this.#applyReorder(order),
                 });
             }
@@ -229,7 +251,7 @@ export class SortableList {
 
     #createRow(item, index) {
         const row = document.createElement('div');
-        row.className = 'twm-sortable-list__row';
+        row.className = ROW_CLASS;
         row.dataset.index = index;
 
         // Drag handle (if reordering enabled). The drag mechanics are
@@ -237,7 +259,7 @@ export class SortableList {
         // handle is just the grab affordance the drag is restricted to.
         if (this.allowReorder) {
             const handle = document.createElement('div');
-            handle.className = 'twm-sortable-list__handle';
+            handle.className = HANDLE_CLASS;
             handle.innerHTML = '<span class="material-symbols-outlined">drag_indicator</span>';
             row.appendChild(handle);
         }

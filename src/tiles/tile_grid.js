@@ -24,6 +24,9 @@ export class TileGrid {
      * @param {{resolve: Function}} [options.dataSource] - Per-tile data provider,
      *        handed to every tile. With none, the grid is the broadcast-only grid
      *        it has always been and no tile is ever asked to load anything.
+     * @param {*} [options.scope=null] - The board's scope, a filter every tile
+     *        follows (0.16.1); see `setScope`.
+     * @param {Function} [options.onScopeChange] - `(scope)` after `setScope` changed it.
      */
     constructor({ container, columns = 12, rowHeight = 80, gap = 16, eventBus = null,
                   showToolbar = true, readonly = false, onLayoutChange, onBeforeLayoutChange,
@@ -35,8 +38,10 @@ export class TileGrid {
                   host = null, stateGuard = null,
                   // Injected, never constructed here: the grid does not know what
                   // a binding is, only that a tile may have somewhere to ask.
-                  dataSource = null }) {
+                  dataSource = null, scope = null, onScopeChange = null }) {
         this.host = host;
+        this.scope = scope;
+        this._onScopeChangeCallback = onScopeChange;
         this.stateGuard = stateGuard;
         this.dataSource = dataSource;
         this.container = container;
@@ -192,6 +197,8 @@ export class TileGrid {
         });
 
         if (!tile) return null;
+        // Before mount, so a tile's first render and first load already follow it.
+        tile.scope = this.scope;
 
         // Add to layout
         const layoutEntry = {
@@ -287,6 +294,34 @@ export class TileGrid {
             if (wanted && !wanted.has(tileId)) return;
             tile.loadData?.({ force: true });
         });
+    }
+
+    /**
+     * THE BOARD'S SCOPE: one filter every tile follows ("Everyone", "Assigned
+     * by me", …), set from a `createScopePicker` or from anything else.
+     *
+     * The grid only carries the value; what it means is the embedder's. Every
+     * tile gets it as `tile.scope` and through `tile.onScopeChange(scope)`, the
+     * grid's `onScopeChange(scope)` is called, and a grid with a data source
+     * reloads its tiles, since their rows depend on it. The scope is not part
+     * of the layout: it is how the board is being looked at, not what is on it.
+     *
+     * @param {*} scope - Compared by JSON: setting the same scope again does nothing.
+     * @returns {boolean} whether it changed
+     */
+    setScope(scope) {
+        if (JSON.stringify(scope ?? null) === JSON.stringify(this.scope ?? null)) return false;
+        this.scope = scope ?? null;
+        this.tiles.forEach((tile) => {
+            tile.scope = this.scope;
+            try { tile.onScopeChange?.(this.scope); }
+            catch (err) { console.error('[TileGrid] a tile\'s onScopeChange threw:', err); }
+        });
+        try { this._onScopeChangeCallback?.(this.scope); }
+        catch (err) { console.error('[TileGrid] onScopeChange threw:', err); }
+        this.eventBus?.emit?.('grid:scope-changed', { scope: this.scope });
+        if (this.dataSource) this.reloadAll();
+        return true;
     }
 
     /**

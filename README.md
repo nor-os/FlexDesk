@@ -1895,6 +1895,50 @@ A chart tile's **Download PNG** (0.14.1) goes through the grid's `host`
 toasts where the file went, a cancel says nothing — and with no host, or a
 `saveFile` that answers null, the browser download it always was.
 
+### List and people tiles, and one scope for the board (0.16.1)
+
+Two more widgets, registered by `registerListTiles()` (idempotent, nothing at
+import). Like the chart tile they take **rows you have already worked out**;
+what they own is what every list on a board needs: the count ("7 of 12"), the
+line that says what empty means, a button in the bar, a click, the keyboard and
+a right-click menu per row.
+
+```js
+import { registerListTiles, createScopePicker } from '@flexdesk/tiles';
+registerListTiles();
+const late = grid.addTile('flexdesk.list', { x: 0, y: 0, w: 12, h: 4 },
+                          { title: 'Overdue', empty_text: 'Nothing is late.', max_rows: 0 });
+late.onRowActivate = ({ row, event }) => open(row.key, { modified: event.ctrlKey });
+late.rowMenu = ({ row }) => [{ label: 'Open', icon: 'open_in_new', action: 'open' }];
+late.onRowMenuAction = ({ action, row }) => { /* … */ };
+late.onAction = () => openAsList();
+late.setData({
+    rows: [{ key: '7', icon: 'task', lead: 'TASK-0007', title: 'Sign-off',
+             cells: [{ text: 'priya' }, { text: '9 days late', tone: 'danger' }] }],
+    action: { label: 'Open as a list', icon: 'list' },
+});
+grid.addTile('flexdesk.people', { x: 0, y: 4, w: 6, h: 4 }, { title: 'Who has what' })
+    .setData({ people: [{ key: '', name: 'Nobody', muted: true, count: 2,
+                          pills: [{ text: '2 undated', tone: 'muted' }] }] });
+```
+
+- A row is `role="button"`: click, Enter and Space call `onRowActivate` with the
+  event; Up/Down/Home/End move. Right-click, the context-menu key and Shift+F10
+  open the row's menu (`showContextMenu`'s items; none means no menu). A row
+  carries `data-row-key`; `rowsDraggable` makes rows draggable.
+- `{rows: []}` keeps the bar and says `empty` (or `config.empty_text`) where the
+  rows would be; `setData(null)` is the empty state. Text is always text.
+- `tone` (`danger`, `warning`, `ok`, `muted`) picks a colour only; `className`
+  on a row or a cell is yours, added as it is.
+- `groupByPerson(items, personOf)` groups for a people tile, most first.
+
+**One scope for the whole board.** `createScopePicker({options, value, onChange})`
+is a row of buttons, one pressed. `grid.setScope(value)` (or
+`new TileGrid({ scope, onScopeChange })`) hands the value to every tile as
+`tile.scope` and `tile.onScopeChange(scope)`, a tile added later starts with
+it, a grid with a data source reloads its tiles, and the grid's `onScopeChange`
+is told. What a scope means is yours; it is not part of the layout.
+
 ## Styling
 
 Three stylesheets, and that is the whole CSS contract:

@@ -20,6 +20,7 @@ export class SlideOutPanel extends ComponentBase {
     /** @type {number} */       #width;
     /** @type {Function|null} */#onClose;
     /** @type {boolean} */      #open = false;
+    /** @type {ResizeObserver|null} */ #hostObserver = null;
 
     /**
      * @param {object}   opts
@@ -131,6 +132,7 @@ export class SlideOutPanel extends ComponentBase {
             this.#trackGeometry();
             window.addEventListener('scroll', this.#trackGeometry, true);
             window.addEventListener('resize', this.#trackGeometry);
+            this.#observeHost();
         }
 
         return this.#body;
@@ -146,6 +148,8 @@ export class SlideOutPanel extends ComponentBase {
         document.removeEventListener('keydown', this.#handleEsc);
         window.removeEventListener('scroll', this.#trackGeometry, true);
         window.removeEventListener('resize', this.#trackGeometry);
+        this.#hostObserver?.disconnect();
+        this.#hostObserver = null;
         // Leave the inline position:fixed geometry in place. The panel
         // slides off-screen via the transform animation (translateX
         // 100%); the next open() re-runs #trackGeometry which will
@@ -168,10 +172,28 @@ export class SlideOutPanel extends ComponentBase {
         }
     };
 
+    /** The host moves or resizes without any window event when a tile
+     *  splitter is dragged or a dock panel toggles, and the fixed geometry
+     *  would then stay at the old coordinates. Observe the host AND each
+     *  ancestor: a host can move without changing size of its own (a dock
+     *  panel toggling beside a fixed-width tile shrinks the content area,
+     *  an ancestor, and the tile only shifts). The callback runs
+     *  synchronously, after layout and before paint, so the panel follows
+     *  a drag without a frame of lag; it only writes the panel's own
+     *  `position: fixed` geometry, which is out of flow and resizes
+     *  nothing observed, so it cannot loop. */
+    #observeHost() {
+        this.#hostObserver = new ResizeObserver(this.#trackGeometry);
+        for (let el = this.#container; el; el = el.parentElement) {
+            this.#hostObserver.observe(el);
+        }
+    }
+
     /** Pin the panel to the right edge of its host's *visible* frame
-     *  using `position: fixed`. Re-run on every scroll/resize so the
-     *  panel always overlays the host correctly even when the host
-     *  itself sits inside a scrolled ancestor. */
+     *  using `position: fixed`. Re-run on every window scroll/resize and
+     *  every host resize (#observeHost) so the panel always overlays the
+     *  host correctly even when the host itself sits inside a scrolled
+     *  ancestor. */
     #trackGeometry = () => {
         if (!this.#open || !this.#panel || !this.#container) return;
         const r = this.#container.getBoundingClientRect();

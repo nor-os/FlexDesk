@@ -87,7 +87,18 @@ export class TileBase {
         this._loadSeq = 0;
         /** @type {Map<string, {name: string, analytics: Object, color: string}>|null} */
         this.comparisonData = null;
+        /** The board's scope (`TileGrid.setScope`), or null. Set before mount. */
+        this.scope = null;
     }
+
+    /**
+     * Called when the board's scope changes (`TileGrid.setScope`), after
+     * `this.scope` is set. A no-op here: a tile whose rows the grid's data
+     * source loads is reloaded by the grid, and one fed through `setData` is
+     * fed again by whoever owns its data.
+     * @param {*} _scope
+     */
+    onScopeChange(_scope) {}
 
     /**
      * Set comparison data for overlay rendering.

@@ -2141,9 +2141,10 @@ the chart loader short-circuits and you can skip `setPlotlySource`.
 
 ## Storage keys and names are yours (0.17.0)
 
-Every localStorage key FlexDesk writes, and every name it registers where other
-code can see it, is an option. The defaults are FlexDesk's own; pass yours at
-boot, before the first read:
+Every localStorage key FlexDesk writes is an option, and so is each name in the
+table below that it registers where other code can see it, except the last row:
+the tile tab MIME is fixed. The defaults are FlexDesk's own; pass yours at boot,
+before the first read:
 
 | What | Default | Set it with |
 |---|---|---|
@@ -2156,6 +2157,7 @@ boot, before the first read:
 | MIME type of a dragged editor tab | `'application/x-flexdesk-tab'` | `setTabDragMime(mime)` from `@flexdesk/editor` |
 | Chart PNG export file name | `'chart'` (saved as `chart.png`) | `setChartExportFilename(name)` from `@flexdesk/charts` |
 | `LoggingService` service name on each entry | `'flexdesk'` | `new LoggingService({ name })` from `@flexdesk/core` |
+| MIME type of a dragged tile tab | `'application/x-twm-tile-tab'` | fixed: not an option; read it as `TILE_TAB_MIME` (or `TileRenderer.TAB_MIME`) from `@flexdesk/wm` |
 
 ```js
 import { configureSettings } from '@flexdesk/core';

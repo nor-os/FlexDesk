@@ -715,7 +715,8 @@ export function createSettingsStore({
 // A capability *port* (the host bridge) may have many implementations at once,
 // so a singleton there is a category error. A *value store* with a single
 // physical backing key has cardinality one by construction: two live stores in
-// one document would be two writers to `localStorage[STORAGE_KEY]`. The
+// one document would be two writers to the one key `configureSettings()`
+// names (default `DEFAULT_SETTINGS_STORAGE_KEY`). The
 // singleton is the correct cardinality, not a shortcut — and the factory above
 // is the primitive, so tests and a standalone demo never touch this binding.
 

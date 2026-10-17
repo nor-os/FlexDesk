@@ -3156,22 +3156,26 @@ global; choose strict mode in your own code.
 
 ### The defaults cover FlexDesk's own keys (0.17.0)
 
-`DEFAULT_STATE_GUARD_CONFIG` lists every data key FlexDesk's own widgets write,
-so the shell, dialogs, forms, tooltips, tiles and flow editors run under
-`mode: 'strict'` with no violation. Add your application's keys on top:
+`DEFAULT_STATE_GUARD_CONFIG` includes every data key FlexDesk's own widgets
+write, so the shell, dialogs, forms, tooltips, tiles and flow editors run under
+`mode: 'strict'` with no violation. The list also carries some keys that
+FlexDesk itself does not write. Add your application's keys on top:
 
 ```js
 const guard = new StateGuardService({ eventBus, logger, config: {
     ...DEFAULT_STATE_GUARD_CONFIG,
-    allowedDatasetKeys: [...DEFAULT_STATE_GUARD_CONFIG.allowedDatasetKeys, 'run-id'],
+    allowedDatasetKeys: [...DEFAULT_STATE_GUARD_CONFIG.allowedDatasetKeys, 'order-id'],
 } });
 ```
 
-An allow-list key may be spelled either way: `runId` and `run-id` are the same
-key. camelCase maps to kebab-case as the DOM does for ordinary keys (a capital
-letter becomes `-` plus its lower-case form, so `rowID` is `row-i-d`). Before
-0.17.0 a camelCase entry never matched, and some entries named keys no element
-carries.
+An allow-list key may be spelled either way: `orderId` and `order-id` are the
+same key, in the allow-list and in module overrides
+(`allow(pattern, attributes, { datasetKeys })` and `config.moduleOverrides`)
+alike. camelCase maps to kebab-case as the DOM does for ordinary keys: each
+capital letter becomes `-` plus its lower-case form. So `rowID` is `row-i-d`
+(what `dataset.rowID` writes), not `rowid`; to allow `data-id`, list `id`.
+Before 0.17.0 a camelCase entry never matched, and some entries named keys no
+element carries.
 
 ## Peer dependencies
 

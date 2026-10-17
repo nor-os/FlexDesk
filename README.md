@@ -1834,6 +1834,38 @@ Reload, Print, Inspect) on any right-click that no handler claimed with
 text, where Paste and Copy are the point, and wherever `allow(event)` says so.
 Both calls return `{ dispose }`.
 
+## The state guard: who wrote that attribute (0.17.0)
+
+`StateGuardService` blocks (`strict`) or reports (`warn`) `data-*` writes that
+are on no allow-list. A module override lets one module write a key nobody
+else may:
+
+```js
+import { StateGuardService, DEFAULT_STATE_GUARD_CONFIG } from '@flexdesk/core';
+
+const guard = new StateGuardService({ eventBus, config: { ...DEFAULT_STATE_GUARD_CONFIG, mode: 'strict' } });
+guard.allow('src/app/my_widget.js', ['data-foo']);   // a literal substring of the module, or a RegExp
+```
+
+A write is attributed to the frame that made it: the URL or path of the file
+that called `setAttribute`, `removeAttribute` or `dataset`, without line and
+column, whatever your directory layout. A FlexDesk widget's write is the
+widget's, not that of the app module that called the widget. To attribute
+writes further up the stack instead, pass `moduleFramePattern`: the first
+frame from the writer up whose location matches names the module, by the
+pattern's first capture group if it has one.
+
+```js
+config: { ...DEFAULT_STATE_GUARD_CONFIG, moduleFramePattern: /(src\/app\/[^/]+\.js)/ }
+// a write made inside @flexdesk/widgets on behalf of src/app/my_widget.js
+// is now attributed to 'src/app/my_widget.js'
+```
+
+The defaults are `mode: 'warn'`, no module overrides and no frame pattern.
+Before 0.17.0 the module was only found under a `js_new/` path, the defaults
+carried one application's override, and the mode read one application's debug
+global; choose strict mode in your own code.
+
 ## Peer dependencies
 
 `@flexdesk/charts` needs Plotly (4.4 MB). `@flexdesk/editor` needs Monaco (14 MB).

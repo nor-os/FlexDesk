@@ -23,7 +23,9 @@ let _activeWindow = null;
  * (the window stays, with a Close button, until closed), `cancelled()` gives
  * `cancelled`, and so does closing the window while it runs (by its ×,
  * Escape, `close()` or opening another). Closing never calls `onCancel`: only
- * the Cancel button does.
+ * the Cancel button does. `progress` and `steps` are fixed when the window
+ * opens: `setProgress` throws if it was opened without `progress`, and
+ * `setStep` if it was opened without `steps`.
  *
  * @param {Object} options
  * @param {string} [options.title='Computing...'] - Window title

@@ -213,6 +213,8 @@ function capitalize(str) {
  *
  * `progress` (`true` or ProgressBar options) shows a determinate bar in place
  * of the spinner; `steps` (StepProgress steps) shows the phases above it.
+ * Both are fixed when the dialog opens: `setProgress` throws if it was opened
+ * without `progress`, and `setStep` if it was opened without `steps`.
  * `result` settles once, with the final state: `complete({ok})` gives `done`
  * or `error`, `cancelled()` gives `cancelled`, and so does closing the dialog
  * while it runs (by its ×, Escape or `close()`). Closing never calls

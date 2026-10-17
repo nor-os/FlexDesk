@@ -13,27 +13,29 @@ import { ProgressBar, StepProgress } from './progress.js';
  * @param {{ progress?: boolean|Object, steps?: Array, spinner?: HTMLElement|null }} options
  *   `progress`: `true`, or ProgressBar options (its `onCancel` is ignored: the
  *   dialog owns cancelling). `steps`: StepProgress steps. `spinner`: hidden
- *   while a bar is shown.
+ *   while a bar is shown. Both are fixed at mount: `setProgress` throws
+ *   without `progress` and `setStep` without `steps`, so the window is sized
+ *   for what it holds from the start.
  */
 export function mountJobProgress(parent, { progress = null, steps = null, spinner = null } = {}) {
     const stepper = Array.isArray(steps) && steps.length
         ? new StepProgress(parent, { steps, className: 'twm-job-progress__steps' })
         : null;
     let bar = null;
-    const ensureBar = (opts = {}) => {
-        if (bar) return bar;
-        const { onCancel: _ignored, ...rest } = opts && typeof opts === 'object' ? opts : {};
+    if (progress) {
+        const { onCancel: _ignored, ...rest } = typeof progress === 'object' ? progress : {};
         bar = new ProgressBar(parent, { ...rest, className: 'twm-job-progress__bar' });
         if (spinner) spinner.hidden = true;
-        return bar;
-    };
-    if (progress) ensureBar(progress);
+    }
 
     return {
         get bar() { return bar; },
         get steps() { return stepper; },
-        /** `bar.update(next)`; adds the bar if the dialog was opened without one. */
-        setProgress(next) { ensureBar().update(next); },
+        /** `bar.update(next)`. */
+        setProgress(next) {
+            if (!bar) throw new Error('setProgress: this dialog was opened without `progress`');
+            bar.update(next);
+        },
         /** `steps.setStep(which, opts)`. */
         setStep(which, opts) {
             if (!stepper) throw new Error('setStep: this dialog was opened without `steps`');

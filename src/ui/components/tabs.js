@@ -60,7 +60,8 @@
  * (`--{level}`), `{block}__indicator` (`--{level}`), `{block}__dirty`,
  * `{block}__close`, `{block}__body`, `{block}-pane`. The bottom panel passes
  * `twm-bp` and gets its existing markup. Tabs and panes carry the item id in
- * `data-{dataKey}` (default `tab-id`).
+ * `data-{dataKey}` (default `tab-id`), as a string; the strip never reads it
+ * back, so every callback and `ids()` hand out the id as given (`1` stays `1`).
  *
  * The strip is never rebuilt: a select toggles classes on the same buttons and
  * an `update` keeps the button of every id it keeps, so a click that lands
@@ -124,8 +125,10 @@ export function createTabs(container, {
     /** id → the caller's item, as last given (setBadge/setIndicator write here). */
     let order = [];
     const byId = new Map();
-    /** id → { el, serial } for every tab drawn. */
+    /** id → { el } for every tab drawn. */
     const tabs = new Map();
+    /** A tab's button → its id, unchanged: `data-*` holds only a string. */
+    const idByEl = new WeakMap();
     /** id → { el, instance } for every pane mounted. */
     const panes = new Map();
     let current = null;
@@ -145,6 +148,7 @@ export function createTabs(container, {
         el.setAttribute('role', 'tab');
         el.setAttribute('aria-selected', 'false');
         el.tabIndex = -1;
+        idByEl.set(el, id);
         entry = { el };
         tabs.set(id, entry);
         return entry;
@@ -312,7 +316,7 @@ export function createTabs(container, {
 
     const idOf = (target) => {
         const el = target?.closest?.(`.${cls('tab')}`);
-        return el && strip.contains(el) ? el.dataset[datasetKey] : null;
+        return el && strip.contains(el) && idByEl.has(el) ? idByEl.get(el) : null;
     };
 
     function onClick(e) {
@@ -370,8 +374,12 @@ export function createTabs(container, {
         keyAttr: datasetKey,
         axis: 'x',
         draggableGuard: (e) => !e.target.closest?.(`.${cls('close')}`),
-        onReorder: (ids) => {
-            order = ids.filter((id) => byId.has(id));
+        // DragReorder answers the `data-*` strings; the buttons, now in their
+        // new order, give the caller's ids back unchanged.
+        onReorder: () => {
+            order = [...strip.querySelectorAll(`.${cls('tab')}`)]
+                .filter((el) => idByEl.has(el)).map((el) => idByEl.get(el))
+                .filter((id) => byId.has(id));
             onReorder(order.slice());
         },
     }) : null;

@@ -2378,12 +2378,15 @@ tabs.setIndicator('inputs', 'info');
 - **Classes** are BEM under `block` (default `twm-tabs`): `__tabs`, `__tab`,
   `__tab--on`, `__tab--dirty`, `__icon`, `__label`, `__badge`, `__indicator`,
   `__dirty`, `__close`, `__body`, `--compact`, and `twm-tabs-pane`. Tabs and panes
-  carry the id in `data-tab-id` (`dataKey`).
+  carry the id in `data-tab-id` (`dataKey`), as a string; callbacks and `ids()`
+  hand back the id as you gave it, so a numeric id stays a number.
 
 `tests/tabs.test.mjs` covers it in jsdom; `tests/bottom_panel_tabs.test.mjs`
 runs on the bottom panel built over it. The bottom panel behaves as it did:
 `api.root` is set inside a pane's `mount`, and a click on the tab in front
-re-shows its pane, fires `onSelect` and is remembered, as `select` does.
+re-shows its pane, fires `onSelect` and is remembered, as `select` does. A
+remembered tab that is already in front when `remember.read` answers is shown
+again: its pane hears `onShow` and `onSelect` fires, and nothing is written back.
 
 ## Notifications: `NotificationCenter`
 

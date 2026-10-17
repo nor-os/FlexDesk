@@ -1609,8 +1609,8 @@ keystrokes ask the preview once.
 `openForm({ title, fields, defaults, submitLabel })` (in `@flexdesk/widgets`)
 opens a modal form and resolves with `{ [name]: value }`, or `null` when it is
 cancelled. Fields are `text`, `number`, `password`, `select`, `textarea`,
-`checkbox` and `picker`; `{ section: 'Label' }` entries are headings. Each of
-the four additions below is opt-in, and a form that uses none of them renders
+`checkbox`, `toggle` and `picker`; `{ section: 'Label' }` entries are headings.
+Each of the additions below is opt-in, and a form that uses none of them renders
 and submits exactly as in 0.9.1.
 
 ### A form that adapts: `onFieldChange`
@@ -1681,6 +1681,38 @@ submit with "onCreate is not a function".
 
 `tests/open_form.test.mjs` mounts the real `openForm` in jsdom and covers all
 four, plus a plain form submitting as before.
+
+### A switch: `ToggleField` and `type: 'toggle'` (0.17.0)
+
+```js
+import { ToggleField } from '@flexdesk/widgets';
+
+const autosave = new ToggleField({
+    label: 'Autosave', onText: 'On', offText: 'Off',   // all optional
+    checked: true, compact: false, disabled: false,
+    onChange: (on) => settings.set('autosave', on),
+});
+host.appendChild(autosave.render());
+autosave.get();              // true
+autosave.set(false);         // does not call onChange
+autosave.setDisabled(true);
+autosave.dispose();
+```
+
+A track and a knob drawn over a real checkbox with `role="switch"` and an
+`aria-checked` that follows it. Space and Enter toggle the focused switch, a
+click on the track, the state text or the label toggles it, the focused input
+draws a ring on the track, and a disabled switch ignores clicks and keys alike.
+`ariaLabel` names a switch with no visible label. The markup is
+`label.twm-toggle` (`--compact`, `--disabled`) > `.twm-toggle__control` >
+`input.twm-toggle__input` + `.twm-toggle__track` > `.twm-toggle__knob`, then
+`.twm-toggle__state` and `.twm-toggle__label`; `flexdesk.css` styles it from
+tokens alone, with no colour literal.
+
+In a form, `{ name, label, type: 'toggle', onText?, offText?, disabled?,
+compact? }` mounts one and submits a boolean, like a checkbox; `api.get` reads
+it as a boolean and `api.set` moves it. `tests/toggle_field.test.mjs` covers
+both.
 
 ## Confirms show text, not markup (0.17.0)
 

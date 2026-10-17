@@ -249,6 +249,24 @@ console.log('§3 scrolling up during streaming stops auto-scroll; Jump to latest
     t.view.endStream();
 }
 
+// A scrollbar drag, a key or a touch moves scrollTop before its scroll event
+// is dispatched; a chunk landing in between must not snap the reader back.
+{
+    const t = fresh();
+    for (let i = 0; i < 20; i++) t.view.append({ role: i % 2 ? 'assistant' : 'user', text: `m${i}` });
+    t.view.beginStream();
+    t.view.appendChunk('a');
+    ok('(late scroll) pinned at the bottom first', t.view.isPinned() && t.log.scrollTop === t.geo.max());
+    t.log.scrollTop = 100;                          // moved; no scroll event yet
+    t.view.appendChunk('b');
+    ok('a chunk before the scroll event keeps the reader\'s position', t.log.scrollTop === 100);
+    ok('…stops following', !t.view.isPinned());
+    ok('…and shows Jump to latest', t.jump.hidden === false);
+    t.log.dispatchEvent(new dom.window.Event('scroll'));
+    ok('the late scroll event leaves it unpinned', !t.view.isPinned() && t.log.scrollTop === 100);
+    t.view.endStream();
+}
+
 console.log('§4 the composer: Enter submits and clears; Shift+Enter is left to the browser');
 {
     const submitted = [];

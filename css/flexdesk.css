@@ -2959,6 +2959,231 @@ body.twm-window-maximized .twm-resize-handle {
     cursor: default;
 }
 
+/* ─── Progress: ProgressBar, ProgressList, StepProgress ──────────────
+   `src/ui/components/progress.js`. Every width is the fill's inline
+   `style.width`, changed in place; the states are modifier classes. */
+
+.twm-progress {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+.twm-progress__head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-sm);
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+}
+.twm-progress__label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-primary);
+}
+.twm-progress__readout,
+.twm-progress__elapsed {
+    flex: 0 0 auto;
+    font-variant-numeric: tabular-nums;
+}
+.twm-progress__elapsed {
+    color: var(--text-muted);
+}
+.twm-progress__cancel {
+    flex: 0 0 auto;
+    background: transparent;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: var(--font-size-xs);
+    padding: 0 var(--space-sm);
+    cursor: pointer;
+}
+.twm-progress__cancel:hover:not(:disabled) {
+    border-color: var(--color-danger);
+    color: var(--color-danger);
+}
+.twm-progress__cancel:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+.twm-progress__track,
+.twm-progress-list__track {
+    position: relative;
+    height: 6px;
+    overflow: hidden;
+    background: var(--surface-3);
+    border-radius: var(--radius-pill);
+}
+.twm-progress__fill,
+.twm-progress-list__fill {
+    height: 100%;
+    width: 0;
+    background: var(--accent);
+    border-radius: inherit;
+    transition: width var(--transition-normal);
+}
+.twm-progress--indeterminate .twm-progress__fill {
+    position: absolute;
+    left: 0;
+    width: 30%;
+    animation: twm-progress-sweep 1.2s ease-in-out infinite;
+}
+.twm-progress--done .twm-progress__fill {
+    background: var(--color-success);
+}
+.twm-progress--error .twm-progress__fill {
+    background: var(--color-danger);
+}
+.twm-progress--cancelled .twm-progress__fill {
+    background: var(--text-dim);
+}
+@keyframes twm-progress-sweep {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(340%); }
+}
+
+.twm-progress-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    min-width: 0;
+}
+.twm-progress-list__rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+.twm-progress-list__row {
+    display: grid;
+    grid-template-columns: auto minmax(6em, 1fr) minmax(4em, 2fr) auto;
+    align-items: center;
+    gap: var(--space-sm);
+    font-size: var(--font-size-sm);
+    color: var(--text-primary);
+}
+.twm-progress-list__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.twm-progress-list__count {
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.twm-progress-list__state {
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-circle);
+    background: var(--text-dim);
+}
+.twm-progress-list__row--running .twm-progress-list__state {
+    background: var(--accent);
+}
+.twm-progress-list--pulse .twm-progress-list__row--running .twm-progress-list__state {
+    animation: twm-progress-pulse 1.2s ease-in-out infinite;
+}
+.twm-progress-list__row--done .twm-progress-list__state,
+.twm-progress-list__row--done .twm-progress-list__fill {
+    background: var(--color-success);
+}
+.twm-progress-list__row--failed .twm-progress-list__state,
+.twm-progress-list__row--failed .twm-progress-list__fill {
+    background: var(--color-danger);
+}
+.twm-progress-list__row--pending {
+    color: var(--text-muted);
+}
+.twm-progress-list__empty,
+.twm-progress-list__stats {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+@keyframes twm-progress-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.35; }
+}
+
+.twm-steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs) var(--space-lg);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--font-size-sm);
+}
+.twm-steps__step {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    color: var(--text-muted);
+}
+.twm-steps__marker {
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-circle);
+    border: 1px solid currentColor;
+}
+.twm-steps__step--done {
+    color: var(--text-secondary);
+}
+.twm-steps__step--done .twm-steps__marker {
+    background: var(--color-success);
+    border-color: var(--color-success);
+}
+.twm-steps__step--active {
+    color: var(--text-primary);
+    font-weight: var(--font-weight-semibold);
+}
+.twm-steps__step--active .twm-steps__marker {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+.twm-steps__step--error {
+    color: var(--color-danger);
+}
+.twm-steps__step--error .twm-steps__marker {
+    background: var(--color-danger);
+    border-color: var(--color-danger);
+}
+.twm-steps__pass {
+    font-weight: var(--font-weight-regular);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+    .twm-progress__fill,
+    .twm-progress-list__fill { transition: none; }
+    .twm-progress--indeterminate .twm-progress__fill,
+    .twm-progress-list--pulse .twm-progress-list__row--running .twm-progress-list__state { animation: none; }
+}
+
+/* The bar and phases inside showRunProgressDialog / showComputingWindow,
+   and the message's final state. */
+.twm-job-progress__steps,
+.twm-job-progress__bar {
+    align-self: stretch;
+    margin: var(--space-xs) 0;
+}
+.twm-run-progress__message.is-ok,
+.twm-computing-status__message.is-ok {
+    color: var(--color-success);
+}
+.twm-run-progress__message.is-err,
+.twm-computing-status__message.is-err {
+    color: var(--color-danger);
+}
+.twm-run-progress__message.is-cancelled,
+.twm-computing-status__message.is-cancelled {
+    color: var(--text-muted);
+}
+
 /* ═══════════════════════════════════════════════════════════════════════
    @flexdesk/tiles — THE TILE GRID'S CHROME
 

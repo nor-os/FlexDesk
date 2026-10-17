@@ -11,12 +11,14 @@
  * action, square frame, Tab focus trap).
  *
  * The one custom case is `showRunProgressDialog`, which exposes an
- * imperative `update / complete / cancelled / close` API and so
+ * imperative `update / setProgress / setStep / complete / cancelled /
+ * close` API and a `result` promise, and so
  * stays as a direct `ManagedWindow` build — but it still benefits
  * from the focus trap + chrome by virtue of `modal: true`.
  */
 
 import { ManagedWindow } from './managed_window.js';
+import { mountJobProgress } from './job_progress.js';
 import {
     openConfirm, openForm, openModal,
 } from './modal.js';
@@ -191,40 +193,71 @@ function capitalize(str) {
 }
 
 
-// ─── showRunProgressDialog (unchanged custom build) ─────────────────
+// ─── showRunProgressDialog (custom build) ───────────────────────────
 //
-// This one exposes an imperative API (`update`, `complete`, `cancelled`,
-// `close`) that the openModal/openForm/openConfirm helpers don't model
-// — they're one-shot promise-returning. Keep the direct ManagedWindow
-// build, but it still gets the TUI chrome + focus trap for free via
-// `modal: true`.
+// This one exposes an imperative API (`update`, `setProgress`, `setStep`,
+// `complete`, `cancelled`, `close`) that the openModal/openForm/openConfirm
+// helpers don't model — they're one-shot promise-returning. Keep the direct
+// ManagedWindow build, but it still gets the TUI chrome + focus trap for free
+// via `modal: true`.
 
 /**
- * Show a run progress dialog with spinner, live message updates, and
- * final status. Returns a control object — keep this build instead of
- * delegating so callers retain the imperative update / complete API.
- * @returns {{ update(msg: string): void, complete(result: {ok: boolean, message: string}): void, cancelled(msg?: string): void, close(): void }}
+ * @typedef {Object} RunProgressResult
+ * @property {'done'|'error'|'cancelled'} status
+ * @property {string} message
+ */
+
+/**
+ * Show a run progress dialog with a spinner (or a bar), live message
+ * updates, optional phases, and a final status.
+ *
+ * `progress` (`true` or ProgressBar options) shows a determinate bar in place
+ * of the spinner; `steps` (StepProgress steps) shows the phases above it.
+ * `result` settles once, with the final state: `complete({ok})` gives `done`
+ * or `error`, `cancelled()` gives `cancelled`, and so does closing the dialog
+ * while it runs — by its × or Escape, which also calls `onCancel`, or by
+ * `close()`, which does not.
+ *
+ * @param {Object} [options]
+ * @param {string} [options.title='Running Pipeline']
+ * @param {string} [options.message='Starting…']
+ * @param {Function} [options.onCancel] - Shows a Stop button.
+ * @param {boolean|Object} [options.progress] - A ProgressBar, `true` or its options.
+ * @param {Array} [options.steps] - StepProgress steps.
+ * @returns {{ update(msg: string): void, setProgress(next: number|Object): void,
+ *   setStep(which: string|number, opts?: {pass?: number, passes?: number}): void,
+ *   complete(result: {ok: boolean, message: string}): void, cancelled(msg?: string): void,
+ *   close(): void, result: Promise<RunProgressResult> }}
  */
 export function showRunProgressDialog(options = {}) {
     const {
         title = 'Running Pipeline',
         message = 'Starting…',
         onCancel,
+        progress = null,
+        steps = null,
     } = options;
 
     const dialogId = `run-progress-${++dialogIdCounter}`;
     let finished = false;
+    let closingFromHandle = false;
+    let settle;
+    const result = new Promise((resolve) => { settle = resolve; });
 
     const contentEl = document.createElement('div');
     contentEl.className = 'twm-confirm-dialog__content run-progress';
 
     const bodyEl = document.createElement('div');
     bodyEl.className = 'twm-run-progress__body';
-    bodyEl.innerHTML = `
-        <div class="twm-run-progress__spinner"></div>
-        <div class="twm-run-progress__message">${escapeHtml(message)}</div>
-    `;
+    const spinnerEl = document.createElement('div');
+    spinnerEl.className = 'twm-run-progress__spinner';
+    const messageEl = document.createElement('div');
+    messageEl.className = 'twm-run-progress__message';
+    messageEl.textContent = message;
+    bodyEl.append(spinnerEl, messageEl);
     contentEl.appendChild(bodyEl);
+
+    const job = mountJobProgress(contentEl, { progress, steps, spinner: spinnerEl });
 
     let stopBtn = null;
     if (typeof onCancel === 'function') {
@@ -255,6 +288,17 @@ export function showRunProgressDialog(options = {}) {
     actionsEl.appendChild(closeBtn);
     contentEl.appendChild(actionsEl);
 
+    const finish = (status, text, cls) => {
+        finished = true;
+        spinnerEl.style.display = 'none';
+        if (stopBtn) stopBtn.parentElement.style.display = 'none';
+        messageEl.textContent = text;
+        messageEl.className = `twm-run-progress__message ${cls}`;
+        job.finish(status);
+        actionsEl.style.display = '';
+        settle({ status, message: text });
+    };
+
     const dialogWindow = new ManagedWindow({
         id: dialogId,
         title,
@@ -263,47 +307,46 @@ export function showRunProgressDialog(options = {}) {
         minWidth: 320,
         minHeight: 120,
         defaultWidth: 420,
-        defaultHeight: 200,
+        defaultHeight: 200 + (job.bar ? 40 : 0) + (job.steps ? 40 : 0),
         canMinimize: false,
         canMaximize: false,
         canResize: false,
         canDrag: false,
         modal: true,
+        onClose: () => {
+            if (finished) return;
+            finish('cancelled', 'Cancelled.', 'is-cancelled');
+            if (!closingFromHandle && typeof onCancel === 'function') onCancel();
+        },
     });
     dialogWindow.show();
 
-    const messageEl = bodyEl.querySelector('.twm-run-progress__message');
-    const spinnerEl = bodyEl.querySelector('.twm-run-progress__spinner');
-
     return {
+        result,
         update(msg) {
-            if (finished || !messageEl) return;
+            if (finished) return;
             messageEl.textContent = msg;
         },
-        complete(result) {
+        setProgress(next) {
             if (finished) return;
-            finished = true;
-            if (spinnerEl) spinnerEl.style.display = 'none';
-            if (stopBtn) stopBtn.parentElement.style.display = 'none';
-            if (messageEl) {
-                messageEl.textContent = result?.message || '';
-                messageEl.className = `twm-run-progress__message ${result?.ok ? 'is-ok' : 'is-err'}`;
-            }
-            actionsEl.style.display = '';
+            job.setProgress(next);
+        },
+        setStep(which, opts) {
+            if (finished) return;
+            job.setStep(which, opts);
+        },
+        complete(res) {
+            if (finished) return;
+            finish(res?.ok ? 'done' : 'error', res?.message || '', res?.ok ? 'is-ok' : 'is-err');
         },
         cancelled(msg) {
             if (finished) return;
-            finished = true;
-            if (spinnerEl) spinnerEl.style.display = 'none';
-            if (stopBtn) stopBtn.parentElement.style.display = 'none';
-            if (messageEl) {
-                messageEl.textContent = msg || 'Cancelled.';
-                messageEl.className = 'twm-run-progress__message is-cancelled';
-            }
-            actionsEl.style.display = '';
+            finish('cancelled', msg || 'Cancelled.', 'is-cancelled');
         },
         close() {
-            try { dialogWindow.close(); } catch { /* already closed */ }
+            closingFromHandle = true;
+            try { dialogWindow.close({ force: true }); } catch { /* already closed */ }
+            closingFromHandle = false;
         },
     };
 }

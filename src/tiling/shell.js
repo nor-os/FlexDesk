@@ -46,6 +46,7 @@ import { installKeymap, keymapShortcuts } from './keymap.js';
 import { openTileTabSwitcher } from './tile_tab_menu.js';
 import { mountZoomControl } from './zoom.js';
 import { showContextMenu } from '../ui/components/context_menu.js';
+import { createMenuBar } from '../ui/components/menu_bar.js';
 import { openForm } from '../ui/components/modal.js';
 
 /**
@@ -125,13 +126,22 @@ import { openForm } from '../ui/components/modal.js';
  *                                      desktops is said on the desktops
  *                                      themselves (`group`, `fixed` — see
  *                                      `DesktopManager.chips`).
+ * @param {object}     [cfg.menuBar]    STORY-0030. `{ menus, onAction?, label?,
+ *                                      emptyLabel?, palette? }` — the model of
+ *                                      the menu bar painted into
+ *                                      `chrome.menuBar` (see menu_bar.js). Its
+ *                                      enabled items are also the palette's
+ *                                      commands, after `palette.commands`'
+ *                                      own, unless `palette: false`.
  * @param {object}     [cfg.chrome]     { topNav?, paletteButton?, desktops?,
  *                                        panelToggles?: { left?, right?, bottom? },
- *                                        zoom? }
+ *                                        zoom?, menuBar? }
  *                                      `zoom` is C31: the element the content
  *                                      zoom control is painted into — see
  *                                      zoom.js. Absent, there is no control and
- *                                      nothing is ever scaled.
+ *                                      nothing is ever scaled. `menuBar` is the
+ *                                      element that becomes the menu bar; it
+ *                                      needs `cfg.menuBar`.
  * @param {object}     [cfg.keymap]     `{ bindings?: { [chord]: action | false | fn } }`
  *                                      — the window manager's chords, changed:
  *                                      `false` hands a chord back to the page
@@ -168,6 +178,7 @@ export async function createShell({
     tabLayout = null,
     newTabButton = true,
     desktopBar = {},
+    menuBar: menuBarCfg = null,
     chrome = {},
     // An embedder that moved its sections out of the top bar — into an icon
     // rail, say — passes the selector its own buttons match, and F1..F8 keep
@@ -182,6 +193,9 @@ export async function createShell({
     }
     if (!taxonomy) throw new Error('createShell: a taxonomy is required');
     if (!entities) throw new Error('createShell: an entity catalog is required');
+    if (chrome.menuBar && !menuBarCfg?.menus) {
+        throw new TypeError('createShell: `chrome.menuBar` needs `menuBar: { menus }`');
+    }
     // `keymap` is checked here, not left to the keymap: a typo such as
     // `{ binding: … }` would otherwise be dropped without a word, and the chord
     // the embedder meant to take back would stay bound.
@@ -240,12 +254,19 @@ export async function createShell({
         onChange: () => syncChrome(),
     });
 
+    // STORY-0030. The menu bar is built before the palette so that its model
+    // can be the palette's commands too: one list of verbs, two doors.
+    const menuBar = chrome.menuBar ? createMenuBar(chrome.menuBar, menuBarCfg) : null;
+    const ownCommands = paletteCfg.commands;
+    const commands = menuBar && menuBarCfg.palette !== false
+        ? () => [...(typeof ownCommands === 'function' ? ownCommands() || [] : []), ...menuBar.commands()]
+        : ownCommands;
     const bindings = keymap?.bindings ?? null;
     const palette = createCommandPalette({
         wm, api, taxonomy, catalog: entities,
         // What *Keyboard shortcuts* lists is what the keys do in THIS shell.
         shortcuts: keymapShortcuts(bindings),
-        ...paletteCfg,
+        ...paletteCfg, commands,
     });
     // `navSelector` lets an embedder that moved its sections out of the top
     // bar keep F1..F8 working. Omitted, the default top-bar selector applies —
@@ -295,6 +316,8 @@ export async function createShell({
             // `get`/`set` so an embedder can drive the zoom from its own settings
             // pane, or read it, without reaching into the control's DOM.
             zoom,
+            // STORY-0030. `setEnabled` / `setChecked` / `open` / `commands`.
+            menuBar,
         }),
         // A shell that can be built can be built TWICE — an embedder that
         // rebuilds on a context change (a different project, a different
@@ -323,6 +346,8 @@ export async function createShell({
             // persist it under the host the old shell was given. The element
             // goes; the next shell paints its own.
             try { desktopsEl?.remove(); } catch { /* ignore */ }
+            // Its listeners are on the document; a rebuilt shell paints its own.
+            try { menuBar?.dispose(); } catch { /* ignore */ }
         },
     });
 }

@@ -7,7 +7,7 @@
  *     data: { file: null },                     // yours; every hook sees it as ctx.data
  *     steps: [
  *       { id: 'source', label: 'Source', icon: 'upload_file',
- *         render(bodyEl, ctx) { … ; return () => { … } },   // optional cleanup
+ *         render(bodyEl, ctx) { … ; return () => { … } },   // optional cleanup function
  *         canAdvance: (ctx) => ctx.data.file
  *             ? { ok: true } : { ok: false, hint: 'Choose a file first' } },
  *       { id: 'review', label: 'Review', render(bodyEl, ctx) { … } },
@@ -64,12 +64,10 @@ const STEP_STATES = Object.freeze(['error']);
 
 const isFinal = (state) => state === FINISHED || state === CANCELLED;
 
-/** A step's render may hand back a cleanup — a function, or an object with
- *  `destroy()` / `dispose()` — run when the step is left. */
+/** A step's render may hand back a cleanup function, run when the step is
+ *  left and on dispose(). */
 function runCleanup(cleanup) {
     if (typeof cleanup === 'function') cleanup();
-    else if (cleanup && typeof cleanup.destroy === 'function') cleanup.destroy();
-    else if (cleanup && typeof cleanup.dispose === 'function') cleanup.dispose();
 }
 
 function messageOf(err) {
@@ -93,7 +91,6 @@ export class Wizard extends ComponentBase {
     /** @type {boolean} */            #disposed = false;
 
     /** @type {HTMLElement|null} */   #root = null;
-    /** @type {HTMLElement|null} */   #stepsEl = null;
     /** @type {HTMLElement[]} */      #stepItems = [];
     /** @type {HTMLButtonElement[]} */#stepButtons = [];
     /** @type {HTMLElement[]} */      #connectors = [];
@@ -106,7 +103,7 @@ export class Wizard extends ComponentBase {
     /**
      * @param {object}   opts
      * @param {Array<{id:string,label:string,icon?:string,
-     *                 render:(bodyEl:HTMLElement, ctx:object)=>*,
+     *                 render:(bodyEl:HTMLElement, ctx:object)=>(Function|void),
      *                 canAdvance?:(ctx:object)=>{ok:boolean,hint?:string}}>} opts.steps
      * @param {object}   [opts.data={}]   Your state; every hook reads it as `ctx.data`.
      * @param {Function} [opts.onFinish]  `(ctx) => void|Promise`. A rejection marks the
@@ -417,15 +414,15 @@ export class Wizard extends ComponentBase {
         const root = document.createElement('div');
         root.className = 'twm-wizard';
 
-        this.#stepsEl = document.createElement('ol');
-        this.#stepsEl.className = 'twm-wizard__steps';
+        const steps = document.createElement('ol');
+        steps.className = 'twm-wizard__steps';
         this.#steps.forEach((step, i) => {
             if (i > 0) {
                 const connector = document.createElement('li');
                 connector.className = 'twm-wizard__connector';
                 connector.setAttribute('role', 'presentation');
                 connector.setAttribute('aria-hidden', 'true');
-                this.#stepsEl.appendChild(connector);
+                steps.appendChild(connector);
                 this.#connectors.push(connector);
             }
             const item = document.createElement('li');
@@ -441,7 +438,7 @@ export class Wizard extends ComponentBase {
             btn.append(marker, label);
             btn.addEventListener('click', () => this.#onStepClick(i));
             item.appendChild(btn);
-            this.#stepsEl.appendChild(item);
+            steps.appendChild(item);
             this.#stepItems.push(item);
             this.#stepButtons.push(btn);
         });
@@ -465,7 +462,7 @@ export class Wizard extends ComponentBase {
         actions.append(this.#cancelBtn, this.#backBtn, this.#nextBtn);
         footer.append(this.#message, actions);
 
-        root.append(this.#stepsEl, this.#body, footer);
+        root.append(steps, this.#body, footer);
         this.#root = root;
     }
 
@@ -558,7 +555,6 @@ export class Wizard extends ComponentBase {
         this.#root = null;
         this.#body = null;
         this.#message = null;
-        this.#stepsEl = null;
         this.#stepItems = [];
         this.#stepButtons = [];
         this.#connectors = [];

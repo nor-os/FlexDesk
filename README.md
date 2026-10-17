@@ -2015,6 +2015,14 @@ pill (a badge's `className` is added beside it, to recolour it), and an action i
 `detail-header__btn--<variant>` it emitted before, which no FlexDesk rule styled, are
 gone.
 
+`@flexdesk/editor`'s components keep the class names they were extracted with, and
+`flexdesk.css` styles them: `SplitPaneContainer` (`.split-pane-container`,
+`.split-pane`, a 4px `.split-pane-divider` with a 10px hit target),
+`EditorPane` (`.editor-pane`, `.editor-pane__body`, `.notebook-editor-container`)
+and `NotebookSearchBar` (`.nb-search-bar*`). `setPanes()` adds `.split-pane` to the
+elements you hand it and leaves their own classes alone (it used to replace them,
+which stripped `.editor-pane` off an `EditorPane`).
+
 Icons are rendered by applying the `material-symbols-outlined` class. FlexDesk does
 not ship the font — supply it from Google Fonts or self-host. Without it, icons fall
 back to their text names and nothing breaks.

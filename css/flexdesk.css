@@ -6754,6 +6754,199 @@ body.twm-dragging * { user-select: none; }
     margin: var(--space-xxs) 0;
     background: var(--border-subtle);
 }
+
+/* ══ EDITOR · PANES, SPLIT AND SEARCH (BUG-0025) ═════════════════════
+ *
+ * The same family as the tab bar above: `SplitPaneContainer`, `EditorPane`
+ * and `NotebookSearchBar` set these classes and no FlexDesk stylesheet had a
+ * rule for any of them, so with only FlexDesk CSS a split stacked its panes,
+ * the divider was a zero-width div nobody could grab, and the search bar was
+ * a row of bare inputs and icon names.
+ *
+ *   `.split-pane-container*`, `.split-pane`, `.split-pane-divider*`
+ *                                     `editor/split_pane_container.js`
+ *   `.editor-pane*`, `.notebook-editor-container`
+ *                                     `editor/editor_pane.js`
+ *   `.nb-search-bar*`                 `editor/notebook_search.js`
+ *
+ * Layout first: the container is a row, each pane a column, and the divider
+ * a fixed-width strip that never shrinks. The pane's flex is also written
+ * inline by `SplitPaneContainer` (the ratio); the rule is the fallback. */
+.split-pane-container {
+    display: flex;
+    flex-direction: row;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+.split-pane {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+/* 4px drawn, 10px grabbed: the `::before` widens the hit target 3px each side
+ * without moving either pane. */
+.split-pane-divider {
+    position: relative;
+    z-index: 1;
+    flex: 0 0 4px;
+    width: 4px;
+    background: var(--border-strong);
+    cursor: col-resize;
+    transition: background 0.15s;
+}
+.split-pane-divider::before {
+    content: '';
+    position: absolute;
+    inset: 0 -3px;
+}
+.split-pane-divider:hover,
+.split-pane-divider--active {
+    background: var(--accent-bright, #1683c4);
+}
+/* A pane is its tab bar over its body. The tab bar's own rule says
+ * `height: 100%` (it fills a tile's strip); here it is a fixed 26px row, the
+ * strip's height, and the body takes the rest. */
+.editor-pane {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+.editor-pane > .tabs.notebook-tabs {
+    flex: 0 0 auto;
+    height: 26px;
+}
+/* Which of two panes has focus — only drawn when there ARE two. An inset
+ * shadow rather than a border, so focusing a pane does not move its body.
+ * This and the tab-bar row above need `.editor-pane` to survive
+ * `setPanes()`, which is why `SplitPaneContainer` ADDS `.split-pane` to a
+ * pane instead of replacing its classes with it. */
+.split-pane-container--split .editor-pane--focused > .tabs.notebook-tabs {
+    box-shadow: inset 0 -1px 0 var(--accent-bright, #1683c4);
+}
+/* The body is the positioning anchor; the editor container fills it
+ * absolutely, so its height is the body's whatever its content is and the
+ * scrollbar is its own. */
+.editor-pane__body {
+    position: relative;
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: hidden;
+}
+.notebook-editor-container {
+    position: absolute;
+    inset: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    background: var(--surface-0);
+    outline: none;
+}
+/* The search bar: mounted at the top of the editor container and sticky
+ * there, hidden until `open()` adds `--open`. */
+.nb-search-bar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: none;
+    flex-direction: column;
+    gap: var(--space-xs);
+    padding: var(--space-sm) var(--space-md);
+    background: var(--surface-1);
+    border-bottom: 1px solid var(--border-strong);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+}
+.nb-search-bar--open { display: flex; }
+.nb-search-bar__find-row,
+.nb-search-bar__replace-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+/* Lines the replace input up under the find input: the toggle's width. */
+.nb-search-bar__spacer {
+    flex: 0 0 26px;
+    width: 26px;
+}
+.nb-search-bar__input-wrap {
+    flex: 1 1 auto;
+    min-width: 160px;
+    max-width: 320px;
+}
+.nb-search-bar__input {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 3px var(--space-sm);
+    background: var(--surface-3);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font: inherit;
+    outline: none;
+}
+.nb-search-bar__input:focus { border-color: var(--accent-bright, #1683c4); }
+.nb-search-bar__match-info {
+    min-width: 64px;
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    text-align: center;
+    white-space: nowrap;
+    user-select: none;
+}
+.nb-search-bar__match-info--no-results { color: var(--color-danger, #c74e4e); }
+.nb-search-bar__btn {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+}
+.nb-search-bar__btn:hover { background: var(--state-hover); }
+.nb-search-bar__btn:active { background: var(--state-active); }
+/* The case / word / regex toggles reserve the border `--active` colours. */
+.nb-search-bar__btn--toggle { border: 1px solid transparent; }
+.nb-search-bar__btn--active,
+.nb-search-bar__btn--active:hover {
+    background: var(--state-selected);
+    border-color: var(--accent-bright, #1683c4);
+    color: var(--text-bright);
+}
+/* Two classes, for the Material Symbols tie — see `.twm-leaf__icon`. */
+.nb-search-bar__btn .material-symbols-outlined {
+    font-size: 18px;
+    line-height: 1;
+}
+.nb-search-bar__icon-word {
+    font-size: var(--font-size-md);
+    font-weight: 700;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+.nb-search-bar__separator {
+    flex: 0 0 1px;
+    width: 1px;
+    height: 18px;
+    margin: 0 2px;
+    background: var(--border-strong);
+}
+/* ══ end EDITOR · PANES, SPLIT AND SEARCH ══ */
 /* ── Tile tab menu (hamburger pop-out) ────────────────────────────
  * Anchored above the hamburger button. Lists every entity that the
  * tile's home page would show, grouped by source, with search +

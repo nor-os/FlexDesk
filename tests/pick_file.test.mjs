@@ -3,6 +3,7 @@
  *
  *   §1  under NULL_HOST pickFile opens the browser's chooser and resolves {ok, name, text}
  *   §2  a host whose openFile answers null falls back to the browser chooser;
+ *       openFile is called as a method, and a string accept reaches it as a list;
  *       a host that answers is used as it is, and the chooser never opens
  *   §3  cancelling resolves {ok: false, cancelled: true}, and the input is gone
  *   §4  encoding 'base64' returns the bytes as base64
@@ -129,6 +130,30 @@ console.log('§2 a host that answers null falls back; one that answers is used')
     const cancelling = createHost({ dialogs: { saveFile: async () => null, openFile: async () => ({ ok: false, cancelled: true }) } });
     check('a host cancel is not a fallback', await pickFile(cancelling, { document: p.doc }), { ok: false, cancelled: true });
     check('(still no browser chooser)', p.clicked.length, 0);
+}
+{
+    const p = page();
+    const host = createHost({ dialogs: { saveFile: async () => null,       // openFile uses `this`
+        api: { pick: async (o) => ({ ok: true, name: 'm.json', path: '/m.json', text: '[]', asked: o }) },
+        openFile(o) { return this.api.pick(o); } } });
+    const picking = pickFile(host, { accept: ['.json'], kind: 'json', document: p.doc });
+    await settle();
+    check('a this-using openFile opens no browser chooser', p.clicked.length, 0);
+    if (p.clicked.length) p.cancel(p.clicked[0]);                         // let a wrong fallback answer
+    check('it is called as a method, its answer returned unchanged', await picking,
+          { ok: true, name: 'm.json', path: '/m.json', text: '[]', asked: { accept: ['.json'], kind: 'json', encoding: 'text' } });
+}
+{
+    const p = page();
+    const seen = [];
+    const host = createHost({ dialogs: { saveFile: async () => null,
+        openFile: async (o) => { seen.push(o.accept); return { ok: false, cancelled: true }; } } });
+    await pickFile(host, { accept: '.json,.csv', document: p.doc });
+    await pickFile(host, { accept: ' .json , text/csv ,', document: p.doc });
+    await pickFile(host, { accept: '.png', document: p.doc });
+    check("a string accept reaches openFile as a list: '.json,.csv' → ['.json', '.csv']",
+          seen, [['.json', '.csv'], ['.json', 'text/csv'], ['.png']]);
+    check('(no browser chooser opened)', p.clicked.length, 0);
 }
 {
     const p = page();

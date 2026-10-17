@@ -199,6 +199,8 @@
 import { NotebookTabBar } from '../editor/notebook_tab_bar.js';
 
 const SPLITTER_PX = 4;
+/** The smallest share of its split a slot can be dragged down to. */
+const MIN_SLOT_FRACTION = 0.05;
 /** The three tab layouts, and the framework's default. `bottom` is the default
  *  because it is what every existing embedder already renders. */
 const TAB_LAYOUTS = ['bottom', 'top', 'header'];
@@ -302,8 +304,13 @@ export class TileRenderer {
      *  stub that this renderer will admit. */
     static get TAB_MIME() { return TILE_TAB_MIME; }
 
+    /** The smallest share of its split a splitter drag leaves a slot. Readable
+     *  so a caller that sets split sizes itself (the WM rebuilding its panel
+     *  splits) never builds one a drag could not have produced. */
+    static get MIN_SLOT_FRACTION() { return MIN_SLOT_FRACTION; }
+
     constructor({ root, tree, content, ctx, onFocusChange, onAfterRender,
-                  tabLayout = null, newTabButton = true }) {
+                  onSplitResized, tabLayout = null, newTabButton = true }) {
         if (!content || typeof content.mount !== 'function') {
             throw new Error('TileRenderer: a content registry is required');
         }
@@ -326,6 +333,11 @@ export class TileRenderer {
          *  The renderer cannot know about windows, so it says "I have
          *  repainted" and the WM re-homes what it owns. */
         this.onAfterRender = onAfterRender || (() => {});
+        /** Fired once at the END of a splitter drag that changed the split's
+         *  sizes, with the split's id. A drag only rewrites the tree's sizes
+         *  (and the slots' flex) as the pointer moves; whoever owns the tree
+         *  decides what a finished resize means — the WM saves the layout. */
+        this.onSplitResized = onSplitResized || (() => {});
         /** C38. Whether the `header` strip draws its `+`. An embedder whose
          *  new tab would open nothing useful turns it off; `wm.newTab` stays. */
         this.newTabButton = newTabButton !== false;
@@ -1849,7 +1861,7 @@ export class TileRenderer {
         const px = totalPx - SPLITTER_PX * (split.children.length - 1);
         if (px <= 0) return;
         const deltaFrac = (delta / px) * totalSize;
-        const minFrac = totalSize * 0.05;
+        const minFrac = totalSize * MIN_SLOT_FRACTION;
         const newSizes = startSizes.slice();
         newSizes[slotIdx] = Math.max(minFrac, startSizes[slotIdx] + deltaFrac);
         newSizes[slotIdx + 1] = Math.max(minFrac, startSizes[slotIdx + 1] - deltaFrac);
@@ -1858,6 +1870,7 @@ export class TileRenderer {
         const scale = totalSize / sum;
         for (let i = 0; i < newSizes.length; i++) newSizes[i] *= scale;
         this.tree.setSplitSizes(split.id, newSizes);
+        this._drag.moved = true;
         // Cheap update: just rewrite flex on the slots.
         const containerEl = document.querySelector(`.twm-split[data-split-id="${split.id}"]`);
         if (!containerEl) return;
@@ -1869,8 +1882,12 @@ export class TileRenderer {
     }
 
     _onMouseUp() {
+        const drag = this._drag;
         this._drag = null;
         document.body.classList.remove('twm-dragging');
+        if (!drag?.moved) return;
+        try { this.onSplitResized(drag.splitId); }
+        catch (err) { console.error('[tile-renderer] onSplitResized threw', err); }
     }
 }
 

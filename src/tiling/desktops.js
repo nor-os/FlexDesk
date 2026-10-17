@@ -4,7 +4,8 @@
  * Where that key actually lands is the embedder's business (see the host's
  * `resolvePath`); this module only names it.
  *
- * Each desktop = { id, label, tree (TileTree), windows ([]), panels }.
+ * Each desktop = { id, label, tree (TileTree), windows ([]), panels,
+ * panelShares }.
  * Switching desktops swaps the active tree under the renderer.
  */
 
@@ -47,6 +48,9 @@ function _makeDesktop(label, seed, panelDefaults = DEFAULT_PANEL_STATE) {
         // when it asked for nothing. Names are assigned by wm._canonicalize via
         // PANEL_TITLES.
         panels: { ...panelDefaults },
+        // Each panel's last share of the WM area along its axis, recorded by
+        // wm._canonicalize. A side with none opens at the default ratio.
+        panelShares: {},
         // C40. Both unset is a desktop exactly as it always was.
         group: null,
         fixed: false,
@@ -159,6 +163,9 @@ export class DesktopManager {
                 id: d.id, label: d.label,
                 tree: d.tree.serialize(),
                 panels: { ...d.panels },
+                // Written only when a panel has been measured, like the C40
+                // keys below.
+                ...(Object.keys(d.panelShares).length ? { panelShares: { ...d.panelShares } } : {}),
                 // C40. Written only when set, so a blob without them is
                 // byte-for-byte the blob it always was.
                 ...(d.group ? { group: d.group } : {}),
@@ -182,6 +189,7 @@ export class DesktopManager {
             // this merge order avoids. The default only fills a key the stored
             // blob predates.
             panels: { ...m.panelDefaults, ...(raw.panels || {}) },
+            panelShares: { ...(raw.panelShares || {}) },
             group: raw.group || null,
             fixed: !!raw.fixed,
         }));

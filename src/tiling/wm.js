@@ -132,6 +132,12 @@ export class WindowManager {
             },
             onFocusChange: () => this._notifyChange(),
             onAfterRender: () => this._rehomeContainedWindows(),
+            // A finished splitter drag is a layout change like any other:
+            // save it, so the dragged size is what the next load restores.
+            onSplitResized: () => {
+                this._persist();
+                this._notifyChange('split-resized');
+            },
         });
         this._persistTimer = null;
         // Window-id → leaf-id mapping so a managed-window demote can
@@ -3174,13 +3180,17 @@ export class WindowManager {
         // 2. Measure each panel BEFORE anything is detached: its share of
         //    the WM area along its own axis (width for left/right, height
         //    for bottom). Detaching collapses the panel's split, so this is
-        //    the last moment the user's dragged size can be read; wrap()
-        //    rebuilds from it. A panel with no parent split (it IS the
-        //    root) has no measurable share and reopens at the default.
-        const share = {};
+        //    the last moment the user's dragged size can be read. It is kept
+        //    on the desktop record (`panelShares`, serialized with it), so a
+        //    panel the user closes comes back at the size it had, even
+        //    across a reload while it was closed. A panel that is not on
+        //    the tree, or IS the root, measures nothing and keeps whatever
+        //    share it last had.
         for (const side of ['left', 'right', 'bottom']) {
-            share[side] = this._panelShare(tree, panel[side], side === 'bottom' ? 'v' : 'h');
+            const measured = this._panelShare(tree, panel[side], side === 'bottom' ? 'v' : 'h');
+            if (measured != null) desktop.panelShares[side] = measured;
         }
+        const share = desktop.panelShares;
 
         // 3. Detach each panel leaf from its current parent. (We don't
         //    use tree.close because that deletes the node; we want to
@@ -3235,21 +3245,24 @@ export class WindowManager {
         // 5. Wrap content row with left + right (h-split), then wrap
         //    that with bottom (v-split) so bottom spans full width.
         //
-        //    Sizes: a panel measured in step 2 gets back the same share of
-        //    the WM area; only a panel without one (newly opened, or one
-        //    that was the root) takes the default 1:4. Left sits INSIDE the
-        //    right panel's split, so its share of that inner split is its
-        //    area share divided by what the right panel leaves over — that
-        //    is what keeps the Navigator's width when the right panel is
-        //    toggled.
+        //    Sizes: a panel with a share from step 2 gets back the same
+        //    share of the WM area; only a panel that has never had one (opened
+        //    for the first time on this desktop) takes the default 1:4. Left
+        //    sits INSIDE the right panel's split, so its share of that inner
+        //    split is its area share divided by what the right panel leaves
+        //    over, which keeps the Navigator's width when the right panel is
+        //    toggled. That quotient can pass 1 when the shares were taken at
+        //    different times (the right panel dragged wide while the left was
+        //    closed), so it is capped to leave the content the same minimum
+        //    slot a splitter drag would.
         const willWrap = (side) => !!desktop.panels[side] && seededSide !== side;
         const DEFAULT_SHARE = 1 / 5;
+        const maxShare = 1 - TileRenderer.MIN_SLOT_FRACTION;
         const wrapShare = (side) => {
             const own = share[side];
             if (own == null) return null;
             if (side !== 'left' || !willWrap('right')) return own;
-            const rest = 1 - (share.right ?? DEFAULT_SHARE);
-            return rest > 0 ? Math.min(own / rest, 0.95) : null;
+            return Math.min(own / (1 - (share.right ?? DEFAULT_SHARE)), maxShare);
         };
         const wrap = (panelLeaf, side) => {
             // Re-register the leaf if it was orphaned by detach.
@@ -3268,7 +3281,7 @@ export class WindowManager {
             const before = (side === 'left');
             const dir = (side === 'bottom') ? 'v' : 'h';
             const children = before ? [leaf.id, tree.rootId] : [tree.rootId, leaf.id];
-            const kept = panelLeaf ? wrapShare(side) : null;
+            const kept = wrapShare(side);
             const sizes = (kept != null) ? (before ? [kept, 1 - kept] : [1 - kept, kept])
                         : before ? [1, 4] : [4, 1];
             const split = {

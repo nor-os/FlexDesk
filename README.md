@@ -1893,10 +1893,21 @@ an editor which silently never appears. `initMonaco()` throws instead.
 
 `getEditorFactory()` and `initMonaco()` **reject** when no path was set, when
 `vs/loader.js` fails to load, or when Monaco's AMD loader reports an error, so a
-consumer can show a message instead of waiting forever. A failed load is not
-sticky: fix the path (`setMonacoBasePath`) and the next call tries again.
-`monacoReady` only ever resolves — it is the "Monaco has arrived" signal, not
-the place to learn that an attempt failed.
+consumer can show a message instead of waiting forever. What happens next
+depends on which of those it was:
+
+- **`vs/loader.js` failed to load** (a 404, a wrong path): not sticky. Fix the
+  path (`setMonacoBasePath`, or pass it to `initMonaco`) and the next call
+  tries again.
+- **Monaco's AMD loader reported an error** (`vs/editor/editor.main` or a
+  dependency failed): **final for the page**. Monaco's loader caches the failed
+  module and has no way to forget it, so every later call rejects with that
+  same first error, whatever path it is given. Fix the path and reload.
+
+Loading is shared: if you call `initMonaco(path)` yourself, `getEditorFactory()`
+uses that load and needs no `setMonacoBasePath()`. `monacoReady` only ever
+resolves — it is the "Monaco has arrived" signal, not the place to learn that
+an attempt failed.
 
 If you already load Plotly yourself (a `<script>` tag that sets `window.Plotly`),
 the chart loader short-circuits and you can skip `setPlotlySource`.

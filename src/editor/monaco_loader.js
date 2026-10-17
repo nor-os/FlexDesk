@@ -10,11 +10,20 @@
 let _resolveMonaco;
 
 /**
- * The attempt in flight, or the one that succeeded. A FAILED attempt clears it,
- * so the next initMonaco() call starts over instead of being handed the
- * failure — or, as before, nothing at all: the flag this replaced was set
- * BEFORE loader.js had loaded, so one 404 blocked every retry for the life of
- * the page (BUG-0023).
+ * The attempt in flight, the one that succeeded, or one that failed for good.
+ *
+ * Whether a failure is retryable depends on how far the attempt got:
+ *
+ *   - vs/loader.js did not load (a 404, a wrong path): nothing is left behind,
+ *     so the attempt is cleared and the next initMonaco() starts over. The flag
+ *     this replaced was set BEFORE loader.js had loaded, so one 404 blocked
+ *     every retry for the life of the page (BUG-0023).
+ *   - Monaco's AMD loader reported an error (vs/editor/editor.main or one of
+ *     its dependencies failed): FINAL for the page. window.require is now
+ *     Monaco's loader, which records the failed module as complete-with-error
+ *     and hands every later require() of it the same error — it has no undef.
+ *     Retrying cannot help, so the rejected attempt is kept and every caller
+ *     gets that one error. Recovering takes a page reload.
  * @type {Promise<typeof monaco> | null}
  */
 let _attempt = null;
@@ -73,7 +82,9 @@ function requireEditorMain(basePath) {
                 + 'set window.monaco.'));
         }, (err) => {
             reject(new Error(
-                `[twm/editor] Failed to load Monaco from ${basePath}/vs: ${err?.message ?? err}`));
+                `[twm/editor] Failed to load Monaco from ${basePath}/vs: ${err?.message ?? err}. `
+                + 'Monaco\'s AMD loader caches this failure, so it is final for this page: '
+                + 'fix the path and reload.'));
         });
     });
 }
@@ -82,7 +93,13 @@ async function loadMonaco(basePath) {
     // Inject CSS and loader.js dynamically — kept out of the HTML to avoid global bleed
     injectMonacoCss(basePath);
     if (!window.require) {
-        await injectLoaderScript(`${basePath}/vs/loader.js`);
+        const src = `${basePath}/vs/loader.js`;
+        await injectLoaderScript(src);
+        if (!window.require) {
+            throw new Error(
+                `[twm/editor] ${src} loaded but did not define window.require; `
+                + 'is it Monaco\'s vs/loader.js?');
+        }
     }
     return requireEditorMain(basePath);
 }
@@ -97,25 +114,36 @@ async function loadMonaco(basePath) {
  *
  * Monaco is a PEER dependency — 14 MB this bundle deliberately does not contain.
  *
- * Idempotent while an attempt is in flight or has succeeded: every caller gets
- * the same promise. The returned promise REJECTS when no path is given, when
- * loader.js fails to load, or when Monaco's AMD loader reports an error; after
- * a rejection the next call tries again.
+ * Idempotent: while an attempt is in flight or has succeeded, every caller
+ * gets the same promise, whatever path it passes or whether it passes one —
+ * so getEditorFactory() piggybacks on a load the consumer started here.
  *
- * @param {string} basePath Path prefix for the vs/ directory. REQUIRED.
+ * The returned promise REJECTS when no path is given and no attempt exists,
+ * when loader.js fails to load, or when Monaco's AMD loader reports an error.
+ * After a loader.js failure the next call tries again (with the path it is
+ * given). An AMD-level failure is final for the page: every later call gets
+ * the same rejection, and only a reload recovers (see `_attempt`).
+ *
+ * @param {string} [basePath] Path prefix for the vs/ directory. REQUIRED
+ *     unless an attempt is already in flight or has succeeded.
  * @returns {Promise<typeof monaco>}
  */
-export async function initMonaco(basePath) {
+export function initMonaco(basePath) {
+    if (_attempt) return _attempt;
     if (!basePath) {
-        throw new Error(
+        return Promise.reject(new Error(
             '[twm/editor] initMonaco() needs the path to your copy of Monaco, e.g. '
             + "initMonaco('vendor/monaco'). Monaco is a peer dependency; the library "
-            + 'does not guess where you put it.');
+            + 'does not guess where you put it.'));
     }
-    if (!_attempt) {
-        _attempt = loadMonaco(basePath).then(
-            (m) => { _resolveMonaco(m); return m; },
-            (err) => { _attempt = null; throw err; });
-    }
-    return _attempt;
+    const attempt = loadMonaco(basePath).then(
+        (m) => { _resolveMonaco(m); return m; },
+        (err) => {
+            // Monaco's AMD loader is installed only once loader.js has run; a
+            // failure before that leaves nothing cached and can be retried.
+            if (!window.require && _attempt === attempt) _attempt = null;
+            throw err;
+        });
+    _attempt = attempt;
+    return attempt;
 }

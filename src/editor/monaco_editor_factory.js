@@ -455,9 +455,15 @@ export function setMonacoBasePath(basePath) {
 /**
  * The shared editor factory, once Monaco has loaded.
  *
- * Rejects — rather than pending forever (BUG-0023) — when setMonacoBasePath()
- * was never called or Monaco cannot be loaded from it, with initMonaco()'s
- * error. A later call retries, so fixing the path and calling again works.
+ * Uses a load already started by initMonaco(path), so a consumer that calls
+ * initMonaco() itself needs no setMonacoBasePath(). Otherwise it starts one
+ * from setMonacoBasePath()'s path.
+ *
+ * Rejects — rather than pending forever (BUG-0023) — with initMonaco()'s error
+ * when no path was set and no load was started, or when Monaco cannot be
+ * loaded. A later call asks initMonaco() again: after a loader.js failure that
+ * is a fresh attempt (fix the path first); after an AMD-level failure it is
+ * the same rejection, because that one is final for the page.
  *
  * @returns {Promise<MonacoEditorFactory>}
  */

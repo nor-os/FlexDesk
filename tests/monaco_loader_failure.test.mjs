@@ -1,5 +1,5 @@
 /**
- * ══ getEditorFactory() SETTLES, AND A FAILED LOAD CAN BE RETRIED (BUG-0023) ══
+ * ══ getEditorFactory() SETTLES ON A FAILED MONACO LOAD (BUG-0023) ══
  *
  * `getEditorFactory()` used to call `initMonaco()` without awaiting it and then
  * await `monacoReady` — a promise with no reject path. So:
@@ -11,66 +11,16 @@
  *     call a no-op, so even a corrected path could never load Monaco.
  *
  * This suite pins the fix: each failure REJECTS `getEditorFactory()` with the
- * loader's own error, nothing is left unhandled, and the next call starts a
- * fresh attempt that can succeed.
- *
- * No jsdom: the loader touches exactly `document.head.appendChild`,
- * `document.createElement` and `document.getElementById`, and the test fires
- * each script's `onload` / `onerror` itself — that is what makes the failure
- * deterministic.
+ * loader's own error and nothing is left unhandled. A loader.js failure can be
+ * retried; an AMD-level failure cannot, because Monaco's AMD loader caches it —
+ * one loader instance is kept from §3 on, as on a real page, and §4 shows that
+ * a corrected path still gets the first error. (monaco_loader_retry.test.mjs
+ * shows the loader.js retry succeeding.)
  */
+import { installPage, amdLoader, tick, settle, checker, fakeMonaco } from './monaco_env.mjs';
 
-let failures = 0;
-const ok = (what, cond, detail = '') => {
-    if (cond) { console.log(`  ok   ${what}`); return; }
-    failures += 1;
-    console.log(`  FAIL ${what}${detail ? `\n       ${detail}` : ''}`);
-};
-
-const unhandled = [];
-process.on('unhandledRejection', (reason) => { unhandled.push(reason); });
-
-// ── a DOM just big enough ────────────────────────────────────────────────
-const appended = [];
-const byId = new Map();
-function makeNode(tag) {
-    const attrs = {};
-    return {
-        tag,
-        set id(v) { attrs.id = v; byId.set(v, this); },
-        get id() { return attrs.id; },
-        set href(v) { attrs.href = v; },
-        get href() { return attrs.href; },
-        getAttribute(k) { return attrs[k]; },
-        setAttribute(k, v) { attrs[k] = v; },
-        remove() { this.removed = true; },
-    };
-}
-globalThis.window = globalThis;
-globalThis.document = {
-    head: { appendChild(node) { appended.push(node); } },
-    createElement: (tag) => makeNode(tag),
-    getElementById: (id) => byId.get(id) ?? null,
-};
-delete globalThis.require;
-delete globalThis.monaco;
-
-const scripts = () => appended.filter((n) => n.tag === 'script');
-const lastScript = () => scripts().at(-1);
-const tick = () => new Promise((r) => setTimeout(r, 0));
-
-/** Settles within `ms`, or reports that it did not — the old bug was a hang. */
-async function settle(promise, ms = 500) {
-    let timer;
-    const timeout = new Promise((r) => { timer = setTimeout(() => r({ state: 'pending' }), ms); });
-    const result = await Promise.race([
-        promise.then((value) => ({ state: 'fulfilled', value }),
-                     (error) => ({ state: 'rejected', error })),
-        timeout,
-    ]);
-    clearTimeout(timer);
-    return result;
-}
+const { ok, finish } = checker();
+const { scripts, lastScript } = installPage();
 
 const { getEditorFactory, setMonacoBasePath, initMonaco, monacoReady }
     = await import('../editor.js');
@@ -105,55 +55,56 @@ setMonacoBasePath('wrong/monaco');
     ok('the dead tag is removed', lastScript().removed === true);
 }
 
-// ══ 3. A LATER CALL RETRIES — AND AN AMD ERROR ALSO REJECTS ═════════════
+// ══ 3. RETRY: loader.js LOADS, vs/editor/editor.main FAILS IN THE AMD LOADER ═
+// `partial/monaco` has vs/loader.js but not the editor (an incomplete copy);
+// `good/monaco` has both.
 console.log('3. retry; vs/editor/editor.main fails in the AMD loader');
+setMonacoBasePath('partial/monaco');
+const amd = amdLoader((url) => (url.startsWith('partial/')
+    ? new Error(`Script error for ${url}`)
+    : () => { globalThis.monaco = fakeMonaco(); return globalThis.monaco; }));
+let firstError;
 {
     const p = getEditorFactory();
     await tick();
     ok('the retry injects a fresh loader.js tag', scripts().length === 2, `scripts: ${scripts().length}`);
-    // loader.js "loads" and installs an AMD require whose module load fails.
-    let configured = null;
-    globalThis.require = Object.assign(
-        (deps, onLoad, onError) => { setTimeout(() => onError(new Error('Script error for vs/editor/editor.main'))); },
-        { config(c) { configured = c; } });
+    ok('from the new path', lastScript()?.src === 'partial/monaco/vs/loader.js', lastScript()?.src);
+    globalThis.require = amd;           // what Monaco's loader.js does when it runs
     lastScript().onload();
     const r = await settle(p);
-    ok('AMD require configured with the base path', configured?.paths?.vs === 'wrong/monaco/vs',
-       JSON.stringify(configured));
+    firstError = r.error;
     ok('getEditorFactory() rejects on the AMD errback', r.state === 'rejected', `state: ${r.state}`);
     ok('with a message naming where it looked',
-       /Failed to load Monaco from wrong\/monaco\/vs: Script error/.test(r.error?.message ?? ''),
+       /Failed to load Monaco from partial\/monaco\/vs: Script error for partial\/monaco\/vs\/editor\/editor\.main\.js/
+           .test(r.error?.message ?? ''),
        r.error?.message);
+    ok('and saying it is final for the page',
+       /final for this page: fix the path and reload/.test(r.error?.message ?? ''), r.error?.message);
 }
 
-// ══ 4. CORRECTED PATH: THE NEXT CALL SUCCEEDS ═══════════════════════════
-console.log('4. corrected path loads');
+// ══ 4. AN AMD-LEVEL FAILURE IS FINAL: A CORRECTED PATH STILL REJECTS ═════
+console.log('4. corrected path after an AMD failure: still the first error');
 setMonacoBasePath('good/monaco');
 {
-    const themes = [];
-    const fakeMonaco = { editor: { defineTheme: (name) => themes.push(name), setTheme() {} } };
-    let configured = null;
-    globalThis.require = Object.assign(
-        (deps, onLoad) => { setTimeout(() => { globalThis.monaco = fakeMonaco; onLoad(); }); },
-        { config(c) { configured = c; } });
+    const callsBefore = amd.calls.length;
     const r = await settle(getEditorFactory());
-    ok('getEditorFactory() resolves', r.state === 'fulfilled', `state: ${r.state} ${r.error?.message ?? ''}`);
-    ok('with a factory over the loaded monaco', r.value?.monaco === fakeMonaco);
-    ok('AMD paths point at the corrected base', configured?.paths?.vs === 'good/monaco/vs');
-    ok('the stylesheet follows the corrected path',
-       byId.get('monaco-editor-css')?.getAttribute('href') === 'good/monaco/vs/editor/editor.main.css',
-       byId.get('monaco-editor-css')?.getAttribute('href'));
-    ok('monacoReady resolved too', (await settle(monacoReady)).value === fakeMonaco);
-    ok('the singleton is reused', (await getEditorFactory()) === r.value);
-    ok('initMonaco() is idempotent after success', (await initMonaco('other/path')) === fakeMonaco);
+    ok('getEditorFactory() rejects again', r.state === 'rejected', `state: ${r.state}`);
+    ok('with the SAME first error', r.error === firstError, r.error?.message);
+    ok('no new loader.js tag, and window.require is still the same AMD loader',
+       scripts().length === 2 && globalThis.require === amd, `scripts: ${scripts().length}`);
+    ok('the AMD loader is not asked again', amd.calls.length === callsBefore,
+       `calls: ${callsBefore} -> ${amd.calls.length}`);
+    const direct = await settle(initMonaco('good/monaco'));
+    ok('initMonaco(correctedPath) rejects with it too', direct.error === firstError, direct.error?.message);
+    ok('monacoReady stays pending', (await settle(monacoReady, 50)).state === 'pending');
+
+    // Why a retry could not help: the same loader instance, even reconfigured
+    // to the good path, replays its cached failure.
+    amd.config({ paths: { vs: 'good/monaco/vs' } });
+    const cached = await settle(new Promise((res, rej) => amd(['vs/editor/editor.main'], res, rej)));
+    ok('the AMD loader itself replays the cached failure after a path correction',
+       cached.state === 'rejected' && /partial\/monaco/.test(cached.error?.message ?? ''),
+       `${cached.state} ${cached.error?.message ?? ''}`);
 }
 
-await tick();
-ok('no unhandled rejection anywhere', unhandled.length === 0,
-   unhandled.map((e) => e?.message ?? String(e)).join(' | '));
-
-if (failures) {
-    console.log(`monaco_loader_failure: ${failures} FAILED`);
-    process.exit(1);
-}
-console.log('monaco_loader_failure: all passed');
+await finish('monaco_loader_failure');

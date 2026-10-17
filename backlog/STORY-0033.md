@@ -2,7 +2,7 @@
 id: 33
 type: story
 title: "mountNavPanel can be driven from outside, hide its strip and omit its filter per mode"
-status: draft
+status: refined
 parent: 29
 phase:
 assignee:
@@ -31,3 +31,13 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - [ ] With showModeStrip false no strip is rendered and select still switches panes
 - [ ] A mode with filter: false hides the filter box while active, and the next mode with a filter shows its own saved text
 - [ ] Existing callers that pass none of the new options render exactly as before
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T07:55Z · norman_agent (status: draft -> refined)
+
+Refined: 5 acceptance criteria, 3 points, parented to EPIC-0029. Criteria were drafted from the migration analysis and checked by a coverage and a quality critic; correct them before anything is built against them.

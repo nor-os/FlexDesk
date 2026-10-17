@@ -2,7 +2,7 @@
 id: 34
 type: story
 title: "Panels can be offered or withheld per content kind, with the toggle showing why"
-status: draft
+status: refined
 parent: 29
 phase:
 assignee:
@@ -32,3 +32,13 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - [ ] togglePanel('bottom') returns false while unavailable and changes no persisted state
 - [ ] With no declarations, every panel is available as today
 - [ ] A change of availability emits one notification embedders can subscribe to
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T07:55Z · norman_agent (status: draft -> refined)
+
+Refined: 6 acceptance criteria, 5 points, parented to EPIC-0029. Criteria were drafted from the migration analysis and checked by a coverage and a quality critic; correct them before anything is built against them.

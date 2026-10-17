@@ -2,7 +2,7 @@
 id: 50
 type: story
 title: "A settings view that renders the registered settings schema"
-status: draft
+status: refined
 parent: 40
 phase:
 assignee:
@@ -32,3 +32,13 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - [ ] Searching matches across categories, and a query containing markup is shown literally
 - [ ] Reset all asks to confirm and on Cancel changes nothing
 - [ ] A slice registered after mount appears without remounting
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T07:55Z · norman_agent (status: draft -> refined)
+
+Refined: 6 acceptance criteria, 8 points, parented to EPIC-0040. Blocked by STORY-0043, STORY-0044. Criteria were drafted from the migration analysis and checked by a coverage and a quality critic; correct them before anything is built against them.

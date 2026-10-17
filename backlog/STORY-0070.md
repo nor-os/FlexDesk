@@ -30,3 +30,9 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - [ ] Every listed story is marked done in the backlog
 - [ ] `npm run check` passes and dist/ matches a fresh build
 - [ ] The changelog lists every removed or renamed export with its replacement
+
+## Comments
+
+### 2026-10-17T07:55Z · norman_agent
+
+Left in draft: the content passes the refinement checks, but its shape depends on the FlexDesk owner's agreement on the 0.17/0.18/0.19 release grouping. Refine it once that is decided.

@@ -2,7 +2,7 @@
 id: 37
 type: story
 title: "Content can replace its tile chrome actions after mount, with labels, disabled and pressed states"
-status: draft
+status: refined
 parent: 29
 phase:
 assignee:
@@ -31,3 +31,13 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - [ ] A disabled action is not clickable and keeps its tooltip
 - [ ] A setChromeActions call from a ctx of a rebuilt leaf changes nothing
 - [ ] Specs with only {icon,title,onClick} render exactly as today
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T07:55Z · norman_agent (status: draft -> refined)
+
+Refined: 5 acceptance criteria, 3 points, parented to EPIC-0029. Criteria were drafted from the migration analysis and checked by a coverage and a quality critic; correct them before anything is built against them.

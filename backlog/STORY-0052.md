@@ -2,7 +2,7 @@
 id: 52
 type: story
 title: "Progress bar, keyed progress list, stepped progress and determinate progress dialogs"
-status: draft
+status: refined
 parent: 51
 phase:
 assignee:
@@ -31,3 +31,13 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - [ ] An item without total scales against the largest item
 - [ ] StepProgress marks phases done/active/pending/error in order
 - [ ] Closing a progress dialog while running resolves its promise with cancelled
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T07:55Z · norman_agent (status: draft -> refined)
+
+Refined: 5 acceptance criteria, 5 points, parented to EPIC-0051. Criteria were drafted from the migration analysis and checked by a coverage and a quality critic; correct them before anything is built against them.

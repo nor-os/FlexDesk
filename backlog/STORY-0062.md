@@ -2,7 +2,7 @@
 id: 62
 type: story
 title: "Derived-series transforms are injected, and the plot window ships no built-in transform"
-status: draft
+status: refined
 parent: 59
 phase:
 assignee:
@@ -30,3 +30,13 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - [ ] A supplied transform's outputs draw as extra traces with the source colour and the declared dash and suffix
 - [ ] A transform that throws is skipped and the chart still renders
 - [ ] Without the option the config panel shows no derived-series toggles
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T07:55Z · norman_agent (status: draft -> refined)
+
+Refined: 4 acceptance criteria, 3 points, parented to EPIC-0059. Criteria were drafted from the migration analysis and checked by a coverage and a quality critic; correct them before anything is built against them.

@@ -2,7 +2,7 @@
 id: 30
 type: story
 title: "A menu bar widget with submenus, check items and accelerators that the shell can mount and the palette can list"
-status: draft
+status: refined
 parent: 29
 phase:
 assignee:
@@ -36,3 +36,13 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - [ ] setEnabled(id,false) and setChecked(id,true) update an open menu without rebuilding the bar
 - [ ] Disabled items and separators are skipped by the keyboard and never reach onAction
 - [ ] Roles menubar, menu, menuitem, menuitemcheckbox and menuitemradio are present (axe check passes)
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T07:55Z · norman_agent (status: draft -> refined)
+
+Refined: 10 acceptance criteria, 8 points, parented to EPIC-0029. Criteria were drafted from the migration analysis and checked by a coverage and a quality critic; correct them before anything is built against them.

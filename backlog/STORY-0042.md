@@ -2,7 +2,7 @@
 id: 42
 type: story
 title: "openForm number fields enforce min and max, and several fields can share a row"
-status: draft
+status: refined
 parent: 40
 phase:
 assignee:
@@ -30,3 +30,13 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - [ ] Two fields in a row render side by side at 600px dialog width and stack below 360px
 - [ ] setVisible on one field in a row hides only that field
 - [ ] A form with no rows or min/max renders as before
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T07:55Z · norman_agent (status: draft -> refined)
+
+Refined: 4 acceptance criteria, 3 points, parented to EPIC-0040. Blocked by STORY-0041. Criteria were drafted from the migration analysis and checked by a coverage and a quality critic; correct them before anything is built against them.

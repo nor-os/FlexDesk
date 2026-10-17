@@ -2,7 +2,7 @@
 id: 53
 type: story
 title: "NotificationCenter toasts can carry live, collapsible progress"
-status: draft
+status: refined
 parent: 51
 phase:
 assignee:
@@ -31,3 +31,13 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - [ ] update(id, {progress:1, severity:'success', durationMs:3000}) shows success and dismisses after 3 seconds
 - [ ] With overflow 'collapse' and four info toasts, a running progress toast stays visible and is not counted in '+N more'
 - [ ] An action button on a progress toast calls its handler
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T07:55Z · norman_agent (status: draft -> refined)
+
+Refined: 5 acceptance criteria, 3 points, parented to EPIC-0051. Blocked by STORY-0052. Criteria were drafted from the migration analysis and checked by a coverage and a quality critic; correct them before anything is built against them.

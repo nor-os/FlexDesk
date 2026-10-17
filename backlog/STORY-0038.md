@@ -31,3 +31,9 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - [ ] ManagedWindow configured with storageKey 'app.windows' restores geometry saved under that key
 - [ ] The README lists every configurable key with its default and the option to set it
 - [ ] An embedder that passes no keys gets the documented defaults and no console warning
+
+## Comments
+
+### 2026-10-17T07:55Z · norman_agent
+
+Left in draft: the content passes the refinement checks, but its shape depends on the FlexDesk owner's agreement to change the default storage keys and theme names (breaking for other embedders). Refine it once that is decided.

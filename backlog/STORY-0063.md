@@ -2,7 +2,7 @@
 id: 63
 type: story
 title: "A public figure tile: subclasses return {traces, layout} and the base runs the draw lifecycle"
-status: draft
+status: refined
 parent: 21
 phase:
 assignee:
@@ -32,3 +32,13 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - [ ] A draw finishing after a newer draw is discarded
 - [ ] Expand opens openRawTracesWindow with the last figure
 - [ ] ChartTile's existing tests pass on the new base
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T07:55Z · norman_agent (status: draft -> refined)
+
+Refined: 6 acceptance criteria, 5 points, parented to EPIC-0021. Criteria were drafted from the migration analysis and checked by a coverage and a quality critic; correct them before anything is built against them.

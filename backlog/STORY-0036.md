@@ -2,7 +2,7 @@
 id: 36
 type: story
 title: "A collapsible section stack for inspector-style panel content"
-status: draft
+status: refined
 parent: 29
 phase:
 assignee:
@@ -32,3 +32,13 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - [ ] setVisible(id,false) hides a section and setVisible(id,true) restores its previous expanded state
 - [ ] A stateStore that throws on read falls back to each section's defaultExpanded
 - [ ] dispose() removes every listener and DOM node it created
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T07:55Z · norman_agent (status: draft -> refined)
+
+Refined: 6 acceptance criteria, 5 points, parented to EPIC-0029. Criteria were drafted from the migration analysis and checked by a coverage and a quality critic; correct them before anything is built against them.

@@ -2,7 +2,7 @@
 id: 55
 type: story
 title: "A safe-by-default markdown renderer with math and extension hooks; HelpModal accepts markdown topics"
-status: draft
+status: refined
 parent: 54
 phase:
 assignee:
@@ -32,3 +32,13 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - [ ] A registered inline rule for the token [[ref:x]] replaces it with the rule's returned HTML
 - [ ] Rendering each prefix of a streamed document produces HTML with no unclosed element
 - [ ] HelpModal shows a topic supplied as markdown as rendered headings and code
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T07:55Z · norman_agent (status: draft -> refined)
+
+Refined: 6 acceptance criteria, 5 points, parented to EPIC-0054. Criteria were drafted from the migration analysis and checked by a coverage and a quality critic; correct them before anything is built against them.

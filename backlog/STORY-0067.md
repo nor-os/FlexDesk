@@ -2,7 +2,7 @@
 id: 67
 type: story
 title: "An optional dialogs.openFile capability and a pickFile helper with browser fallback"
-status: draft
+status: refined
 parent: 23
 phase:
 assignee:
@@ -32,3 +32,13 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - [ ] encoding 'base64' returns data as base64
 - [ ] validateCapability accepts a dialogs capability without openFile
 - [ ] The README host contract names the pywebview bridge method and its arguments
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T07:55Z · norman_agent (status: draft -> refined)
+
+Refined: 6 acceptance criteria, 3 points, parented to EPIC-0023. Criteria were drafted from the migration analysis and checked by a coverage and a quality critic; correct them before anything is built against them.

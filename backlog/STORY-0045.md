@@ -2,7 +2,7 @@
 id: 45
 type: story
 title: "SliderField gains a linked number input, a readout, a default with reset and an enable toggle"
-status: draft
+status: refined
 parent: 40
 phase:
 assignee:
@@ -31,3 +31,13 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - [ ] When value differs from defaultValue the root has a modified state; reset restores it and fires onChange
 - [ ] Typing 'abc' leaves the value unchanged
 - [ ] setValue(x, {silent:true}) fires no callback
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T07:55Z · norman_agent (status: draft -> refined)
+
+Refined: 5 acceptance criteria, 3 points, parented to EPIC-0040. Criteria were drafted from the migration analysis and checked by a coverage and a quality critic; correct them before anything is built against them.

@@ -2,7 +2,7 @@
 id: 65
 type: story
 title: "STORY-0006 items: duplicate step, host card-menu items, and upstream-column widgets editable before columns are known"
-status: draft
+status: refined
 parent: 5
 phase:
 assignee:
@@ -33,3 +33,13 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - [ ] With no columns, typing a column name in an upstream-column field stores it
 - [ ] When columns become available the same field shows a select with the stored value selected
 - [ ] A stored name not among the columns is kept and marked not found
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T07:55Z · norman_agent (status: draft -> refined)
+
+Refined: 7 acceptance criteria, 5 points, parented to EPIC-0005. Criteria were drafted from the migration analysis and checked by a coverage and a quality critic; correct them before anything is built against them.

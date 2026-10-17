@@ -2,7 +2,7 @@
 id: 57
 type: story
 title: "A conversation view with streaming messages and a composer"
-status: draft
+status: refined
 parent: 54
 phase:
 assignee:
@@ -32,3 +32,13 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - [ ] setBusy(true) turns send into cancel, and Esc or a click calls cancel once
 - [ ] A render callback that throws shows the message as plain text and the view keeps working
 - [ ] replaceAll restores 100 messages and scrolls to the bottom
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T07:55Z · norman_agent (status: draft -> refined)
+
+Refined: 6 acceptance criteria, 5 points, parented to EPIC-0054. Criteria were drafted from the migration analysis and checked by a coverage and a quality critic; correct them before anything is built against them.

@@ -2,7 +2,7 @@
 id: 31
 type: story
 title: "Embedders can disable or rebind built-in WM chords, and the help shortcut is installed by the shell"
-status: draft
+status: refined
 parent: 29
 phase:
 assignee:
@@ -32,3 +32,13 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - [ ] A component that calls preventDefault on Backspace keeps its own behaviour and the WM does not navigate back
 - [ ] Importing the help module installs no document listener, and shell.dispose() removes the '?' shortcut
 - [ ] An unknown chord id in bindings is reported once with a warning and ignored
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T07:55Z · norman_agent (status: draft -> refined)
+
+Refined: 6 acceptance criteria, 5 points, parented to EPIC-0029. Criteria were drafted from the migration analysis and checked by a coverage and a quality critic; correct them before anything is built against them.

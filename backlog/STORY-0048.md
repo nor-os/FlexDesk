@@ -2,7 +2,7 @@
 id: 48
 type: story
 title: "A public tab strip with optional pane host, decoupled from bus names and file paths"
-status: draft
+status: refined
 parent: 40
 phase:
 assignee:
@@ -31,3 +31,13 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - [ ] A pane is mounted only on its first selection
 - [ ] No bus subscription is made unless the caller passes an event name
 - [ ] createBottomPanelTabs's tests pass on top of the new strip
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T07:55Z · norman_agent (status: draft -> refined)
+
+Refined: 5 acceptance criteria, 5 points, parented to EPIC-0040. Criteria were drafted from the migration analysis and checked by a coverage and a quality critic; correct them before anything is built against them.

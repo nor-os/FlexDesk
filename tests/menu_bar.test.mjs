@@ -457,6 +457,23 @@ section('§9 disabled items and separators are skipped by the keyboard and never
     check('Enter and Space on a disabled item run nothing', actions.length, 0);
     click(menu.querySelector('.twm-menubar__separator'));
     check('clicking a separator runs nothing', actions.length, 0);
+    // A press the bar does not default-prevent moves focus in a real browser:
+    // to <body>, as nothing between the target and the bar is focusable.
+    // jsdom does not, so the press does it here, the way a browser would.
+    const pressOn = (el) => {
+        const notPrevented = mouse('mousedown', el);
+        if (notPrevented) document.activeElement?.blur();
+        return notPrevented;
+    };
+    itemIn(menu, 'New').focus();
+    check('a press on a separator is default-prevented', pressOn(menu.querySelector('.twm-menubar__separator')), false);
+    ok('…and the menu stays open', openMenus().length === 1 && openMenus()[0] === menu);
+    check('…and focus stays in it', focused(), 'New');
+    check('a press on the menu itself (its padding) is default-prevented', pressOn(menu), false);
+    ok('…and the menu stays open', openMenus().length === 1 && openMenus()[0] === menu);
+    check('…and focus stays in it', focused(), 'New');
+    check('a press on the bar\'s empty space is default-prevented', pressOn(host), false);
+    ok('…and the menu stays open', openMenus().length === 1 && openMenus()[0] === menu);
     click(itemIn(menu, 'Export'));
     check('clicking a submenu item opens it rather than running', [actions.length, openMenus().length], [0, 2]);
     click(itemIn(openMenus()[1], 'PNG'));

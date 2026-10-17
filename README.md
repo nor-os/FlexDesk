@@ -2139,6 +2139,77 @@ an attempt failed.
 If you already load Plotly yourself (a `<script>` tag that sets `window.Plotly`),
 the chart loader short-circuits and you can skip `setPlotlySource`.
 
+## Storage keys and names are yours (0.17.0)
+
+Every localStorage key FlexDesk writes, and every name it registers where other
+code can see it, is an option. The defaults are FlexDesk's own; pass yours at
+boot, before the first read:
+
+| What | Default | Set it with |
+|---|---|---|
+| Settings (the `getSetting`/`setSetting` binding) | `'flexdesk.settings.v1'` | `configureSettings({ storageKey })` from `@flexdesk/core` |
+| ManagedWindow geometry | `'flexdesk.managedWindows.v1'` | `ManagedWindow.configure({ storageKey })` from `@flexdesk/widgets` |
+| Saved tile layouts | `'twm.tiles.layouts'` | `configureLayoutPersistence({ layoutsKey })` from `@flexdesk/tiles` |
+| Saved tile configurations | `'twm.tiles.configs'` | `configureLayoutPersistence({ configsKey })` from `@flexdesk/tiles` |
+| Panel open/size state | none: you must pass one | `new PanelStateMachine({ persistenceKey })` from `@flexdesk/widgets` |
+| Built-in Monaco themes | `'flexdesk-dark'`, `'flexdesk-light'` | `setEditorThemeNames({ dark, light })` from `@flexdesk/editor` |
+| MIME type of a dragged editor tab | `'application/x-flexdesk-tab'` | `setTabDragMime(mime)` from `@flexdesk/editor` |
+| Chart PNG export file name | `'chart'` (saved as `chart.png`) | `setChartExportFilename(name)` from `@flexdesk/charts` |
+| `LoggingService` service name on each entry | `'flexdesk'` | `new LoggingService({ name })` from `@flexdesk/core` |
+
+```js
+import { configureSettings } from '@flexdesk/core';
+import { ManagedWindow } from '@flexdesk/widgets';
+import { setEditorThemeNames, setTabDragMime } from '@flexdesk/editor';
+import { setChartExportFilename } from '@flexdesk/charts';
+
+configureSettings({ storageKey: 'myapp.settings.v1' });
+ManagedWindow.configure({ storageKey: 'myapp.windows.v1' });
+setEditorThemeNames({ dark: 'myapp-dark', light: 'myapp-light' });
+setTabDragMime('application/x-myapp-tab');
+setChartExportFilename('myapp_chart');
+```
+
+Each default is exported beside its setter (`DEFAULT_SETTINGS_STORAGE_KEY`,
+`DEFAULT_WINDOW_STORAGE_KEY`, `DEFAULT_EDITOR_THEME_NAMES`,
+`DEFAULT_TAB_DRAG_MIME`, `DEFAULT_CHART_EXPORT_FILENAME`), and each setter has a
+getter (`getSettingsStorageKey()`, `ManagedWindow.storageKey`,
+`getEditorThemeNames()`, `getTabDragMime()`, `getChartExportFilename()`). An
+embedder that passes nothing gets the defaults silently: nothing is logged.
+
+- **Settings** are read lazily: importing `@flexdesk/core` touches no storage,
+  and the binding reads its key on the first `getSetting`/`setSetting`/reset.
+  `registerSettings()` and `registerSettingsEventBus()` may come before or after
+  `configureSettings()`. Configured after the binding was in use, it moves: values
+  return to their defaults, are reloaded from the new key, and one
+  `settings:changed` (`path: null`) is emitted. The old key is not touched. A
+  private store from `createSettingsStore()` moves the same way with
+  `store.setStorageKey(key)` (and answers `store.getStorageKey()`).
+- **ManagedWindow** reads geometry when a window is first shown; configure it
+  before the first `show()`.
+- **Editor themes**: a factory starts on the dark name current when it is
+  created, and `init()` defines the built-in themes under the names current
+  then. An app with a theme of its own defines it with `monaco.editor.defineTheme`
+  and passes its name to `factory.setTheme(name)`.
+- **The tab MIME** is read at drag time by every `NotebookTabBar` and
+  `EditorPane`, so the two always agree.
+
+**Upgrading from 0.16.** The old defaults were one application's names:
+`'ecosim.settings.v1'`, `'ecosim.managedWindows.v1'`, `'ecosim-dark'` /
+`'ecosim-light'`, `'application/x-ecosim-tab'`, `'ecosim_chart'` and the log
+service name `'ecosim'`. If your users have settings or window geometry saved
+under the old keys, pass those keys explicitly and nothing is lost:
+
+```js
+configureSettings({ storageKey: 'ecosim.settings.v1' });
+ManagedWindow.configure({ storageKey: 'ecosim.managedWindows.v1' });
+```
+
+Code that called `factory.setTheme('ecosim-light')` now calls
+`factory.setTheme(getEditorThemeNames().light)` (or names the themes back with
+`setEditorThemeNames`), and code that read `'application/x-ecosim-tab'` off a drag
+reads `getTabDragMime()`.
+
 ## Layouts are keyed by whatever you key them by
 
 `@flexdesk/tiles` stores layouts under keys **you** choose and resolves a starting

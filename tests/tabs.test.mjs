@@ -4,12 +4,14 @@
  *   §1  markup and ARIA: a tablist of buttons, one in the tab order, the
  *       item's icon/label/title/badge/indicator/dirty drawn; strip-only has no body
  *   §2  keys: ArrowLeft/Right move the selection (and focus), wrapping; Home and
- *       End jump to the ends
+ *       End jump to the ends; a click selects, and onReselect hears a click on
+ *       the tab already in front
  *   §3  update(items, activeId): the tab in front stays when its id is still
  *       there, the first is selected otherwise; activeId wins when present;
  *       kept tabs keep their button
  *   §4  panes: mounted on first selection only (the one in front at creation
- *       counts), onShow each time, destroyed when their item goes; eager opts in
+ *       counts), onShow each time, destroyed when their item goes; eager opts in,
+ *       at creation and for an item an update adds
  *   §5  the bus: no subscription unless an event name is passed
  *   §6  setBadge / setIndicator
  *   §7  close (mark, Delete, middle click), context menu, reorder wiring
@@ -169,6 +171,19 @@ console.log('§2 keys');
     log.length = 0;
     realClick(bs()[1]);
     ok('a click on the tab in front tells no one', log.length === 0);
+
+    const re = [];
+    const t2 = createTabs(fresh(), { items: ITEMS, active: 'b',
+        onSelect: (id) => re.push(`select ${id}`), onReselect: (id, item) => re.push(`reselect ${id}:${item.label}`) });
+    const b2 = buttons(t2.root);
+    realClick(b2[1]);
+    ok('onReselect hears a click on the tab already in front, with its item', re.join('|') === 'reselect b:Beta', re.join('|'));
+    re.length = 0;
+    realClick(b2[2]);
+    t2.select('c');
+    ok('…and nothing else: a click on another tab is onSelect, select() of the one in front is silent',
+       re.join('|') === 'select c', re.join('|'));
+    t2.destroy();
 }
 
 console.log('§3 update(items, activeId)');
@@ -246,6 +261,27 @@ console.log('§4 panes');
         mountPane: (item) => { eagerLog.push(item.id); return null; },
     });
     ok('eager opts a pane into mounting at once, before the one in front', eagerLog.join() === 'b,a', eagerLog.join());
+
+    const addLog = [];
+    const t4 = createTabs(fresh(), {
+        items: [{ id: 'a', label: 'A' }],
+        mountPane: (item) => { addLog.push(`mount ${item.id}`); return { onShow: () => addLog.push(`show ${item.id}`) }; },
+        onSelect: (id) => addLog.push(`select ${id}`),
+    });
+    addLog.length = 0;
+    t4.update([{ id: 'a', label: 'A' }, { id: 'x', label: 'X', eager: true }, { id: 'y', label: 'Y' },
+               { id: 'z', label: 'Z', eager: true }]);
+    ok('an eager item an update adds mounts in that update, in order; a lazy one does not',
+       addLog.join('|') === 'mount x|mount z', addLog.join('|'));
+    ok('…hidden behind the tab in front', t4.active() === 'a' && t4.instance('x') && t4.instance('z')
+       && t4.instance('y') === null);
+    addLog.length = 0;
+    t4.update([{ id: 'w', label: 'W', eager: true }, { id: 'x', label: 'X', eager: true }], 'x');
+    ok('…before the tab in front is settled, and a mounted one is not mounted again',
+       addLog.join('|') === 'mount w|show x|select x', addLog.join('|'));
+    addLog.length = 0;
+    t4.update([{ id: 'w', label: 'W', eager: true }, { id: 'x', label: 'X', eager: true }]);
+    ok('an update that adds nothing mounts nothing', addLog.length === 0, addLog.join('|'));
 
     const err = console.error; console.error = () => {};
     const t3 = createTabs(fresh(), { items: ITEMS, mountPane: (item) => { if (item.id === 'a') throw new Error('boom'); return {}; } });

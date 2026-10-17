@@ -2337,6 +2337,7 @@ const tabs = createTabs(el, {
     ],
     active: 'inputs',
     onSelect: (id, item) => …,
+    onReselect: (id, item) => …,                                       // optional: a click on the tab in front
     onClose: (id) => tabs.update(items.filter((i) => i.id !== id)),   // optional
     onReorder: (ids) => …,                                             // optional: tabs drag
     onContextMenu: (id, event, item) => …,                             // optional
@@ -2359,9 +2360,12 @@ tabs.setIndicator('inputs', 'info');
 | `destroy()` | Destroys the panes, lets the bus go, removes the markup |
 
 - **Panes mount on first selection.** The tab in front at creation counts;
-  `eager: true` on an item mounts its pane at once. Each instance hears `onShow()`
-  whenever its tab comes to the front and `destroy()` when its item goes.
-- **`onSelect` hears changes**, not the tab chosen at creation.
+  `eager: true` on an item mounts its pane at once — at creation, or in the
+  `update` that brings the item in, before the tab in front is settled. Each
+  instance hears `onShow()` whenever its tab comes to the front and `destroy()`
+  when its item goes.
+- **`onSelect` hears changes**, not the tab chosen at creation. A click on the
+  tab already in front is not a change; `onReselect(id, item)` hears it.
 - **The bus is opt-in:** pass `eventBus` *and* `selectEvent: 'views:show'` and
   that event selects `payload.id` (or `selectFrom(payload)`). No event name, no
   subscription.
@@ -2377,7 +2381,9 @@ tabs.setIndicator('inputs', 'info');
   carry the id in `data-tab-id` (`dataKey`).
 
 `tests/tabs.test.mjs` covers it in jsdom; `tests/bottom_panel_tabs.test.mjs`
-runs unchanged on the bottom panel built over it.
+runs on the bottom panel built over it. The bottom panel behaves as it did:
+`api.root` is set inside a pane's `mount`, and a click on the tab in front
+re-shows its pane, fires `onSelect` and is remembered, as `select` does.
 
 ## Notifications: `NotificationCenter`
 

@@ -22,20 +22,26 @@
  *   closable   draws a close mark and lets Delete close — both call `onClose(id)`;
  *              without an `onClose` there is nothing to close and none is drawn
  *   dirty      the unsaved dot
- *   eager      mount this item's pane at once instead of on first selection
+ *   eager      mount this item's pane at once instead of on first selection —
+ *              at creation, or when an `update` brings the item in
  *
  * PANES are optional. Without `mountPane` this is a strip and nothing else.
  * With it, an item's pane is mounted the FIRST time it is selected — the tab in
  * front at creation counts — and never again; `eager` items mount at once, in
- * order, before it. `mountPane(item, el, tabs)` answers an instance or nothing;
- * the strip calls its `onShow()` each time its tab comes to the front and its
- * `destroy()` when the item goes (an `update` without it, or `destroy`). Panes
- * mount INSIDE `createTabs` before it has answered, so a pane reaches the strip
- * through its third argument, not the variable being assigned.
+ * order, before it, and an eager item that an `update` adds mounts in that
+ * `update`, before the tab in front is settled. `mountPane(item, el, tabs)`
+ * answers an instance or nothing; the strip calls its `onShow()` each time its
+ * tab comes to the front and its `destroy()` when the item goes (an `update`
+ * without it, or `destroy`). Panes mount INSIDE `createTabs` before it has
+ * answered, so a pane reaches the strip through its third argument, not the
+ * variable being assigned.
  *
  * `onSelect(id, item)` hears every change of the tab in front AFTER creation —
  * a click, a key, `select`, the bus, an `update` that had to move it — but not
- * the tab chosen at creation, which the caller already knows.
+ * the tab chosen at creation, which the caller already knows. A click on the
+ * tab ALREADY in front changes nothing, so it is not a select; a caller that
+ * acts on it anyway (the bottom panel re-shows its pane) passes
+ * `onReselect(id, item)`, which hears exactly that click.
  *
  * THE BUS IS OPT-IN. Pass `eventBus` AND `selectEvent` (a name) and that event
  * selects a tab: the id is `selectFrom(payload)`, by default `payload.id`. No
@@ -75,6 +81,7 @@ let stripCount = 0;
  * @param {Array}     opts.items           see AN ITEM above
  * @param {string}   [opts.active]         the tab in front at creation; the first by default
  * @param {Function} [opts.onSelect]       `(id, item)`
+ * @param {Function} [opts.onReselect]     `(id, item)` on a click on the tab already in front
  * @param {Function} [opts.onClose]        `(id, item)` — the caller removes it with `update`
  * @param {Function} [opts.onReorder]      `(ids)` after a drag; omit and tabs do not drag
  * @param {Function} [opts.onContextMenu]  `(id, event, item)` on right-click
@@ -88,7 +95,7 @@ let stripCount = 0;
  * @param {string}   [opts.dataKey]        the `data-*` key carrying an item's id
  */
 export function createTabs(container, {
-    items = [], active = null, onSelect = null, onClose = null, onReorder = null,
+    items = [], active = null, onSelect = null, onReselect = null, onClose = null, onReorder = null,
     onContextMenu = null, mountPane = null, eventBus = null, selectEvent = null,
     selectFrom = (payload) => payload?.id, compact = false, label = null,
     block = 'twm-tabs', dataKey = 'tab-id',
@@ -230,6 +237,11 @@ export function createTabs(container, {
         return entry;
     }
 
+    /** Every eager item not mounted yet, in strip order. */
+    function mountEager() {
+        for (const id of order) if (byId.get(id).eager && !panes.has(id)) mount(id);
+    }
+
     function unmount(id) {
         const entry = panes.get(id);
         if (!entry) return;
@@ -307,6 +319,7 @@ export function createTabs(container, {
         const id = idOf(e.target);
         if (id == null) return;
         if (e.target.closest(`.${cls('close')}`)) { onClose?.(id, byId.get(id)); return; }
+        if (id === current && !destroyed) { onReselect?.(id, byId.get(id)); return; }
         select(id);
     }
 
@@ -378,11 +391,13 @@ export function createTabs(container, {
         /**
          * Replace the items. The tab in front is `activeId` when given and
          * present, else the one in front now if it is still there, else the
-         * first. Panes of items that went are destroyed.
+         * first. Panes of items that went are destroyed; eager items that
+         * came are mounted, in order, before the tab in front is settled.
          */
         update(next = [], activeId = undefined) {
             if (destroyed) return;
             setItems(next);
+            mountEager();
             const want = activeId !== undefined && byId.has(activeId) ? activeId
                 : byId.has(current) ? current
                 : order[0] ?? null;
@@ -427,7 +442,7 @@ export function createTabs(container, {
 
     setItems(items);
     current = byId.has(active) ? active : order[0] ?? null;
-    for (const id of order) if (byId.get(id).eager) mount(id);
+    mountEager();
     show(current, false);
 
     const subscription = eventBus && selectEvent

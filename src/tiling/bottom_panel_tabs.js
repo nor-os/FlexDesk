@@ -41,12 +41,15 @@
  * the panel itself is open is the embedder's (a tile it toggles), so the bus
  * event is the embedder's to hear too.
  *
- * The strip is never rebuilt: a select toggles classes on the same buttons, so
- * a click that lands while a tab is being selected keeps its target.
+ * The strip is `createTabs` (`../ui/components/tabs.js`, STORY-0048) under the
+ * `twm-bp` block: this file adds only what a bottom panel has and a strip does
+ * not — the pane's own store, the remembered tab, `persist`, and its event.
  */
 
+import { createTabs, TAB_LEVELS } from '../ui/components/tabs.js';
+
 /** Badge levels, worst last. Any other value draws the neutral badge. */
-export const BADGE_LEVELS = Object.freeze(['info', 'warning', 'alert']);
+export const BADGE_LEVELS = TAB_LEVELS;
 
 /**
  * @param {HTMLElement} container
@@ -61,108 +64,42 @@ export const BADGE_LEVELS = Object.freeze(['info', 'warning', 'alert']);
 export function createBottomPanelTabs(container, {
     panes = [], remember = null, store = null, eventBus = null, onSelect = null, initial = null,
 } = {}) {
-    const doc = container.ownerDocument;
-    const root = doc.createElement('div');
-    root.className = 'twm-bp';
-    const strip = doc.createElement('div');
-    strip.className = 'twm-bp__tabs';
-    strip.setAttribute('role', 'tablist');
-    const body = doc.createElement('div');
-    body.className = 'twm-bp__body';
-    root.append(strip, body);
-    container.appendChild(root);
-
     const byId = new Map(panes.map((pane) => [pane.id, pane]));
-    const tabs = new Map();
-    const mounted = new Map();
-    let active = null;
+    // A tab put in front by THIS FILE (the remembered one) is not a choice: it
+    // is neither written back nor allowed to beat a choice made meanwhile.
+    let restoring = false;
     let chosen = false;
     let destroyed = false;
-
-    for (const pane of panes) {
-        const tab = doc.createElement('button');
-        tab.type = 'button';
-        tab.className = 'twm-bp__tab';
-        tab.dataset.pane = pane.id;
-        tab.setAttribute('role', 'tab');
-        tab.setAttribute('aria-selected', 'false');
-        const label = doc.createElement('span');
-        label.className = 'twm-bp__label';
-        label.textContent = pane.label;
-        const badge = doc.createElement('span');
-        badge.className = 'twm-bp__badge';
-        badge.hidden = true;
-        tab.append(label, badge);
-        tab.addEventListener('click', () => api.select(pane.id));
-        strip.appendChild(tab);
-        tabs.set(pane.id, tab);
-    }
-
-    function mount(id) {
-        if (mounted.has(id)) return mounted.get(id);
-        const pane = byId.get(id);
-        const el = doc.createElement('div');
-        el.className = 'twm-bp-pane';
-        el.dataset.pane = id;
-        el.setAttribute('role', 'tabpanel');
-        el.hidden = id !== active;
-        body.appendChild(el);
-        const entry = { el, instance: null };
-        mounted.set(id, entry);
-        // ONE PANE THAT THROWS IS ONE EMPTY TAB, not a dead panel: the strip
-        // and every other pane go on working.
-        try {
-            entry.instance = pane.mount?.(el, store ? store(pane) : null, api) ?? null;
-        } catch (err) {
-            console.error(`[bottom-panel] pane "${id}" failed to mount`, err);
-        }
-        return entry;
-    }
-
-    function show(id) {
-        if (destroyed || !byId.has(id)) return false;
-        active = id;
-        for (const [key, tab] of tabs) {
-            const on = key === id;
-            tab.classList.toggle('twm-bp__tab--on', on);
-            tab.setAttribute('aria-selected', String(on));
-        }
-        for (const [key, entry] of mounted) entry.el.hidden = key !== id;
-        mount(id).instance?.onShow?.();
-        onSelect?.(id, byId.get(id));
-        return true;
-    }
+    // Eager panes and the first one shown mount inside `createTabs`, before it
+    // has answered; `mountPane` hands the strip over then.
+    let strip = null;
 
     const api = {
-        root,
+        root: null,
         /** Bring a tab to the front, and remember it. */
         select(id) {
-            if (!show(id)) return;
+            if (destroyed || !byId.has(id)) return;
             chosen = true;
-            try { remember?.write?.(id); } catch { /* storage refused: not ours to fix */ }
+            if (strip.active() !== id) { strip.select(id); return; }
+            // Already in front: asked for again (a toast's "+N more"), so the
+            // pane is told again and the choice is remembered, as any select.
+            strip.instance(id)?.onShow?.();
+            remembered(id);
         },
         /** The tab in front, or null. */
-        active: () => active,
+        active: () => strip.active(),
         /** `count` on a tab, coloured by `level`; nothing at zero. */
-        setBadge(id, count, level = null) {
-            const badge = tabs.get(id)?.querySelector('.twm-bp__badge');
-            if (!badge) return;
-            const n = Number(count) || 0;
-            badge.hidden = n <= 0;
-            badge.textContent = n > 99 ? '99+' : String(Math.max(n, 0));
-            badge.className = 'twm-bp__badge'
-                + (BADGE_LEVELS.includes(level) ? ` twm-bp__badge--${level}` : '');
-        },
+        setBadge: (id, count, level = null) => strip.setBadge(id, count, level),
         /** A mounted pane's live instance, or null — how one tab hands work to
          *  another. `select` it first, which mounts it. */
-        instance: (id) => mounted.get(id)?.instance ?? null,
+        instance: (id) => strip.instance(id),
         /** The panel is on screen again (its tile re-mounted): tell the pane in front. */
         reshow() {
-            if (active) mounted.get(active)?.instance?.onShow?.();
+            strip.instance(strip.active())?.onShow?.();
         },
         /** Before the panel is torn down: every mounted pane saves. */
         async persist() {
-            for (const entry of mounted.values()) await entry.instance?.persist?.();
+            for (const instance of strip.instances()) await instance.persist?.();
         },
         /** Gone for good: panes save, then are destroyed; the bus is let go. */
         async destroy() {
@@ -170,29 +107,46 @@ export function createBottomPanelTabs(container, {
             await api.persist();
             destroyed = true;
             try { subscription?.dispose?.(); } catch { /* bus gone */ }
-            for (const entry of mounted.values()) {
-                try { entry.instance?.destroy?.(); } catch (err) {
-                    console.warn('[bottom-panel] pane destroy failed', err);
-                }
-            }
-            mounted.clear();
-            root.remove();
+            strip.destroy();
         },
     };
 
-    for (const pane of panes) if (pane.eager) mount(pane.id);
+    function remembered(id) {
+        try { remember?.write?.(id); } catch { /* storage refused: not ours to fix */ }
+        onSelect?.(id, byId.get(id));
+    }
 
+    strip = createTabs(container, {
+        block: 'twm-bp',
+        dataKey: 'pane',
+        items: panes.map(({ id, label, eager }) => ({ id, label, eager: !!eager })),
+        active: byId.has(initial) ? initial : panes[0]?.id,
+        mountPane: (item, el, tabs) => {
+            strip ??= tabs;
+            const pane = byId.get(item.id);
+            return pane.mount?.(el, store ? store(pane) : null, api) ?? null;
+        },
+        onSelect: (id) => {
+            if (restoring) { onSelect?.(id, byId.get(id)); return; }
+            chosen = true;
+            remembered(id);
+        },
+    });
+    api.root = strip.root;
+    if (strip.active() != null) onSelect?.(strip.active(), byId.get(strip.active()));
+
+    // The bus is the bottom panel's, not the strip's: a `bottompanel:show` for
+    // the tab already in front still tells its pane, which a strip does not.
     const subscription = eventBus?.on?.('bottompanel:show',
         (payload) => api.select(payload?.tab ?? panes[0]?.id)) ?? null;
-
-    show(byId.has(initial) ? initial : panes[0]?.id);
 
     if (remember?.read) {
         Promise.resolve()
             .then(() => remember.read())
             .then((saved) => {
-                if (chosen || destroyed) return;
-                if (byId.has(saved)) show(saved);
+                if (chosen || destroyed || !byId.has(saved)) return;
+                restoring = true;
+                try { strip.select(saved); } finally { restoring = false; }
             })
             .catch(() => { /* nothing remembered */ });
     }

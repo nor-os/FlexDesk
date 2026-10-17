@@ -23,6 +23,7 @@
  */
 
 import { DragReorder } from '../ui/components/drag_reorder.js';
+import { revealInStrip, wheelStripSideways } from '../ui/utils/strip_scroll.js';
 
 /** Custom MIME type so tab bars recognise cross-pane drags. */
 const TAB_MIME = 'application/x-ecosim-tab';
@@ -259,59 +260,25 @@ export class NotebookTabBar {
     /** @type {number} a pending retry, for a strip not yet laid out */
     #revealFrame = 0;
 
-    /** Bring the active tab fully into the strip — and ONLY the strip. Not
-     *  `scrollIntoView`, which scrolls every scrollable ancestor as well and
-     *  would drag the tile, the window or the page along with the tab. */
+    /** Bring the active tab fully into the strip (`revealInStrip`). */
     #revealActive(retry = false) {
         const el = this.#container;
         if (!el) return;
         const active = el.querySelector(':scope > .tab.active');
         if (!active) return;
-        if (!el.isConnected || el.clientWidth === 0) {
-            // Mounted but not laid out yet (the renderer updates a strip before
-            // it attaches it). Once, on the next frame — not a loop.
-            if (retry && !this.#revealFrame && typeof requestAnimationFrame === 'function') {
-                this.#revealFrame = requestAnimationFrame(() => {
-                    this.#revealFrame = 0;
-                    this.#revealActive(false);
-                });
-            }
-            return;
+        // Mounted but not laid out yet (the renderer updates a strip before it
+        // attaches it). Once, on the next frame — not a loop.
+        if (!revealInStrip(el, active) && retry && !this.#revealFrame
+            && typeof requestAnimationFrame === 'function') {
+            this.#revealFrame = requestAnimationFrame(() => {
+                this.#revealFrame = 0;
+                this.#revealActive(false);
+            });
         }
-        const box = el.getBoundingClientRect();
-        const tab = active.getBoundingClientRect();
-        // Client pixels to the strip's own: 1 unless something above it zooms.
-        const scale = (el.offsetWidth ? box.width / el.offsetWidth : 1) || 1;
-        const left = (tab.left - box.left) / scale + el.scrollLeft;
-        const right = left + tab.width / scale;
-        if (left < el.scrollLeft) el.scrollLeft = left;
-        else if (right > el.scrollLeft + el.clientWidth) el.scrollLeft = right - el.clientWidth;
     }
 
-    /**
-     * A VERTICAL WHEEL SCROLLS THE STRIP SIDEWAYS. Chromium and Firefox scroll
-     * an element that overflows only horizontally with Shift+wheel or a
-     * touchpad, and not with the plain wheel most people have — so with the
-     * scrollbar hidden, every tab past the edge was unreachable with a mouse.
-     *
-     * The wheel is taken from the page only while the strip can actually move
-     * that way: at either end it is left alone, so a wheel over a strip that
-     * has nothing more to show still scrolls whatever is behind it. A gesture
-     * that is already horizontal (a touchpad, Shift+wheel) and Ctrl+wheel (zoom)
-     * are the browser's, untouched.
-     */
-    #onWheel = (e) => {
-        const el = this.#container;
-        if (!el || e.ctrlKey || e.shiftKey) return;
-        if (Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
-        const room = el.scrollWidth - el.clientWidth;
-        if (room <= 0) return;
-        const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? el.clientWidth : 1;
-        const next = Math.max(0, Math.min(room, el.scrollLeft + e.deltaY * unit));
-        if (Math.abs(next - el.scrollLeft) < 0.5) return;
-        e.preventDefault();
-        el.scrollLeft = next;
-    };
+    /** A vertical wheel scrolls the strip sideways (`wheelStripSideways`). */
+    #onWheel = (e) => wheelStripSideways(this.#container, e);
 
     // ═════════════════════════════════════════════════════════════════════════
     //  Drag and drop reordering (same-pane + cross-pane)

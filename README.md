@@ -1919,6 +1919,19 @@ indent per level is `--twm-doc-outline-indent` (12px).
 `tests/document_outline.test.mjs` drives it in jsdom with a hand-fired
 observer.
 
+## Action dropdowns: separators (0.17.0)
+
+`new ActionDropdown({ trigger, options, onSelect })` draws one button per
+option. An entry `{ separator: true }` in `options` draws a divider instead: a
+`<div role="separator" class="twm-action-dropdown-separator">` that takes no
+focus, that ArrowUp/ArrowDown pass over, and that never reaches `onSelect`.
+A separator only separates: one at the start or end of the list, or right
+after another, is dropped, so groups that come out empty leave no stray or
+doubled rule. `setOptions` follows the same rules, and an option's
+`data-index` stays its index in `options`.
+
+`tests/action_dropdown_separators.test.mjs` drives it in jsdom.
+
 ## Notifications: `NotificationCenter`
 
 Toasts, from `toast:show` on the bus (or `toastInfo` / `toastWarn` /

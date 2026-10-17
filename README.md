@@ -43,7 +43,7 @@ manager, and neither of them should drag in a plotting engine or a code editor.
 | `@flexdesk/core` | 30 kB | Event bus, settings store, logging, state machine, state guard |
 | `@flexdesk/host` | 5 kB | The host port (below) |
 | `@flexdesk/wm` | 166 kB | Tiling window manager: tabs, splits, desktops, command palette, taxonomy, `createShell()` |
-| `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus, a document outline |
+| `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus, a document outline, progress |
 | `@flexdesk/charts` | 26 kB | Plotly wrapper, chart types, subplot layouts, downsampling, plot windows, injected series transforms |
 | `@flexdesk/tiles` | 67 kB | Draggable/resizable widget grid, tile base class, widget registry, layout persistence, chart and KPI tiles |
 | `@flexdesk/editor` | 62 kB | Monaco loader + factory, multi-file tab bar, search, split panes, undo manager |
@@ -2101,6 +2101,45 @@ tags.dispose();
 The handle is `{ element, input, getValue, setValue, focus, dispose }`
 (`input` is `null` when read-only). The styles are the `twm-tag-input` block in
 `flexdesk.css`. `tests/tag_input.test.mjs` covers each of the above in jsdom.
+
+## Progress: bars, lists and phases (0.17.0)
+
+Three classes in `widgets`, each building its own element (`.element`, appended
+to `host` when one is given) and changing it **in place**: an update twenty
+times a second gets the same nodes back every time, so hover, tooltips and the
+fill's transition survive. Names and labels are text.
+
+| Class | Does |
+|---|---|
+| `new ProgressBar(host, { value, max, indeterminate, label, showPercent, showCount, showElapsed, onCancel })` | `update(0.42)` (a fraction) or `update(21)` with `max` (a count, read "42% · 21 / 50"); `update({ value, max, label, indeterminate })`; `setState('done' \| 'error' \| 'cancelled')` ends it and stops the elapsed clock; `fraction`, `state`, `elapsed` |
+| `new ProgressList(host, { items, stats, pulse, emptyText })` | Keyed rows `{ key, name, completed, total?, state, detail? }`, `state` one of `pending`, `running`, `done`, `failed`. `setItems` reconciles by key: a known key keeps its row. A row without `total` is drawn against the largest item. `stats: true` writes a summary line, a function `(items) => string` writes yours, `false` none. Running rows pulse |
+| `new StepProgress(host, { steps })` | Ordered phases (`{ key, label }` or a label). `setStep(keyOrIndex, { pass, passes })` makes one active, those before it done and those after pending, and reads "pass 2 of 5"; `fail()` marks the active one error; `complete()` |
+
+```js
+const list = new ProgressList(panel, { items: [] });
+job.on('tick', (workers) => list.setItems(workers.map((w) => ({
+    key: w.id, name: w.label, completed: w.done, total: w.total, state: w.state }))));
+```
+
+`showRunProgressDialog` and `showComputingWindow` take `progress` (`true`, or
+ProgressBar options) and `steps`. Their handles gain `setProgress(next)`,
+`setStep(which, opts)` and **`result`**, a Promise that settles once with
+`{ status, message }`: `complete({ ok })` gives `done` or `error` (the bar and
+the phases show it), `cancelled()` gives `cancelled`, and so does **closing the
+dialog while it runs**. Closing by its × or Escape also calls `onCancel`, so the
+job is told; `close()` from the caller does not. `showComputingWindow` also gains
+`complete` and `cancelled`, after which it shows a Close button. A
+`showComputingWindow` handle now closes only its own window, not one opened
+after it.
+
+```js
+const dlg = showRunProgressDialog({ title: 'Export', steps: ['Prepare', 'Render', 'Write'],
+                                    progress: { showElapsed: true }, onCancel: () => job.stop() });
+dlg.setStep(1); dlg.setProgress(0.4);
+const { status } = await dlg.result;   // 'done' | 'error' | 'cancelled'
+```
+
+`tests/progress.test.mjs` holds all of it in jsdom.
 
 ## Notifications: `NotificationCenter`
 

@@ -1882,6 +1882,25 @@ Before 0.17.0 the module was only found under a `js_new/` path, the defaults
 carried one application's override, and the mode read one application's debug
 global; choose strict mode in your own code.
 
+### The defaults cover FlexDesk's own keys (0.17.0)
+
+`DEFAULT_STATE_GUARD_CONFIG` lists every data key FlexDesk's own widgets write,
+so the shell, dialogs, forms, tooltips, tiles and flow editors run under
+`mode: 'strict'` with no violation. Add your application's keys on top:
+
+```js
+const guard = new StateGuardService({ eventBus, logger, config: {
+    ...DEFAULT_STATE_GUARD_CONFIG,
+    allowedDatasetKeys: [...DEFAULT_STATE_GUARD_CONFIG.allowedDatasetKeys, 'run-id'],
+} });
+```
+
+An allow-list key may be spelled either way: `runId` and `run-id` are the same
+key. camelCase maps to kebab-case as the DOM does for ordinary keys (a capital
+letter becomes `-` plus its lower-case form, so `rowID` is `row-i-d`). Before
+0.17.0 a camelCase entry never matched, and some entries named keys no element
+carries.
+
 ## Peer dependencies
 
 `@flexdesk/charts` needs Plotly (4.4 MB). `@flexdesk/editor` needs Monaco (14 MB).

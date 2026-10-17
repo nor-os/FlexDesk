@@ -45,11 +45,11 @@ export class StateGuardService {
         this.mode = this.config.mode;
         this.allowedAttributes = new Set(this.config.allowedAttributes.map((attr) => attr.toLowerCase()));
         this.allowedAttributePrefixes = this.config.allowedAttributePrefixes.map((attr) => attr.toLowerCase());
-        this.allowedDatasetKeys = new Set(this.config.allowedDatasetKeys.map((key) => key.toLowerCase()));
+        this.allowedDatasetKeys = new Set(this.config.allowedDatasetKeys.map(normalizeDatasetKey));
         this.moduleOverrides = (this.config.moduleOverrides ?? []).map((entry) => ({
             pattern: entry.pattern,
             attributes: new Set(entry.attributes.map((attr) => attr.toLowerCase())),
-            datasetKeys: new Set(entry.datasetKeys.map((key) => key.toLowerCase())),
+            datasetKeys: new Set(entry.datasetKeys.map(normalizeDatasetKey)),
             attributePrefixes: entry.attributePrefixes.map((prefix) => prefix.toLowerCase()),
         }));
         this.moduleFramePattern = this.config.moduleFramePattern;
@@ -84,7 +84,7 @@ export class StateGuardService {
         const entry = {
             pattern,
             attributes: new Set(attributes.map((attr) => String(attr).toLowerCase())),
-            datasetKeys: new Set(datasetKeys.map((key) => String(key).toLowerCase())),
+            datasetKeys: new Set(datasetKeys.map(normalizeDatasetKey)),
             attributePrefixes: attributePrefixes.map((prefix) => String(prefix).toLowerCase()),
         };
         this.moduleOverrides.push(entry);
@@ -148,7 +148,7 @@ export class StateGuardService {
     }
 
     handleDatasetMutation(element, key, value, { deleting = false, [VIA_DOM_HOOK]: viaHook = false } = {}) {
-        const attrName = this.#datasetKeyToAttribute(key);
+        const attrName = datasetKeyToAttribute(key);
         if (!this.#shouldGuard(attrName)) {
             return;
         }
@@ -260,23 +260,6 @@ export class StateGuardService {
         return String(attribute).toLowerCase();
     }
 
-    #datasetKeyToAttribute(key) {
-        if (!key && key !== 0) {
-            return '';
-        }
-        const normalized = String(key)
-            .replace(/([A-Z])/g, '-$1')
-            .replace(/[^a-zA-Z0-9_-]/g, '-')
-            .toLowerCase()
-            .replace(/-{2,}/g, '-')
-            .replace(/^-+/, '')
-            .replace(/-+$/, '');
-        if (!normalized) {
-            return '';
-        }
-        return `${DATA_ATTRIBUTE_PREFIX}${normalized}`;
-    }
-
     /**
      * The module a write is attributed to. `stack` was captured in a
      * handle*Mutation method (frame 0); `writerFrame` is the index of the frame
@@ -331,6 +314,36 @@ export class StateGuardService {
         const str = String(value);
         return str.length > 50 ? `${str.slice(0, 47)}...` : str;
     }
+}
+
+/**
+ * The attribute a dataset key writes: `fooBar` -> `data-foo-bar`, as the DOM
+ * maps it. Empty for a key that names nothing.
+ */
+function datasetKeyToAttribute(key) {
+    if (!key && key !== 0) {
+        return '';
+    }
+    const normalized = String(key)
+        .replace(/([A-Z])/g, '-$1')
+        .replace(/[^a-zA-Z0-9_-]/g, '-')
+        .toLowerCase()
+        .replace(/-{2,}/g, '-')
+        .replace(/^-+/, '')
+        .replace(/-+$/, '');
+    if (!normalized) {
+        return '';
+    }
+    return `${DATA_ATTRIBUTE_PREFIX}${normalized}`;
+}
+
+/**
+ * An allow-list dataset key in the one spelling the guard compares: the
+ * attribute's, without `data-`. `fooBar` and `foo-bar` are the same key, so an
+ * allow-list may use either.
+ */
+function normalizeDatasetKey(key) {
+    return datasetKeyToAttribute(key).slice(DATA_ATTRIBUTE_PREFIX.length);
 }
 
 function installDomHooks(service) {

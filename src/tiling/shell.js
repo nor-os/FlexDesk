@@ -240,7 +240,8 @@ export async function createShell({
     toggles = bindPanelToggles(chrome.panelToggles, wm);
 
     // Belt-and-braces: anything else that mutates the WM fans out to chrome.
-    eventBus?.on?.('wm:changed', syncChrome);
+    // Keep the handle: the bus's `off()` takes it, not ('wm:changed', fn).
+    const chromeSubscription = eventBus?.on?.('wm:changed', syncChrome);
 
     await wm.load();          // ← FIRST MOUNT
     syncChrome();
@@ -269,7 +270,7 @@ export async function createShell({
         // outside `root` has to come off, or the second shell shares the page
         // with the first one's keyboard.
         dispose: () => {
-            try { eventBus?.off?.('wm:changed', syncChrome); } catch { /* ignore */ }
+            try { if (chromeSubscription) eventBus.off(chromeSubscription); } catch { /* ignore */ }
             try { disposeKeymap?.(); } catch { /* ignore */ }
             try { palette?.close?.(); } catch { /* ignore */ }
             // Every content factory gets its `destroy()`. Clearing the root

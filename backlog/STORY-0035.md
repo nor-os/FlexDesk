@@ -2,10 +2,10 @@
 id: 35
 type: story
 title: "Panel tile sizes survive load, desktop switch and panel toggle"
-status: refined
+status: in-progress
 parent: 29
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 3
@@ -13,7 +13,7 @@ subsystem: shell
 labels: [shell, panels, bugfix]
 links: [relates-to BUG-0007]
 created: 2026-10-17
-updated: 2026-10-17T07:55Z
+updated: 2026-10-17T17:22Z
 ---
 
 ## Description
@@ -34,6 +34,8 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
+- 2026-10-17 · norman_agent · status: refined -> in-progress
+- 2026-10-17 · norman_agent · assignee: (unset) -> norman_agent
 
 ## Comments
 

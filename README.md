@@ -215,6 +215,15 @@ at most half the query (`cstmr` finds *customer*; `cour` does not find *Scroll u
 to*). A drill's `search` is debounced, and a stale answer is aborted and
 never drawn. `palette.invalidate()` drops the cache.
 
+**The built-in *Keyboard shortcuts* command** opens the help topic
+`keyboard-shortcuts`. If your `HelpProvider` defines that id, your topic is
+shown. If it does not, or you register no help at all, the modal shows the window
+manager's own bindings, `KEYMAP_SHORTCUTS` from `@flexdesk/wm`, as a table
+(`keyboardShortcutsTopic()`). Before this the modal showed *Failed to load help
+topic.* (BUG-0008). The fallback comes from `HelpModal.open(id, { fallback })`
+(`@flexdesk/widgets`), and you can pass one yourself. A topic id that nobody
+provides now shows *Help topic not found.* where it used to raise a load error.
+
 **`chrome.zoom`** paints a − / track / + / readout control into the element you
 pass, restores the saved zoom through the host's `state` capability, and scales
 the content of tiles and floating windows. It deliberately scales *content only*

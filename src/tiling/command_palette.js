@@ -79,6 +79,7 @@
  */
 
 import { HelpModal } from '../help/help_modal.js';
+import { KEYBOARD_SHORTCUTS_TOPIC_ID, keyboardShortcutsTopic } from './keymap.js';
 
 const ROOT_ID = 'twm-cmdpal';
 
@@ -87,7 +88,10 @@ const ROOT_ID = 'twm-cmdpal';
 const STATIC_COMMANDS = [
     { kind: 'command', id: 'shortcuts', label: 'Keyboard shortcuts',
       hint: 'Show all key bindings (?)', icon: 'keyboard', shortcut: '?', verb: 'run',
-      action: () => HelpModal.open('keyboard-shortcuts') },
+      // The application's help may define the topic; when it does not, the
+      // window manager's own bindings are shown rather than an error.
+      action: () => HelpModal.open(KEYBOARD_SHORTCUTS_TOPIC_ID,
+                                   { fallback: keyboardShortcutsTopic() }) },
 ];
 
 const DEFAULT_GROUP_CAP = 4;

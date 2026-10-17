@@ -8,7 +8,7 @@
  *
  * Optionally shows a Cancel button when an onCancel callback is provided.
  * Only one is open at a time: opening another closes the first, which then
- * settles as cancelled.
+ * settles as cancelled (its onCancel is not called).
  */
 
 import { ManagedWindow } from './managed_window.js';
@@ -21,8 +21,9 @@ let _activeWindow = null;
  *
  * `result` settles once: `complete({ok, message})` gives `done` or `error`
  * (the window stays, with a Close button, until closed), `cancelled()` gives
- * `cancelled`, and so does closing the window while it runs — by its × or
- * Escape, which also calls `onCancel`, or by `close()`, which does not.
+ * `cancelled`, and so does closing the window while it runs (by its ×,
+ * Escape, `close()` or opening another). Closing never calls `onCancel`: only
+ * the Cancel button does.
  *
  * @param {Object} options
  * @param {string} [options.title='Computing...'] - Window title
@@ -41,12 +42,11 @@ export function showComputingWindow({
     progress = null, steps = null,
 } = {}) {
     if (_activeWindow) {
-        _activeWindow.close({ force: true });
+        _activeWindow.close();
         _activeWindow = null;
     }
 
     let finished = false;
-    let closingFromHandle = false;
     let settle;
     const result = new Promise((resolve) => { settle = resolve; });
 
@@ -112,7 +112,6 @@ export function showComputingWindow({
             if (_activeWindow === win) _activeWindow = null;
             if (finished) return;
             finish('cancelled', 'Cancelled.');
-            if (!closingFromHandle && typeof onCancel === 'function') onCancel();
         },
     });
     closeBtn.addEventListener('click', () => win.close());
@@ -144,8 +143,10 @@ export function showComputingWindow({
             closeBtn.hidden = false;
         },
         close() {
-            closingFromHandle = true;
-            try { win.close({ force: true }); } finally { closingFromHandle = false; }
+            if (_activeWindow) {
+                _activeWindow.close();
+                _activeWindow = null;
+            }
         },
     };
 }

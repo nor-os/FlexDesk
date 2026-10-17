@@ -204,9 +204,9 @@ export function createTreeItem(options) {
     if (badge) {
         const variant = badge.variant || 'muted';
         if (badge.text) {
-            badgeHtml = `<span class="twm-tree-item__badge tree-item__badge--${variant}"></span>`;
+            badgeHtml = `<span class="twm-tree-item__badge twm-tree-item__badge--${variant}"></span>`;
         } else {
-            badgeHtml = `<span class="twm-tree-item__status-dot tree-item__status-dot--${variant}"></span>`;
+            badgeHtml = `<span class="twm-tree-item__status-dot twm-tree-item__status-dot--${variant}"></span>`;
         }
     }
 

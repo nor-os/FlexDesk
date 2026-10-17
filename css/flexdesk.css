@@ -4862,6 +4862,11 @@ button.twm-about-dialog__btn--close:focus {
     margin-left: auto;
     line-height: 1;
 }
+/* The badge's variants: createTreeItem's badge.variant ('muted' when unset) */
+.twm-tree-item__badge--muted { background: color-mix(in srgb, var(--text-dim) 15%, transparent); color: var(--text-dim); }
+.twm-tree-item__badge--pass  { background: color-mix(in srgb, var(--color-success) 15%, transparent); color: var(--color-success); }
+.twm-tree-item__badge--fail  { background: color-mix(in srgb, var(--color-danger) 15%, transparent); color: var(--color-danger); }
+.twm-tree-item__badge--error { background: color-mix(in srgb, var(--color-danger) 15%, transparent); color: var(--color-danger); }
 /* Status dot variant (smaller, no text) */
 .twm-tree-item__status-dot {
     width: 7px;
@@ -4869,7 +4874,12 @@ button.twm-about-dialog__btn--close:focus {
     border-radius: 50%;
     flex-shrink: 0;
     margin-left: auto;
+    background: var(--text-dim);
 }
+.twm-tree-item__status-dot--muted { background: var(--text-dim); }
+.twm-tree-item__status-dot--pass  { background: var(--color-success); }
+.twm-tree-item__status-dot--fail  { background: var(--color-danger); }
+.twm-tree-item__status-dot--error { background: var(--color-danger); }
 
 /* ── from slide_out_panel.css ───────────────────────── */
 /* ─── SlideOutPanel ─────────────────────────────────────────────────────────

@@ -1694,7 +1694,7 @@ const wizard = new Wizard({
     data: { file: null },
     steps: [
         { id: 'source', label: 'Source', icon: 'upload_file',
-          render(bodyEl, ctx) {            // once per visit; may return a cleanup
+          render(bodyEl, ctx) {            // once per visit; may return a cleanup function
               const input = picker(bodyEl);
               input.onchange = () => { ctx.data.file = input.files[0]; ctx.revalidate(); };
           },

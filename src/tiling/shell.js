@@ -369,13 +369,19 @@ function mountPaletteButton(hostEl, palette) {
     return btn;
 }
 
+/** What each toggle said before a withheld panel made it say why, so the
+ *  embedder's own tooltip comes back when the panel is offered again. Held
+ *  here, keyed by the fresh node, never written back to the DOM. */
+const OWN_TOOLTIPS = new WeakMap();
+
 /**
  * Take ownership of the embedder's three panel-toggle buttons.
  *
  * cloneNode copies any state the embedder's own machinery left on a button
  * (.active/.pinned/.disabled, the disabled attr, aria-pressed). We strip it so
- * the WM is the sole, clean source of truth — `syncPanelToggles` manages only
- * `.panel-toggle-btn--on` from here on. The clone keeps the id, so an embedder
+ * the WM is the sole, clean source of truth — `syncPanelToggles` manages
+ * `.twm-panel-toggle-btn--on` and a withheld panel's `aria-disabled` and
+ * tooltip from here on. The clone keeps the id, so an embedder
  * that drives a toggle by `getElementById(...).click()` still works.
  *
  * @returns {{left?:Element, right?:Element, bottom?:Element}} the FRESH nodes
@@ -392,16 +398,44 @@ function bindPanelToggles(map, wm) {
         el.removeAttribute('aria-pressed');
         btn.replaceWith(el);
         el.addEventListener('click', () => wm.togglePanel(side));
+        OWN_TOOLTIPS.set(el, {
+            tooltip: el.getAttribute('data-tooltip'),
+            title: el.getAttribute('title'),
+        });
         fresh[side] = el;
     }
     return fresh;
 }
 
+/** Mirror the WM onto the toggles: `--on` while a panel shows, and, while the
+ *  primary content withholds one, `aria-disabled` and the reason as the
+ *  tooltip. `aria-disabled` rather than `disabled`: a disabled button gets no
+ *  pointer events in every engine, and the reason is only worth giving if the
+ *  pointer can find it. A click on it is answered by `togglePanel`, which
+ *  refuses a withheld panel. */
 function syncPanelToggles(map, wm) {
     for (const side of ['left', 'right', 'bottom']) {
         const btn = map?.[side];
         if (!btn) continue;
         btn.classList.toggle('twm-panel-toggle-btn--on', wm.isPanelOpen(side));
+        const { available, reason } = wm.getPanelAvailability(side);
+        const own = OWN_TOOLTIPS.get(btn) || {};
+        const restore = (attr, value) => (value == null
+            ? btn.removeAttribute(attr) : btn.setAttribute(attr, value));
+        if (available) {
+            btn.removeAttribute('aria-disabled');
+            restore('data-tooltip', own.tooltip);
+            restore('title', own.title);
+            continue;
+        }
+        btn.setAttribute('aria-disabled', 'true');
+        // The framework's tooltip reads `data-tooltip` on a `twm-has-tooltip`
+        // button and strips `title` from it; any other button shows `title`.
+        if (btn.classList.contains('twm-has-tooltip')) {
+            restore('data-tooltip', reason ?? own.tooltip);
+        } else {
+            restore('title', reason ?? own.title);
+        }
     }
 }
 

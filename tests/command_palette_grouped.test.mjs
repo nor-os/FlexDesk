@@ -102,6 +102,7 @@ const opened = [];
 const wm = {
     openInPrimary: (kind, props) => opened.push({ kind, props }),
     isPanelOpen: () => false,
+    getPanelAvailability: () => ({ available: true, reason: null }),
     togglePanel: () => {},
     content: { has: () => true },
 };

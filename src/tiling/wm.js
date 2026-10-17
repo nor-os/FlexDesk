@@ -9,8 +9,12 @@
  *   wm.closeFocused()                 close the focused tile
  *   wm.focusDir(dir) / wm.moveFocused(dir)
  *   wm.toggleManagedFocused()         tile <-> managed window
- *   wm.togglePanel(side)              left | right | bottom
- *   wm.isPanelOpen(side)              boolean
+ *   wm.togglePanel(side)              left | right | bottom; false if withheld
+ *   wm.isPanelOpen(side)              boolean (open AND available)
+ *   wm.isPanelAvailable(side)         boolean
+ *   wm.getPanelAvailability(side)     { available, reason }
+ *   wm.setPanelAvailability(side, o)  runtime override; null clears it
+ *   wm.onPanelAvailabilityChange(fn)  subscribe; returns an unsubscribe
  *   wm.switchDesktop(idx) / wm.addDesktop() / wm.moveFocusedToDesktop(idx)
  */
 
@@ -22,6 +26,7 @@ import { installPanelKeyRouter } from './panel_keys.js';
 import { ManagedWindow } from '../ui/components/managed_window.js';
 import { showContextMenu } from '../ui/components/context_menu.js';
 import { createTabStrip } from './tab_strip.js';
+import { PANEL_OFFERED, PANEL_SIDES, assertPanelSide, readPanelOffer } from './panel_availability.js';
 
 const PANEL_KINDS = new Set(['panel:left', 'panel:right', 'panel:bottom']);
 
@@ -58,6 +63,15 @@ export class WindowManager {
         this.ctx = ctx || {};
         this.eventBus = eventBus || null;
         this.onChange = onChange || (() => {});
+        // Panel availability. Runtime overrides (`setPanelAvailability`) win
+        // over the primary kind's declaration (`KindDef.panels`); the last
+        // availability announced, so a change is announced once; and who
+        // wants to hear about it. Before anything is mounted every side is
+        // offered, so a first primary that withholds one is announced.
+        this._panelOverrides = {};
+        this._panelAvailability = Object.fromEntries(PANEL_SIDES.map((s) => [s, PANEL_OFFERED]));
+        this._panelAvailabilityListeners = new Set();
+        this._reconcilingPanels = false;
         // C34. Whether the tile's float gesture takes only the tab on screen.
         this.floatActiveTab = !!floatActiveTab;
 
@@ -201,6 +215,10 @@ export class WindowManager {
      *  so other surfaces (palette, top-bar toggles, page shortcuts) can
      *  subscribe through the existing event system. */
     _notifyChange(reason = null) {
+        // Whatever changed may have changed the primary kind, and with it which
+        // panels are offered: put the tree and the announcement right FIRST,
+        // so every listener below sees the panels as they now are.
+        this._reconcilePanels();
         try { this.onChange(reason); } catch (err) { console.error('[wm] onChange threw', err); }
         try { this.eventBus?.emit?.('wm:changed', { reason, wm: this }); }
         catch (err) { console.warn('[wm] event emit failed', err); }
@@ -3138,16 +3156,97 @@ export class WindowManager {
      *  edge (a recursive split) or closes that leaf. */
     isPanelOpen(side) {
         const d = this.desktops.active();
-        return !!d.panels[side];
+        return !!d.panels[side] && this.isPanelAvailable(side);
     }
 
+    /** Flip a panel. A withheld panel is not flipped: answers `false` and
+     *  touches nothing — not the remembered open state, not the layout, not
+     *  what is persisted. Answers `true` when it flipped. */
     togglePanel(side) {
+        if (!this.isPanelAvailable(side)) return false;
         const d = this.desktops.active();
         d.panels[side] = !d.panels[side];
         this._canonicalize(this._tree(), d);
         this.renderer.render();
         this._persist();
         this._notifyChange();
+        return true;
+    }
+
+    // ── Panel availability ──────────────────────────────────────────
+    /** Whether the panel on `side` is offered on the active desktop right now:
+     *  `{ available, reason }`. A runtime override wins; else the primary
+     *  tile's kind says (`KindDef.panels`, see kind_taxonomy.js); else it is
+     *  offered. `desktops.panels` is untouched by any of this — it remembers
+     *  what the user OPENED, so a panel withheld while it was open comes back
+     *  open once it is offered again. */
+    getPanelAvailability(side, tree = this._tree()) {
+        assertPanelSide(side, 'getPanelAvailability');
+        const override = this._panelOverrides[side];
+        if (override) return override;
+        const id = tree.primaryLeafId();
+        const content = id ? tree.get(id)?.content : null;
+        // A tile holding a floated window's place still stands for that content.
+        const kind = content?.kind === PLACEHOLDER_KIND
+            ? content.props?.originalKind
+            : content?.kind;
+        return this.taxonomy.panelOffer(kind, side);
+    }
+
+    isPanelAvailable(side) {
+        return this.getPanelAvailability(side).available;
+    }
+
+    /** Content's say, at runtime: `offer` is `true`, `false` or `{ reason }`
+     *  and beats the kind's declaration until it is cleared with `null`. The
+     *  override belongs to the shell, not to a tile — content that sets one
+     *  clears it when it goes (its `destroy`). */
+    setPanelAvailability(side, offer) {
+        assertPanelSide(side, 'setPanelAvailability');
+        if (offer === null || offer === undefined) delete this._panelOverrides[side];
+        else this._panelOverrides[side] = readPanelOffer(offer, 'setPanelAvailability');
+        this._notifyChange('panel-availability');
+    }
+
+    /** Subscribe to availability changes. `fn({ panels, changed })` runs ONCE
+     *  per change, however many sides changed in it: `panels` is every side's
+     *  `{ available, reason }`, `changed` the sides that differ from the last
+     *  call. The same payload goes out on the bus as `wm:panels:availability`.
+     *  Returns the unsubscribe. */
+    onPanelAvailabilityChange(fn) {
+        this._panelAvailabilityListeners.add(fn);
+        return () => this._panelAvailabilityListeners.delete(fn);
+    }
+
+    /** Bring the active desktop's panel leaves in line with what is offered,
+     *  and announce a change of availability. Called from `_notifyChange`, so
+     *  every path that can change the primary kind passes through it. */
+    _reconcilePanels() {
+        if (this._reconcilingPanels || !this.desktops) return;
+        this._reconcilingPanels = true;
+        try {
+            const d = this.desktops.active();
+            const panels = {};
+            for (const side of PANEL_SIDES) panels[side] = this.getPanelAvailability(side, d.tree);
+            const shown = (side) => !!d.panels[side] && panels[side].available;
+            if (d.tree.rootId && PANEL_SIDES.some((s) => shown(s) !== !!this._findPanelLeaf(s))) {
+                this._canonicalize(d.tree, d);
+                this.renderer.render();
+            }
+            const last = this._panelAvailability;
+            const changed = PANEL_SIDES.filter((s) => last[s].available !== panels[s].available
+                || last[s].reason !== panels[s].reason);
+            if (!changed.length) return;
+            this._panelAvailability = panels;
+            const payload = Object.freeze({ panels: Object.freeze(panels), changed, wm: this });
+            for (const fn of [...this._panelAvailabilityListeners]) {
+                try { fn(payload); } catch (err) { console.error('[wm] panel availability listener threw', err); }
+            }
+            try { this.eventBus?.emit?.('wm:panels:availability', payload); }
+            catch (err) { console.warn('[wm] event emit failed', err); }
+        } finally {
+            this._reconcilingPanels = false;
+        }
     }
 
     /** Rebuild the tree so panel:* leaves sit in the canonical positions:
@@ -3162,6 +3261,14 @@ export class WindowManager {
      *  Existing panel leaves are detached + re-attached (same id), so the
      *  renderer cache keeps the mounted content (nav filter state, etc.). */
     _canonicalize(tree, desktop) {
+        // 0. Which panels this tree shows: the ones the user has open AND the
+        //    primary content offers. A withheld panel is left out without
+        //    forgetting it was open (`desktop.panels` is not written).
+        const open = {};
+        for (const side of PANEL_SIDES) {
+            open[side] = !!desktop.panels[side] && this.getPanelAvailability(side, tree).available;
+        }
+
         // 1. Find existing panel leaves.
         const panel = {};
         for (const leaf of tree.leaves()) {
@@ -3200,9 +3307,9 @@ export class WindowManager {
         //    first requested panel; otherwise content stays as root.
         let seededSide = null;
         if (!tree.rootId) {
-            seededSide = desktop.panels.left   ? 'left'
-                       : desktop.panels.bottom ? 'bottom'
-                       : desktop.panels.right  ? 'right'
+            seededSide = open.left   ? 'left'
+                       : open.bottom ? 'bottom'
+                       : open.right  ? 'right'
                        : null;
             if (seededSide) {
                 const seed = panel[seededSide] || makeLeaf({
@@ -3256,12 +3363,12 @@ export class WindowManager {
         // Skip the side already consumed as the seed root (would
         // otherwise wrap a fresh duplicate leaf around the existing
         // panel-as-root).
-        if (desktop.panels.left   && seededSide !== 'left'   && tree.rootId) wrap(panel.left,   'left');
-        if (desktop.panels.right  && seededSide !== 'right'  && tree.rootId) wrap(panel.right,  'right');
-        if (desktop.panels.bottom && seededSide !== 'bottom' && tree.rootId) wrap(panel.bottom, 'bottom');
+        if (open.left   && seededSide !== 'left'   && tree.rootId) wrap(panel.left,   'left');
+        if (open.right  && seededSide !== 'right'  && tree.rootId) wrap(panel.right,  'right');
+        if (open.bottom && seededSide !== 'bottom' && tree.rootId) wrap(panel.bottom, 'bottom');
 
-        // GC orphaned nodes (panel leaves whose `panels.X` flipped to
-        // false stayed in tree.nodes after detach).
+        // GC orphaned nodes (panel leaves whose side is no longer shown —
+        // closed, or withheld — stayed in tree.nodes after detach).
         const reachable = new Set();
         const walk = (id) => {
             if (!id || reachable.has(id)) return;

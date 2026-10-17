@@ -156,11 +156,22 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
         const chips = overlay.querySelectorAll('[data-shortcut]');
         const toggles = overlay.querySelectorAll('[data-toggle]');
 
-        // Reflect current panel state in toggle buttons.
-        for (const btn of toggles) {
+        // Reflect current panel state in toggle buttons. A panel the primary
+        // content withholds is a chip that says why and does nothing.
+        const syncToggle = (btn) => {
             const which = btn.dataset.toggle;
+            const { available, reason } = wm.getPanelAvailability(which);
             btn.classList.toggle('twm-chip--on', wm.isPanelOpen(which));
-        }
+            if (available) {
+                btn.removeAttribute('aria-disabled');
+                btn.removeAttribute('title');
+            } else {
+                btn.setAttribute('aria-disabled', 'true');
+                if (reason) btn.setAttribute('title', reason);
+                else btn.removeAttribute('title');
+            }
+        };
+        toggles.forEach(syncToggle);
 
         chips.forEach((btn) => btn.addEventListener('click', () => {
             const kind = btn.dataset.shortcut;
@@ -168,9 +179,8 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
             close();
         }));
         toggles.forEach((btn) => btn.addEventListener('click', () => {
-            const which = btn.dataset.toggle;
-            wm.togglePanel(which);
-            btn.classList.toggle('twm-chip--on', wm.isPanelOpen(which));
+            wm.togglePanel(btn.dataset.toggle);
+            syncToggle(btn);
         }));
 
         // Scoped-search state. Typing `<prefix>:` converts the prefix

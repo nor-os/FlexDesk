@@ -4790,7 +4790,7 @@ button.twm-about-dialog__btn--close:focus {
     font-variation-settings: 'opsz' 20, 'wght' 400;
 }
 
-.twm-leaf__btn:hover:not(:disabled) { background: var(--state-hover); color: var(--text-primary); }
+.twm-leaf__btn:hover:not(:disabled):not(.twm-leaf__btn--disabled) { background: var(--state-hover); color: var(--text-primary); }
 
 /* C20. A verb that applies to this kind of pane but not right now — greyed and
  * explained by its tooltip, rather than removed. `:disabled` alone would still
@@ -4799,6 +4799,34 @@ button.twm-about-dialog__btn--close:focus {
 .twm-leaf__btn:disabled {
     opacity: 0.35;
     cursor: default;
+}
+
+/* C42. A content action that is a toggle, and on: `aria-pressed="true"`. The
+ * selected tint the rest of the shell uses, so "on" reads the same everywhere. */
+.twm-leaf__btn--pressed {
+    background: var(--state-selected);
+    color: var(--text-primary);
+}
+
+/* C42. A content action with a text label: the 18px square is for a glyph, so
+ * a labelled button grows to its text. */
+.twm-leaf__btn--labelled {
+    width: auto;
+    gap: 2px;
+    padding: 0 4px;
+}
+.twm-leaf__btn-label {
+    font-size: 11px;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+/* C42. `{separator: true}` between groups of content actions. */
+.twm-leaf__sep {
+    align-self: stretch;
+    width: 1px;
+    margin: 3px 2px;
+    background: var(--border-subtle);
 }
 
 /* R8. THE SAME STRIP, IN A WINDOW. A pane floated into a managed window takes

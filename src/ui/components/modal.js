@@ -13,7 +13,7 @@
  *     placeholder?, hint?, validator?, rows?, create?, pick?, displayFor? }
  *
  *   - type: 'text' | 'number' | 'password' | 'select' | 'textarea' |
- *           'checkbox' | 'picker'
+ *           'checkbox' | 'picker' | 'color' | 'colorList'
  *   - hint: small dim help line rendered under the field
  *   - validator: fn(value, allValues) => string | null    (inline error)
  *   - rows: number of textarea rows (only used for type='textarea')
@@ -56,9 +56,23 @@
  * create, so there is no "will create" hint either. A bare `true` used to
  * reach `f.create.onCreate(v)` and fail the submit with "onCreate is not a
  * function", blaming the user for typing their own name.
+ *
+ * Colours — `type: 'color'` is a `ColorField` (swatch + native picker, a hex
+ * box kept in step, `presets?` as swatch buttons) and submits lowercase
+ * `#rrggbb`, or `''` when left empty. `type: 'colorList'` is a
+ * `ColorListField` (add, remove, reorder; `presets?` on every row) and submits
+ * an ordered array of `#rrggbb`. An `rgb()` default is shown as its hex. A box
+ * that holds no hex colour is a field error and the form does not resolve;
+ * `required` on either is checked by the form, not the browser:
+ *
+ *   { name: 'accent', label: 'Accent', type: 'color', default: 'rgb(31,119,180)',
+ *     presets: ['#1f77b4', '#ff7f0e'] }
+ *   { name: 'palette', label: 'Palette', type: 'colorList', default: ['#1f77b4'] }
  */
 
 import { ManagedWindow } from '../../ui/components/managed_window.js';
+import { ColorField } from './color_field.js';
+import { ColorListField } from './color_list_field.js';
 
 /**
  * C25. WHERE A DIALOG OPENS, when the application spans more than one window.
@@ -126,6 +140,9 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                 </div>
             </form>
         `;
+        // Colour fields are components, mounted into the placeholders their
+        // rows rendered; everything below reaches them by name like any field.
+        const components = _mountColorFields(body, fields, defaults);
 
         const win = new ManagedWindow({
             container: _modalHost,
@@ -140,7 +157,12 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
             canDrag: true,
             defaultWidth: _estimateWidth(fields),
             defaultHeight: _estimateHeight(fields),
-            onClose: () => { if (!_resolved) { _resolved = true; resolve(null); } },
+            onClose: () => {
+                if (_resolved) return;
+                _resolved = true;
+                for (const c of components.values()) c.dispose();
+                resolve(null);
+            },
         });
         win.show();
 
@@ -148,6 +170,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
         const close = (result) => {
             if (_resolved) return;
             _resolved = true;
+            for (const c of components.values()) c.dispose();
             resolve(result);
             try { win.close({ force: true }); } catch {}
         };
@@ -208,11 +231,15 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                     }
                 },
                 get(name) {
+                    // A colour list is a list: its rows' text, as it stands.
+                    if (fieldOf(name)?.type === 'colorList') return components.get(name).getTexts();
                     const el = body.querySelector(`[name="${name}"]`);
                     if (!el) return undefined;
                     return el.type === 'checkbox' ? !!el.checked : el.value;
                 },
                 set(name, value) {
+                    // Through the component, so the swatch follows the value.
+                    if (components.has(name)) { components.get(name).setValue(value); return; }
                     const el = body.querySelector(`[name="${name}"]`);
                     if (!el) return;
                     if (el.type === 'checkbox') { el.checked = !!value; return; }
@@ -246,7 +273,9 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                 const el = body.querySelector(`[name="${f.name}"]`);
                 if (!el) continue;
                 let v;
-                if (f.type === 'checkbox') {
+                if (components.has(f.name)) {
+                    v = components.get(f.name).getValue();
+                } else if (f.type === 'checkbox') {
                     v = !!el.checked;
                 } else if (f.type === 'number') {
                     v = (el.value === '' ? null : Number(el.value));
@@ -281,12 +310,8 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
             for (const f of formFields) {
                 clearFieldError(f.name);
                 if (rowHidden(f.name)) continue;
-                let msg = null;
-                // A picker's value lives in a hidden input, which the browser's
-                // own `required` check skips — so it is checked here.
-                if (f.type === 'picker' && f.required && !data[f.name]) msg = 'Required.';
-                else if (typeof f.validator !== 'function') continue;
-                else {
+                let msg = _builtinError(f, data[f.name], components.get(f.name));
+                if (!msg && typeof f.validator === 'function') {
                     try { msg = f.validator(data[f.name], data); } catch (err) { msg = err?.message || String(err); }
                 }
                 if (msg) {
@@ -295,6 +320,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                 }
             }
             if (firstBadName) {
+                components.get(firstBadName)?.focus();
                 body.querySelector(`[data-picker="${firstBadName}"]`)?.focus();
                 body.querySelector(`[name="${firstBadName}"]:not([type="hidden"])`)?.focus();
                 return;
@@ -723,6 +749,15 @@ function _estimateHeight(fields) {
             if (f.hint) body += 16;
         }
         else if (f.type === 'checkbox') { body += 32; if (f.hint) body += 16; }
+        else if (f.type === 'colorList') {
+            const n = Array.isArray(f.default) ? f.default.length : 0;
+            body += 46 + Math.max(n, 1) * 40 + 40;
+            if (f.hint) body += 16;
+        }
+        else if (f.type === 'color') {
+            body += 46 + (Array.isArray(f.presets) && f.presets.length ? 28 : 0);
+            if (f.hint) body += 16;
+        }
         else { body += 46; if (f.hint) body += 16; }
     }
     const base = 36 + 46 + 28 + body;
@@ -734,7 +769,7 @@ function _estimateWidth(fields) {
     // Forms with a textarea or section divider get the wider layout so
     // multi-line content + grouped fields breathe; otherwise 480 px is
     // enough for label + single-line input pairs.
-    const wide = fields.some((f) => f && (f.type === 'textarea' || f.section));
+    const wide = fields.some((f) => f && (f.type === 'textarea' || f.type === 'colorList' || f.section));
     return wide ? 640 : 480;
 }
 
@@ -787,6 +822,45 @@ function _wirePicker(host, f) {
     btn.addEventListener('click', open);
     // The read-only box is the obvious thing to click; make it work too.
     display.addEventListener('click', open);
+}
+
+
+/** Mount a ColorField / ColorListField into each colour row's placeholder.
+ *  Returns name -> component. */
+function _mountColorFields(host, fields, defaults) {
+    const components = new Map();
+    for (const f of fields) {
+        if (!f || f.section != null) continue;
+        if (f.type !== 'color' && f.type !== 'colorList') continue;
+        const slot = host.querySelector(`[data-color-slot="${f.name}"]`);
+        if (!slot) continue;
+        const value = defaults[f.name] ?? f.default;
+        const c = f.type === 'color'
+            ? new ColorField({ name: f.name, value: value ?? '', presets: f.presets, label: f.label })
+            : new ColorListField({ name: f.name, value: value ?? [], presets: f.presets });
+        slot.replaceWith(c.render());
+        components.set(f.name, c);
+    }
+    return components;
+}
+
+/** The form's own checks, before a caller's `validator`: a picker's
+ *  `required` (its value lives in a hidden input, which the browser's
+ *  `required` check skips) and a colour's hex. */
+function _builtinError(f, value, component) {
+    if (f.type === 'picker') return f.required && !value ? 'Required.' : null;
+    if (f.type === 'color') {
+        if (value === null) return 'Not a hex colour: use #rgb or #rrggbb.';
+        return f.required && !value ? 'Required.' : null;
+    }
+    if (f.type === 'colorList') {
+        if (value === null) {
+            const bad = component.invalidIndexes().map((i) => i + 1).join(', ');
+            return `Not a hex colour (row ${bad}): use #rgb or #rrggbb.`;
+        }
+        return f.required && !value.length ? 'Required.' : null;
+    }
+    return null;
 }
 
 
@@ -863,6 +937,21 @@ function _renderField(f, value) {
         return wrap(`<textarea name="${f.name}" ${rows} ${placeholder} ${required}>${_esc(v)}</textarea>`);
     }
 
+    if (f.type === 'color' || f.type === 'colorList') {
+        // The component is mounted here by `_mountColorFields`. A list is a
+        // group of controls, so its row is not a <label>: a label would hand
+        // every click on it to the first row's swatch.
+        const slot = `<div data-color-slot="${f.name}"></div>`;
+        if (f.type === 'color') return wrap(slot);
+        return `
+            <div class="twm-modal__row twm-modal__row--multiline" data-field-row="${f.name}" role="group" aria-label="${_esc(f.label || '')}">
+                <span>${_esc(f.label || '')}</span>
+                ${slot}
+                ${hintHtml}
+                ${errHtml}
+            </div>
+        `;
+    }
     const v = value == null ? '' : String(value);
     if (f.type === 'picker') {
         // The display text and the stored value are different things (an id

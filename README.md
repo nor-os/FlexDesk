@@ -1609,9 +1609,9 @@ keystrokes ask the preview once.
 `openForm({ title, fields, defaults, submitLabel })` (in `@flexdesk/widgets`)
 opens a modal form and resolves with `{ [name]: value }`, or `null` when it is
 cancelled. Fields are `text`, `number`, `password`, `select`, `textarea`,
-`checkbox` and `picker`; `{ section: 'Label' }` entries are headings. Each of
-the four additions below is opt-in, and a form that uses none of them renders
-and submits exactly as in 0.9.1.
+`checkbox`, `picker`, `color` and `colorList`; `{ section: 'Label' }` entries
+are headings. Each of the additions below is opt-in, and a form that uses none
+of them renders and submits exactly as in 0.9.1.
 
 ### A form that adapts: `onFieldChange`
 
@@ -1681,6 +1681,45 @@ submit with "onCreate is not a function".
 
 `tests/open_form.test.mjs` mounts the real `openForm` in jsdom and covers all
 four, plus a plain form submitting as before.
+
+### Colours: `type: 'color'` and `type: 'colorList'` (0.17.0)
+
+```js
+openForm({
+    fields: [
+        { name: 'accent', label: 'Accent', type: 'color', default: 'rgb(31,119,180)',
+          presets: ['#1f77b4', '#ff7f0e', '#2ca02c'] },
+        { name: 'palette', label: 'Palette', type: 'colorList', default: ['#1f77b4', '#ff7f0e'] },
+    ],
+});
+// -> { accent: '#1f77b4', palette: ['#1f77b4', '#ff7f0e'] }
+```
+
+A `color` row is a swatch that opens the native picker, a hex box kept in step
+with it (picking writes the box; typing a valid hex moves the swatch), and,
+with `presets`, a strip of preset swatches. It submits lowercase `#rrggbb`, or
+`''` when left empty. A `colorList` row is an ordered list of such fields: add,
+remove, and reorder by drag or by the up / down buttons; `presets` are offered
+on every row, and it submits the colours in their current order as an array of
+`#rrggbb`. An `rgb()` / `rgba()` default (or `api.set` value) is shown as its
+hex; alpha is dropped, because the native picker has none. A box that does not
+hold `#rgb` or `#rrggbb` is a field error ("Not a hex colour", with the row
+numbers for a list) and the form does not resolve; `required` on either is
+checked by the form. `api.get` reads a `color` as its box text and a
+`colorList` as the array of its rows' text.
+
+Both are also components of their own in `@flexdesk/widgets`:
+`new ColorField({ value, presets, name, label, onChange })` and
+`new ColorListField({ value, presets, newColor, addLabel, name, onChange })`,
+each with `render()`, `getValue()` (null while something typed is not a
+colour), `setValue()`, `focus()` and `dispose()`; `onChange(value, { commit })`
+reports every edit and, with `commit: true`, every committed one.
+`normalizeHex(value)` (`#rgb`, `#rrggbb`, `rgb()` -> `#rrggbb` or null) and
+`isHexColor(value)` are exported with them, and `validateField` (in
+`@flexdesk/tiles`) now rejects a `FieldTypes.COLOR` value that is not a hex
+colour. The markup is `.twm-color-field` > `.twm-color-field__swatch` +
+`.twm-color-field__hex` (+ `.twm-color-field__presets`), and `.twm-color-list`
+rows are `.twm-color-list__row`. `tests/color_field.test.mjs` covers all of it.
 
 ## Confirms show text, not markup (0.17.0)
 

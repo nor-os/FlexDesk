@@ -5506,6 +5506,84 @@ button.twm-about-dialog__btn--close:focus {
 .twm-managed-window--modal .twm-picker__btn .material-symbols-outlined {
     font-size: 15px;
 }
+/* Colour field: swatch (native picker) + hex box + optional preset strip.
+ * The hex box takes the field-well styling of the text inputs above. */
+.twm-color-field {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+.twm-color-field__swatch {
+    flex: 0 0 auto;
+    width: 28px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid #3a3a3a;
+    border-radius: 0;
+    background: transparent;
+    cursor: pointer;
+}
+.twm-color-field__hex {
+    flex: 1 1 90px;
+    min-width: 0;
+    font-family: 'Consolas', 'Monaco', monospace;
+}
+.twm-color-field--invalid .twm-color-field__hex {
+    border-color: #b03a3a;
+}
+.twm-color-field__presets {
+    flex: 1 0 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+}
+.twm-color-field__preset {
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 2px;
+    cursor: pointer;
+}
+.twm-color-field__preset:hover,
+.twm-color-field__preset:focus-visible {
+    outline: 1px solid var(--ea-accent, #569cd6);
+    outline-offset: 1px;
+}
+/* Colour list: a SortableList whose rows are a colour field + move buttons. */
+.twm-color-list {
+    min-width: 0;
+}
+.twm-color-list__row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+}
+.twm-color-list__row > .twm-color-field {
+    flex: 1 1 auto;
+}
+.twm-color-list__move {
+    display: flex;
+    align-items: center;
+    padding: 2px;
+    background: transparent;
+    border: none;
+    color: #8c8c8c;
+    cursor: pointer;
+}
+.twm-color-list__move:hover:not(:disabled) {
+    color: var(--ea-accent, #569cd6);
+}
+.twm-color-list__move:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+.twm-color-list__move .material-symbols-outlined {
+    font-size: 15px;
+}
 /* A row (or named section) hidden by openForm's `setVisible`. `[hidden]`
  * carries only the UA sheet's `display: none`, which the grid and flex rules
  * on `.twm-modal__row` / `.twm-modal__section` beat — so a hidden row stayed

@@ -227,6 +227,18 @@ section('§7 the enable toggle and disabledValue');
     check('disabledValue defaults to null', slider.getValue(), null);
     slider.dispose();
 }
+{
+    const plain = mount({ min: 0, max: 10, value: 4, disabled: true });
+    ok('field.disabled without companions disables the range', plain.slider.sliderInput.disabled);
+    plain.slider.dispose();
+    const { slider } = mount({ min: 0, max: 10, value: 4, disabled: true, toggleable: true, numberInput: true });
+    ok('field.disabled: range, box and toggle disabled',
+       slider.sliderInput.disabled && slider.numberInput.disabled && slider.toggleInput.disabled);
+    slider.setEnabled(false, { silent: true });
+    slider.setEnabled(true, { silent: true });
+    ok('field.disabled: toggling back on keeps the range disabled', slider.sliderInput.disabled);
+    slider.dispose();
+}
 
 // ── §8 ─────────────────────────────────────────────────────────────────────
 section('§8 readout formatting, and the stylesheet');

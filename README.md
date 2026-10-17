@@ -1077,7 +1077,7 @@ later. It watches `root` only and returns a disconnect. (It used to take no
 argument and look for a `#twm-fixed-200` that nothing created, so visible
 sections got no bar until a class changed — BUG-0006.)
 
-### SliderField: a number box, a readout, a default and an enable toggle
+### SliderField: a number box, a readout, a default and an enable toggle (0.17.0)
 
 `new SliderField({ fieldId, field, onChange })` (from `@flexdesk/widgets`)
 draws a range input. Its companions are opt-in through `field`; with none of

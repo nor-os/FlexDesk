@@ -165,15 +165,15 @@ export class HelpModal {
             const icon = this._categories[category]?.icon || 'folder';
 
             return `
-                <div class="help-category" data-category="${category}">
+                <div class="help-category" data-category="${escapeHtml(category)}">
                     <div class="help-category__header">
-                        <span class="material-symbols-outlined">${icon}</span>
-                        <span>${label}</span>
+                        <span class="material-symbols-outlined">${escapeHtml(icon)}</span>
+                        <span>${escapeHtml(label)}</span>
                     </div>
                     <ul class="help-category__topics">
                         ${topics.map(topic => `
-                            <li class="help-topic-item" data-topic="${topic.id}">
-                                ${topic.title}
+                            <li class="help-topic-item" data-topic="${escapeHtml(topic.id)}">
+                                ${escapeHtml(topic.title)}
                             </li>
                         `).join('')}
                     </ul>
@@ -222,15 +222,15 @@ export class HelpModal {
                         const icon = this._categories[category]?.icon || 'folder';
 
                         return `
-                            <div class="help-index__category" data-category="${category}">
+                            <div class="help-index__category" data-category="${escapeHtml(category)}">
                                 <div class="help-index__category-header">
-                                    <span class="material-symbols-outlined">${icon}</span>
-                                    <span>${label}</span>
+                                    <span class="material-symbols-outlined">${escapeHtml(icon)}</span>
+                                    <span>${escapeHtml(label)}</span>
                                 </div>
                                 <ul class="help-index__topics">
                                     ${topics.slice(0, 3).map(topic => `
-                                        <li class="help-index__topic" data-topic="${topic.id}">
-                                            ${topic.title}
+                                        <li class="help-index__topic" data-topic="${escapeHtml(topic.id)}">
+                                            ${escapeHtml(topic.title)}
                                         </li>
                                     `).join('')}
                                     ${topics.length > 3 ? `<li class="help-index__more">+${topics.length - 3} more</li>` : ''}
@@ -275,7 +275,7 @@ export class HelpModal {
                             <span class="material-symbols-outlined">home</span>
                         </a>
                         <span class="help-breadcrumb__separator">/</span>
-                        <span class="help-breadcrumb__title">${topic.title}</span>
+                        <span class="help-breadcrumb__title">${escapeHtml(topic.title)}</span>
                     </div>
                     <article class="help-article">
                         ${topic.html}
@@ -318,7 +318,7 @@ export class HelpModal {
             content.innerHTML = `
                 <div class="help-search-results">
                     <h2>Search Results</h2>
-                    <p class="help-search-empty">No results found for "${query}"</p>
+                    <p class="help-search-empty">No results found for "${escapeHtml(query)}"</p>
                 </div>
             `;
             return;
@@ -327,12 +327,12 @@ export class HelpModal {
         content.innerHTML = `
             <div class="help-search-results">
                 <h2>Search Results</h2>
-                <p class="help-search-count">${results.length} result${results.length !== 1 ? 's' : ''} for "${query}"</p>
+                <p class="help-search-count">${results.length} result${results.length !== 1 ? 's' : ''} for "${escapeHtml(query)}"</p>
                 <ul class="help-search-list">
                     ${results.map(topic => `
-                        <li class="help-search-item" data-topic="${topic.id}">
-                            <span class="help-search-item__title">${topic.title}</span>
-                            <span class="help-search-item__category">${this._categories[topic.category]?.label || topic.category}</span>
+                        <li class="help-search-item" data-topic="${escapeHtml(topic.id)}">
+                            <span class="help-search-item__title">${escapeHtml(topic.title)}</span>
+                            <span class="help-search-item__category">${escapeHtml(this._categories[topic.category]?.label || topic.category)}</span>
                         </li>
                     `).join('')}
                 </ul>
@@ -376,6 +376,26 @@ export class HelpModal {
     static getActive() {
         return _activeModal;
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Helpers
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Text for an innerHTML template. Everything the modal interpolates — the
+ * search query the user typed, and the topic ids, titles and categories the
+ * provider hands back — is TEXT; only `topic.html` is markup, by contract.
+ * Quotes are escaped too, because ids and categories land in attributes.
+ */
+function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

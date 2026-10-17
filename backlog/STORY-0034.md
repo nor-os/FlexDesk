@@ -13,7 +13,7 @@ subsystem: shell
 labels: [shell, panels]
 links: []
 created: 2026-10-17
-updated: 2026-10-17T17:21Z
+updated: 2026-10-17T21:46Z
 ---
 
 ## Description
@@ -44,3 +44,21 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 ### 2026-10-17T07:55Z · norman_agent (status: draft -> refined)
 
 Refined: 6 acceptance criteria, 5 points, parented to EPIC-0029. Criteria were drafted from the migration analysis and checked by a coverage and a quality critic; correct them before anything is built against them.
+
+### 2026-10-17T21:46Z · norman_agent
+
+Status: needs_owner. The work is done and pushed as fab9e70 on story-0034. Two things are open. First, the full test run had not finished when I had to report. Second, criterion 2 needs an answer from norman, because FlexDesk has no bottom-panel shortcut.
+
+What was built:
+- Panel declarations per kind: KindDef.panels takes {left|right|bottom: true | false | {reason}}, and createTaxonomy rejects bad entries when it starts. A kind that says nothing about a side takes its top-nav kind's setting. taxonomy.panelOffer(kind, side) reads it.
+- New WM methods: wm.isPanelAvailable(side), wm.getPanelAvailability(side) returning {available, reason}, wm.setPanelAvailability(side, offer) where null clears the override, and wm.onPanelAvailabilityChange(fn), which returns an unsubscribe.
+- Change notification: each change fires one call, also emitted on the bus as 'wm:panels:availability' with {panels, changed}.
+- Behaviour while withheld: _canonicalize leaves out panels that are withheld, and _notifyChange keeps the layout and the announcement in step whenever the primary kind changes. desktop.panels still remembers the panel was open, so it comes back open. togglePanel returns false and does nothing while withheld, and true when it flips. isPanelOpen means open and available.
+- Toggles and chips: the shell's toggle buttons and the palette chip get aria-disabled="true" with the reason as tooltip (data-tooltip on twm-has-tooltip buttons, title otherwise), and the button's own tooltip comes back afterwards. I used aria-disabled rather than disabled so the tooltip can still be hovered. Added a .twm-chip[aria-disabled] style to overrides.css and flexdesk.css.
+- Retired: PanelStateMachine, PANEL_STATES and PANEL_TRANSITIONS are deleted and removed from widgets.js. This breaks that public API, but the record explicitly calls for it, and nothing in the repo used them.
+- Docs: new README section "Panels a page does not offer (0.17.0)".
+- No application vocabulary added. dist/ is not committed.
+
+Question for norman: FlexDesk's keymap (src/tiling/keymap.js) has no bottom-panel shortcut, and neither does EcoSim. Criterion 2 is therefore only true because togglePanel refuses. My test binds a shortcut the way an embedder would (Alt+J calling wm.togglePanel) and shows it does nothing. Should FlexDesk add its own panel shortcuts? If so, which keys (e.g. Alt+J or Ctrl+J for bottom), and should they go in KEYMAP_SHORTCUTS? Or does the criterion mean the embedder's own shortcut that calls wm.togglePanel?
+
+Branch: story-0034 @ fab9e70. Before closing: finish the full `node tests/run.mjs` and `node build.mjs` in /mnt/c/Users/Norman/repos/FlexDesk-story-0034 (then `git checkout -- dist`). STORY-0035 also edits src/tiling/wm.js (_canonicalize and panel sizes), so expect a merge conflict there. Nothing landed on the default branch. Waiting on norman.

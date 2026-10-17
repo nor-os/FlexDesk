@@ -2,10 +2,10 @@
 id: 65
 type: story
 title: "STORY-0006 items: duplicate step, host card-menu items, and upstream-column widgets editable before columns are known"
-status: refined
+status: in-progress
 parent: 5
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 5
@@ -13,7 +13,7 @@ subsystem: flow
 labels: [flow, lanes]
 links: [relates-to STORY-0006]
 created: 2026-10-17
-updated: 2026-10-17T07:55Z
+updated: 2026-10-17T21:09Z
 ---
 
 ## Description
@@ -37,6 +37,8 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
+- 2026-10-17 · norman_agent · status: refined -> in-progress
+- 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
 
 ## Comments
 

@@ -2050,6 +2050,12 @@ and `NotebookSearchBar` (`.nb-search-bar*`). `setPanes()` adds `.split-pane` to 
 elements you hand it and leaves their own classes alone (it used to replace them,
 which stripped `.editor-pane` off an `EditorPane`).
 
+One exception to the prefix: `HelpModal` (`@flexdesk/widgets`) keeps its older
+`help-` classes (`help-modal-overlay`, `help-modal`, `help-index`, …), and
+`flexdesk.css` styles them — a centred dialog on a dimmed overlay, drawn over
+managed windows. `.help-article` holds your provider's rendered HTML and styles
+its plain elements (headings, code, tables, lists).
+
 Icons are rendered by applying the `material-symbols-outlined` class. FlexDesk does
 not ship the font — supply it from Google Fonts or self-host. Without it, icons fall
 back to their text names and nothing breaks.

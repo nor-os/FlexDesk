@@ -56,10 +56,12 @@ export class ColorListField {
         this.name = name;
         this.onChange = typeof onChange === 'function' ? onChange : null;
 
-        /** Row index -> its ColorField, rebuilt with the rows. */
+        /** Row index -> its ColorField; always exactly the rendered rows. */
         this._fields = [];
         /** Whether the SortableList change being reported is a committed one. */
         this._commit = true;
+        /** True while a row's own edit is written into the list's items. */
+        this._rowEdit = false;
         this.list = new SortableList({
             items: this.#toItems(value),
             addButtonText: addLabel,
@@ -67,7 +69,13 @@ export class ColorListField {
             createItem: () => ({ id: ++_seq, text: this.newColor }),
             renderItem: (container, item, index, callbacks) =>
                 this.#renderRow(container, item, index, callbacks),
-            onChange: () => this.#emit(this._commit),
+            // Every SortableList change but a row's own edit (add, remove,
+            // move, drag) is followed by a refresh that rebuilds all rows —
+            // down to none — so the old fields go first.
+            onChange: () => {
+                if (!this._rowEdit) this.#dropFields();
+                this.#emit(this._commit);
+            },
         });
         this.root = null;
         this.input = null;
@@ -110,6 +118,7 @@ export class ColorListField {
 
     /** Replace the colours without firing `onChange`. */
     setValue(colors) {
+        this.#dropFields();
         this.list.setItems(this.#toItems(colors));
         this.#writeInput();
     }
@@ -123,8 +132,7 @@ export class ColorListField {
     }
 
     dispose() {
-        for (const f of this._fields) f?.dispose();
-        this._fields = [];
+        this.#dropFields();
         this.list.dispose();
         this.root = null;
         this.input = null;
@@ -139,11 +147,14 @@ export class ColorListField {
         }));
     }
 
+    /** Dispose every row's field: the rows are about to be rebuilt. */
+    #dropFields() {
+        for (const f of this._fields) f?.dispose();
+        this._fields = [];
+    }
+
     #renderRow(container, item, index, callbacks) {
-        // A refresh rebuilds every row, so the field for this index is new.
-        this._fields[index]?.dispose();
         const count = this.list.getItems().length;
-        this._fields.length = count;
 
         const row = document.createElement('div');
         row.className = 'twm-color-list__row';
@@ -155,8 +166,9 @@ export class ColorListField {
             // a stale row; `_commit` tells its onChange which kind it was.
             onChange: (_v, { commit }) => {
                 this._commit = commit;
+                this._rowEdit = true;
                 try { callbacks.update({ text: field.getText() }); }
-                finally { this._commit = true; }
+                finally { this._commit = true; this._rowEdit = false; }
             },
         });
         this._fields[index] = field;

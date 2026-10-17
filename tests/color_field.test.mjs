@@ -376,6 +376,41 @@ const moveBtn = (root, i, label) => rowsOf(root)[i]
     check('the set rows submit', f.value(), { p: ['#ffffff', '#000000'] });
 }
 
+{
+    // Removing every row rebuilds the list down to zero rows: no row field is
+    // left behind, so a required-list submit focuses the add button.
+    const f = await open({
+        fields: [{ name: 'p', label: 'P', type: 'colorList', required: true, default: ['#111111'] }],
+    });
+    rowsOf(f.row('p'))[0].querySelector('.twm-sortable-list__remove').click();
+    check('removing the last row leaves no rows', rowsOf(f.row('p')).length, 0);
+    await f.submit();
+    check('… a required submit is "Required."', f.fieldError('p').textContent, 'Required.');
+    ok('… and focuses the add button',
+       document.activeElement === f.row('p').querySelector('.twm-sortable-list__add'),
+       `active: ${document.activeElement?.tagName}.${document.activeElement?.className}`);
+}
+{
+    // The row fields track the rendered rows through every rebuild.
+    const list = new ColorListField({ value: ['#111111', '#222222', '#333333'] });
+    const root = list.render();
+    document.body.appendChild(root);
+    const live = () => list._fields.every((fl) => fl?.root?.isConnected);
+    ok('after render, one live field per row', list._fields.length === 3 && live());
+    rowsOf(root)[2].querySelector('.twm-sortable-list__remove').click();
+    ok('after a remove, one live field per row', list._fields.length === 2 && live());
+    list.setValue(['#444444']);
+    ok('after setValue, one live field per row', list._fields.length === 1 && live());
+    list.setValue([]);
+    check('after setValue([]), no fields', list._fields.length, 0);
+    root.querySelector('.twm-sortable-list__add').click();
+    ok('after an add, one live field per row', list._fields.length === 1 && live());
+    list.focus();
+    ok('focus() then lands on the row', document.activeElement === rowsOf(root)[0].querySelector('.twm-color-field__hex'));
+    list.dispose();
+    root.remove();
+}
+
 // ── §5 ──────────────────────────────────────────────────────────────────
 section('§5 validateField checks hex for FieldTypes.COLOR');
 {

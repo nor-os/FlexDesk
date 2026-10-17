@@ -220,7 +220,7 @@ never drawn. `palette.invalidate()` drops the cache.
 shown. If it does not, or you register no help at all, the modal shows the window
 manager's own bindings, `KEYMAP_SHORTCUTS` from `@flexdesk/wm`, as a table
 (`keyboardShortcutsTopic()`). Before this the modal showed *Failed to load help
-topic.* (BUG-0008). The fallback comes from `HelpModal.open(id, { fallback })`
+topic.* The fallback comes from `HelpModal.open(id, { fallback })`
 (`@flexdesk/widgets`), and you can pass one yourself. A topic id that nobody
 provides now shows *Help topic not found.* where it used to raise a load error.
 

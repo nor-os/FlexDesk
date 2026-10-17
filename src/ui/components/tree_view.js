@@ -12,6 +12,28 @@
  */
 
 /**
+ * Labels, subtitles and badge text are TEXT, set with `textContent` after the
+ * skeleton is built (BUG-0013): a dataset called 'A <b>B</b>' is shown as
+ * those characters, and a name carrying `<img onerror>` runs nothing.
+ */
+function setText(root, selector, value) {
+    const el = root.querySelector(selector);
+    if (el) el.textContent = value == null ? '' : String(value);
+}
+
+/**
+ * An id as the value of a double-quoted attribute selector (BUG-0013).
+ * NOT `CSS.escape`: jsdom does not provide it (see modal.js). Inside a quoted
+ * attribute value `"` and `\` are escaped, and a line break, which would end
+ * the string, becomes its hex escape.
+ */
+function attrValue(value) {
+    return String(value)
+        .replace(/["\\]/g, '\\$&')
+        .replace(/[\n\r\f]/g, (c) => `\\${c.charCodeAt(0).toString(16)} `);
+}
+
+/**
  * Create a tree category (top-level collapsible section)
  * @param {Object} options - Category options
  * @param {string} options.id - Unique category ID
@@ -49,11 +71,12 @@ export function createTreeCategory(options) {
             <span class="twm-tree-category__icon ${iconClass}">
                 <span class="material-symbols-outlined">${icon}</span>
             </span>
-            <span class="twm-tree-category__label">${label}</span>
+            <span class="twm-tree-category__label"></span>
             <span class="twm-tree-category__count">(${count})</span>
         </div>
         <div class="twm-collapsible-content${expanded ? ' visible' : ''}" data-collapsible-content="true"></div>
     `;
+    setText(node, '.twm-tree-category__label', label);
 
     return node;
 }
@@ -97,12 +120,13 @@ export function createTreeNode(options) {
                 <span class="material-symbols-outlined">${expanded ? 'expand_more' : 'chevron_right'}</span>
             </span>
             ${iconHtml}
-            <span class="twm-tree-node__label">${label}</span>
+            <span class="twm-tree-node__label"></span>
             <span class="twm-tree-node__count">(${count})</span>
             ${actionsHtml}
         </div>
         <div class="twm-tree-node__children" style="display: ${expanded ? 'block' : 'none'};"></div>
     `;
+    setText(node, '.twm-tree-node__label', label);
 
     // Add action buttons if specified
     if (actions) {
@@ -173,14 +197,14 @@ export function createTreeItem(options) {
         : '';
 
     const subtitleHtml = subtitle
-        ? `<span class="twm-tree-item__subtitle">${subtitle}</span>`
+        ? '<span class="twm-tree-item__subtitle"></span>'
         : '';
 
     let badgeHtml = '';
     if (badge) {
         const variant = badge.variant || 'muted';
         if (badge.text) {
-            badgeHtml = `<span class="twm-tree-item__badge tree-item__badge--${variant}">${badge.text}</span>`;
+            badgeHtml = `<span class="twm-tree-item__badge tree-item__badge--${variant}"></span>`;
         } else {
             badgeHtml = `<span class="twm-tree-item__status-dot tree-item__status-dot--${variant}"></span>`;
         }
@@ -188,10 +212,13 @@ export function createTreeItem(options) {
 
     item.innerHTML = `
         ${iconHtml}
-        <span class="twm-tree-item__label">${label}</span>
+        <span class="twm-tree-item__label"></span>
         ${subtitleHtml}
         ${badgeHtml}
     `;
+    setText(item, '.twm-tree-item__label', label);
+    if (subtitle) setText(item, '.twm-tree-item__subtitle', subtitle);
+    if (badge?.text) setText(item, '.twm-tree-item__badge', badge.text);
 
     return item;
 }
@@ -314,7 +341,7 @@ export function selectItem(container, itemId, options = {}) {
     });
 
     // Find and select item
-    const item = container.querySelector(`.twm-tree-item[data-item-id="${itemId}"]`);
+    const item = container.querySelector(`.twm-tree-item[data-item-id="${attrValue(itemId)}"]`);
     if (!item) return null;
 
     item.classList.add('selected');
@@ -412,7 +439,7 @@ export class TreeView {
     }
 
     addNode(categoryId, options) {
-        const category = this.container.querySelector(`.twm-tree-category[data-category-id="${categoryId}"]`);
+        const category = this.container.querySelector(`.twm-tree-category[data-category-id="${attrValue(categoryId)}"]`);
         const content = category?.querySelector('.twm-collapsible-content');
         if (!content) return null;
 
@@ -422,7 +449,7 @@ export class TreeView {
     }
 
     addItem(nodeId, options) {
-        const node = this.container.querySelector(`.twm-tree-node[data-node-id="${nodeId}"]`);
+        const node = this.container.querySelector(`.twm-tree-node[data-node-id="${attrValue(nodeId)}"]`);
         const children = node?.querySelector('.twm-tree-node__children');
         if (!children) return null;
 

@@ -1954,7 +1954,7 @@ specifier, through the package's `exports` map, which closes every other path
 into the package. The map sends `flexdesk/css/tokens` to the source
 `css/tokens.css`, not `dist/tokens.css`. The two are identical in a release,
 since `dist/` is rebuilt in the release commit, but can differ on a working
-checkout (BUG-0030). `flexdesk/css/reset` is missing from 0.16.0 and earlier,
+checkout (BUG-0030). `flexdesk/css/reset` is missing from 0.16.1 and earlier,
 where it fails with `ERR_PACKAGE_PATH_NOT_EXPORTED`.
 
 Icons are rendered by applying the `material-symbols-outlined` class. FlexDesk does

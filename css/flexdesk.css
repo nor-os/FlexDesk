@@ -3786,6 +3786,14 @@ body.twm-window-maximized .twm-resize-handle {
     box-sizing: border-box;
     transition: background var(--transition-normal), border-color var(--transition-normal);
 }
+/* A `{ separator: true }` entry: a rule between two groups of options. It is
+   not a button, so it takes no focus and the arrow keys pass over it. */
+.twm-action-dropdown-separator {
+    height: 1px;
+    /* the option above already leaves var(--space-xs) below itself */
+    margin: 0 0 var(--space-xs);
+    background: var(--border-subtle);
+}
 .twm-action-dropdown-option:last-child {
     margin-bottom: 0;
 }

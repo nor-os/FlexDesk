@@ -43,7 +43,6 @@ export * from './src/ui/components/toggle_field.js';
 export * from './src/ui/components/tree_view.js';
 export * from './src/ui/components/window_taskbar.js';
 export * from './src/ui/components/wizard.js';
-export * from './src/ui/controllers/panel_state_machine.js';
 export * from './src/ui/controllers/window_chrome_controller.js';
 export * from './src/ui/notification_center.js';
 export * from './src/ui/utils/auto_scrollbars.js';

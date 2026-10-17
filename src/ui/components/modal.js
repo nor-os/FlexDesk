@@ -13,10 +13,28 @@
  *     placeholder?, hint?, validator?, rows?, create?, pick?, displayFor? }
  *
  *   - type: 'text' | 'number' | 'password' | 'select' | 'textarea' |
- *           'checkbox' | 'picker'
+ *           'checkbox' | 'picker' | 'checklist' | 'radio'
  *   - hint: small dim help line rendered under the field
  *   - validator: fn(value, allValues) => string | null    (inline error)
  *   - rows: number of textarea rows (only used for type='textarea')
+ *
+ * Options — `select`, `checklist` and `radio` take `options`: bare values, or
+ * `{ value, label?, disabled?, reason?, description? }`. A value comes back AS
+ * ITSELF — an option whose value is the number 2 submits 2, not '2' — and a
+ * default matches an option of the same text (`'2'` selects 2). A `disabled`
+ * option is shown with its `reason` and is never the submitted value: it is not
+ * selected by a default or by `api.set`, the reader cannot pick it, and a
+ * submit that finds one selected anyway is refused with a field error.
+ * `{ group: 'Heading', options: [...] }` in a select's list is an `<optgroup>`;
+ * a checklist or radio draws a group's options in place.
+ *
+ *   - `checklist`: toggle chips; submits the ARRAY of chosen values in the
+ *     list's order (`[]` for none). `required` means at least one.
+ *   - `radio`: one radio row per option, each with its `description` under it;
+ *     submits the chosen value, or null. `required` means one is chosen.
+ *
+ * These three are drawn by `choice_controls.js` — the same select, chips and
+ * radio list as the flow kit's settings widgets, so there is one of each.
  *
  * Section dividers — entries of the form `{ section: 'Label' }` are
  * rendered as a small uppercase heading that groups the fields below
@@ -59,6 +77,7 @@
  */
 
 import { ManagedWindow } from '../../ui/components/managed_window.js';
+import { choiceList, flatChoices, selectBox, toggleChips } from './choice_controls.js';
 
 /**
  * C25. WHERE A DIALOG OPENS, when the application spans more than one window.
@@ -90,11 +109,18 @@ let _modalSeq = 1;
  * @param {Function?} o.onFieldChange  `(name, value, api)` — called after any
  *   field's `change`, and ONCE on open with `name === null` so the form starts
  *   consistent with its defaults. `api` is
- *   `{ setVisible(name, on), get(name), set(name, value) }`, addressing fields
- *   and named sections by name. `get` reads the control as it stands (a
- *   checkbox as a boolean, everything else as its string); `set` writes it and
- *   does NOT call `onFieldChange` back, so a hook that fills one field from
- *   another cannot loop.
+ *   `{ setVisible(name, on), get(name), set(name, value), setOptions(name,
+ *   options) }`, addressing fields and named sections by name. `get` reads the
+ *   control as it stands (a checkbox as a boolean, a select or radio as its
+ *   option's own value, a checklist as the array of chosen values, everything
+ *   else as its string); `set` writes it (a value a select or radio does not
+ *   offer, or offers only disabled, clears it) and does NOT call
+ *   `onFieldChange` back, so a hook that fills one field from another cannot
+ *   loop. `setOptions` replaces the options of a `select` (a combobox's too),
+ *   `checklist` or `radio` while the form is open, keeping the current value
+ *   when the new list still offers it enabled — otherwise a select falls to its
+ *   first enabled option, a radio to none, and a checklist drops what is gone.
+ *   It does not call `onFieldChange` back either.
  *
  *   It exists for the form whose Type select spans two record kinds and must
  *   show the fields of the kind actually chosen. Rebuilding the form on every
@@ -161,8 +187,15 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
         body.querySelector('[data-action="cancel"]')?.addEventListener('click', () => close(null));
 
         const formFields = fields.filter((f) => !f.section);
+        // The options each field offers NOW — `setOptions` replaces them, the
+        // caller's field object is never written to.
+        const optionsOf = new Map(formFields.map((f) => [f.name, f.options]));
+        const comboHints = new Map();
         for (const f of formFields) {
-            if (f.type === 'select' && f.create) _wireComboboxHint(body, f);
+            if (f.type === 'select' && f.create) {
+                const update = _wireComboboxHint(body, f, () => optionsOf.get(f.name));
+                if (update) comboHints.set(f.name, update);
+            }
             if (f.type === 'picker') _wirePicker(body, f);
         }
         const rowHidden = (name) => !!body.querySelector(`[data-field-row="${name}"]`)?.hidden;
@@ -179,6 +212,26 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
             if (row) row.classList.add('twm-is-invalid');
             if (errEl) { errEl.textContent = msg; errEl.hidden = false; }
         };
+        // Selects, checklists and radios — drawn by `choice_controls.js`, read
+        // back as their options' own values. `onChoice` is what a checklist or
+        // radio calls when the reader changes it (a select is a named control
+        // and is heard by the loops below).
+        let onChoice = (name) => clearFieldError(name);
+        const choices = new Map();
+        for (const f of formFields) {
+            if (!(f.type === 'checklist' || f.type === 'radio' || (f.type === 'select' && !f.create))) continue;
+            const c = _mountChoice(body, f, defaults[f.name] ?? f.default, (name) => onChoice(name));
+            if (c) choices.set(f.name, c);
+        }
+        /** A disabled option's reason ('' with none) when one is the value, else null. */
+        const unavailable = (f, value) => {
+            const c = choices.get(f.name);
+            if (c) return c.unavailable();
+            if (f.type !== 'select' || !f.create || value == null || value === '') return null;
+            const o = flatChoices(optionsOf.get(f.name)).find((x) => x.disabled && String(x.value) === String(value));
+            return o ? (o.reason || '') : null;
+        };
+
         // Clear per-field errors on input so the user sees the row recover.
         for (const f of formFields) {
             const el = body.querySelector(`[name="${f.name}"]`);
@@ -208,11 +261,13 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                     }
                 },
                 get(name) {
+                    if (choices.has(name)) return choices.get(name).read();
                     const el = body.querySelector(`[name="${name}"]`);
                     if (!el) return undefined;
                     return el.type === 'checkbox' ? !!el.checked : el.value;
                 },
                 set(name, value) {
+                    if (choices.has(name)) { choices.get(name).write(value); return; }
                     const el = body.querySelector(`[name="${name}"]`);
                     if (!el) return;
                     if (el.type === 'checkbox') { el.checked = !!value; return; }
@@ -223,6 +278,20 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                         if (display) display.value = _pickerLabel(f, el.value);
                     }
                 },
+                setOptions(name, options) {
+                    const f = fieldOf(name);
+                    if (!f) return;
+                    if (choices.has(name)) {
+                        optionsOf.set(name, options);
+                        choices.get(name).setOptions(options);
+                        return;
+                    }
+                    if (f.type !== 'select' || !f.create) return;
+                    optionsOf.set(name, options);
+                    const list = body.querySelector(`[data-datalist-for="${name}"]`);
+                    if (list) list.innerHTML = _datalistOptions(options);
+                    comboHints.get(name)?.();
+                },
             };
             const fire = (name) => {
                 try { onFieldChange(name, name == null ? undefined : api.get(name), api); }
@@ -232,6 +301,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                 const el = body.querySelector(`[name="${f.name}"]`);
                 el?.addEventListener('change', () => fire(f.name));
             }
+            onChoice = (name) => { clearFieldError(name); fire(name); };
             // Once on open, so a preselected value is reflected immediately
             // rather than only after the user touches something.
             fire(null);
@@ -243,10 +313,15 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
             showError('');
             const data = {};
             for (const f of formFields) {
-                const el = body.querySelector(`[name="${f.name}"]`);
-                if (!el) continue;
+                const choice = choices.get(f.name);
+                const el = choice ? null : body.querySelector(`[name="${f.name}"]`);
+                if (!choice && !el) continue;
                 let v;
-                if (f.type === 'checkbox') {
+                if (choice) {
+                    v = choice.read();
+                    // An empty select submits '' as it always has.
+                    if (v === undefined) v = f.type === 'select' ? '' : null;
+                } else if (f.type === 'checkbox') {
                     v = !!el.checked;
                 } else if (f.type === 'number') {
                     v = (el.value === '' ? null : Number(el.value));
@@ -255,8 +330,11 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                 }
                 if (f.type === 'select' && f.create) {
                     const spec = _createSpec(f);
-                    const known = new Set(_optionValues(f.options));
-                    if (v && !known.has(v)) {
+                    // A typed value that is an option's text IS that option,
+                    // with the option's own value (a number stays a number).
+                    const match = flatChoices(optionsOf.get(f.name)).find((o) => String(o.value) === v);
+                    if (match) v = match.value;
+                    else if (v) {
                         if (submitBtn) submitBtn.disabled = true;
                         let created;
                         let failMsg = null;
@@ -281,13 +359,17 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
             for (const f of formFields) {
                 clearFieldError(f.name);
                 if (rowHidden(f.name)) continue;
-                let msg = null;
-                // A picker's value lives in a hidden input, which the browser's
-                // own `required` check skips — so it is checked here.
-                if (f.type === 'picker' && f.required && !data[f.name]) msg = 'Required.';
-                else if (typeof f.validator !== 'function') continue;
-                else {
-                    try { msg = f.validator(data[f.name], data); } catch (err) { msg = err?.message || String(err); }
+                const v = data[f.name];
+                // A picker's value lives in a hidden input, and a checklist or
+                // radio is no single control, so the browser's own `required`
+                // check never sees them — they are checked here.
+                let msg = f.required && _missing(f, v) ? 'Required.' : null;
+                if (!msg) {
+                    const reason = unavailable(f, v);
+                    if (reason != null) msg = reason ? `Not available: ${reason}` : 'Not available.';
+                }
+                if (!msg && typeof f.validator === 'function') {
+                    try { msg = f.validator(v, data); } catch (err) { msg = err?.message || String(err); }
                 }
                 if (msg) {
                     setFieldError(f.name, msg);
@@ -295,6 +377,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                 }
             }
             if (firstBadName) {
+                choices.get(firstBadName)?.focus();
                 body.querySelector(`[data-picker="${firstBadName}"]`)?.focus();
                 body.querySelector(`[name="${firstBadName}"]:not([type="hidden"])`)?.focus();
                 return;
@@ -723,6 +806,11 @@ function _estimateHeight(fields) {
             if (f.hint) body += 16;
         }
         else if (f.type === 'checkbox') { body += 32; if (f.hint) body += 16; }
+        else if (f.type === 'radio') {
+            const opts = flatChoices(f.options);
+            body += 12 + opts.reduce((h, o) => h + 22 + (o.description || o.reason ? 16 : 0), 0);
+            if (f.hint) body += 16;
+        }
         else { body += 46; if (f.hint) body += 16; }
     }
     const base = 36 + 46 + 28 + body;
@@ -738,8 +826,73 @@ function _estimateWidth(fields) {
     return wide ? 640 : 480;
 }
 
-function _optionValues(options) {
-    return (options || []).map((o) => (typeof o === 'object') ? o.value : o);
+/** A combobox's offered options: enabled, groups flattened. */
+function _offered(options) {
+    return flatChoices(options).filter((o) => !o.disabled);
+}
+
+function _datalistOptions(options) {
+    return _offered(options).map((o) => `<option value="${_esc(o.value)}"></option>`).join('');
+}
+
+/**
+ * Draw a `select`, `checklist` or `radio` field into its slot, and hand back
+ * what the form needs of it: `{ read(), write(v), focus(), unavailable(),
+ * setOptions(options) }`. `unavailable()` is the reason (or '') when the
+ * selected option is disabled, else null. `onChange(name)` hears the reader's
+ * choice on a checklist or radio; a select is a named control, heard as one.
+ */
+function _mountChoice(host, f, value, onChange) {
+    const slot = host.querySelector(`[data-choice-slot="${f.name}"]`);
+    if (!slot) return null;
+    const common = { keepMissing: false, loose: true };
+    const disabledReason = (entry) => (entry?.disabled ? (entry.reason || '') : null);
+    if (f.type === 'select') {
+        const c = selectBox(f.options, value, { ...common, valueAttr: 'value', className: '' });
+        c.box.name = f.name;
+        if (f.required) c.box.required = true;
+        slot.replaceWith(c.box);
+        return {
+            read: c.valueOf,
+            // A value the list does not offer enabled clears the select, as
+            // writing an unknown `.value` always has (it then submits '').
+            write: (v) => { if (!c.select(v)) c.box.selectedIndex = -1; },
+            focus: () => c.box.focus(),
+            unavailable: () => disabledReason(c.entry()),
+            setOptions: c.setOptions,
+        };
+    }
+    const list = (v) => (Array.isArray(v) ? v : (v == null || v === '' ? [] : [v]));
+    if (f.type === 'checklist') {
+        const c = toggleChips({ ...common, options: f.options, value: list(value), label: f.label || f.name,
+                                onChange: () => onChange(f.name) });
+        slot.replaceWith(c.el);
+        return {
+            read: c.valueOf,
+            write: (v) => c.setValue(list(v)),
+            focus: () => c.el.querySelector('button:not(:disabled)')?.focus(),
+            unavailable: () => null,           // a disabled chip cannot be pressed, by hand or by set
+            setOptions: c.setOptions,
+        };
+    }
+    const c = choiceList({ ...common, options: f.options, value, label: f.label || f.name,
+                           name: `twm-form-${_modalSeq}-${f.name}`, onChange: () => onChange(f.name) });
+    slot.replaceWith(c.el);
+    return {
+        read: () => c.valueOf() ?? null,
+        write: (v) => { c.select(v); },
+        focus: c.focus,
+        unavailable: () => disabledReason(c.entry()),
+        setOptions: c.setOptions,
+    };
+}
+
+/** Is a `required` field without a value the browser cannot check for itself? */
+function _missing(f, v) {
+    if (f.type === 'picker') return !v;
+    if (f.type === 'checklist') return !Array.isArray(v) || v.length === 0;
+    if (f.type === 'radio') return v == null;
+    return false;
 }
 
 /** Normalise a `create` spec. `true` means the typed value is accepted as-is. */
@@ -792,7 +945,7 @@ function _wirePicker(host, f) {
 
 /** Show / hide the "↳ will create …" hint as the user types into a
  *  create-capable combobox. */
-function _wireComboboxHint(host, f) {
+function _wireComboboxHint(host, f, optionsOf) {
     const input = host.querySelector(`input[name="${f.name}"]`);
     const hintEl = host.querySelector(`.twm-combobox__hint[data-for="${f.name}"]`);
     if (!input || !hintEl) return;
@@ -800,10 +953,10 @@ function _wireComboboxHint(host, f) {
     // entity being made, so promising to "create" one is a lie that reads as
     // a warning.
     if (f.create === true) return;
-    const known = new Set(_optionValues(f.options));
     const label = _createSpec(f).hint || 'new entry';
     const update = () => {
         const v = input.value.trim();
+        const known = new Set(flatChoices(optionsOf()).map((o) => String(o.value)));
         if (v && !known.has(v)) {
             hintEl.textContent = `↳ will create ${label} “${v}”`;
             hintEl.hidden = false;
@@ -813,6 +966,7 @@ function _wireComboboxHint(host, f) {
     };
     input.addEventListener('input', update);
     update();
+    return update;
 }
 
 
@@ -828,18 +982,21 @@ function _renderEntry(f, value) {
 
 function _renderField(f, value) {
     const required = f.required ? 'required' : '';
-    const rowMod = (f.type === 'textarea') ? ' twm-modal__row--multiline' : '';
+    const rowMod = (f.type === 'textarea' || f.type === 'checklist' || f.type === 'radio')
+        ? ' twm-modal__row--multiline' : '';
     const hintHtml = f.hint
         ? `<div class="twm-modal__hint--field">${_esc(f.hint)}</div>` : '';
     const errHtml = `<div class="twm-modal__field-error" data-field-error="${f.name}" hidden></div>`;
-    const wrap = (inner) => `
-        <label class="twm-modal__row${rowMod}" data-field-row="${f.name}">
+    const wrap = (inner, tag = 'label') => `
+        <${tag} class="twm-modal__row${rowMod}" data-field-row="${f.name}">
             <span>${_esc(f.label || '')}</span>
             ${inner}
             ${hintHtml}
             ${errHtml}
-        </label>
+        </${tag}>
     `;
+    // Drawn by `choice_controls.js` once the markup is in (`_mountChoice`).
+    const slot = `<span data-choice-slot="${f.name}"></span>`;
 
     if (f.type === 'checkbox') {
         const checked = (value === true || value === 'true') ? 'checked' : '';
@@ -855,6 +1012,10 @@ function _renderField(f, value) {
             </label>
         `;
     }
+
+    // A group of controls is not one labelable control: a `<label>` round it
+    // would hand every click on the row to its first chip or radio.
+    if (f.type === 'checklist' || f.type === 'radio') return wrap(slot, 'div');
 
     if (f.type === 'textarea') {
         const v = value == null ? '' : String(value);
@@ -884,8 +1045,7 @@ function _renderField(f, value) {
     }
     if (f.type === 'select' && f.create) {
         const dlId = `ea-dl-${f.name}-${_modalSeq}`;
-        const opts = _optionValues(f.options)
-            .map((ov) => `<option value="${_esc(ov)}"></option>`).join('');
+        const opts = _datalistOptions(f.options);
         const placeholder = f.placeholder
             ? `placeholder="${_esc(f.placeholder)}"` : 'placeholder="type to pick or create…"';
         return wrap(`
@@ -893,19 +1053,12 @@ function _renderField(f, value) {
                 <input name="${f.name}" type="text" list="${dlId}"
                        value="${_esc(v)}" ${placeholder} ${required}
                        autocomplete="off">
-                <datalist id="${dlId}">${opts}</datalist>
+                <datalist id="${dlId}" data-datalist-for="${f.name}">${opts}</datalist>
                 <span class="twm-combobox__hint" data-for="${f.name}" hidden></span>
             </div>
         `);
     }
-    if (f.type === 'select') {
-        const opts = (f.options || []).map((o) => {
-            const ov = (typeof o === 'object') ? o.value : o;
-            const ol = (typeof o === 'object') ? o.label : o;
-            return `<option value="${_esc(ov)}" ${ov === v ? 'selected' : ''}>${_esc(ol)}</option>`;
-        }).join('');
-        return wrap(`<select name="${f.name}" ${required}>${opts}</select>`);
-    }
+    if (f.type === 'select') return wrap(slot);
     const step = f.step != null ? `step="${f.step}"` : '';
     const placeholder = f.placeholder ? `placeholder="${_esc(f.placeholder)}"` : '';
     const type = (f.type === 'number' || f.type === 'password') ? f.type : 'text';

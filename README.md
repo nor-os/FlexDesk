@@ -1609,9 +1609,9 @@ keystrokes ask the preview once.
 `openForm({ title, fields, defaults, submitLabel })` (in `@flexdesk/widgets`)
 opens a modal form and resolves with `{ [name]: value }`, or `null` when it is
 cancelled. Fields are `text`, `number`, `password`, `select`, `textarea`,
-`checkbox` and `picker`; `{ section: 'Label' }` entries are headings. Each of
-the four additions below is opt-in, and a form that uses none of them renders
-and submits exactly as in 0.9.1.
+`checkbox`, `picker`, `checklist` and `radio`; `{ section: 'Label' }` entries
+are headings. Each of the additions below is opt-in, and a form that uses none
+of them renders and submits exactly as in 0.9.1.
 
 ### A form that adapts: `onFieldChange`
 
@@ -1637,10 +1637,16 @@ every field's `change`. `api` addresses fields and named sections by name:
 - `setVisible(name, on)` hides or shows the row. A hidden row keeps its value
   and is still submitted, but it is not asked about: its `required` and its
   `validator` stand down until it is shown again.
-- `get(name)` reads the control as it stands: a checkbox as a boolean,
-  anything else as its string.
+- `get(name)` reads the control as it stands: a checkbox as a boolean, a
+  select or radio as its option's own value, a checklist as the array of
+  chosen values, anything else as its string.
 - `set(name, value)` writes it. It does not call `onFieldChange` back, so a
-  hook that fills one field from another cannot loop.
+  hook that fills one field from another cannot loop. A value a select or
+  radio does not offer, or offers only disabled, clears it (a select then
+  submits `''`, a radio `null`).
+- `setOptions(name, options)` replaces the options of a `select` (a
+  combobox's suggestions too), `checklist` or `radio` while the form is open
+  — see below.
 
 A hook that throws is logged and the form carries on.
 
@@ -1681,6 +1687,67 @@ submit with "onCreate is not a function".
 
 `tests/open_form.test.mjs` mounts the real `openForm` in jsdom and covers all
 four, plus a plain form submitting as before.
+
+### Options: typed, unavailable, grouped, and changed while open
+
+```js
+openForm({
+    fields: [
+        { name: 'country', label: 'Country', type: 'select', options: ['no', 'it'] },
+        { name: 'town', label: 'Town', type: 'select', options: [] },
+        { name: 'plan', label: 'Plan', type: 'select', options: [
+            { value: 1, label: 'Free' },
+            { value: 2, label: 'Pro', disabled: true, reason: 'needs a licence' },
+            { group: 'Teams', options: [{ value: 10, label: 'Small team' }, { value: 50, label: 'Large team' }] },
+        ] },
+        { name: 'days', label: 'Days', type: 'checklist', required: true,
+          options: [{ value: 'mon', label: 'Mon' }, { value: 'tue', label: 'Tue' }] },
+        { name: 'mode', label: 'Mode', type: 'radio', options: [
+            { value: 'fast', label: 'Fast', description: 'Skips the checks.' },
+            { value: 'safe', label: 'Safe' },
+        ] },
+    ],
+    onFieldChange: (name, value, api) => {
+        if (name === null || name === 'country') api.setOptions('town', townsOf(api.get('country')));
+    },
+});
+// → { country: 'it', town: 'Rome', plan: 10, days: ['mon'], mode: 'fast' }
+```
+
+An option is a bare value or `{ value, label?, disabled?, reason?,
+description? }`.
+
+- **Values keep their type.** An option whose value is the number 10 submits
+  10, and `api.get` reads 10 — not `'10'`. A default matches an option of the
+  same text, so `defaults: { plan: '10' }` selects 10. A combobox entry typed
+  as an option's text submits that option's value.
+- **A disabled option** is shown with its `reason` (in a select's option text
+  and tooltip, under a radio, on a chip) and is never the submitted value: a
+  default naming it does not select it, `api.set` to it clears the field,
+  the reader cannot pick it, a combobox does not suggest it, and a submit
+  that finds one selected anyway (a script set `.value`) is refused with
+  "Not available: *reason*" on the field.
+- **`{ group, options }`** in a select's list is an `<optgroup>` headed
+  *group*. A checklist or radio draws a group's options in place.
+- **`api.setOptions(name, options)`** replaces the list while the form is
+  open and keeps the current value when the new list offers it enabled.
+  Otherwise a select falls to its first enabled option, a radio to none and a
+  checklist drops what is gone. It does not call `onFieldChange` back.
+- **`type: 'checklist'`** draws toggle chips and submits the array of chosen
+  values in the list's order (`[]` for none). `required` means at least one,
+  and nothing chosen is "Required." on the field.
+- **`type: 'radio'`** draws one radio row per option, with its `description`
+  under it, and submits the chosen value, or `null`. `required` means one is
+  chosen.
+
+The select, the chips and the radio list are the flow kit's
+(`src/ui/components/choice_controls.js`): the settings panel's `enum` select,
+`enum-chips`, `upstream-columns` and `choice-cards` draw with the same code, so
+a form and a settings panel cannot drift apart. In a form they are classed
+`.twm-flow-togglechips` / `.twm-flow-togglechip` and `.twm-flow-choices` /
+`.twm-flow-choice`, with `__reason` for the unavailable ones.
+
+`tests/open_form_choices.test.mjs` covers each of these in jsdom.
 
 ## Confirms show text, not markup (0.17.0)
 

@@ -1149,6 +1149,58 @@ host.appendChild(slider.render());
 | `setValue(x, { silent })`, `setRange({ min, max, step }, { silent })`, `setEnabled(on, { silent })`, `reset({ silent })` | Change the field from code. Each reports at most once, nothing with `silent: true`, and nothing when the reported value did not move, so a caller that writes back from its own `onChange` does not loop. `setValue` refuses a non-finite value (returns `false`); `setRange` refits the value and the default |
 | `getValue()`, `isEnabled()`, `isModified()` | What `onChange` would report now, the toggle state, and whether the value differs from `defaultValue` |
 
+### A stack of collapsible sections: `createSectionStack` (0.17.0)
+
+Inspector-style panel content: titled sections in a column, each opened and
+closed from its header. It is built from the tree's `.twm-collapsible-*`
+pieces plus `.twm-section-stack*` (`@flexdesk/widgets`).
+
+```js
+const stack = createSectionStack(panel, {
+    sections: [
+        { id: 'notes', title: 'Notes', icon: 'edit_note', content: notesEl },
+        { id: 'chat', title: 'Assistant', fill: true,
+          actions: [{ icon: 'delete', label: 'Clear', onClick: (id, event) => clear() }] },
+        { id: 'params', title: 'Parameters', defaultExpanded: false },
+    ],
+    key: 'inspector.sections',
+    stateStore: { read: (key) => saved[key], write: (key, map) => { saved[key] = map; } },
+});
+stack.body('params').appendChild(paramsEl);
+const off = stack.on('toggled', ({ id, expanded, source }) => { /* … */ });
+```
+
+- **The header toggles, its actions do not.** A click anywhere on a header
+  opens or closes the section and turns its arrow. A click on one of its
+  `actions` runs that action's `onClick(sectionId, event)` and nothing else.
+  The toggle is a `<button>`, so Enter and Space work.
+- **`defaultExpanded`** is `true` unless a section says `false`.
+- **One `fill` section** takes the height the others leave, and its body is
+  what scrolls (`min-height: 0`). A long conversation scrolls inside its
+  section and the panel stays the size of the window. The stack is
+  `height: 100%` of its container, so give the container a height. A closed
+  fill section is only its header.
+- **Remembering is injected.** `stateStore` is `{ read(key), write(key, map) }`.
+  `map` is `{ [sectionId]: expanded }`, and it is written on every open and
+  close under `key`. `read` may return a promise. Until it settles the
+  sections show their defaults; a section somebody toggled in the meantime
+  keeps that choice. `stack.ready` resolves once the read has been applied. A
+  store that throws, rejects or returns anything other than a map leaves every
+  section on its `defaultExpanded`. Without a store nothing is remembered.
+- **`setVisible(id, false)`** takes a section off the stack and keeps its
+  state, so `setVisible(id, true)` brings it back open or closed as it was.
+  `isVisible(id)` reads it.
+- `expand(id)`, `collapse(id)`, `toggle(id)` and `isExpanded(id)` work on
+  any section, hidden or not. An unknown id throws.
+- **`toggled`** fires on each change with `{ id, expanded, source }`, where
+  `source` is `'user'`, `'api'` or `'restore'` (a stored state that arrived
+  after mount). `on('toggled', fn)` returns the function that stops listening.
+- **`dispose()`** removes the stack's listener and every node it made, along
+  with any `content` you passed in.
+
+`tests/section_stack.test.mjs` covers each of these in jsdom. The fill
+layout was also measured in headless Edge.
+
 ## Flow editors
 
 *New in 0.6.0.* Both entries first ship in FlexDesk 0.6.0.

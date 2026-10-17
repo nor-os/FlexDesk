@@ -2,10 +2,10 @@
 id: 30
 type: story
 title: "A menu bar widget with submenus, check items and accelerators that the shell can mount and the palette can list"
-status: refined
+status: in-progress
 parent: 29
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 8
@@ -13,7 +13,7 @@ subsystem: shell
 labels: [shell, menu, new-component]
 links: []
 created: 2026-10-17
-updated: 2026-10-17T07:55Z
+updated: 2026-10-17T17:19Z
 ---
 
 ## Description
@@ -40,6 +40,8 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
+- 2026-10-17 · norman_agent · status: refined -> in-progress
+- 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
 
 ## Comments
 

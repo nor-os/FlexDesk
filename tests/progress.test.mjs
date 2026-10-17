@@ -6,7 +6,8 @@
  *
  *   §1  ProgressBar: `update(0.42)` changes the existing fill's width and the
  *       readout's text without replacing a node; value/max and the count;
- *       indeterminate; elapsed time; cancel; final states.
+ *       indeterminate; elapsed time, whose clock stops at a final state and
+ *       ticks again after `setState('running')`; cancel; final states.
  *   §2  ProgressList: `setItems` with the same keys at 20 updates a second
  *       keeps every row element; new keys add rows, gone keys lose theirs,
  *       order follows; an item without `total` scales against the largest
@@ -15,7 +16,9 @@
  *       "pass n of m".
  *   §4  showRunProgressDialog: bar and phases; `result` settles `done` /
  *       `error`; closing while running (×, Escape, `close()`) settles
- *       `cancelled` and never calls onCancel; Stop then Escape calls it once.
+ *       `cancelled` and never calls onCancel; Stop then Escape calls it once;
+ *       the bar sits above the actions; `setProgress` without `progress` and
+ *       `setStep` without `steps` throw.
  *   §5  showComputingWindow: the same, and opening another settles the first
  *       `cancelled` without calling its onCancel; a handle's `close()` still
  *       closes the active window.
@@ -147,6 +150,42 @@ section('§1 ProgressBar');
     ok('done: the bar is full and wears --done', timed.fraction === 1 && timed.element.classList.contains('twm-progress--done'));
     timed.update(0.2);
     check('update after a final state is ignored', timed.fraction, 1);
+
+    // The elapsed clock's 1 s interval, driven by hand: a final state clears
+    // it, and going back to running starts it again.
+    const realSet = globalThis.setInterval, realClear = globalThis.clearInterval;
+    const intervals = new Map();
+    let nextId = 1;
+    globalThis.setInterval = (fn, ms) => { const id = nextId++; intervals.set(id, { fn, ms }); return id; };
+    globalThis.clearInterval = (id) => { intervals.delete(id); };
+    const fire = () => { for (const { fn } of [...intervals.values()]) fn(); };
+    try {
+        let c = 0;
+        const clock = new ProgressBar(host(), { showElapsed: true, now: () => c });
+        const ce = clock.element.querySelector('.twm-progress__elapsed');
+        check('showElapsed starts one 1 s interval', [...intervals.values()].map((i) => i.ms), [1000]);
+        c = 3_000; fire();
+        check('the interval advances the readout with no update()', ce.textContent, '0:03');
+        clock.setState('error');
+        check('a final state clears the interval', intervals.size, 0);
+        clock.setState('running');
+        check('setState(\'running\') after a final state starts the interval again', [...intervals.values()].map((i) => i.ms), [1000]);
+        c = 125_000; fire();
+        check('…and the readout ticks on it again, with no update()', ce.textContent, '2:05');
+        ok('…running again: --running and not --error', clock.element.classList.contains('twm-progress--running')
+            && !clock.element.classList.contains('twm-progress--error'));
+        clock.setState('running');
+        check('running while running keeps a single interval', intervals.size, 1);
+        clock.dispose();
+        check('dispose clears it', intervals.size, 0);
+        clock.setState('running');
+        check('…and a disposed bar does not start it again', intervals.size, 0);
+        const quiet = new ProgressBar(null, {});
+        quiet.setState('done'); quiet.setState('running');
+        check('without showElapsed there is never an interval', intervals.size, 0);
+    } finally {
+        globalThis.setInterval = realSet; globalThis.clearInterval = realClear;
+    }
 
     let cancels = 0;
     const can = new ProgressBar(host(), { onCancel: () => { cancels += 1; } });
@@ -292,6 +331,14 @@ section('§4 showRunProgressDialog');
     let userCancels = 0;
     const running = showRunProgressDialog({ progress: true, onCancel: () => { userCancels += 1; } });
     running.setProgress(0.3);
+    {
+        const kids = [...windowEl().children];
+        const at = (sel) => kids.findIndex((k) => k.matches(sel));
+        ok('the bar comes before the Stop and Close actions', at('.twm-progress') >= 0
+            && at('.twm-progress') < at('.twm-run-progress__stop-actions')
+            && at('.twm-progress') < kids.findIndex((k) => k.matches('.twm-confirm-dialog__actions:not(.twm-run-progress__stop-actions)')),
+            kids.map((k) => k.className).join(' | '));
+    }
     const xBtn = windowEl().closest('.twm-managed-window').querySelector('.twm-managed-window__btn--close');
     ok('the window has a close button in its chrome', xBtn);
     xBtn.click();
@@ -317,6 +364,13 @@ section('§4 showRunProgressDialog');
 
     const plain = showRunProgressDialog({});
     ok('without progress or steps there is no bar and no phases', !windowEl().querySelector('.twm-progress, .twm-steps'));
+    let threw = null;
+    try { plain.setProgress(0.3); } catch (e) { threw = e.message; }
+    check('setProgress without `progress` throws, as setStep does without `steps`', threw, 'setProgress: this dialog was opened without `progress`');
+    ok('…and adds no bar', !windowEl().querySelector('.twm-progress'));
+    threw = null;
+    try { plain.setStep(0); } catch (e) { threw = e.message; }
+    check('setStep without `steps` throws', threw, 'setStep: this dialog was opened without `steps`');
     plain.cancelled('Stopped');
     check('cancelled(msg) settles cancelled', await settled(plain.result), { status: 'cancelled', message: 'Stopped' });
     plain.close();
@@ -359,7 +413,22 @@ section('§5 showComputingWindow');
     ok('a handle\'s close() closes the active window, as before', !content());
     check('…settling it cancelled without calling any onCancel', [await settled(third.result), c4], [{ status: 'cancelled', message: 'Cancelled.' }, 0]);
 
-    const done = showComputingWindow({});
+    const bare = showComputingWindow({ onCancel: () => {} });
+    let threw = null;
+    try { bare.setProgress(0.3); } catch (e) { threw = e.message; }
+    check('setProgress without `progress` throws', threw, 'setProgress: this dialog was opened without `progress`');
+    ok('…and adds no bar', !content().querySelector('.twm-progress'));
+    bare.close();
+
+    const done = showComputingWindow({ progress: true, onCancel: () => {} });
+    {
+        const kids = [...content().children];
+        const at = (sel) => kids.findIndex((k) => k.matches(sel));
+        ok('the bar comes before the Cancel and Close buttons', at('.twm-progress') >= 0
+            && at('.twm-progress') < at('.twm-computing-status__cancel-btn')
+            && at('.twm-progress') < at('.twm-computing-status__close-btn'),
+            kids.map((k) => k.className).join(' | '));
+    }
     done.setProgress(0.9);
     done.complete({ ok: true, message: 'Ok' });
     check('complete({ok:true}) settles done', await settled(done.result), { status: 'done', message: 'Ok' });

@@ -94,6 +94,7 @@ export class ProgressBar {
         this._label = label || '';
         this._showPercent = showPercent !== false;
         this._showCount = showCount;
+        this._showElapsed = !!showElapsed;
         this._state = 'running';
         this._now = typeof now === 'function' ? now : Date.now;
         this._started = this._now();
@@ -106,10 +107,10 @@ export class ProgressBar {
         this._labelEl = el('span', 'twm-progress__label');
         this._readoutEl = el('span', 'twm-progress__readout');
         head.append(this._labelEl, this._readoutEl);
-        if (showElapsed) {
+        if (this._showElapsed) {
             this._elapsedEl = el('span', 'twm-progress__elapsed');
             head.appendChild(this._elapsedEl);
-            this._timer = setInterval(() => this._drawElapsed(), 1000);
+            this._startTimer();
         } else {
             this._elapsedEl = null;
         }
@@ -167,7 +168,9 @@ export class ProgressBar {
     /**
      * Put the bar in a final state (`done`, `error`, `cancelled`) or back to
      * `running`. `done` fills it. A final state stops the elapsed clock and
-     * disables Cancel; `label` replaces the label when given.
+     * disables Cancel; `running` restarts the clock (still counting from
+     * construction) and enables Cancel again. `label` replaces the label when
+     * given.
      */
     setState(state, { label } = {}) {
         if (!PROGRESS_STATES.includes(state)) throw new Error(`ProgressBar: unknown state "${state}"`);
@@ -176,6 +179,7 @@ export class ProgressBar {
         if (state === 'done') { this._indeterminate = false; this._value = this._max ?? 1; }
         if (state === 'running') {
             this._stopped = null;
+            if (this._showElapsed) this._startTimer();
         } else {
             this._stopped = this._now();
             if (this._timer) { clearInterval(this._timer); this._timer = null; }
@@ -186,8 +190,14 @@ export class ProgressBar {
         return this;
     }
 
+    /** Tick the elapsed readout once a second, unless it already ticks. */
+    _startTimer() {
+        if (!this._timer) this._timer = setInterval(() => this._drawElapsed(), 1000);
+    }
+
     /** Stop the elapsed clock and detach. */
     dispose() {
+        this._showElapsed = false;
         if (this._timer) { clearInterval(this._timer); this._timer = null; }
         this.element.remove();
     }

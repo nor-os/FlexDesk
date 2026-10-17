@@ -1710,7 +1710,7 @@ fill's transition survive. Names and labels are text.
 
 | Class | Does |
 |---|---|
-| `new ProgressBar(host, { value, max, indeterminate, label, showPercent, showCount, showElapsed, onCancel })` | `update(0.42)` (a fraction) or `update(21)` with `max` (a count, read "42% · 21 / 50"); `update({ value, max, label, indeterminate })`; `setState('done' \| 'error' \| 'cancelled')` ends it and stops the elapsed clock; `fraction`, `state`, `elapsed` |
+| `new ProgressBar(host, { value, max, indeterminate, label, showPercent, showCount, showElapsed, onCancel })` | `update(0.42)` (a fraction) or `update(21)` with `max` (a count, read "42% · 21 / 50"); `update({ value, max, label, indeterminate })`; `setState('done' \| 'error' \| 'cancelled')` ends it and stops the elapsed clock, `setState('running')` resumes it; `fraction`, `state`, `elapsed` |
 | `new ProgressList(host, { items, stats, pulse, emptyText })` | Keyed rows `{ key, name, completed, total?, state, detail? }`, `state` one of `pending`, `running`, `done`, `failed`. `setItems` reconciles by key: a known key keeps its row. A row without `total` is drawn against the largest item. `stats: true` writes a summary line, a function `(items) => string` writes yours, `false` none. Running rows pulse |
 | `new StepProgress(host, { steps })` | Ordered phases (`{ key, label }` or a label). `setStep(keyOrIndex, { pass, passes })` makes one active, those before it done and those after pending, and reads "pass 2 of 5"; `fail()` marks the active one error; `complete()` |
 
@@ -1721,8 +1721,10 @@ job.on('tick', (workers) => list.setItems(workers.map((w) => ({
 ```
 
 `showRunProgressDialog` and `showComputingWindow` take `progress` (`true`, or
-ProgressBar options) and `steps`. Their handles gain `setProgress(next)`,
-`setStep(which, opts)` and **`result`**, a Promise that settles once with
+ProgressBar options) and `steps`, fixed when the dialog opens. Their handles
+gain `setProgress(next)` and `setStep(which, opts)`, which throw when the dialog
+was opened without `progress` or `steps` respectively, and **`result`**, a
+Promise that settles once with
 `{ status, message }`: `complete({ ok })` gives `done` or `error` (the bar and
 the phases show it), `cancelled()` gives `cancelled`, and so does **closing the
 dialog while it runs** (by its ×, Escape, `close()`, or for `showComputingWindow`

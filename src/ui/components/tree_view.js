@@ -257,6 +257,12 @@ export function toggleNode(nodeEl, force) {
 
 /**
  * Filter tree items by text match
+ *
+ * An item is shown when its label contains the filter. A node or a category is
+ * shown when any tree item inside it is shown, whether the item sits directly
+ * in it or deeper inside nodes. An empty filter shows everything, so clearing
+ * the filter restores the whole tree, empty nodes and categories included.
+ *
  * @param {HTMLElement} container - Tree container
  * @param {string} filter - Filter text (case-insensitive)
  * @param {Object} [options] - Filter options
@@ -266,40 +272,28 @@ export function filterTree(container, filter, options = {}) {
     const { expandMatches = true } = options;
     const normalizedFilter = (filter || '').toLowerCase().trim();
 
-    const items = container.querySelectorAll('.twm-tree-item');
-    const nodes = container.querySelectorAll('.twm-tree-node');
-    const categories = container.querySelectorAll('.twm-tree-category');
-
-    // Reset visibility
-    items.forEach((item) => {
+    const visibleItems = new Set();
+    container.querySelectorAll('.twm-tree-item').forEach((item) => {
         const label = item.querySelector('.twm-tree-item__label')?.textContent || '';
         const matches = !normalizedFilter || label.toLowerCase().includes(normalizedFilter);
         item.style.display = matches ? '' : 'none';
         item.classList.toggle('twm-filter-match', matches && !!normalizedFilter);
+        if (matches) visibleItems.add(item);
     });
 
-    // Show/hide nodes based on visible children
-    nodes.forEach((node) => {
-        const visibleChildren = node.querySelectorAll('.twm-tree-item:not([style*="display: none"])');
-        const hasVisibleChildren = visibleChildren.length > 0;
-        node.style.display = hasVisibleChildren ? '' : 'none';
+    const hasVisibleItem = (el) => !normalizedFilter
+        || [...el.querySelectorAll('.twm-tree-item')].some((item) => visibleItems.has(item));
 
-        // Auto-expand nodes with matches
-        if (expandMatches && hasVisibleChildren && normalizedFilter) {
-            toggleNode(node, true);
-        }
+    container.querySelectorAll('.twm-tree-node').forEach((node) => {
+        const visible = hasVisibleItem(node);
+        node.style.display = visible ? '' : 'none';
+        if (expandMatches && visible && normalizedFilter) toggleNode(node, true);
     });
 
-    // Show/hide categories based on visible nodes
-    categories.forEach((category) => {
-        const visibleNodes = category.querySelectorAll('.twm-tree-node:not([style*="display: none"])');
-        const hasVisibleNodes = visibleNodes.length > 0;
-        category.style.display = hasVisibleNodes ? '' : 'none';
-
-        // Auto-expand categories with matches
-        if (expandMatches && hasVisibleNodes && normalizedFilter) {
-            toggleCategory(category, true);
-        }
+    container.querySelectorAll('.twm-tree-category').forEach((category) => {
+        const visible = hasVisibleItem(category);
+        category.style.display = visible ? '' : 'none';
+        if (expandMatches && visible && normalizedFilter) toggleCategory(category, true);
     });
 }
 

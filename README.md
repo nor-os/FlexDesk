@@ -44,7 +44,7 @@ manager, and neither of them should drag in a plotting engine or a code editor.
 | `@flexdesk/host` | 5 kB | The host port (below) |
 | `@flexdesk/wm` | 166 kB | Tiling window manager: tabs, splits, desktops, command palette, taxonomy, `createShell()` |
 | `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus |
-| `@flexdesk/charts` | 26 kB | Plotly wrapper, chart types, subplot layouts, downsampling, plot windows |
+| `@flexdesk/charts` | 26 kB | Plotly wrapper, chart types, subplot layouts, downsampling, plot windows, injected series transforms |
 | `@flexdesk/tiles` | 67 kB | Draggable/resizable widget grid, tile base class, widget registry, layout persistence, chart and KPI tiles |
 | `@flexdesk/editor` | 62 kB | Monaco loader + factory, multi-file tab bar, search, split panes, undo manager |
 | `@flexdesk/canvas` | 14 kB | The canvas kernel: a pannable, zoomable surface, the edge router, a generic graph layer ([Flow editors](#flow-editors)) |
@@ -1920,6 +1920,55 @@ an attempt failed.
 
 If you already load Plotly yourself (a `<script>` tag that sets `window.Plotly`),
 the chart loader short-circuits and you can skip `setPlotlySource`.
+
+## Derived series: `seriesTransforms` (0.17.0)
+
+A plot can draw series worked out from its own: a trend, a moving average, a
+decomposition. `@flexdesk/charts` ships none; you pass them to
+`PlotPopoutWindow` (or `openPlotPopoutWindow`) as `seriesTransforms`:
+
+```js
+import { openPlotPopoutWindow, renderSeriesTransformControls } from '@flexdesk/charts';
+
+const seriesTransforms = {
+    hp: {
+        label: 'HP filter',
+        params: { lambda: { label: 'Lambda', default: 1600, min: 1, step: 100 } },
+        outputs: {
+            trend: { label: 'Trend', suffix: ' (HP Trend)', lineStyle: 'dashed' },
+            cycle: { label: 'Cycle', suffix: ' (HP Cycle)', lineStyle: 'dotted', lineWidth: 1 },
+        },
+        run: (y, { lambda }) => myBackend.hpFilter(y, lambda),   // -> { trend: [...], cycle: [...] }
+    },
+};
+
+openPlotPopoutWindow({ id, title, plotConfig, getResults, services, seriesTransforms,
+    configRenderer: (el) => renderSeriesTransformControls(el, plotConfig.subplots[0],
+                                                           seriesTransforms, { onChange: redraw }) });
+```
+
+What a subplot switches on is in the subplot:
+`subplot.transforms = { hp: { outputs: { trend: true }, params: { lambda: 100 } } }`.
+For every transform with an output switched on, `run(y, params)` is called
+once per line or scatter trace of the subplot (params: the declared defaults
+under the subplot's own), and each switched-on output it returns is drawn as
+an extra trace in the source trace's colour, on its axis, named
+`<source name><suffix>`, with the output's `lineStyle` and `lineWidth`
+(default 2). A transform that throws or rejects is skipped for that trace,
+reported to `services.logger.warn`, and the figure is drawn without it.
+`deriveSeriesTraces(traces, subplot, seriesTransforms, { onError })` is that
+step on its own, for a renderer of your own.
+
+`renderSeriesTransformControls(container, subplot, seriesTransforms, { onChange })`
+renders, per transform, a toggle for each output and a number field for each
+parameter (disabled while no output is on); it edits `subplot.transforms` in
+place and returns `{ dispose }`. With no transforms it renders nothing.
+
+Until 0.17.0 the plot window called one application's backend for a
+Hodrick-Prescott filter, and every default subplot carried `showHpTrend`,
+`showHpCycle` and `hpLambda`. Those keys are gone and are ignored in saved
+configs; without `seriesTransforms` no derived trace is drawn.
+`tests/series_transforms.test.mjs` pins all of it.
 
 ## Layouts are keyed by whatever you key them by
 

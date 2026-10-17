@@ -13,10 +13,10 @@
  * - Multi-subplot grid layouts (1x1, 1x2, 2x1, 2x2, 1x3, wide-top, wide-bottom)
  * - Series visibility toggle panel
  * - Zoom/pan toolbar with zoom in/out, autoscale, reset
- * - PyWebView integration for file downloads (CSV, PNG)
+ * - CSV and PNG export through the host's dialogs (else a browser download)
  * - NotificationCenter integration for user feedback
  * - Live streaming updates while the data source is running
- * - HP filter trend/cycle decomposition
+ * - Derived series from injected transforms (`seriesTransforms`)
  * - ETL actuals overlay support
  */
 
@@ -39,6 +39,7 @@ import {
     migrateData,
     applyNanHandling,
 } from './plot_config.js';
+import { deriveSeriesTraces } from './series_transforms.js';
 
 export class PlotPopoutWindow {
     /**
@@ -53,9 +54,11 @@ export class PlotPopoutWindow {
      * @param {Function} [options.onClose] - Called when window closes
      * @param {Object} [options.actuals] - ETL overlay data { seriesId: { years, values } }
      * @param {Function} [options.configRenderer] - (container) => void — renders config panel
+     * @param {Object} [options.seriesTransforms] - `{ [id]: transform }` (series_transforms.js);
+     *        absent => no derived series are drawn
      */
     constructor({ id, title, plotConfig, getResults, services, host, onClose, actuals,
-                  configRenderer,
+                  configRenderer, seriesTransforms,
                   // The window used to listen for 'simulation:run:completed' and tell
                   // the user to "run simulation first". A chart window does not know
                   // that its data comes from a simulation; the app that opens it does.
@@ -71,6 +74,7 @@ export class PlotPopoutWindow {
         this._onClose = onClose ?? (() => {});
         this._actuals = actuals ?? null;
         this._configRenderer = configRenderer ?? null;
+        this._seriesTransforms = seriesTransforms ?? null;
         this.refreshEvent = refreshEvent;
         // TWO messages, not one. The chart says "No data — run simulation first."
         // and the data table underneath says "Run simulation to see data". Folding
@@ -886,40 +890,10 @@ export class PlotPopoutWindow {
             }
         }
 
-        // HP filter traces
-        if ((sp.showHpTrend || sp.showHpCycle) && window.pywebview?.api?.hp_filter) {
-            const hpLambda = sp.hpLambda ?? 1600;
-            for (const trace of [...traces]) {
-                if (trace.type && trace.type !== 'scatter' && trace.type !== 'scattergl') continue;
-                try {
-                    const hpResult = await window.pywebview.api.hp_filter({
-                        data: trace.y,
-                        lambda: hpLambda,
-                    });
-                    if (!hpResult?.ok) continue;
-                    const { trend, cycle } = hpResult;
-                    const origColor = trace.line?.color || trace.marker?.color || getSeriesColor(0);
-                    if (sp.showHpTrend && trend) {
-                        traces.push({
-                            x: trace.x, y: trend, type: 'scatter', mode: 'lines',
-                            name: `${trace.name} (HP Trend)`,
-                            yaxis: trace.yaxis || 'y',
-                            line: { color: origColor, width: 2, dash: 'dash' },
-                            showlegend: true,
-                        });
-                    }
-                    if (sp.showHpCycle && cycle) {
-                        traces.push({
-                            x: trace.x, y: cycle, type: 'scatter', mode: 'lines',
-                            name: `${trace.name} (HP Cycle)`,
-                            yaxis: trace.yaxis || 'y',
-                            line: { color: origColor, width: 1, dash: 'dot' },
-                            showlegend: true,
-                        });
-                    }
-                } catch (_) { /* ignore HP filter failures */ }
-            }
-        }
+        traces.push(...await deriveSeriesTraces(traces, sp, this._seriesTransforms, {
+            onError: ({ transformId, traceName, error }) => this._services?.logger?.warn?.(
+                `[PlotPopoutWindow] transform "${transformId}" failed on "${traceName}"`, error),
+        }));
 
         if (traces.length === 0 && this._hiddenSeries.size === 0) {
             chartDiv.innerHTML = `<div class="twm-plot-no-data" style="color:rgba(255,255,255,0.3);text-align:center;padding:16px;font-size:11px;">${this.emptyMessage}</div>`;

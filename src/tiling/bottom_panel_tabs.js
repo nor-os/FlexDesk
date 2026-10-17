@@ -151,6 +151,14 @@ export function createBottomPanelTabs(container, {
             .then(() => remember.read())
             .then((saved) => {
                 if (chosen || destroyed || !byId.has(saved)) return;
+                if (strip.active() === saved) {
+                    // Already in front: shown again, as it always was — the
+                    // pane hears onShow and the caller onSelect, nothing is
+                    // written back.
+                    strip.instance(saved)?.onShow?.();
+                    onSelect?.(saved, byId.get(saved));
+                    return;
+                }
                 restoring = true;
                 try { strip.select(saved); } finally { restoring = false; }
             })

@@ -18,6 +18,8 @@
  *   §8  overflow: a vertical wheel scrolls the strip; compact variant
  *   §9  destroy
  *   §10 CSS exists for every class the strip writes under its default block
+ *   §11 ids that are not strings (numbers) come back unchanged: click, arrow
+ *       keys, Home/End, close, context menu and a drag reorder all work on them
  *
  *     node tests/tabs.test.mjs
  *
@@ -415,6 +417,62 @@ console.log('§10 CSS');
         'twm-tabs__dirty', 'twm-tabs__close', 'twm-tabs__body', 'twm-tabs-pane',
         ...TAB_LEVELS.flatMap((l) => [`twm-tabs__badge--${l}`, `twm-tabs__indicator--${l}`])];
     for (const c of classes) ok(`.${c} is styled`, new RegExp(`\\.${c}[\\s{\\[:,.]`).test(css));
+}
+
+console.log('§11 numeric ids');
+{
+    const host = fresh();
+    const selected = [];
+    const closed = [];
+    const menus = [];
+    const reordered = [];
+    const NUM = [{ id: 1, label: 'One' }, { id: 2, label: 'Two', closable: true }, { id: 3, label: 'Three' }];
+    const tabs = createTabs(host, {
+        items: NUM,
+        onSelect: (id, item) => selected.push([id, item?.label]),
+        onClose: (id) => closed.push(id),
+        onContextMenu: (id) => menus.push(id),
+        onReorder: (ids) => reordered.push(ids),
+    });
+    const bs = () => buttons(host);
+    ok('the first numeric id is in front, as a number', tabs.active() === 1);
+    realClick(bs()[1]);
+    ok('a click selects a numeric id', tabs.active() === 2
+       && selected.length === 1 && selected[0][0] === 2 && selected[0][1] === 'Two',
+       JSON.stringify(selected));
+    key(bs()[1], 'ArrowRight');
+    ok('ArrowRight moves to the next numeric id', tabs.active() === 3 && selected.at(-1)[0] === 3);
+    key(bs()[2], 'ArrowRight');
+    ok('…wrapping to the first', tabs.active() === 1);
+    key(bs()[0], 'ArrowLeft');
+    ok('ArrowLeft wraps to the last', tabs.active() === 3);
+    key(bs()[2], 'Home');
+    ok('Home goes to the first', tabs.active() === 1 && document.activeElement === bs()[0]);
+    key(bs()[0], 'End');
+    ok('End goes to the last', tabs.active() === 3 && document.activeElement === bs()[2]);
+    key(bs()[1], 'Delete');
+    ok('Delete closes a numeric id, handing back the number', closed.length === 1 && closed[0] === 2);
+    bs()[0].dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    ok('the context menu hears the number', menus.length === 1 && menus[0] === 1);
+
+    // A drag: tab 1 dropped after tab 3. jsdom lays nothing out, so each
+    // button says where it is.
+    bs().forEach((b, i) => {
+        b.getBoundingClientRect = () => ({ left: i * 100, width: 100, top: 0, height: 20, right: i * 100 + 100, bottom: 20 });
+    });
+    const strip = host.querySelector('.twm-tabs__tabs');
+    bs()[0].dispatchEvent(new dom.window.Event('dragstart', { bubbles: true, cancelable: true }));
+    strip.dispatchEvent(new dom.window.MouseEvent('dragover', { bubbles: true, cancelable: true, clientX: 350 }));
+    strip.dispatchEvent(new dom.window.Event('drop', { bubbles: true, cancelable: true }));
+    ok('a reorder hands back the numeric ids, in the new order',
+       reordered.length === 1 && reordered[0].length === 3
+       && reordered[0].every((id) => typeof id === 'number') && reordered[0].join() === '2,3,1',
+       JSON.stringify(reordered));
+    ok('…and ids() follows it', JSON.stringify(tabs.ids()) === '[2,3,1]', JSON.stringify(tabs.ids()));
+    key(bs()[2], 'ArrowRight');
+    ok('the keys walk the new order', tabs.active() === 2, String(tabs.active()));
+    ok('select takes the number', tabs.select(1) === true && tabs.active() === 1);
+    ok('…and not its string', tabs.select('1') === false && tabs.active() === 1);
 }
 
 console.log(failures ? `\n${failures} FAILED` : '\ntabs: all assertions passed');

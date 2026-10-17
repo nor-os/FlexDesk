@@ -7,7 +7,8 @@
  *   §3  setBadge: a count, coloured by level, gone at zero, 99+ above 99
  *   §4  `bottompanel:show {tab}` on the embedder's bus selects that tab
  *   §5  the remembered tab comes back — unless a caller chose first, or it is
- *       no longer offered
+ *       no longer offered; one already in front is shown again (onShow,
+ *       onSelect), as it always was, and is not written back
  *   §6  a click keeps its target while a tab is being selected; a click on the
  *       tab already in front is a select all the same (onShow, onSelect, write)
  *   §7  destroy: panes save, then go; the bus is let go
@@ -201,6 +202,26 @@ console.log('§5 the remembered tab');
     await tick();
     d.select('sql');
     ok('a storage that throws costs nothing', d.active() === 'sql');
+
+    // The remembered tab is the one in front already: it is shown again, as
+    // it was before the panel was built on createTabs.
+    const log = [];
+    const e = createBottomPanelTabs(fresh(), { panes: recordingPanes(log),
+        remember: { read: () => 'alerts', write: (id) => log.push(`write ${id}`) },
+        onSelect: (id) => log.push(`onSelect ${id}`) });
+    await tick(); await tick();
+    ok('a remembered tab already in front: onShow and onSelect again, nothing written',
+       e.active() === 'alerts'
+       && log.join('|') === 'mount alerts|show alerts|onSelect alerts|show alerts|onSelect alerts', log.join('|'));
+    log.length = 0;
+    const f = createBottomPanelTabs(fresh(), { panes: recordingPanes(log),
+        remember: { read: () => 'sql', write: (id) => log.push(`write ${id}`) },
+        onSelect: (id) => log.push(`onSelect ${id}`) });
+    await tick(); await tick();
+    ok('a remembered tab behind: mounted, shown, onSelect, nothing written',
+       f.active() === 'sql'
+       && log.join('|') === 'mount alerts|show alerts|onSelect alerts|mount sql|show sql|onSelect sql', log.join('|'));
+    await e.destroy(); await f.destroy();
 }
 
 console.log('§6 a click keeps its target');

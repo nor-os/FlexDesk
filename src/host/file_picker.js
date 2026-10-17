@@ -18,10 +18,19 @@
 
 const ENCODINGS = new Set(['text', 'base64']);
 
+/**
+ * `accept` as a list of extensions or MIME types: an array is kept, a string
+ * is split on commas (the `<input accept>` form), each entry trimmed and the
+ * empty ones dropped. `'.json, .csv'` → `['.json', '.csv']`.
+ */
+function acceptList(accept) {
+    const parts = Array.isArray(accept) ? accept : (accept ? String(accept).split(',') : []);
+    return parts.map((a) => String(a).trim()).filter(Boolean);
+}
+
 /** `accept` as the `<input accept>` attribute wants it: comma-separated. */
 function acceptAttr(accept) {
-    if (Array.isArray(accept)) return accept.map(String).filter(Boolean).join(',');
-    return accept ? String(accept) : '';
+    return acceptList(accept).join(',');
 }
 
 /** Read `file` as text or as base64, with the FileReader of the file's own window. */
@@ -87,7 +96,9 @@ function browserChooser({ accept, encoding, doc }) {
  *
  * @param {object} host  a Host; its optional `dialogs.openFile` is asked first
  * @param {object} [opts]
- * @param {string[]|string} [opts.accept]  extensions or MIME types, e.g. ['.json', '.csv']
+ * @param {string[]|string} [opts.accept]  extensions or MIME types, e.g. ['.json', '.csv'];
+ *                                         a string is comma-separated ('.json,.csv'). The
+ *                                         native host always receives the list.
  * @param {string|null} [opts.kind]        a label for the native dialog's filter (e.g. 'json')
  * @param {'text'|'base64'} [opts.encoding='text']  text, or the bytes as base64
  * @param {Document} [opts.document]       where the browser chooser goes (default: the page's)
@@ -96,10 +107,9 @@ function browserChooser({ accept, encoding, doc }) {
  */
 export async function pickFile(host, { accept = [], kind = null, encoding = 'text', document: doc } = {}) {
     if (!ENCODINGS.has(encoding)) throw new TypeError(`pickFile: unknown encoding '${encoding}' (use 'text' or 'base64')`);
-    const openFile = host?.dialogs?.openFile;
-    if (typeof openFile === 'function') {
+    if (typeof host?.dialogs?.openFile === 'function') {
         let r = null;
-        try { r = await openFile({ accept: Array.isArray(accept) ? accept : (accept ? [String(accept)] : []), kind, encoding }); }
+        try { r = await host.dialogs.openFile({ accept: acceptList(accept), kind, encoding }); }
         catch { r = null; }                               // a failing host degrades like an absent one
         if (r && typeof r === 'object') return r;
     }

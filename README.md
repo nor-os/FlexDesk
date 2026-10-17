@@ -1812,7 +1812,9 @@ if (r.ok) load(JSON.parse(r.text));
 else if (r.error) toast(r.error);                                     // r.cancelled: say nothing
 ```
 
-`pickFile(host, {accept, kind, encoding})` asks the host's
+`pickFile(host, {accept, kind, encoding})` takes `accept` as a list or as a
+comma-separated string (`'.json,.csv'`); the host always receives the list
+(`['.json', '.csv']`). It asks the host's
 `dialogs.openFile` first, a new optional member of `dialogs`: a host whose
 `dialogs` has only `saveFile` is still complete. Without it, or when it
 answers `null` (no dialog behind it), a transient hidden

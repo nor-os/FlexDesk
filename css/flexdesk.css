@@ -9439,6 +9439,52 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 }
 /* ══ end TAG INPUT ══ */
 
+/* ══ SERIES TRANSFORMS ═══════════════════════════════════════════════
+ *
+ * `renderSeriesTransformControls` (src/charts/series_transforms.js): per
+ * injected transform, a group with a toggle per output and a number field per
+ * parameter, in a subplot's config. */
+.twm-series-transforms {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+.twm-series-transforms__group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    margin: 0;
+    padding: var(--space-sm) var(--space-md);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+}
+.twm-series-transforms__label {
+    padding: 0 var(--space-xs);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-muted);
+}
+.twm-series-transforms__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    font-size: var(--font-size-sm);
+    color: var(--text-primary);
+}
+.twm-series-transforms__param {
+    width: 96px;
+    margin-left: auto;
+    padding: var(--space-xxs) var(--space-xs);
+    background: var(--surface-3);
+    color: var(--text-primary);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+}
+.twm-series-transforms__param:disabled {
+    opacity: 0.5;
+}
+/* ══ end SERIES TRANSFORMS ══ */
+
 /* ══ FLOW · KIT ═══════════════════════════════════════════════════════ */
 /* The shared flow-editor kit (36 §3, §3.12): the settings panel and its
  * fields, the generic widgets, reference chips and the chip input, the two

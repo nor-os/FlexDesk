@@ -12,7 +12,10 @@
  * `onSplitResized`, wired by the WM to `_persist`), and each panel's share of
  * the WM area along its axis is kept on the desktop record (`panelShares`,
  * serialized with it) and given back when it is wrapped. Only a panel that has
- * never had a share on its desktop takes the default.
+ * never had a share on its desktop takes the default. A share is only ever
+ * measured from a canonical tree (§6: the structural paths that spawn a
+ * content leaf around the whole root measure nothing), and every share is
+ * clamped to the range a splitter drag allows (§7).
  *
  * §1 drives the REAL path through a real `createShell` in jsdom: a mouse drag
  * on the splitter, the WM's own debounced save, and a cold start on the same
@@ -315,6 +318,110 @@ function drag(tree, side, target) {
     near('the Navigator\'s inner share is capped at 1 - the drag minimum',
          inner.sizes[0] / total, 1 - TileRenderer.MIN_SLOT_FRACTION);
     near('...and the right panel keeps its 70%', areaShare(tree, 'right'), 0.7);
+}
+
+// ── §6 Structural changes never re-measure a tree that is not canonical ──
+//    closeFocused, moveFocusedToDesktop and openInPrimary all spawn a content
+//    leaf that wraps the WHOLE root (panels included) and only then
+//    canonicalize; closing the last content tile also collapses the
+//    Navigator's own split first. Neither tree holds the user's sizes, so
+//    neither may be measured: what is on screen and what is saved in
+//    `panelShares` both stay what they were.
+const SIDES = ['left', 'right', 'bottom'];
+/** Both halves of a panel's size: its share on screen, read from the tree,
+ *  and the share saved on the desktop record (absent for a panel that has
+ *  never been measured, which therefore still opens at the default). */
+function panelSizes(wm) {
+    const tree = wm._tree();
+    return {
+        screen: Object.fromEntries(SIDES.map((s) => [s, areaShare(tree, s)])),
+        saved: { ...wm.desktops.active().panelShares },
+    };
+}
+function samePanels(label, wm, before, savedBefore = before.saved) {
+    const now = panelSizes(wm);
+    for (const side of SIDES) {
+        near(`${label}: ${side} panel on screen`, now.screen[side], before.screen[side]);
+        if (savedBefore[side] === undefined) check(`${label}: ${side} panel still unmeasured in panelShares`, now.saved[side], undefined);
+        else near(`${label}: ${side} panel in panelShares`, now.saved[side], savedBefore[side]);
+        if (now.saved[side] !== undefined) near(`${label}: ${side} panel saved as it is on screen`, now.saved[side], now.screen[side]);
+    }
+}
+const contentLeaf = (tree) => tree.leaves().find((l) => !String(l.content?.kind || '').startsWith('panel:'));
+const DEFAULTS = { left: 0.16, right: 0.2, bottom: 0.2 };
+const DRAGGED = { left: 0.4, right: 0.25, bottom: 0.5 };
+/** A WM at the default sizes, or with the panels dragged to DRAGGED (each
+ *  drag ending the way the renderer ends one: `_onSplitResized`), and the
+ *  panel sizes it starts from. */
+function wmAt(sizes) {
+    const wm = makeWm();
+    if (sizes === DRAGGED) {
+        const tree = wm._tree();
+        for (const side of ['right', 'left', 'bottom']) {
+            drag(tree, side, DRAGGED[side]);
+            wm._onSplitResized();
+        }
+    }
+    const before = panelSizes(wm);
+    for (const side of SIDES) near(`(setup) ${side} panel at ${sizes[side]}`, before.screen[side], sizes[side]);
+    if (sizes === DRAGGED) check('(setup) the drags were recorded in panelShares', before.saved, DRAGGED);
+    return { wm, before };
+}
+
+for (const [name, sizes] of [['default', DEFAULTS], ['dragged', DRAGGED]]) {
+    // (a) closeFocused on the last content tile, twice over.
+    {
+        const { wm, before } = wmAt(sizes);
+        for (const round of [1, 2]) {
+            const tree = wm._tree();
+            tree.focus(contentLeaf(tree).id);
+            wm.closeFocused();
+            check(`(setup) ${name}, close ${round}: a content tile came back`, !!contentLeaf(wm._tree()), true);
+            samePanels(`${name} panels after closing the last content tile (${round})`, wm, before);
+        }
+    }
+    // (b) moveFocusedToDesktop of the last content tile.
+    {
+        const { wm, before } = wmAt(sizes);
+        const tree = wm._tree();
+        tree.focus(contentLeaf(tree).id);
+        wm.moveFocusedToDesktop(1);
+        check(`(setup) ${name}: still on desktop 1, with a content tile`,
+              [wm.desktops.activeIdx, !!contentLeaf(wm._tree())], [0, true]);
+        samePanels(`${name} panels after moving the last content tile to another desktop`, wm, before);
+    }
+    // (c) openInPrimary when no content leaf exists.
+    {
+        const { wm, before } = wmAt(sizes);
+        const tree = wm._tree();
+        tree.close(contentLeaf(tree).id);
+        wm._canonicalize(tree, wm.desktops.active());
+        check(`(setup) ${name}: no content leaf left`, contentLeaf(tree), undefined);
+        // The Navigator fills the content slot meanwhile (it is the seed
+        // root), so only the saved shares are carried from this tree.
+        const panelOnly = panelSizes(wm);
+        wm.openInPrimary('home');
+        check(`(setup) ${name}: openInPrimary spawned a content leaf`, !!contentLeaf(tree), true);
+        samePanels(`${name} panels after openInPrimary spawned the content leaf`, wm, before, panelOnly.saved);
+    }
+}
+
+// ── §7 Every share is held to the range a splitter drag allows ──────────
+{
+    const min = TileRenderer.MIN_SLOT_FRACTION;
+    // Stored values reach the WM only through a desktop whose panels are
+    // closed (an open panel is re-measured from its tree).
+    const closed = makeWm({ left: false, right: false, bottom: false });
+    const cd = closed.desktops.active();
+    cd.panelShares = { left: 'wide', right: 0.008, bottom: 5 };
+    closed._canonicalize(closed._tree(), cd);
+    check('a share that is not a number is dropped', cd.panelShares.left, undefined);
+    near('a stored share below the drag minimum is saved at the minimum', cd.panelShares.right, min);
+    near('a stored share above 1 - the minimum is saved at 1 - the minimum', cd.panelShares.bottom, 1 - min);
+    closed.togglePanel('right'); closed.togglePanel('bottom');
+    const ct = closed._tree();
+    near('...and opens at the minimum on screen', areaShare(ct, 'right'), min);
+    near('...and the too-tall one at 1 - the minimum', areaShare(ct, 'bottom'), 1 - min);
 }
 
 console.log(failures ? `\n${failures} assertion(s) FAILED` : '\nall assertions passed');

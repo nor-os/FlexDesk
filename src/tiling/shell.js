@@ -563,7 +563,7 @@ function _tileContextMenu(wm, leafId, x, y) {
     wm.renderer._updateFocusClasses();
     // A SINGLE KIND HAS NO COPIES. The two copy verbs are greyed, and say why;
     // the move verbs below (float, move to desktop) carry the one instance.
-    const single = !!leaf.content && wm.isSingleKind?.(leaf.content.kind);
+    const single = !!leaf.content && wm.isSingleKind(leaf.content.kind);
     const singleTitle = single ? wm.taxonomy.singleReason(leaf.content.kind) : undefined;
 
     const items = [

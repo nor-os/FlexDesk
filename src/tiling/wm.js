@@ -286,16 +286,14 @@ export class WindowManager {
     // MOVE verbs (float, dock, drag a tab, move to desktop) carry the one
     // instance somewhere else and are untouched.
 
-    /** The instance key of a tab spec, or null when its kind is not single.
-     *  Optional-called: a hand-built taxonomy without the method has no single
-     *  kinds. */
+    /** The instance key of a tab spec, or null when its kind is not single. */
     _instanceKey(kind, props) {
-        return this.taxonomy.instanceKey?.(kind, props) ?? null;
+        return this.taxonomy.instanceKey(kind, props);
     }
 
     /** Whether `kind` exists once, and so refuses the copy verbs. */
     isSingleKind(kind) {
-        return !!this.taxonomy.isSingle?.(kind);
+        return this.taxonomy.isSingle(kind);
     }
 
     /** Where the one instance of a single kind is open, or null — also null

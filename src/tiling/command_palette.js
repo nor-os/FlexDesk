@@ -130,7 +130,7 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
     let onClose = null;
 
     /** A row whose kind exists once (KindDef `single`): no split, no window. */
-    const isSingle = (row) => !!row && !!taxonomy.isSingle?.(row.kind);
+    const isSingle = (row) => !!row && taxonomy.isSingle(row.kind);
 
     const isOpen = () => !!overlay;
     const close = () => {

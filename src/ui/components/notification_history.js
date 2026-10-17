@@ -107,10 +107,9 @@ export class NotificationHistory {
         const events = ['toast:show', 'notification:show', 'log:entry',
             'workspace:save:failed', 'workspace:import:failed'];
 
-        // The bus's `off()` takes the handle `on()` returned, not (name, fn).
         events.forEach(name => {
             const handle = this.eventBus.on(name, badgeUpdate);
-            this._subscriptions.push(() => this.eventBus.off(handle));
+            this._subscriptions.push(() => handle?.dispose?.());
         });
     }
 

@@ -111,8 +111,7 @@ export function createPageFactories({ eventBus = null, events = {}, refreshOn = 
             console.error('[page] mount failed', err);
             hideLoading();
         }
-        // The bus's `off()` takes the handle `on()` returned, not (name, fn):
-        // keep the handles, or a torn-down tab goes on being refreshed.
+        // Keep the handles on() returned.
         const subscriptions = [];
         if (typeof tab?.refresh === 'function' && eventBus?.on) {
             for (const [busEvent, reason] of Object.entries(refreshOn || {})) {
@@ -125,7 +124,7 @@ export function createPageFactories({ eventBus = null, events = {}, refreshOn = 
         }
         return () => {
             for (const handle of subscriptions) {
-                try { eventBus?.off?.(handle); } catch {}
+                try { handle?.dispose?.(); } catch {}
             }
             try { tab?.dispose?.(); tab?.unmount?.(); } catch {}
         };

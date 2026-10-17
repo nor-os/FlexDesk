@@ -168,6 +168,7 @@ console.log('\n§2 createPageFactories: a torn-down tab is not refreshed');
     const before = bus.listenerCount('run:tick');
     const teardown = factories.mountTabBody(tabOf('body'), dom.window.document.createElement('div'),
                                             {}, {});
+    check('mountTabBody: subscribes', bus.listenerCount('run:tick'), before + 1);
     teardown();
     check('mountTabBody teardown: back to the pre-mount count',
           bus.listenerCount('run:tick'), before);

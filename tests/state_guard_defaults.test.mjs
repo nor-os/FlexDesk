@@ -18,7 +18,7 @@
  *       listed fails here, not in an embedder's debug build
  *   §4  the record's steps, run for real under a strict guard: createShell
  *       (with a bottom panel), showChoiceDialog, a hidden required openForm
- *       row, a LaTeX tooltip — no throw and no violation
+ *       row, a LaTeX tooltip, and a list tile — no throw and no violation
  *
  *     node tests/state_guard_defaults.test.mjs
  *
@@ -120,11 +120,11 @@ section('§1 allow-list keys are compared kebab-cased');
 }
 {
     // Module overrides normalise their keys the same way. The guard attributes
-    // a write to the first stack frame under a `js_new/` path, so the writes
-    // come from a fixture module placed under one.
+    // a write to the frame that made it, so the writes come from a fixture
+    // module the overrides name.
     const dir = mkdtempSync(join(tmpdir(), 'flexdesk-state-guard-'));
-    mkdirSync(join(dir, 'js_new'));
-    const fixture = join(dir, 'js_new', 'writer.mjs');
+    mkdirSync(join(dir, 'app'));
+    const fixture = join(dir, 'app', 'writer.mjs');
     writeFileSync(fixture, [
         'export function writeDataset(el, key) { el.dataset[key] = "1"; }',
         'export function writeAttribute(el, name) { el.setAttribute(name, "1"); }',
@@ -138,7 +138,7 @@ section('§1 allow-list keys are compared kebab-cased');
         ];
 
         const viaAllow = strictGuard();
-        viaAllow.guard.allow('js_new/writer', [], { datasetKeys: ['fooBar'] });
+        viaAllow.guard.allow('app/writer.mjs', [], { datasetKeys: ['fooBar'] });
         const a = document.createElement('div');
         for (const [what, fn] of fromWriter(a)) {
             const e = threw(fn);
@@ -151,7 +151,7 @@ section('§1 allow-list keys are compared kebab-cased');
 
         strictGuard({
             ...DEFAULT_STATE_GUARD_CONFIG,
-            moduleOverrides: [{ pattern: 'js_new/writer', datasetKeys: ['fooBar'] }],
+            moduleOverrides: [{ pattern: 'app/writer.mjs', datasetKeys: ['fooBar'] }],
         });
         const b = document.createElement('div');
         for (const [what, fn] of fromWriter(b)) {
@@ -245,6 +245,7 @@ section('§4 the steps to reproduce, under a strict default guard');
     const { showChoiceDialog } = await import('../src/ui/components/confirm_dialog.js');
     const { openForm } = await import('../src/ui/components/modal.js');
     const { TooltipService } = await import('../src/ui/utils/tooltip_service.js');
+    const { ListTile } = await import('../src/tiles/list_tiles.js');
 
     const { violations } = strictGuard();
 
@@ -320,6 +321,19 @@ section('§4 the steps to reproduce, under a strict default guard');
         TooltipService.set(el, 'plain');
     });
     ok('a LaTeX tooltip is set', !tipError, String(tipError?.message));
+
+    const listError = threw(() => {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const tile = new ListTile({ id: 'list-1', grid: null, config: {} });
+        tile.mount(host);
+        tile.setData({ rows: [{ key: 'a', title: 'A' }, { key: 'b', title: 'B' }],
+                       action: { label: 'All' } });
+        if (!host.querySelector('[data-row-key="b"]') || !host.querySelector('[data-list-action]')) {
+            throw new Error('the list tile drew no rows or action');
+        }
+    });
+    ok('a list tile draws its rows and action', !listError, String(listError?.message));
 
     ok('no violation was reported', violations.length === 0, violations.join(', '));
     shell?.dispose?.();

@@ -461,6 +461,10 @@
     padding: var(--space-md) 10px;
     font-size: var(--font-size-sm);
 }
+.twm-notification-history__item--success { border-left-color: var(--color-success, #3fb950); }
+.twm-notification-history__item--warn    { border-left-color: var(--color-warning, #ff9800); }
+.twm-notification-history__item--error,
+.twm-notification-history__item--fatal   { border-left-color: var(--color-danger, #c74e4e); }
 .twm-notification-history__item-header {
     display: flex;
     align-items: center;

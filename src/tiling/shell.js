@@ -561,13 +561,18 @@ function _tileContextMenu(wm, leafId, x, y) {
     const isPanel = String(leaf.content?.kind || '').startsWith('panel:');
     tree.focus(leafId);
     wm.renderer._updateFocusClasses();
+    // A SINGLE KIND HAS NO COPIES. The two copy verbs are greyed, and say why;
+    // the move verbs below (float, move to desktop) carry the one instance.
+    const single = !!leaf.content && wm.isSingleKind?.(leaf.content.kind);
+    const singleTitle = single ? wm.taxonomy.singleReason(leaf.content.kind) : undefined;
 
     const items = [
         { label: 'Split horizontally', icon: 'splitscreen_vertical_add', action: 'split-h' },
         { label: 'Split vertically',   icon: 'splitscreen_add',          action: 'split-v' },
         { separator: true },
         { label: 'Open in new tab',    icon: 'tab',
-          action: 'open-tab',    disabled: isPanel || !leaf.content },
+          action: 'open-tab',    disabled: isPanel || !leaf.content || single,
+          title: singleTitle },
         // TWO DIFFERENT GLYPHS FOR TWO DIFFERENT DESTINATIONS. `web_asset` is a
         // window INSIDE the application — the same glyph `ManagedWindow` uses
         // for itself — and an embedder that can also send content to a real
@@ -576,7 +581,8 @@ function _tileContextMenu(wm, leafId, x, y) {
         // two commands are the same command, and then loses a window looking
         // for it on the other screen.
         { label: 'Open a copy in a window', icon: 'web_asset',
-          action: 'open-window', disabled: isPanel || !leaf.content },
+          action: 'open-window', disabled: isPanel || !leaf.content || single,
+          title: singleTitle },
         // C20, THE OTHER HALF — and it was missing while the `close` half
         // below carried a paragraph explaining why it could not be.
         //

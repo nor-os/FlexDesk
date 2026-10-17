@@ -65,7 +65,10 @@
  *   groupLabel the group's header, when the group is not a taxonomy kind
  *   kindLabel  the word drawn on the right, when the taxonomy's is wrong
  *   boost      added to the match score (an embedder's "recently opened")
- *   modes      which of 'split' / 'window' the row offers (key hints)
+ *   modes      which of 'split' / 'window' the row offers (key hints). For
+ *              a row whose kind is single (KindDef `single`) both are copy
+ *              verbs: the hints are drawn greyed with the taxonomy's reason,
+ *              and Ctrl/Shift+Enter on the row does nothing.
  *   drillLabel the Tab hint ("search rows"); Tab is offered only with it
  *   shortcut   a key binding drawn on the right
  *   verb       the Enter hint ('open' by default, 'run' for a command)
@@ -125,6 +128,9 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
     let entities = [];
     let cached = null;            // C39 `cache`: the last loaded catalogue
     let onClose = null;
+
+    /** A row whose kind exists once (KindDef `single`): no split, no window. */
+    const isSingle = (row) => !!row && !!taxonomy.isSingle?.(row.kind);
 
     const isOpen = () => !!overlay;
     const close = () => {
@@ -300,8 +306,13 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
             const modes = Array.isArray(r.modes) ? r.modes : [];
             const acts = [`<span><kbd>Enter</kbd> ${_esc(verb)}</span>`];
             if (r.drillLabel && drill) acts.push(`<span><kbd>Tab</kbd> ${_esc(r.drillLabel)}</span>`);
-            if (modes.includes('split'))  acts.push('<span><kbd>Ctrl Enter</kbd> split</span>');
-            if (modes.includes('window')) acts.push('<span><kbd>Shift Enter</kbd> window</span>');
+            // A single kind has no copies: its split and window hints are
+            // drawn refused, with the reason, rather than offered.
+            const refused = isSingle(r)
+                ? ` class="twm-cmdpal__act--disabled" aria-disabled="true" title="${_esc(taxonomy.singleReason(r.kind))}"`
+                : '';
+            if (modes.includes('split'))  acts.push(`<span${refused}><kbd>Ctrl Enter</kbd> split</span>`);
+            if (modes.includes('window')) acts.push(`<span${refused}><kbd>Shift Enter</kbd> window</span>`);
             const side = r.shortcut
                 ? `<kbd class="twm-cmdpal__shortcut">${_esc(r.shortcut)}</kbd>`
                 : `<span class="twm-cmdpal__kind">${_esc(kindLabel(r))}</span>`;
@@ -415,6 +426,9 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
             const picked = filtered[i];
             if (!picked) return;
             if (picked.more) { showAll(picked.more); return; }
+            // Split and window open a COPY; a single kind refuses both, and the
+            // palette stays open on the row whose hints say why.
+            if (mode !== 'open' && isSingle(picked)) return;
             const pick = _public(picked);
             const how = { mode, scope: scope?.id ?? null };
             close();

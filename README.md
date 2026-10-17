@@ -130,6 +130,41 @@ await createShell({
 });
 ```
 
+### A kind that exists once: `single` (0.17.0)
+
+Some content holds heavy app-wide state and must not be mounted twice. Mark its
+kind `single` in the taxonomy:
+
+```js
+createTaxonomy({
+    root: 'cosmos',
+    kinds: {
+        cosmos:      { label: 'Cosmos', isTopNav: true },
+        observatory: { label: 'Observatory', isTopNav: true, single: true },  // one, ever
+        planet:      { label: 'Planet', single: 'id' },                       // one per props.id
+    },
+});
+```
+
+- **Every open path reveals the instance that exists** — `navigate`, the top
+  nav, `openInPrimary`, `openInTab*`, `splitLeafWith`, Back. It switches to the
+  desktop it is on, activates its tab (bringing back a top-nav page the tile
+  had switched away from) and focuses its tile, or raises its window. Nothing
+  is mounted twice.
+- **The copy verbs refuse.** Alt+T, Alt+N, Alt+Shift+H/V do nothing; the tile
+  menu's *Open in new tab* and *Open a copy in a window* are greyed with the
+  reason as their tooltip (`taxonomy.singleReason(kind)`); the palette draws its
+  split and window hints greyed, and Ctrl/Shift+Enter on such a row does nothing.
+- **The move verbs still work**: float, dock, drag a tab, move to a desktop.
+- **A restored layout keeps the first** of any duplicates (desktop order, then
+  tile order): the other leaf shows its next tab, or closes if it held nothing
+  else.
+
+The root kind cannot be `single` — every new pane, tab and desktop is seeded
+with it. The taxonomy answers `isSingle(kind)`, `instanceKey(kind, props)` and
+`singleReason(kind)`; the window manager answers `isSingleKind(kind)`,
+`findInstance(kind, props)` and `revealInstance(kind, props)`.
+
 ### A pane that names what it shows: `ctx.setTitle` (0.12.1)
 
 A content factory receives `(hostEl, props, ctx)`, and `ctx` carries, per pane,

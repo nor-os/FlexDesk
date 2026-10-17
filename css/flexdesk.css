@@ -9116,6 +9116,104 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 }
 /* ══ end HELP MODAL ══ */
 
+/* ══ TOGGLE ══════════════════════════════════════════════════════════
+ * ToggleField: a track and a knob drawn over a real checkbox with
+ * role="switch". The input sits on top of the track, transparent, so the
+ * pointer and the keyboard reach a native control. Tokens only: swap
+ * tokens.css and the switch follows.
+ */
+.twm-toggle {
+    --twm-toggle-w: 34px;
+    --twm-toggle-h: 18px;
+    --twm-toggle-pad: 2px;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+    color: var(--text-body);
+    font-size: var(--font-size-sm);
+    line-height: var(--line-height-tight);
+    cursor: pointer;
+    user-select: none;
+    vertical-align: middle;
+}
+.twm-toggle--compact {
+    --twm-toggle-w: 26px;
+    --twm-toggle-h: 14px;
+    gap: var(--space-xs);
+    font-size: var(--font-size-xs);
+}
+.twm-toggle__control {
+    position: relative;
+    display: inline-flex;
+    flex: none;
+    width: var(--twm-toggle-w);
+    height: var(--twm-toggle-h);
+}
+.twm-toggle__input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: inherit;
+    z-index: 1;
+}
+.twm-toggle__track {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-pill);
+    background: var(--surface-3);
+    transition: background-color var(--transition-fast), border-color var(--transition-fast);
+}
+.twm-toggle__knob {
+    position: absolute;
+    top: var(--twm-toggle-pad);
+    left: var(--twm-toggle-pad);
+    width: calc(var(--twm-toggle-h) - 2 * var(--twm-toggle-pad) - 2px);
+    height: calc(var(--twm-toggle-h) - 2 * var(--twm-toggle-pad) - 2px);
+    border-radius: var(--radius-circle);
+    background: var(--text-muted);
+    box-shadow: var(--shadow-sm);
+    transition: transform var(--transition-fast), background-color var(--transition-fast);
+}
+.twm-toggle__input:checked + .twm-toggle__track {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+.twm-toggle__input:checked + .twm-toggle__track .twm-toggle__knob {
+    transform: translateX(calc(var(--twm-toggle-w) - var(--twm-toggle-h)));
+    background: var(--text-bright);
+}
+.twm-toggle:hover .twm-toggle__input:not(:disabled) + .twm-toggle__track {
+    border-color: var(--accent-hover);
+}
+.twm-toggle__input:focus-visible + .twm-toggle__track {
+    outline: 2px solid var(--accent-bright);
+    outline-offset: 2px;
+}
+.twm-toggle__state {
+    min-width: 2.5em;
+    color: var(--text-muted);
+}
+.twm-toggle__label {
+    color: var(--text-body);
+}
+.twm-toggle--disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+.twm-modal__toggle {
+    display: flex;
+    align-items: center;
+    min-height: var(--ea-row-h);
+}
+/* ══ end TOGGLE ══ */
+
 /* ══ FLOW · KIT ═══════════════════════════════════════════════════════ */
 /* The shared flow-editor kit (36 §3, §3.12): the settings panel and its
  * fields, the generic widgets, reference chips and the chip input, the two
@@ -11949,100 +12047,3 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     line-height: 1;
 }
 /* ══ end FLOW · LANES ══ */
-/* ══ TOGGLE ══════════════════════════════════════════════════════════
- * ToggleField: a track and a knob drawn over a real checkbox with
- * role="switch". The input sits on top of the track, transparent, so the
- * pointer and the keyboard reach a native control. Tokens only: swap
- * tokens.css and the switch follows.
- */
-.twm-toggle {
-    --twm-toggle-w: 34px;
-    --twm-toggle-h: 18px;
-    --twm-toggle-pad: 2px;
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-sm);
-    color: var(--text-body);
-    font-size: var(--font-size-sm);
-    line-height: var(--line-height-tight);
-    cursor: pointer;
-    user-select: none;
-    vertical-align: middle;
-}
-.twm-toggle--compact {
-    --twm-toggle-w: 26px;
-    --twm-toggle-h: 14px;
-    gap: var(--space-xs);
-    font-size: var(--font-size-xs);
-}
-.twm-toggle__control {
-    position: relative;
-    display: inline-flex;
-    flex: none;
-    width: var(--twm-toggle-w);
-    height: var(--twm-toggle-h);
-}
-.twm-toggle__input {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    margin: 0;
-    opacity: 0;
-    cursor: inherit;
-    z-index: 1;
-}
-.twm-toggle__track {
-    position: relative;
-    display: block;
-    width: 100%;
-    height: 100%;
-    box-sizing: border-box;
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-pill);
-    background: var(--surface-3);
-    transition: background-color var(--transition-fast), border-color var(--transition-fast);
-}
-.twm-toggle__knob {
-    position: absolute;
-    top: var(--twm-toggle-pad);
-    left: var(--twm-toggle-pad);
-    width: calc(var(--twm-toggle-h) - 2 * var(--twm-toggle-pad) - 2px);
-    height: calc(var(--twm-toggle-h) - 2 * var(--twm-toggle-pad) - 2px);
-    border-radius: var(--radius-circle);
-    background: var(--text-muted);
-    box-shadow: var(--shadow-sm);
-    transition: transform var(--transition-fast), background-color var(--transition-fast);
-}
-.twm-toggle__input:checked + .twm-toggle__track {
-    background: var(--accent);
-    border-color: var(--accent);
-}
-.twm-toggle__input:checked + .twm-toggle__track .twm-toggle__knob {
-    transform: translateX(calc(var(--twm-toggle-w) - var(--twm-toggle-h)));
-    background: var(--text-bright);
-}
-.twm-toggle:hover .twm-toggle__input:not(:disabled) + .twm-toggle__track {
-    border-color: var(--accent-hover);
-}
-.twm-toggle__input:focus-visible + .twm-toggle__track {
-    outline: 2px solid var(--accent-bright);
-    outline-offset: 2px;
-}
-.twm-toggle__state {
-    min-width: 2.5em;
-    color: var(--text-muted);
-}
-.twm-toggle__label {
-    color: var(--text-body);
-}
-.twm-toggle--disabled {
-    cursor: not-allowed;
-    opacity: 0.5;
-}
-.twm-modal__toggle {
-    display: flex;
-    align-items: center;
-    min-height: var(--ea-row-h);
-}
-/* ══ end TOGGLE ══ */

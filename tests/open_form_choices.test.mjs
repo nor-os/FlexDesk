@@ -11,12 +11,14 @@
  *       a checklist's, a radio's and a combobox's too.
  *   §2  A disabled option shows its reason and is never the submitted value:
  *       not by a default, not by `api.set`, not by the reader, and a submit
- *       that finds one selected anyway is refused on the field.
+ *       that finds one selected anyway is refused on the field — or, in a
+ *       hidden row (not asked about), submits no value.
  *   §3  `{ group, options }` renders as an `<optgroup>` under its heading.
  *   §4  `type: 'checklist'` submits the array of the checked values; required
  *       means at least one, and nothing checked is a field error on submit.
  *   §5  Option values come back with their own type: a select of numbers
- *       resolves numbers, from the submit and from `api.get`.
+ *       resolves numbers, from the submit and from `api.get` (a combobox's
+ *       too); an exact match wins over one of the same text.
  *   §6  `type: 'radio'`: one row per choice with its description; submits the
  *       chosen value, or null; required means one is chosen.
  *   §7  The select, chips and radios ARE the flow kit's: one implementation.
@@ -293,6 +295,50 @@ section('§2 a disabled option shows its reason and is never the submitted value
     await f.cancel();
 }
 
+{
+    // A hidden row is not asked about, but a disabled option is still never its value.
+    const f = await open({
+        fields: [
+            { name: 'k', label: 'K', type: 'select', options: ['a', 'b'] },
+            { name: 's', label: 'S', type: 'select', options: [{ value: 'x', disabled: true, reason: 'no' }] },
+        ],
+        onFieldChange: (_n, _v, a) => a.setVisible('s', false),
+    });
+    await f.submit();
+    check('a hidden select whose every option is disabled submits no value', await f.result, { k: 'a', s: '' });
+}
+{
+    // The dependent-select flow: refilled with nothing available, then hidden.
+    const g = grab();
+    const f = await open({
+        fields: [{ name: 's', label: 'S', type: 'select', options: ['ok'] }],
+        onFieldChange: g.hook,
+    });
+    g.api.setOptions('s', [{ value: 'bad', disabled: true }]);
+    g.api.setVisible('s', false);
+    await f.submit();
+    check('a hidden select set to an all-disabled list by setOptions submits no value', await f.result, { s: '' });
+}
+{
+    const g = grab();
+    const f = await open({
+        fields: [
+            { name: 'size', label: 'Size', type: 'radio', options: [
+                's', { value: 'l', label: 'Large', disabled: true, reason: 'sold out' }] },
+            { name: 'who', label: 'Who', type: 'select', create: true, options: [
+                'ann', { value: 'bob', disabled: true, reason: 'left' }] },
+        ],
+        onFieldChange: g.hook,
+    });
+    f.radios('size')[1].checked = true;             // a script checks it anyway
+    f.type('who', 'bob');
+    g.api.setVisible('size', false);
+    g.api.setVisible('who', false);
+    await f.submit();
+    check('a hidden radio or combobox holding a disabled option submits no value', await f.result,
+          { size: null, who: '' });
+}
+
 // ── §3 ──────────────────────────────────────────────────────────────────
 section('§3 grouped options render under their headings');
 {
@@ -406,6 +452,57 @@ section('§5 a select whose option values are numbers resolves numbers');
     f.type('n', '2');
     await f.submit();
     check('a combobox entry that is a number option\'s text submits the number', await f.result, { n: 2 });
+}
+{
+    const g = grab();
+    const f = await open({
+        fields: [{ name: 'n', label: 'N', type: 'select', create: true, options: [1, 2] }],
+        onFieldChange: g.hook,
+    });
+    f.type('n', '2');
+    check('api.get reads a combobox entry as the option it names, as the submit does', g.api.get('n'), 2);
+    check('…and the hook hears that value', g.calls.at(-1), ['n', 2]);
+    f.type('n', 'new');
+    check('an entry that names no option reads as its text', g.api.get('n'), 'new');
+    f.type('n', '1');
+    await f.submit();
+    check('(and get and the submit agree)', await f.result, { n: 1 });
+}
+section('§5 an exact match wins over one of the same text');
+{
+    const g = grab();
+    const f = await open({
+        fields: [
+            { name: 'n', label: 'N', type: 'select', options: [1, '1'] },
+            { name: 'r', label: 'R', type: 'radio', options: [1, '1'] },
+            { name: 'c', label: 'C', type: 'checklist', options: [1, '1'] },
+            { name: 'm', label: 'M', type: 'select', create: true, options: [1, '1'] },
+        ],
+        defaults: { n: '1', r: '1', c: ['1'] },
+        onFieldChange: g.hook,
+    });
+    check('a select default \'1\' selects the string option', g.api.get('n'), '1');
+    check('…and so does a radio', g.api.get('r'), '1');
+    check('…and a checklist', g.api.get('c'), ['1']);
+    g.api.set('n', 1);
+    check('api.set(1) selects the number option', g.api.get('n'), 1);
+    g.api.set('n', '1');
+    f.type('m', '1');
+    check('a combobox entry \'1\' is the string option', g.api.get('m'), '1');
+    await f.submit();
+    const out = await f.result;
+    check('each submits the value it was given, not the first of its text', out,
+          { n: '1', r: '1', c: ['1'], m: '1' });
+    check('…typeof each', [typeof out.n, typeof out.r, typeof out.c[0], typeof out.m],
+          ['string', 'string', 'string', 'string']);
+}
+{
+    const f = await open({
+        fields: [{ name: 'n', label: 'N', type: 'select', options: ['1', 2] }],
+        defaults: { n: 1 },
+    });
+    await f.submit();
+    check('with no exact match, text is the fallback', await f.result, { n: '1' });
 }
 
 // ── §6 ──────────────────────────────────────────────────────────────────

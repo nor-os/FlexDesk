@@ -27,6 +27,8 @@
  * `loose`: a stored value matches an option whose value has the same TEXT
  * (`2` matches `'2'`), for a caller whose stored values may arrive as strings.
  * Off by default: the kit's values keep their type, and `'2'` is not `2`.
+ * Text is only the fallback: an option whose value IS the stored value (`===`)
+ * wins over an earlier one that only reads the same (`findChoice`).
  *
  * Nothing here names a consumer's vocabulary; every word on screen is the
  * caller's (`label`, `reason`, `description`, `notFound`).
@@ -75,6 +77,24 @@ export function sameChoice(v, value, loose = false) {
     return String(v) === String(value);
 }
 
+/**
+ * The position in `list` (normalised options) of the option stored value `v`
+ * names, or -1: the first whose value IS `v`, else — with `loose` — the first
+ * whose value has the same text. `from` skips the leading entries.
+ */
+export function choiceIndex(list, v, loose = false, from = 0) {
+    for (let i = from; i < list.length; i += 1) if (list[i].value === v) return i;
+    if (!loose) return -1;
+    for (let i = from; i < list.length; i += 1) if (sameChoice(list[i].value, v, true)) return i;
+    return -1;
+}
+
+/** The option of `list` stored value `v` names (`choiceIndex`), or undefined. */
+export function findChoice(list, v, loose = false) {
+    const i = choiceIndex(list, v, loose);
+    return i >= 0 ? list[i] : undefined;
+}
+
 /** An option's text: its label, and the reason it is unavailable when it is. */
 const optionText = (o) => (o.disabled && o.reason ? `${o.label} — ${o.reason}` : o.label);
 
@@ -119,9 +139,10 @@ export function selectBox(options, value, {
     };
     const select = (v) => {
         const start = empty !== null ? 1 : 0;
-        const at = entries.findIndex((e, i) => i >= start && !e.disabled && !e.stray && sameChoice(e.value, v, loose));
-        if (at >= 0) { box.selectedIndex = at; return true; }
-        return false;
+        const at = choiceIndex(entries, v, loose, start);
+        if (at < 0 || entries[at].disabled || entries[at].stray) return false;
+        box.selectedIndex = at;
+        return true;
     };
     const place = (v) => {
         if (select(v)) return;
@@ -207,7 +228,10 @@ export function toggleChips({ options, value, label, readOnly, onChange, notFoun
     const draw = (opts, stored) => {
         list = flatChoices(opts);
         const wanted = Array.isArray(stored) ? stored : [];
-        const offered = (v) => list.find((o) => !o.disabled && sameChoice(o.value, v, loose));
+        const offered = (v) => {
+            const o = findChoice(list, v, loose);
+            return o && !o.disabled ? o : undefined;
+        };
         chosen = new Set(wanted.map(offered).filter(Boolean).map((o) => o.value));
         strays = keepMissing ? wanted.filter((v) => !offered(v)) : [];
         root.replaceChildren();
@@ -259,7 +283,8 @@ export function choiceList({ options, value, name, label, readOnly, onChange, no
         list = flatChoices(opts);
         radios = [];
         root.replaceChildren();
-        const at = list.findIndex((o) => !o.disabled && sameChoice(o.value, current, loose));
+        const named = choiceIndex(list, current, loose);
+        const at = named >= 0 && !list[named].disabled ? named : -1;
         list.forEach((o, i) => {
             const row = el('label', `twm-flow-choice${o.disabled ? ' twm-choice--disabled' : ''}`);
             const radio = el('input', 'twm-flow-choice__radio');
@@ -276,7 +301,7 @@ export function choiceList({ options, value, name, label, readOnly, onChange, no
             row.append(radio, words);
             root.appendChild(row);
         });
-        if (keepMissing && current !== undefined && at < 0 && !list.some((o) => sameChoice(o.value, current, loose))) {
+        if (keepMissing && current !== undefined && named < 0) {
             root.appendChild(el('p', 'twm-flow-field__note', notFound(shownValue(current))));
         }
     };
@@ -289,7 +314,8 @@ export function choiceList({ options, value, name, label, readOnly, onChange, no
         entry,
         valueOf: () => entry()?.value,
         select(v) {
-            const at = list.findIndex((o) => !o.disabled && sameChoice(o.value, v, loose));
+            const named = choiceIndex(list, v, loose);
+            const at = named >= 0 && !list[named].disabled ? named : -1;
             radios.forEach((r, i) => { r.checked = i === at; });
             return at >= 0;
         },

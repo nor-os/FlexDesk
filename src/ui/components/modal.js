@@ -77,7 +77,7 @@
  */
 
 import { ManagedWindow } from '../../ui/components/managed_window.js';
-import { choiceList, flatChoices, selectBox, toggleChips } from './choice_controls.js';
+import { choiceList, findChoice, flatChoices, selectBox, toggleChips } from './choice_controls.js';
 
 /**
  * C25. WHERE A DIALOG OPENS, when the application spans more than one window.
@@ -113,8 +113,11 @@ let _modalSeq = 1;
  *   options) }`, addressing fields and named sections by name. `get` reads the
  *   control as it stands (a checkbox as a boolean, a select or radio as its
  *   option's own value — a select with no option selected as '', a radio
- *   with none as null — a checklist as the array of chosen values, everything
- *   else as its string); `set` writes it (a value a select or radio does not
+ *   with none as null — a combobox as the value of the option its text names,
+ *   exactly as it submits, or as its text when it names none — a checklist as
+ *   the array of chosen values, everything else as its string). An option
+ *   whose value IS the given one wins over one that only has its text, here,
+ *   in `set` and in defaults. `set` writes it (a value a select or radio does not
  *   offer, or offers only disabled, clears it) and does NOT call
  *   `onFieldChange` back, so a hook that fills one field from another cannot
  *   loop. `setOptions` replaces the options of a `select` (a combobox's too),
@@ -128,7 +131,8 @@ let _modalSeq = 1;
  *   change would lose what the user had already typed, so every field is
  *   built once and the irrelevant rows are hidden. A hidden row keeps its
  *   value and is still submitted — the caller drops what its chosen kind does
- *   not use — but it is not ASKED about: its `required` and its `validator`
+ *   not use; a disabled option it holds submits as no value ('' for a select
+ *   or combobox, null for a radio) — but it is not ASKED about: its `required` and its `validator`
  *   stand down until it is shown again, because a constraint on a field the
  *   user cannot see is a submit button that silently does nothing.
  *
@@ -224,13 +228,17 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
             const c = _mountChoice(body, f, defaults[f.name] ?? f.default, (name) => onChoice(name));
             if (c) choices.set(f.name, c);
         }
+        /** The option a combobox entry names — the one whose value IS it, else the
+         *  one whose value has its text — or undefined. `get` and the submit both
+         *  read a combobox through this, so they agree (`'2'` is option `2`). */
+        const comboOption = (f, text) => findChoice(flatChoices(optionsOf.get(f.name)), text, true);
         /** A disabled option's reason ('' with none) when one is the value, else null. */
         const unavailable = (f, value) => {
             const c = choices.get(f.name);
             if (c) return c.unavailable();
             if (f.type !== 'select' || !f.create || value == null || value === '') return null;
-            const o = flatChoices(optionsOf.get(f.name)).find((x) => x.disabled && String(x.value) === String(value));
-            return o ? (o.reason || '') : null;
+            const o = comboOption(f, value);
+            return o?.disabled ? (o.reason || '') : null;
         };
 
         // Clear per-field errors on input so the user sees the row recover.
@@ -265,7 +273,13 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                     if (choices.has(name)) return choices.get(name).read();
                     const el = body.querySelector(`[name="${name}"]`);
                     if (!el) return undefined;
-                    return el.type === 'checkbox' ? !!el.checked : el.value;
+                    if (el.type === 'checkbox') return !!el.checked;
+                    const f = fieldOf(name);
+                    if (f?.type === 'select' && f.create) {
+                        const match = comboOption(f, el.value);
+                        return match ? match.value : el.value;
+                    }
+                    return el.value;
                 },
                 set(name, value) {
                     if (choices.has(name)) { choices.get(name).write(value); return; }
@@ -333,7 +347,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                     const spec = _createSpec(f);
                     // A typed value that is an option's text IS that option,
                     // with the option's own value (a number stays a number).
-                    const match = flatChoices(optionsOf.get(f.name)).find((o) => String(o.value) === v);
+                    const match = comboOption(f, v);
                     if (match) v = match.value;
                     else if (v) {
                         if (submitBtn) submitBtn.disabled = true;
@@ -359,7 +373,12 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
             let firstBadName = null;
             for (const f of formFields) {
                 clearFieldError(f.name);
-                if (rowHidden(f.name)) continue;
+                if (rowHidden(f.name)) {
+                    // Not asked about — but a disabled option is still never
+                    // the value: a hidden row holding one submits no value.
+                    if (unavailable(f, data[f.name]) != null) data[f.name] = f.type === 'radio' ? null : '';
+                    continue;
+                }
                 const v = data[f.name];
                 // A picker's value lives in a hidden input, and a checklist or
                 // radio is no single control, so the browser's own `required`

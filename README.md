@@ -1640,12 +1640,16 @@ openForm({
 every field's `change`. `api` addresses fields and named sections by name:
 
 - `setVisible(name, on)` hides or shows the row. A hidden row keeps its value
-  and is still submitted, but it is not asked about: its `required` and its
+  and is still submitted (a disabled option it holds submits as no value:
+  `''` for a select or combobox, `null` for a radio), but it is not asked
+  about: its `required` and its
   `validator` stand down until it is shown again.
 - `get(name)` reads the control as it stands: a checkbox as a boolean, a
   select or radio as its option's own value (a select with no option selected
-  as `''`, a radio with none as `null`), a checklist as the array of chosen
-  values, anything else as its string.
+  as `''`, a radio with none as `null`), a combobox as the value of the option
+  its text names — exactly what it submits — or as its text when it names
+  none, a checklist as the array of chosen values, anything else as its
+  string.
 - `set(name, value)` writes it. It does not call `onFieldChange` back, so a
   hook that fills one field from another cannot loop. A value a select or
   radio does not offer, or offers only disabled, clears it (a select then
@@ -1726,13 +1730,16 @@ description? }`.
 - **Values keep their type.** An option whose value is the number 10 submits
   10, and `api.get` reads 10 — not `'10'`. A default matches an option of the
   same text, so `defaults: { plan: '10' }` selects 10. A combobox entry typed
-  as an option's text submits that option's value.
+  as an option's text submits (and `api.get` reads) that option's value. An
+  option whose value IS the given one wins over one that only has its text:
+  with options `[1, '1']`, a default `'1'` submits `'1'`.
 - **A disabled option** is shown with its `reason` (in a select's option text
   and tooltip, under a radio, on a chip) and is never the submitted value: a
   default naming it does not select it, `api.set` to it clears the field,
   the reader cannot pick it, a combobox does not suggest it, and a submit
-  that finds one selected anyway (a script set `.value`) is refused with
-  "Not available: *reason*" on the field.
+  that finds one selected anyway (a script set `.value`, or every option is
+  disabled) is refused with "Not available: *reason*" on the field. In a
+  hidden row, which is not asked about, it submits as no value instead.
 - **`{ group, options }`** in a select's list is an `<optgroup>` headed
   *group*. A checklist or radio draws a group's options in place.
 - **`api.setOptions(name, options)`** replaces the list while the form is

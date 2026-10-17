@@ -39,7 +39,8 @@
  * and `map` is `{ [sectionId]: expanded }`, written whenever a section opens or
  * closes. `read` may answer a promise; until it does, sections show their
  * `defaultExpanded`, and a section somebody toggled meanwhile keeps their
- * choice. A store that throws, rejects, or answers something that is not a map
+ * choice. Such a toggle is written once the read has settled, merged over
+ * the stored map, so the defaults on screen never overwrite it. A store that throws, rejects, or answers something that is not a map
  * leaves every section on its `defaultExpanded` — remembering is a convenience,
  * never a reason for a panel not to draw. `ready` resolves once the read has
  * been applied (at once without a store).
@@ -72,7 +73,7 @@ export function createSectionStack(container, { sections = [], stateStore = null
     const root = doc.createElement('div');
     root.className = 'twm-section-stack';
 
-    /** id -> { def, box, header, toggle, arrow, body, expanded, visible, touched } */
+    /** id -> { def, box, toggle, arrow, body, expanded, visible, touched } */
     const byId = new Map();
     /** action button -> { sectionId, action } */
     const actionOf = new Map();
@@ -80,6 +81,12 @@ export function createSectionStack(container, { sections = [], stateStore = null
     const headerOf = new Map();
     const listeners = new Set();
     let disposed = false;
+    // While a promised read is out, the sections nobody touched still show
+    // their defaults, not what the store holds: writing them then would
+    // overwrite the stored states with defaults. A toggle meanwhile only marks
+    // the map as owed; it is written once the read has settled.
+    let readPending = false;
+    let writeOwed = false;
 
     for (const def of sections) {
         if (!def || def.id == null || byId.has(def.id)) {
@@ -163,8 +170,13 @@ export function createSectionStack(container, { sections = [], stateStore = null
 
     function persist() {
         if (!stateStore?.write) return;
+        if (readPending) { writeOwed = true; return; }
         const map = {};
         for (const [id, entry] of byId) map[id] = entry.expanded;
+        write(map);
+    }
+
+    function write(map) {
         try {
             const pending = stateStore.write(key, map);
             pending?.catch?.(() => { /* storage refused: not ours to fix */ });
@@ -183,13 +195,31 @@ export function createSectionStack(container, { sections = [], stateStore = null
         return true;
     }
 
+    const isMap = (saved) => !!saved && typeof saved === 'object' && !Array.isArray(saved);
+
     function restore(saved, source) {
-        if (disposed || !saved || typeof saved !== 'object' || Array.isArray(saved)) return;
+        if (disposed || !isMap(saved)) return;
         for (const [id, entry] of byId) {
             if (entry.touched || typeof saved[id] !== 'boolean') continue;
             if (source === 'restore') set(id, saved[id], 'restore');
             else { entry.expanded = saved[id]; paint(entry); }
         }
+    }
+
+    /** A promised read has settled (`saved` is null when it rejected). */
+    function settle(saved) {
+        restore(saved, 'restore');
+        readPending = false;
+        if (!writeOwed) return;
+        writeOwed = false;
+        // The touched sections over what the store holds — also after a
+        // dispose, which must not lose a choice made before the read answered.
+        const map = {};
+        for (const [id, entry] of byId) {
+            map[id] = !entry.touched && isMap(saved) && typeof saved[id] === 'boolean'
+                ? saved[id] : entry.expanded;
+        }
+        write(map);
     }
 
     function onClick(event) {
@@ -217,8 +247,9 @@ export function createSectionStack(container, { sections = [], stateStore = null
         let saved = null;
         try { saved = stateStore.read(key); } catch { saved = null; }
         if (saved && typeof saved.then === 'function') {
+            readPending = true;
             ready = Promise.resolve(saved)
-                .then((value) => restore(value, 'restore'), () => { /* defaults stand */ });
+                .then((value) => settle(value), () => settle(null));
         } else {
             restore(saved, 'mount');
         }

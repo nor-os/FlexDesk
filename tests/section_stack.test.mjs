@@ -7,13 +7,15 @@
  *       the header's action buttons runs the action and toggles nothing
  *   §3  expanded states are written under the given key and come back on the
  *       next mount — synchronously, or when a promised read answers (and a
- *       section toggled meanwhile keeps its choice)
+ *       section toggled meanwhile keeps its choice, written over the stored
+ *       map once the read settles, never the defaults over it)
  *   §4  a store that throws, rejects or answers junk: every section on its
  *       defaultExpanded, and the stack still works
  *   §5  setVisible hides a section and brings it back as it was
  *   §6  expand / collapse / toggle / isExpanded, and the toggled event
  *   §7  a fill section: the stylesheet gives it the remaining height and makes
- *       its body the thing that scrolls (min-height: 0); base.css mirrors
+ *       its body the thing that scrolls (min-height: 0), but never lets the box
+ *       shrink below its header; base.css mirrors
  *       flexdesk.css byte for byte
  *   §8  dispose removes every listener and every node it created
  *
@@ -189,6 +191,50 @@ section('§3 expanded states persist under the key and come back');
     await d.ready;
     ok('a section toggled before the read answered keeps the choice', !d.isExpanded('params'));
     ok('…the others take the stored state', !d.isExpanded('notes'));
+
+    // A toggle before a promised read settles must not write the defaults of
+    // the sections nobody touched over what the store holds.
+    const ui = (s) => [0, 1, 2].map((i) => shown(s, i));
+    for (const [label, readAt] of [['a read that snapshots at once', 'call'], ['a read that looks when it answers', 'answer']]) {
+        const slow = memoryStore({ k: { notes: false, chat: true, params: true } });
+        const sync = slow.read;
+        slow.read = (key) => {
+            const snap = readAt === 'call' ? JSON.parse(JSON.stringify(sync(key))) : null;
+            return new Promise((r) => setTimeout(() => r(snap ?? sync(key)), 10));
+        };
+        const e = createSectionStack(fresh(), { sections: SECTIONS(), stateStore: slow, key: 'k' });
+        click(header(e, 1));      // chat: open -> closed, before the read answers
+        check(`${label}: no write while the read is out`, slow.writes.length, 0);
+        await e.ready;
+        check(`${label}: after ready the UI is the stored states plus the toggle`, ui(e), [false, false, true]);
+        check(`${label}: …and the store holds exactly what the UI shows`, slow.data.k, { notes: false, chat: false, params: true });
+        check(`${label}: …written once`, slow.writes.length, 1);
+        e.dispose();
+        slow.read = sync;
+        const f = createSectionStack(fresh(), { sections: SECTIONS(), stateStore: slow, key: 'k' });
+        check(`${label}: the next mount restores it`, ui(f), [false, false, true]);
+        f.dispose();
+    }
+
+    const gone = memoryStore({ k: { notes: false, chat: true, params: true } });
+    const goneRead = gone.read;
+    gone.read = (key) => new Promise((r) => setTimeout(() => r(goneRead(key)), 10));
+    const g = createSectionStack(fresh(), { sections: SECTIONS(), stateStore: gone, key: 'k' });
+    click(header(g, 1));
+    g.dispose();                  // disposed before the read answered
+    await g.ready;
+    check('a toggle before a dispose before the read answered is still written, over the stored map',
+          gone.data.k, { notes: false, chat: false, params: true });
+
+    const refused = memoryStore();
+    refused.read = () => Promise.reject(new Error('gone'));
+    const h = createSectionStack(fresh(), { sections: SECTIONS(), stateStore: refused, key: 'k' });
+    click(header(h, 2));
+    await h.ready;
+    check('a rejected read: the toggle made meanwhile is written with the defaults', refused.data.k,
+          { notes: true, chat: true, params: true });
+    click(header(h, 0));
+    check('…and later toggles write at once', [refused.writes.length, refused.data.k.notes], [2, false]);
 }
 
 section('§4 a store that throws on read: every section on its default');
@@ -298,6 +344,10 @@ section('§7 a fill section takes the remaining height and scrolls inside');
     check('a section is its content high and may shrink', [decl(box, 'flex'), decl(box, 'min-height')], ['0 0 auto', '0']);
     const fill = ruleBody(css, '.twm-section-stack > .twm-section-stack__section--fill.twm-section-stack__section--expanded');
     check('an open fill section takes what is left', decl(fill, 'flex'), '1 1 0');
+    const headerRule = ruleBody(css, '.twm-section-stack__header');
+    check('…but never shrinks below its header, so the header cannot overlap the next section\'s',
+          [decl(fill, 'min-height'), decl(headerRule, 'flex-shrink')], [decl(headerRule, 'height'), '0']);
+    ok('…the header height it matches is a length', /^\d+px$/.test(decl(headerRule, 'height') || ''));
     const body = ruleBody(css, '.twm-section-stack__section--fill > .twm-collapsible-content.visible');
     check('its body fills it, may shrink, and scrolls',
           [decl(body, 'flex'), decl(body, 'min-height'), decl(body, 'overflow-y')], ['1 1 0', '0', 'auto']);
@@ -315,6 +365,8 @@ section('§7 a fill section takes the remaining height and scrolls inside');
     const stack = createSectionStack(host, { sections: defs });
     const cs = (el) => window.getComputedStyle(el);
     check('computed: the open fill box flexes into the space', cs(boxes(stack)[1]).flexGrow, '1');
+    check('computed: the open fill box is at least its header high',
+          cs(boxes(stack)[1]).minHeight, cs(header(stack, 1)).height);
     check('computed: its body scrolls and may shrink', [cs(content(stack, 1)).overflowY, parseFloat(cs(content(stack, 1)).minHeight)], ['auto', 0]);
     check('computed: a fixed box does not grow', cs(boxes(stack)[0]).flexGrow, '0');
     stack.collapse('chat');

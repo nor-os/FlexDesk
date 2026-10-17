@@ -42,7 +42,7 @@
 import { WindowManager } from './wm.js';
 import { createContentRegistry } from './content_registry.js';
 import { createCommandPalette } from './command_palette.js';
-import { installKeymap } from './keymap.js';
+import { installKeymap, keymapShortcuts } from './keymap.js';
 import { openTileTabSwitcher } from './tile_tab_menu.js';
 import { mountZoomControl } from './zoom.js';
 import { showContextMenu } from '../ui/components/context_menu.js';
@@ -132,6 +132,17 @@ import { openForm } from '../ui/components/modal.js';
  *                                      zoom control is painted into — see
  *                                      zoom.js. Absent, there is no control and
  *                                      nothing is ever scaled.
+ * @param {object}     [cfg.keymap]     `{ bindings?: { [chord]: action | false | fn } }`
+ *                                      — the window manager's chords, changed:
+ *                                      `false` hands a chord back to the page
+ *                                      (unprevented), an action name such as
+ *                                      `'nav:0'` rebinds it, a function runs
+ *                                      instead. Chord ids and action names are
+ *                                      listed in keymap.js; an unknown one is
+ *                                      warned about once and ignored. The
+ *                                      palette's *Keyboard shortcuts* lists the
+ *                                      bindings in effect. Omitted, the default
+ *                                      keymap, `?` for help included.
  * @returns {Promise<object>} the frozen shell
  */
 export async function createShell({
@@ -160,6 +171,7 @@ export async function createShell({
     // rail, say — passes the selector its own buttons match, and F1..F8 keep
     // working. Omitted, the default top-bar selector applies.
     navSelector = null,
+    keymap = null,
 } = {}) {
     // A bad shell is a BOOT error, not a runtime surprise. Same doctrine as
     // createHost / createTaxonomy.
@@ -213,13 +225,18 @@ export async function createShell({
         onChange: () => syncChrome(),
     });
 
+    const bindings = keymap?.bindings ?? null;
     const palette = createCommandPalette({
-        wm, api, taxonomy, catalog: entities, ...paletteCfg,
+        wm, api, taxonomy, catalog: entities,
+        // What *Keyboard shortcuts* lists is what the keys do in THIS shell.
+        shortcuts: keymapShortcuts(bindings),
+        ...paletteCfg,
     });
     // `navSelector` lets an embedder that moved its sections out of the top
     // bar keep F1..F8 working. Omitted, the default top-bar selector applies —
-    // the behaviour every existing embedder has today.
-    const disposeKeymap = installKeymap({ wm, palette, navSelector });
+    // the behaviour every existing embedder has today. The keymap also binds
+    // `?` to help, so `dispose()` takes the help shortcut off with it.
+    const disposeKeymap = installKeymap({ wm, palette, navSelector, bindings, logger });
 
     // Chrome — painted into the ELEMENTS the embedder handed over. An absent
     // key means absent chrome, not a crash.

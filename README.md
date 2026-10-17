@@ -253,6 +253,56 @@ topic.* The fallback comes from `HelpModal.open(id, { fallback })`
 (`@flexdesk/widgets`), and you can pass one yourself. A topic id that nobody
 provides now shows *Help topic not found.* where it used to raise a load error.
 
+### Your keys, not the window manager's: `keymap` (0.17.0)
+
+The window manager binds F1..F12, Backspace, Ctrl+K, Ctrl+Tab, Ctrl/Shift+Arrows,
+the Alt chords, `?` and Esc, and swallows any other bare Alt+letter. Each of
+those chords can be taken back or rebound:
+
+```js
+await createShell({
+    // …everything above…
+    keymap: {
+        bindings: {
+            'F1': false,               // F1 is the page's: not prevented, nothing clicked
+            'F2': 'nav:0',             // F2 opens the first top-nav kind
+            'Backspace': false,        // Backspace never calls navigateBack
+            'Alt+W': (e, { wm }) => { /* yours; return false to leave e unprevented */ },
+        },
+    },
+});
+```
+
+A value is `false`, an action name, or a function. The actions are `palette`,
+`palette:close`, `help`, `back`, `nav:N`, `desktop:N`, `toDesktop:N` (all
+counted from 0), `desktop:next|prev`, `tab:next|prev`, `panelTab:next|prev`,
+`split:h|v`, `splitWith:h|v`, `openInTab`, `openInWindow`, `close`, `float`,
+`focus:left|right|up|down`, `move:left|right|up|down` and `suppress`. The chord
+ids are the defaults in `src/tiling/keymap.js`: `Ctrl+K`, `Meta+K`, `?`,
+`Escape`, `F1`..`F12`, `Backspace`, `Alt+H`, `Alt+Shift+H`, `Alt+ArrowLeft`,
+`Alt+Shift+1`, `Ctrl+Tab`, `Shift+ArrowRight` and so on, with `Alt+Letter` for
+the Alt+letter suppression. Modifiers may come in any order and case. A chord id
+or action the keymap does not know is warned about once, through `logger` (else
+`console`), when the shell is built, and is then ignored. Only the window
+manager's own chords can be rebound. To add a new key, put your own listener on
+the page.
+
+**A key a component handled is the component's.** The keymap skips every
+keydown that is already `defaultPrevented`. A list that deletes a row on
+Backspace calls `preventDefault()`, and the window manager does not navigate
+back as well.
+
+**`?` is installed by the shell.** Importing `HelpModal` no longer adds a
+`document` listener as a side effect. A shell binds `?` as one of its chords,
+and `shell.dispose()` removes it with the rest. A page that uses the help modal
+without a shell calls `installHelpShortcut()` from `@flexdesk/widgets`, which
+returns its disposer. `HelpModal.toggle()` is what `?` does.
+
+**The *Keyboard shortcuts* command shows the bindings in effect.** It lists
+`keymapShortcuts(bindings)` from `@flexdesk/wm`. That is `KEYMAP_SHORTCUTS`
+with each changed row replaced by one line per chord still bound, and no line
+for a chord you disabled. `createCommandPalette({ shortcuts })` takes that table.
+
 **`chrome.zoom`** paints a − / track / + / readout control into the element you
 pass, restores the saved zoom through the host's `state` capability, and scales
 the content of tiles and floating windows. It deliberately scales *content only*

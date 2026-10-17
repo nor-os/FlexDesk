@@ -390,6 +390,19 @@ export class HelpModal {
     }
 
     /**
+     * Close the open help modal, or open the index when none is open — what
+     * the `?` shortcut does.
+     * @returns {HelpModal|null} the modal opened, or null when one was closed
+     */
+    static toggle() {
+        if (_activeModal) {
+            _activeModal.close();
+            return null;
+        }
+        return HelpModal.open();
+    }
+
+    /**
      * Get the currently active modal.
      * @returns {HelpModal|null}
      */
@@ -419,31 +432,34 @@ function escapeHtml(value) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Global Help Shortcut
+// The `?` shortcut — installed, never imported
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Open help modal with the `?` key. (F1 is reserved for top-nav Home.)
+ * Bind `?` (outside editable fields) to `HelpModal.toggle()` on `target`, and
+ * return the disposer that takes it off again.
+ *
+ * Importing this module binds nothing. It used to add a `document` listener as
+ * a side effect of the import, which nobody could remove: a second shell in the
+ * same page, or an application with its own `?`, got two handlers. A
+ * `createShell()` shell binds `?` through its keymap (`installKeymap`), and
+ * `shell.dispose()` takes it off; this is for a page that uses the help modal
+ * without the shell.
+ *
+ * @param {object} [opts]
+ * @param {EventTarget} [opts.target=document]
+ * @returns {() => void}
  */
-function setupGlobalHelpShortcut() {
-    document.addEventListener('keydown', (event) => {
-        if (event.key !== '?') return;
+export function installHelpShortcut({ target = document } = {}) {
+    const onKeyDown = (event) => {
+        if (event.defaultPrevented || event.key !== '?') return;
         // Don't hijack `?` typed into a field (search boxes, editors).
-        const t = event.target;
-        if (t?.closest?.(
-            'input, textarea, select, [contenteditable="true"]')) return;
+        if (event.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
         event.preventDefault();
-        if (_activeModal) {
-            _activeModal.close();
-        } else {
-            HelpModal.open();
-        }
-    });
-}
-
-// Initialize global shortcut
-if (typeof document !== 'undefined') {
-    setupGlobalHelpShortcut();
+        HelpModal.toggle();
+    };
+    target.addEventListener('keydown', onKeyDown);
+    return () => target.removeEventListener('keydown', onKeyDown);
 }
 
 export default HelpModal;

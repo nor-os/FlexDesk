@@ -79,20 +79,29 @@
  */
 
 import { HelpModal } from '../help/help_modal.js';
-import { KEYBOARD_SHORTCUTS_TOPIC_ID, keyboardShortcutsTopic } from './keymap.js';
+import { KEYBOARD_SHORTCUTS_TOPIC_ID, KEYMAP_SHORTCUTS, keyboardShortcutsTopic } from './keymap.js';
 
 const ROOT_ID = 'twm-cmdpal';
 
-// Non-entity commands surfaced in the palette's search results. They
-// carry an `action` so `commit()` runs them instead of opening a tile.
-const STATIC_COMMANDS = [
-    { kind: 'command', id: 'shortcuts', label: 'Keyboard shortcuts',
-      hint: 'Show all key bindings (?)', icon: 'keyboard', shortcut: '?', verb: 'run',
-      // The application's help may define the topic; when it does not, the
-      // window manager's own bindings are shown rather than an error.
-      action: () => HelpModal.open(KEYBOARD_SHORTCUTS_TOPIC_ID,
-                                   { fallback: keyboardShortcutsTopic() }) },
-];
+/**
+ * Non-entity commands surfaced in the palette's search results. They carry an
+ * `action` so `commit()` runs them instead of opening a tile. `shortcuts` is
+ * the table the *Keyboard shortcuts* command shows — the shell passes the one
+ * its keymap's bindings produced (`keymapShortcuts`) — and its `?` hint is
+ * drawn only while `?` is in that table.
+ */
+function _staticCommands(shortcuts) {
+    const help = shortcuts.some((r) => r.keys === '?');
+    return [
+        { kind: 'command', id: 'shortcuts', label: 'Keyboard shortcuts',
+          hint: help ? 'Show all key bindings (?)' : 'Show all key bindings',
+          icon: 'keyboard', ...(help ? { shortcut: '?' } : {}), verb: 'run',
+          // The application's help may define the topic; when it does not, the
+          // window manager's own bindings are shown rather than an error.
+          action: () => HelpModal.open(KEYBOARD_SHORTCUTS_TOPIC_ID,
+                                       { fallback: keyboardShortcutsTopic(shortcuts) }) },
+    ];
+}
 
 const DEFAULT_GROUP_CAP = 4;
 const DEFAULT_COMMAND_MIN_CHARS = 2;
@@ -108,7 +117,9 @@ const MAX_ROWS = 200;
  *                     gesture. See `commit` for what it is for; omitted, the
  *                     palette behaves as it always has.
  *  @param chrome, layout, groupCap, empty, emptyLabel, commands,
- *         commandMinChars, drill, cache, tips, footerNote — C39, above. */
+ *         commandMinChars, drill, cache, tips, footerNote — C39, above.
+ *  @param shortcuts   the rows the built-in *Keyboard shortcuts* command lists
+ *                     (`{keys, action}`); `KEYMAP_SHORTCUTS` when omitted. */
 export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder = 'Search…',
                                        onPick = null,
                                        chrome = {}, layout = 'flat',
@@ -117,7 +128,8 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
                                        commands = null,
                                        commandMinChars = DEFAULT_COMMAND_MIN_CHARS,
                                        drill = null, cache = false,
-                                       tips = null, footerNote = '' }) {
+                                       tips = null, footerNote = '',
+                                       shortcuts = KEYMAP_SHORTCUTS }) {
     if (!taxonomy) throw new Error('createCommandPalette: a taxonomy is required');
     if (!catalog)  throw new Error('createCommandPalette: an entity catalog is required');
     const grouped = layout === 'grouped';
@@ -136,6 +148,7 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
     };
     const toggle = () => { isOpen() ? close() : open(); };
     const invalidate = () => { cached = null; };
+    const staticCommands = _staticCommands(shortcuts);
 
     const open = async () => {
         if (overlay) return;
@@ -672,7 +685,7 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
                 try { extra = (commands() || []).map((c) => ({ kind: 'command', ...c })); }
                 catch (err) { console.warn('[cmdpal] commands() threw', err); }
             }
-            return [...STATIC_COMMANDS, ...extra];
+            return [...staticCommands, ...extra];
         };
         // Objects before commands in the grouped layout, so that a tie that
         // survives every rule goes to the object (first seen wins).

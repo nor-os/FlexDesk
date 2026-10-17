@@ -1965,6 +1965,40 @@ doubled rule. `setOptions` follows the same rules, and an option's
 
 `tests/action_dropdown_separators.test.mjs` drives it in jsdom.
 
+## A list of tags: `createTagInput` (0.17.0)
+
+`createTagInput(host, { value, placeholder, readOnly, allowDuplicates, onChange })`
+(in `@flexdesk/widgets`) draws a list of short strings as removable chips
+followed by a text box, and appends it to `host`.
+
+```js
+const tags = createTagInput(host, {
+    value: ['baseline'],
+    placeholder: 'Add a tag…',
+    onChange: (list) => save(list),   // a fresh copy after each change the reader makes
+});
+tags.getValue();            // ['baseline']
+tags.setValue(['a', 'b']);  // redraws; does not call onChange
+tags.dispose();
+```
+
+- **Enter**, a **comma** and **blur** commit what was typed: it is split at
+  commas and each piece trimmed, so `a, b` then Enter adds two chips and
+  `onChange` receives `['a', 'b']`.
+- Empty pieces are ignored, and so is a piece already in the list unless
+  `allowDuplicates` is set. A commit that adds nothing calls no `onChange`.
+- **Backspace** in an empty box removes the last chip.
+- A **paste** that carries a comma is split into chips at once; a paste
+  without one is ordinary text in the box.
+- Each chip's remove button has an `aria-label`, "Remove <tag>" by default;
+  `removeLabel(tag)` words it (for another language). `label` names the text
+  box and the group.
+- `readOnly` draws the chips alone: no remove buttons and no text box.
+
+The handle is `{ element, input, getValue, setValue, focus, dispose }`
+(`input` is `null` when read-only). The styles are the `twm-tag-input` block in
+`flexdesk.css`. `tests/tag_input.test.mjs` covers each of the above in jsdom.
+
 ## Notifications: `NotificationCenter`
 
 Toasts, from `toast:show` on the bus (or `toastInfo` / `toastWarn` /

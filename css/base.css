@@ -9179,3 +9179,86 @@ button.twm-about-dialog__btn--close:focus {
     line-height: 1;
 }
 /* ══ end FLOW · LANES ══ */
+
+/* ══ TAG INPUT (0.17.0) ═══════════════════════════════════════════════
+ * `createTagInput` (src/ui/components/tag_input.js): removable chips and a
+ * text box on one wrapping line. No height of its own. */
+.twm-tag-input {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-xs, 4px);
+    min-width: 0;
+    padding: 3px var(--space-xs, 4px);
+    background: var(--surface-3, #3c3c3c);
+    border: 1px solid var(--border-strong, #383838);
+    border-radius: var(--radius-sm, 4px);
+    cursor: text;
+}
+.twm-tag-input:focus-within { border-color: var(--accent-bright, #007acc); }
+.twm-tag-input--readonly {
+    background: transparent;
+    border-color: transparent;
+    padding-left: 0;
+    padding-right: 0;
+    cursor: default;
+}
+.twm-tag-input__chips {
+    display: contents;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+.twm-tag-input__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    max-width: 100%;
+    min-width: 0;
+    padding: 1px var(--space-xs, 4px) 1px var(--space-sm, 6px);
+    background: var(--surface-2, #2d2d2d);
+    border: 1px solid var(--border-strong, #383838);
+    border-radius: var(--radius-pill, 999px);
+    color: var(--text-primary, #e0e0e0);
+    font-size: var(--font-size-sm, 12px);
+    line-height: 18px;
+}
+.twm-tag-input--readonly .twm-tag-input__chip { padding-right: var(--space-sm, 6px); }
+.twm-tag-input__text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.twm-tag-input__remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-circle, 50%);
+    background: transparent;
+    color: var(--text-muted, #888);
+    font: inherit;
+    line-height: 1;
+    cursor: pointer;
+}
+.twm-tag-input__remove:hover,
+.twm-tag-input__remove:focus-visible {
+    background: var(--state-active, rgba(255, 255, 255, 0.08));
+    color: var(--text-bright, #fff);
+}
+.twm-tag-input__input {
+    flex: 1 1 6em;
+    min-width: 4em;
+    padding: 1px 2px;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: var(--text-primary, #e0e0e0);
+    font: inherit;
+    font-size: var(--font-size-sm, 12px);
+}
+/* ══ end TAG INPUT ══ */

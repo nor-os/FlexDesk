@@ -2,10 +2,10 @@
 id: 38
 type: story
 title: "Storage keys, theme names and drag MIME types are chosen by the embedder, not baked in"
-status: refined
+status: in-progress
 parent: 29
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 3
@@ -13,7 +13,7 @@ subsystem: core
 labels: [injection, settings, windows]
 links: []
 created: 2026-10-17
-updated: 2026-10-17T08:37Z
+updated: 2026-10-17T17:23Z
 ---
 
 ## Description
@@ -35,6 +35,8 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
+- 2026-10-17 · norman_agent · status: refined -> in-progress
+- 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
 
 ## Comments
 

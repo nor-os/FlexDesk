@@ -2059,8 +2059,11 @@ The grid's cogwheel emits `grid:config-modal-show`, which now also carries the
 grid's `data`. Nothing listens unless you ask:
 `openTileConfig(eventBus, {mode: 'slide-out', host})` shows the form in a
 `SlideOutPanel` over `host` and saves every valid edit as it is made;
-`{mode: 'modal'}` (the default) saves on Save. It answers a function that
-unsubscribes.
+`{mode: 'modal'}` (the default) saves on Save. A request that arrives while a
+modal is open is ignored. It answers a function that unsubscribes and closes the
+slide-out; an open modal is left to the user, keeps its form and still saves on
+Save. A renderer's `commit` on a `readonly` field applies nothing and answers
+`{valid: false, error}`.
 
 ## Styling
 

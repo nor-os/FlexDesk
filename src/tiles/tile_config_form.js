@@ -45,14 +45,19 @@
  * `renderers[type](ctx)` — consulted before the built-ins, so it may also
  * replace one — gets `{field, key, value, data, readonly, commit}` and returns an
  * element, or `{element, setValue?(value), dispose?()}`. `commit(value)` runs
- * the same check as a built-in edit and answers `{valid, error?}`.
+ * the same check as a built-in edit and answers `{valid, error?}`. On a
+ * `readonly` field it applies nothing and answers `{valid: false, error}`, as a
+ * built-in control on a readonly field is disabled and never commits.
  *
  * ══ THE GRID'S COGWHEEL ═════════════════════════════════════════════════
  *
  * `TileGrid` emits `grid:config-modal-show` and nothing listens by default.
  * `openTileConfig(eventBus, opts)` is the opt-in listener: it shows the form in
  * a `SlideOutPanel` over `opts.host` (every valid edit is saved at once) or in a
- * modal (saved on Save). It answers a function that unsubscribes and closes.
+ * modal (saved on Save). A request that arrives while a modal is open is
+ * ignored: the open modal is the one being answered. It answers a function that
+ * unsubscribes; it also closes the slide-out, but leaves an open modal alone —
+ * that modal stays working (its Save still saves) until the user dismisses it.
  */
 
 import {
@@ -200,6 +205,7 @@ export function mountTileConfigForm(host, { schema, config = {}, data = null, on
     };
 
     const commit = (r, raw) => {
+        if (r.field.readonly) return { valid: false, error: `${r.field.label ?? r.field.key} is read-only` };
         const result = validateField(raw, r.field);
         if (!result.valid) {
             showError(r, result.error);
@@ -298,7 +304,8 @@ export function mountTileConfigForm(host, { schema, config = {}, data = null, on
 /**
  * Show `grid:config-modal-show` requests as a config form.
  *
- * @param {{on: Function}} eventBus  The bus the `TileGrid` emits on.
+ * @param {{on(name: string, handler: Function): {dispose(): void}}} eventBus
+ *   The `EventBus` the `TileGrid` emits on.
  * @param {object}   [opts]
  * @param {'modal'|'slide-out'} [opts.mode='modal']  A modal saves on Save; a
  *   slide-out saves every valid edit as it is made.
@@ -306,7 +313,8 @@ export function mountTileConfigForm(host, { schema, config = {}, data = null, on
  * @param {number}   [opts.width]    The slide-out's or the modal's width.
  * @param {Object}   [opts.renderers] Passed to `mountTileConfigForm`.
  * @param {string|Function} [opts.title='Tile settings']  Or `(detail) => string`.
- * @returns {() => void} Unsubscribes and closes whatever is open.
+ * @returns {() => void} Unsubscribes and closes the slide-out. An open modal is
+ *   left to the user: it keeps its form, and its Save still calls `onSave`.
  */
 export function openTileConfig(eventBus, { mode = 'modal', host = null, width, renderers = {}, title = 'Tile settings' } = {}) {
     if (typeof eventBus?.on !== 'function') throw new TypeError('openTileConfig: an event bus with on() is required');
@@ -315,16 +323,18 @@ export function openTileConfig(eventBus, { mode = 'modal', host = null, width, r
         throw new TypeError('openTileConfig: a slide-out needs a host element');
     }
 
-    let form = null;
+    let form = null;    // the slide-out's form
     let panel = null;
+    let modalOpen = false;
     const drop = () => { form?.dispose(); form = null; };
 
     const show = (detail = {}) => {
-        drop();
+        if (modalOpen) return;
         const heading = typeof title === 'function' ? title(detail) : title;
         const base = { schema: detail.schema, config: detail.config, data: detail.data ?? null, renderers };
 
         if (mode === 'slide-out') {
+            drop();
             if (!panel) {
                 panel = new SlideOutPanel({ ...(width ? { width } : {}), onClose: drop });
                 panel.mount(host);
@@ -334,27 +344,26 @@ export function openTileConfig(eventBus, { mode = 'modal', host = null, width, r
             return;
         }
 
-        // A modal owns the screen, so no second request arrives while it is
-        // open; a form dropped by the returned dispose makes its Save a no-op.
+        // The modal's form lives until the user dismisses the modal, whatever
+        // else happens meanwhile: requests are ignored while it is open, and
+        // the returned function leaves it alone.
         const content = el('div', 'fd-tile-config-host');
         const mine = mountTileConfigForm(content, base);
-        form = mine;
+        modalOpen = true;
         openModal({
             title: heading, icon: 'tune', content, ...(width ? { width } : {}),
             actions: [{ label: 'Cancel', value: null }, { label: 'Save', value: 'save', primary: true }],
         }).then((v) => {
-            if (form !== mine) return;
+            modalOpen = false;
             if (v === 'save') detail.onSave?.(mine.getValues());
-            drop();
+            mine.dispose();
         });
     };
 
     const sub = eventBus.on('grid:config-modal-show', show);
 
     return () => {
-        if (typeof sub === 'function') sub();
-        else if (sub?.dispose) sub.dispose();
-        else eventBus.off?.(sub);
+        sub.dispose();
         drop();
         panel?.dispose();
         panel = null;

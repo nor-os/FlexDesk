@@ -25,6 +25,9 @@
  *       leaf shows its next tab, or closes
  *   §6  the palette draws split/window refused with the reason, and
  *       Ctrl/Shift+Enter on a single row does nothing
+ *   §7  a page-archive restore never brings back a copy of an instance that
+ *       moved to another tile while its page was archived (stale archive)
+ *   §8  one reveal is one change notification, also when it switches desktop
  *
  * jsdom is borrowed from the sibling Tables checkout; without it this SKIPS,
  * and tests/run.mjs counts a SKIPPED suite as a failure.
@@ -112,6 +115,7 @@ const KINDS = {
     notebook: { label: 'Notebook', icon: 'book', isTopNav: true, order: 1, single: true },
     sheet:    { label: 'Sheet', icon: 'table', topNav: 'home' },
     record:   { label: 'Record', icon: 'article', topNav: 'home', single: 'id' },
+    board:    { label: 'Board', icon: 'dashboard', isTopNav: true, order: 2 },
 };
 const taxonomy = createTaxonomy({ root: 'home', kinds: KINDS });
 
@@ -458,6 +462,83 @@ console.log('\n§6 the palette refuses split and window for a single row');
         dom.window.document.querySelectorAll('.twm-cmdpal__item--active .twm-cmdpal__act--disabled').length, 0);
     key('Enter', { ctrlKey: true });
     check('…and splits', picks.at(-1), ['sheet', 'split']);
+}
+
+// ── §7 ──────────────────────────────────────────────────────────────────
+console.log('\n§7 a page-archive restore never copies an instance that moved away');
+shell.dispose();
+store.clear();
+shell = await build();
+wm = shell.wm;
+await tick();
+{
+    const tree = wm.desktops.active().tree;
+    wm.openInPrimary('home');
+    const A = tree.primaryLeafId();
+    wm.openInTabInPrimary('record', { id: 7 });
+    wm.openInPrimary('board');
+    wm.openInPrimary('home');
+    await tick();
+    check('leaf A holds home and record 7, on the home page',
+        tree.get(A).tabs.map((t) => t.kind), ['home', 'record']);
+    // Moving record 7 to its own tile is a move verb: allowed. The tile's
+    // home archive still lists it.
+    const idx = tree.get(A).tabs.findIndex((t) => t.kind === 'record');
+    const B = wm.moveTabInto(A, idx, { leafId: A, mode: 'split', dir: 'h' });
+    await tick();
+    ok('record 7 moved into a new leaf', B && B !== A, `got ${B}`);
+    // A leaves the home page by a path other than swapToPage …
+    wm.navigateActiveTab(A, 'board');
+    // … and comes back to it, restoring the home archive.
+    tree.focus(A);
+    wm.openInPrimary('home');
+    await tick();
+    check('record 7 has one tab, in leaf B', tabsOf('record').map((t) => t.leafId), [B]);
+    check('…and one live mount', live('record', 7).length, 1);
+    check('leaf A came back to its home page without it', tree.get(A).tabs.map((t) => t.kind), ['home']);
+    // Back takes the same door: walk A away and back with history.
+    wm.openInPrimary('board');
+    wm._popTabHistory(A);
+    await tick();
+    check('Back to the home page restores no copy either',
+        [tabsOf('record').map((t) => t.leafId), live('record', 7).length], [[B], 1]);
+}
+
+// ── §8 ──────────────────────────────────────────────────────────────────
+console.log('\n§8 one reveal, one notification');
+{
+    const reasons = [];
+    const prev = wm.onChange;
+    wm.onChange = (r) => { reasons.push(r); prev?.(r); };
+    const d0 = wm.desktops.activeIdx;
+    wm.switchDesktop(d0 === 0 ? 1 : 0);
+    reasons.length = 0;
+    wm.navigate('record', { id: 7 });
+    await tick();
+    check('a reveal that switches desktop notifies once', [wm.desktops.activeIdx, reasons], [d0, ['single-reveal']]);
+    reasons.length = 0;
+    wm.navigate('record', { id: 7 });
+    await tick();
+    check('a reveal on this desktop notifies once', [reasons, live('record', 7).length], [['single-reveal'], 1]);
+    // Floated, on a window that is not showing that tab, on another desktop:
+    // showWindowTab and the desktop switch would each notify.
+    const recLeaf = tabsOf('record')[0]?.leafId;
+    const winId = wm.floatPane(recLeaf);
+    await tick();
+    ok('record 7 floated into a window', !!winId && wm._windowToLeaf.has(winId));
+    const rec = wm._windowToLeaf.get(winId);
+    if (Array.isArray(rec.tabs) && rec.tabs.length < 2) {
+        rec.tabs.push({ kind: 'sheet', props: {}, title: 'Sheet', history: [] });
+    }
+    wm.showWindowTab(winId, rec.tabs.length - 1);
+    wm.switchDesktop(1);
+    await tick();
+    reasons.length = 0;
+    wm.navigate('record', { id: 7 });
+    await tick();
+    check('a window reveal across desktops notifies once',
+        [wm.desktops.activeIdx, rec.tabs[rec.activeTabIdx]?.kind, reasons], [0, 'record', ['single-reveal']]);
+    wm.onChange = prev;
 }
 
 shell.dispose();

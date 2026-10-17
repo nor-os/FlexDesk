@@ -58,6 +58,8 @@ export class WindowManager {
         this.ctx = ctx || {};
         this.eventBus = eventBus || null;
         this.onChange = onChange || (() => {});
+        /** >0 while a composite verb runs: see `_revealAt`. */
+        this._quietDepth = 0;
         // C34. Whether the tile's float gesture takes only the tab on screen.
         this.floatActiveTab = !!floatActiveTab;
 
@@ -201,6 +203,9 @@ export class WindowManager {
      *  so other surfaces (palette, top-bar toggles, page shortcuts) can
      *  subscribe through the existing event system. */
     _notifyChange(reason = null) {
+        // A composite verb (a single-kind reveal) is ONE change: the verbs it
+        // is built from stay quiet while it runs, and it notifies once.
+        if (this._quietDepth > 0) return;
         try { this.onChange(reason); } catch (err) { console.error('[wm] onChange threw', err); }
         try { this.eventBus?.emit?.('wm:changed', { reason, wm: this }); }
         catch (err) { console.warn('[wm] event emit failed', err); }
@@ -344,7 +349,20 @@ export class WindowManager {
             .filter(([page, arc]) => page !== current && Array.isArray(arc?.tabs));
     }
 
+    /** Reveal `loc` with ONE change notification. The verbs a reveal is made
+     *  of — `showWindowTab`, `switchDesktop` (directly or via `revealWindow`)
+     *  — each notify on their own; inside a reveal they are quiet, and the
+     *  reveal notifies once, as every other verb does. */
     _revealAt(loc) {
+        this._quietDepth += 1;
+        let shown = false;
+        try { shown = this._revealAtQuietly(loc); }
+        finally { this._quietDepth -= 1; }
+        if (shown) this._notifyChange('single-reveal');
+        return shown;
+    }
+
+    _revealAtQuietly(loc) {
         if (loc.where === 'window') {
             const rec = this._windowToLeaf.get(loc.windowId);
             if (!rec) return false;
@@ -355,7 +373,6 @@ export class WindowManager {
             this.revealWindow(rec.window);
             // `show()` restores a minimised window and raises a visible one.
             try { rec.window.show(); } catch (err) { console.warn('[wm] reveal: show failed', err); }
-            this._notifyChange('single-reveal');
             return true;
         }
         const tree = this.desktops.desktops[loc.desktopIdx]?.tree;
@@ -366,7 +383,7 @@ export class WindowManager {
             const key = this._instanceKey(tab.kind, tab.props);
             const curKind = leaf.content?.kind;
             const current = curKind ? this.taxonomy.topNavFor(curKind) || null : null;
-            tree.swapToPage(loc.leafId,
+            this._swapToPage(tree, loc.leafId,
                 { kind: tab.kind, props: tab.props || {}, title: tab.title },
                 current, loc.page, { recordHistory: false });
             const at = (leaf.tabs || []).findIndex((t) => this._instanceKey(t.kind, t.props) === key);
@@ -383,8 +400,87 @@ export class WindowManager {
             this.renderer.render();
             this._persist();
         }
-        this._notifyChange('single-reveal');
         return true;
+    }
+
+    /** `TileTree.swapToPage`, and then no restored tab is a second copy of a
+     *  single kind. Every page restore in the WM goes through here.
+     *
+     *  A page archive (`pageTabs`) is a snapshot: the instance it lists can
+     *  have moved to another tile or a window since — and the current page's
+     *  own entry is a stale copy of the live tabs that comes back into play as
+     *  soon as the tile leaves the page by a path other than `swapToPage`
+     *  (`navigateActiveTab`). So a restored tab whose instance is live
+     *  anywhere else is dropped from the tile and from the restored archive;
+     *  the instance stays where it is. */
+    _swapToPage(tree, leafId, target, currentTopNav, targetTopNav, opts) {
+        const done = tree.swapToPage(leafId, target, currentTopNav, targetTopNav, opts);
+        if (done) this._dropRestoredCopies(tree, leafId, targetTopNav, target);
+        return done;
+    }
+
+    _dropRestoredCopies(tree, leafId, page, target) {
+        const leaf = tree.get(leafId);
+        const tabs = Array.isArray(leaf?.tabs) ? leaf.tabs : null;
+        if (!tabs) return;
+        const elsewhere = this._liveInstanceKeys(tree, leafId);
+        const keeper = () => {
+            const seen = new Set();
+            return (t) => {
+                const k = t ? this._instanceKey(t.kind, t.props) : null;
+                if (k == null) return true;
+                if (elsewhere.has(k) || seen.has(k)) return false;
+                seen.add(k);
+                return true;
+            };
+        };
+        const arc = leaf.pageTabs?.[page];
+        if (arc && Array.isArray(arc.tabs)) {
+            const kept = arc.tabs.filter(keeper());
+            if (kept.length !== arc.tabs.length) {
+                arc.tabs = kept;
+                arc.activeTabIdx = Math.max(0, Math.min(kept.length - 1, arc.activeTabIdx || 0));
+            }
+        }
+        const keep = keeper();
+        let active = leaf.activeTabIdx || 0;
+        let changed = false;
+        for (let i = 0; i < tabs.length;) {
+            if (keep(tabs[i])) { i++; continue; }
+            tabs.splice(i, 1);
+            if (i < active) active -= 1;
+            changed = true;
+        }
+        if (!changed) return;
+        if (!tabs.length) {
+            // Everything the archive held lives elsewhere: the tile shows
+            // what was asked for. (A single target that is live elsewhere was
+            // revealed before any restore, so this tab is never a copy.)
+            tabs.push({
+                kind: target.kind, props: target.props || {},
+                title: target.title || _tabTitle(target.kind, target.props), history: [],
+            });
+            active = 0;
+        }
+        tree.setActiveLeafTab(leafId, Math.max(0, Math.min(tabs.length - 1, active)));
+    }
+
+    /** The instance keys of every LIVE tab — windows, and every leaf of every
+     *  desktop but `leafId` of `tree`. Archived pages are not live. */
+    _liveInstanceKeys(tree, leafId) {
+        const keys = new Set();
+        const add = (t) => {
+            const k = t ? this._instanceKey(t.kind, t.props) : null;
+            if (k != null) keys.add(k);
+        };
+        for (const [, rec] of this._windowToLeaf) _windowTabSpecs(rec).forEach(add);
+        for (const d of this.desktops.desktops) {
+            for (const leaf of d.tree.leaves()) {
+                if (d.tree === tree && leaf.id === leafId) continue;
+                (leaf.tabs || []).forEach(add);
+            }
+        }
+        return keys;
     }
 
     /** A restored layout keeps the FIRST instance of each single kind: later
@@ -677,7 +773,7 @@ export class WindowManager {
         const curTopNav = curKind ? this.taxonomy.topNavFor(curKind) : null;
         const title = prior.title || _tabTitle(prior.kind, prior.props);
         if (prior.topNav && curTopNav && prior.topNav !== curTopNav) {
-            tree.swapToPage?.(id, { kind: prior.kind, props: prior.props || {}, title },
+            this._swapToPage(tree, id, { kind: prior.kind, props: prior.props || {}, title },
                 curTopNav, prior.topNav, { recordHistory: false });
         } else {
             tree.replaceActiveTabContent(id, { kind: prior.kind, props: prior.props || {} },
@@ -916,7 +1012,7 @@ export class WindowManager {
             : null;
         const targetTopNav  = this.taxonomy.topNavFor(kind) || kind;
         const title = _tabTitle(kind, props);
-        tree.swapToPage(leafId,
+        this._swapToPage(tree, leafId,
             { kind, props, title },
             currentTopNav, targetTopNav);
         // C35. THE SAME PAGE WITH DIFFERENT PROPS IS A DIFFERENT VIEW. swapToPage

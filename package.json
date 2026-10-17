@@ -42,6 +42,7 @@
         },
         "./css": "./dist/flexdesk.css",
         "./css/tokens": "./css/tokens.css",
+        "./css/reset": "./dist/reset.css",
         "./charts": {
             "import": "./dist/charts.js",
             "development": "./charts.js"

@@ -1899,11 +1899,16 @@ toasts where the file went, a cancel says nothing — and with no host, or a
 
 Three stylesheets, and that is the whole CSS contract:
 
-| | |
-|---|---|
-| `dist/tokens.css` | Every rule reads `var(--…)` from here. Swap this one file and the shell restyles. |
-| `dist/reset.css` | The reset. |
-| `dist/flexdesk.css` | The library. Every class is `twm-` prefixed (the original working name; the prefix is stable and not worth a breaking rename). |
+| | Specifier | |
+|---|---|---|
+| `dist/tokens.css` | `flexdesk/css/tokens` | Every rule reads `var(--…)` from here. Swap this one file and the shell restyles. |
+| `dist/reset.css` | `flexdesk/css/reset` | The reset. |
+| `dist/flexdesk.css` | `flexdesk/css` | The library. Every class is `twm-` prefixed (the original working name; the prefix is stable and not worth a breaking rename). |
+
+Each one resolves by its specifier through the package's `exports` map, for a
+bundler, an import-map generator or `require.resolve`; the exports map closes
+every other path into the package. `flexdesk/css/reset` is missing from 0.16.0
+and earlier, where it fails with `ERR_PACKAGE_PATH_NOT_EXPORTED`.
 
 Icons are rendered by applying the `material-symbols-outlined` class. FlexDesk does
 not ship the font — supply it from Google Fonts or self-host. Without it, icons fall

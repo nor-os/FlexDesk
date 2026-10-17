@@ -22,9 +22,10 @@
  *                       by help_modal.js, not here
  *   Esc                 close palette / managed-modal
  *
- * The full user-facing reference is the Help modal's "Keyboard shortcuts"
- * topic (ui/js/help/help_service.js) — keep that table in sync when
- * binding new chords here.
+ * The user-facing reference is `KEYMAP_SHORTCUTS` below, which the palette's
+ * built-in *Keyboard shortcuts* command shows as a help topic (see
+ * `keyboardShortcutsTopic`) — keep that table in sync when binding new
+ * chords here.
  *
  * The handler refuses to act when focus is in an editable field, unless
  * the chord uses the Alt modifier (which is never typed into a field).
@@ -39,6 +40,57 @@
  * and `Alt+W` closes a tile in a tree nobody can see. `createShell().dispose()`
  * calls this.
  */
+
+/**
+ * The window manager's default bindings, as the user reads them: one row per
+ * chord (or family of chords), `keys` as drawn, `action` in plain words. The
+ * `?` row is help_modal.js's global shortcut, listed here because it is the
+ * key the user reaches for to see this list.
+ */
+export const KEYMAP_SHORTCUTS = Object.freeze([
+    { keys: 'Ctrl+K', action: 'Open the command palette' },
+    { keys: '?', action: 'Open help' },
+    { keys: 'Esc', action: 'Close the palette or a modal' },
+    { keys: 'F1..F8', action: 'Jump to the Nth top-nav page' },
+    { keys: 'Backspace', action: 'Go back one step up the breadcrumb' },
+    { keys: 'Alt+H / Alt+V', action: 'Split the focused tile horizontally / vertically (empty pane)' },
+    { keys: 'Alt+Shift+H / Alt+Shift+V', action: "Open the focused tile's content in a horizontal / vertical split" },
+    { keys: 'Alt+T', action: "Open the focused tile's content in a new tab" },
+    { keys: 'Alt+N', action: "Open the focused tile's content in a new window" },
+    { keys: 'Alt+W', action: 'Close the focused tile' },
+    { keys: 'Alt+F', action: 'Float the focused tile into a window, or dock it back' },
+    { keys: 'Alt+Arrow', action: 'Move focus to the neighbouring tile' },
+    { keys: 'Alt+Shift+Arrow', action: 'Swap the focused tile with its neighbour' },
+    { keys: 'Alt+1..9', action: 'Switch to desktop N' },
+    { keys: 'Alt+Shift+1..9', action: 'Move the focused tile to desktop N' },
+    { keys: 'Ctrl+Left / Ctrl+Right', action: 'Previous / next desktop' },
+    { keys: 'Shift+Left / Shift+Right', action: 'Previous / next bottom-panel tab' },
+    { keys: 'Ctrl+Tab / Ctrl+Shift+Tab', action: 'Next / previous tab in the focused tile' },
+].map((r) => Object.freeze(r)));
+
+/** The help topic id the palette's *Keyboard shortcuts* command opens. */
+export const KEYBOARD_SHORTCUTS_TOPIC_ID = 'keyboard-shortcuts';
+
+const _esc = (s) => String(s).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+/**
+ * `KEYMAP_SHORTCUTS` as a help topic (`{id, title, html}`, the shape a
+ * HelpProvider's `loadTopic` answers). The palette hands it to HelpModal as
+ * the FALLBACK for its built-in command: an application whose provider
+ * defines `keyboard-shortcuts` shows its own topic; one that defines none —
+ * or registers no help at all — shows this table instead of an error.
+ */
+export function keyboardShortcutsTopic(shortcuts = KEYMAP_SHORTCUTS) {
+    const rows = shortcuts.map((r) =>
+        `<tr><td><kbd>${_esc(r.keys)}</kbd></td><td>${_esc(r.action)}</td></tr>`).join('');
+    return {
+        id: KEYBOARD_SHORTCUTS_TOPIC_ID,
+        title: 'Keyboard shortcuts',
+        html: '<table class="help-shortcuts"><thead><tr><th>Keys</th><th>Action</th></tr></thead>'
+            + `<tbody>${rows}</tbody></table>`,
+    };
+}
 
 export function installKeymap({ wm, palette, ...opts } = {}) {
     const onKeyDown = (e) => {

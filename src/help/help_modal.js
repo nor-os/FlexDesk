@@ -33,14 +33,21 @@ export class HelpModal {
         this._modal = null;
         this._currentTopic = null;
         this._searchQuery = '';
+        this._fallback = null;
         this._boundKeyHandler = this._handleKeyDown.bind(this);
     }
 
     /**
      * Open the help modal.
      * @param {string} [topicId] - Initial topic to display
+     * @param {Object} [options]
+     * @param {{title: string, html: string}} [options.fallback] - Shown for
+     *   `topicId` when the provider has no such topic (its `loadTopic` answers
+     *   null). A library-owned topic, such as the palette's keyboard shortcuts,
+     *   uses it so that an application's own topic of that id still wins.
      */
-    async open(topicId = null) {
+    async open(topicId = null, { fallback = null } = {}) {
+        this._fallback = topicId && fallback ? { id: topicId, topic: fallback } : null;
         // Close any existing modal
         if (_activeModal && _activeModal !== this) {
             _activeModal.close();
@@ -265,8 +272,20 @@ export class HelpModal {
         });
 
         try {
-            const topic = await this._service.loadTopic(topicId);
+            const topic = (await this._service.loadTopic(topicId))
+                ?? (this._fallback?.id === topicId ? this._fallback.topic : null);
             this._currentTopic = topicId;
+
+            if (!topic) {
+                // An id nobody provides is not a load failure: say so plainly.
+                content.innerHTML = `
+                    <div class="help-content__error help-content__error--not-found">
+                        <span class="material-symbols-outlined">search_off</span>
+                        <p>Help topic not found.</p>
+                    </div>
+                `;
+                return;
+            }
 
             content.innerHTML = `
                 <div class="help-content__article">
@@ -361,11 +380,12 @@ export class HelpModal {
     /**
      * Static method to open help modal.
      * @param {string} [topicId] - Initial topic
+     * @param {Object} [options] - As for the instance `open`.
      * @returns {HelpModal}
      */
-    static open(topicId = null) {
+    static open(topicId = null, options = {}) {
         const modal = new HelpModal();
-        modal.open(topicId);
+        modal.open(topicId, options);
         return modal;
     }
 

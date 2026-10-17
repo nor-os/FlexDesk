@@ -6860,7 +6860,7 @@ body.twm-dragging * { user-select: none; }
     padding: var(--space-sm) var(--space-md);
     background: var(--surface-1);
     border-bottom: 1px solid var(--border-strong);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--shadow-md);
     color: var(--text-primary);
     font-size: var(--font-size-sm);
 }

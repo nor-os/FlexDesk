@@ -139,9 +139,11 @@ t.ok('the button glyph wins the Material Symbols tie',
     compareSpecificity(specificity('.nb-search-bar__btn .material-symbols-outlined'),
                        specificity('.material-symbols-outlined')) > 0
     && ruleBody(FLEX, '.nb-search-bar__btn .material-symbols-outlined') !== null);
-t.ok('the section reads no literal colour outside a var() fallback', (() => {
+t.ok('the section reads no literal colour (#hex, rgb(), hsl()) outside a var() fallback', (() => {
     const s = FLEX.slice(FLEX.indexOf('/* ══ EDITOR · PANES'), FLEX.indexOf('/* ══ end EDITOR · PANES'));
-    return !/:\s*#[0-9a-f]{3,6}/i.test(stripComments(s));
+    // Drop every var(--token[, fallback]) first; whatever colour is left is hard-coded.
+    const bare = stripComments(s).replace(/var\(--[\w-]+(?:,[^()]*)?\)/g, '');
+    return !/#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?)\(/i.test(bare);
 })());
 
 // ── §3 the tab bar is a fixed row inside a pane ─────────────────────────

@@ -150,7 +150,11 @@ createTaxonomy({
   nav, `openInPrimary`, `openInTab*`, `splitLeafWith`, Back. It switches to the
   desktop it is on, activates its tab (bringing back a top-nav page the tile
   had switched away from) and focuses its tile, or raises its window. Nothing
-  is mounted twice.
+  is mounted twice, and a reveal is one `onChange` / `wm:changed`
+  (`'single-reveal'`), however many steps it took.
+- **A page restore never brings back a copy.** A tile's archived top-nav page
+  can still list an instance that has since moved to another tile or a window;
+  switching back to that page (top nav, `openInPrimary`, Back) leaves it out.
 - **The copy verbs refuse.** Alt+T, Alt+N, Alt+Shift+H/V do nothing; the tile
   menu's *Open in new tab* and *Open a copy in a window* are greyed with the
   reason as their tooltip (`taxonomy.singleReason(kind)`); the palette draws its

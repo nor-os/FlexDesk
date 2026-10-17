@@ -3171,7 +3171,18 @@ export class WindowManager {
             else if (kind === 'panel:bottom') panel.bottom = leaf;
         }
 
-        // 2. Detach each panel leaf from its current parent. (We don't
+        // 2. Measure each panel BEFORE anything is detached: its share of
+        //    the WM area along its own axis (width for left/right, height
+        //    for bottom). Detaching collapses the panel's split, so this is
+        //    the last moment the user's dragged size can be read; wrap()
+        //    rebuilds from it. A panel with no parent split (it IS the
+        //    root) has no measurable share and reopens at the default.
+        const share = {};
+        for (const side of ['left', 'right', 'bottom']) {
+            share[side] = this._panelShare(tree, panel[side], side === 'bottom' ? 'v' : 'h');
+        }
+
+        // 3. Detach each panel leaf from its current parent. (We don't
         //    use tree.close because that deletes the node; we want to
         //    preserve identity so the renderer keeps the mounted body.)
         const detach = (leaf) => {
@@ -3194,7 +3205,7 @@ export class WindowManager {
         };
         detach(panel.left); detach(panel.right); detach(panel.bottom);
 
-        // 3. The content subtree may legitimately be empty — the user
+        // 4. The content subtree may legitimately be empty — the user
         //    is allowed to close the last main tile and let panels
         //    take over the entire WM area. If so, seed root from the
         //    first requested panel; otherwise content stays as root.
@@ -3221,8 +3232,25 @@ export class WindowManager {
             // the "Empty desktop" placeholder).
         }
 
-        // 4. Wrap content row with left + right (h-split), then wrap
+        // 5. Wrap content row with left + right (h-split), then wrap
         //    that with bottom (v-split) so bottom spans full width.
+        //
+        //    Sizes: a panel measured in step 2 gets back the same share of
+        //    the WM area; only a panel without one (newly opened, or one
+        //    that was the root) takes the default 1:4. Left sits INSIDE the
+        //    right panel's split, so its share of that inner split is its
+        //    area share divided by what the right panel leaves over — that
+        //    is what keeps the Navigator's width when the right panel is
+        //    toggled.
+        const willWrap = (side) => !!desktop.panels[side] && seededSide !== side;
+        const DEFAULT_SHARE = 1 / 5;
+        const wrapShare = (side) => {
+            const own = share[side];
+            if (own == null) return null;
+            if (side !== 'left' || !willWrap('right')) return own;
+            const rest = 1 - (share.right ?? DEFAULT_SHARE);
+            return rest > 0 ? Math.min(own / rest, 0.95) : null;
+        };
         const wrap = (panelLeaf, side) => {
             // Re-register the leaf if it was orphaned by detach.
             if (panelLeaf && !tree.nodes.has(panelLeaf.id)) {
@@ -3240,9 +3268,9 @@ export class WindowManager {
             const before = (side === 'left');
             const dir = (side === 'bottom') ? 'v' : 'h';
             const children = before ? [leaf.id, tree.rootId] : [tree.rootId, leaf.id];
-            const sizes = (side === 'bottom') ? [4, 1]
-                        : (side === 'left')   ? [1, 4]
-                        :                       [4, 1];
+            const kept = panelLeaf ? wrapShare(side) : null;
+            const sizes = (kept != null) ? (before ? [kept, 1 - kept] : [1 - kept, kept])
+                        : before ? [1, 4] : [4, 1];
             const split = {
                 id: `split-panel-${side}-${Math.random().toString(36).slice(2, 7)}`,
                 kind: 'split', parentId: null, dir, children, sizes,
@@ -3273,6 +3301,28 @@ export class WindowManager {
         for (const id of [...tree.nodes.keys()]) {
             if (!reachable.has(id)) tree.nodes.delete(id);
         }
+    }
+
+    /** The share (0..1) of the WM area a panel leaf takes along `axis`:
+     *  the product of its shares in every ancestor split running that way
+     *  (splits across the axis do not change it). Null for a missing or
+     *  root leaf, or a degenerate split. */
+    _panelShare(tree, leaf, axis) {
+        if (!leaf?.parentId) return null;
+        let frac = 1;
+        let node = leaf;
+        while (node.parentId) {
+            const parent = tree.get(node.parentId);
+            if (!parent) break;
+            if (parent.dir === axis) {
+                const idx = parent.children.indexOf(node.id);
+                const total = parent.sizes.reduce((a, b) => a + b, 0);
+                if (idx < 0 || !(total > 0) || !(parent.sizes[idx] > 0)) return null;
+                frac *= parent.sizes[idx] / total;
+            }
+            node = parent;
+        }
+        return (frac > 0 && frac < 1) ? frac : null;
     }
 
     _findPanelLeaf(side) {

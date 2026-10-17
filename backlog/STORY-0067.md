@@ -2,10 +2,10 @@
 id: 67
 type: story
 title: "An optional dialogs.openFile capability and a pickFile helper with browser fallback"
-status: refined
+status: in-progress
 parent: 23
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 3
@@ -13,7 +13,7 @@ subsystem: host
 labels: [host, dialogs]
 links: []
 created: 2026-10-17
-updated: 2026-10-17T07:55Z
+updated: 2026-10-17T21:25Z
 ---
 
 ## Description
@@ -36,6 +36,8 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
+- 2026-10-17 · norman_agent · status: refined -> in-progress
+- 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
 
 ## Comments
 

@@ -139,16 +139,29 @@ export function mountConversationView(host, {
         pinned = value;
         jump.hidden = pinned;
     };
-    /** After every change to the transcript: follow it, or leave the reader where they are. */
-    const settle = () => { if (pinned) toBottom(); };
-
-    function onScroll() {
+    /**
+     * Reads the position the reader left: a move up that ends past
+     * `pinThreshold` from the end stops following. Returns whether the view
+     * is within the threshold. Shared by the `scroll` event and by settle(),
+     * because a scrollbar drag, a key or a touch moves `scrollTop` before its
+     * `scroll` event is dispatched, and a change arriving in between must not
+     * snap the reader back.
+     */
+    function noticeMove() {
         const top = log.scrollTop;
         const movedUp = top < lastScrollTop;
         lastScrollTop = top;
-        if (distanceFromEnd() <= pinThreshold) { if (!pinned) setPinned(true); return; }
-        if (movedUp && pinned) setPinned(false);
+        const near = distanceFromEnd() <= pinThreshold;
+        if (movedUp && !near && pinned) setPinned(false);
+        return near;
     }
+    /** After every change to the transcript: follow it, or leave the reader where they are. */
+    const settle = () => {
+        noticeMove();
+        if (pinned) toBottom();
+    };
+
+    function onScroll() { if (noticeMove() && !pinned) setPinned(true); }
     /** A wheel up stops following at once, before the scroll it causes is reported. */
     function onWheel(e) { if (e.deltaY < 0 && pinned && log.scrollTop > 0) setPinned(false); }
     function onJump() { setPinned(true); toBottom(); }

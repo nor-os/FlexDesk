@@ -12,9 +12,14 @@
  *
  *   §1  `flexdesk/css/reset` resolves, under `import` and under `require`, to
  *       dist/reset.css — the file the contract documents
- *   §2  the other two contract specifiers still resolve, to files that exist
+ *   §2  the other two contract specifiers resolve, under `import` and under
+ *       `require`, to exactly the files the README names: `flexdesk/css` to
+ *       dist/flexdesk.css, `flexdesk/css/tokens` to the source css/tokens.css
+ *       (not dist/ — BUG-0030 tracks that split)
  *   §3  every `./css*` export exists on disk and sits under a path `files`
  *       publishes, so no CSS specifier points at a file the tarball lacks
+ *   §4  the README's Styling table names, for every specifier, the file the
+ *       exports map really resolves it to, so the docs cannot drift from it
  *
  * The package resolves itself by name (Node's self-reference), so this runs
  * against this checkout's package.json with nothing installed.
@@ -57,11 +62,14 @@ check('§1 require.resolve(flexdesk/css/reset) -> dist/reset.css',
       viaRequire(`${PKG.name}/css/reset`), 'dist/reset.css');
 ok('§1 dist/reset.css exists', existsSync(join(ROOT, 'dist', 'reset.css')));
 
-// ── §2 the rest of the contract ──────────────────────────────────────────
-for (const [spec, file] of [['css', 'flexdesk.css'], ['css/tokens', 'tokens.css']]) {
-    const got = viaImport(`${PKG.name}/${spec}`);
-    ok(`§2 flexdesk/${spec} resolves to a ${file}`, got.endsWith(`/${file}`), `got ${got}`);
-    ok(`§2 flexdesk/${spec} target exists`, existsSync(join(ROOT, got)), `got ${got}`);
+// ── §2 the rest of the contract, pinned exactly ──────────────────────────
+const EXPECTED = { css: 'dist/flexdesk.css', 'css/tokens': 'css/tokens.css', 'css/reset': 'dist/reset.css' };
+for (const spec of ['css', 'css/tokens']) {
+    check(`§2 import.meta.resolve(flexdesk/${spec}) -> ${EXPECTED[spec]}`,
+          viaImport(`${PKG.name}/${spec}`), EXPECTED[spec]);
+    check(`§2 require.resolve(flexdesk/${spec}) -> ${EXPECTED[spec]}`,
+          viaRequire(`${PKG.name}/${spec}`), EXPECTED[spec]);
+    ok(`§2 ${EXPECTED[spec]} exists`, existsSync(join(ROOT, EXPECTED[spec])));
 }
 
 // ── §3 every CSS export target is real and published ─────────────────────
@@ -82,6 +90,19 @@ for (const [key, value] of cssExports) {
            published.some((f) => path === f || path.startsWith(`${f}/`)),
            `files: ${JSON.stringify(published)}`);
     }
+}
+
+// ── §4 the README documents what the map does ────────────────────────────
+const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
+const styling = readme.slice(readme.indexOf('\n## Styling\n'));
+const rows = [...styling.matchAll(/^\| `([^`]+)` \| `([^`]+)` \| `([^`]+)` \|/gm)]
+    .map(([, file, spec, target]) => ({ file, spec, target }));
+check('§4 the Styling table lists the three specifiers',
+      rows.map((r) => r.spec).sort(), [`${PKG.name}/css`, `${PKG.name}/css/reset`, `${PKG.name}/css/tokens`]);
+for (const { spec, target } of rows) {
+    check(`§4 README: ${spec} resolves to ${target}`, viaImport(spec), target);
+    check(`§4 README: ${spec} target is the one this suite pins`,
+          target, EXPECTED[spec.slice(PKG.name.length + 1)]);
 }
 
 console.log(failures === 0 ? 'css exports: OK' : `css exports: ${failures} FAILURE(S)`);

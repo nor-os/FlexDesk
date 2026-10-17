@@ -1891,6 +1891,13 @@ There is deliberately **no default path**. A hardcoded `'vendor/monaco'` is one
 application's directory layout, and for everyone else it is a 404 that surfaces as
 an editor which silently never appears. `initMonaco()` throws instead.
 
+`getEditorFactory()` and `initMonaco()` **reject** when no path was set, when
+`vs/loader.js` fails to load, or when Monaco's AMD loader reports an error, so a
+consumer can show a message instead of waiting forever. A failed load is not
+sticky: fix the path (`setMonacoBasePath`) and the next call tries again.
+`monacoReady` only ever resolves — it is the "Monaco has arrived" signal, not
+the place to learn that an attempt failed.
+
 If you already load Plotly yourself (a `<script>` tag that sets `window.Plotly`),
 the chart loader short-circuits and you can skip `setPlotlySource`.
 

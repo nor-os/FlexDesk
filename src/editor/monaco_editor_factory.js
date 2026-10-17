@@ -437,8 +437,12 @@ export class MonacoEditorFactory {
     }
 }
 
-/** Singleton instance, initialized lazily. */
-let _factoryInstance = null;
+/**
+ * The singleton, as a promise: concurrent callers share one load, and a FAILED
+ * load clears it so the next call can retry.
+ * @type {Promise<MonacoEditorFactory> | null}
+ */
+let _factoryPromise = null;
 
 // Where the app keeps Monaco. Set once, at boot.
 let _monacoBasePath = null;
@@ -448,11 +452,20 @@ export function setMonacoBasePath(basePath) {
     if (typeof basePath === 'string' && basePath) _monacoBasePath = basePath;
 }
 
-export async function getEditorFactory() {
-    if (!_factoryInstance) {
-        // Ensure Monaco is initialized — initMonaco is idempotent, safe to call from any entry point
-        initMonaco(_monacoBasePath);
-        _factoryInstance = await new MonacoEditorFactory().init();
+/**
+ * The shared editor factory, once Monaco has loaded.
+ *
+ * Rejects — rather than pending forever (BUG-0023) — when setMonacoBasePath()
+ * was never called or Monaco cannot be loaded from it, with initMonaco()'s
+ * error. A later call retries, so fixing the path and calling again works.
+ *
+ * @returns {Promise<MonacoEditorFactory>}
+ */
+export function getEditorFactory() {
+    if (!_factoryPromise) {
+        _factoryPromise = initMonaco(_monacoBasePath)
+            .then(() => new MonacoEditorFactory().init())
+            .catch((err) => { _factoryPromise = null; throw err; });
     }
-    return _factoryInstance;
+    return _factoryPromise;
 }

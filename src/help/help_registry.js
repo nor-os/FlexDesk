@@ -13,8 +13,19 @@
  * @typedef {Object} HelpProvider
  * @property {() => string[]} getCategories
  * @property {(category: string) => Array<{id: string, title: string}>} getTopicsByCategory
- * @property {(id: string) => Promise<Object|null>} loadTopic
+ * @property {(id: string) => Promise<HelpTopic|null>} loadTopic
  * @property {(query: string) => Array<Object>} searchTopics
+ * @property {Object} [markdownOptions] What the modal passes to
+ *   `renderMarkdown` for a markdown topic: `highlight`, `math`, `allowHtml`,
+ *   `inlineRules`, `blockRules`.
+ *
+ * @typedef {Object} HelpTopic
+ * @property {string} title Text.
+ * @property {string} [markdown] The article as markdown, rendered safe by
+ *   `renderMarkdown`: raw HTML is escaped and only http(s), mailto and #anchor
+ *   links go anywhere. Used when present.
+ * @property {string} [html] The article as pre-rendered, TRUSTED HTML,
+ *   inserted verbatim. Never put unsanitised user content here.
  *
  * @typedef {Object.<string, {label: string, icon: string}>} HelpCategories
  *   Keyed by category id; ITERATION ORDER IS DISPLAY ORDER.

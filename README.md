@@ -1828,6 +1828,54 @@ the caller's own DOM.
 `tests/confirm_escaping.test.mjs` opens each of them in jsdom with hostile
 names and labels.
 
+## Markdown: `renderMarkdown` (0.17.0)
+
+`renderMarkdown(source, options)` (`@flexdesk/widgets`) returns an HTML
+string. It covers a CommonMark-ish subset — ATX headings, paragraphs,
+emphasis, strong, `~~strike~~`, code spans, fenced code, block quotes, nested
+ordered and unordered lists, GFM pipe tables, rules, links, images, autolinks,
+hard breaks and `$…$` / `$$…$$` math — and is **safe by default**:
+
+- raw HTML is escaped: `<img src=x onerror=alert(1)>` shows as that text.
+  `allowHtml: ['kbd', 'br']` lets named tags through, the tag only and never
+  its attributes; a tag that runs or embeds anything (`script`, `iframe`,
+  `svg`, `img`, …) throws. An allowed tag left open is closed at the end of its
+  paragraph.
+- a link goes out only to `http(s):`, `mailto:` or a `#anchor`, always with
+  `rel="noopener noreferrer"`; a `javascript:` link (or any other) renders its
+  text and no anchor. An image loads from `http(s):` or a relative path, or
+  shows its alt text.
+
+```js
+import { renderMarkdown } from '@flexdesk/widgets';
+
+el.innerHTML = renderMarkdown(source, {
+    highlight: (code, lang) => myHighlighter(code, lang),   // null: escaped
+    math: undefined,      // default: window.katex when present, else the escaped source
+                          // false: `$` is text; or (tex, { display }) => html | null
+    inlineRules: [{ pattern: /\[\[ref:([\w-]+)\]\]/, render: (m, ctx) => `<a href="#${ctx.escape(m[1])}">…</a>` }],
+    blockRules:  [{ start: /^:::(\w+)/, end: /^:::$/, render: ({ lines, match, closed }, ctx) => '…' }],
+    inline: false,        // true: inline markup only, no blocks, no <p>
+});
+```
+
+What the caller returns — the highlighter's, the math hook's and the rules'
+HTML — is trusted and goes in as it is; a rule answering `null` declines.
+`ctx` gives a rule `escape(text)` and `inline(text)`. Not in the subset:
+setext headings, indented code blocks, reference links, raw HTML blocks.
+
+**Streaming.** Every element it opens it closes, so each prefix of a document
+arriving token by token renders to balanced HTML: an open fence is closed at
+the end of the input, and an emphasis or link whose closer has not arrived is
+still text. `tests/markdown.test.mjs` renders every prefix of a document using
+every construct and checks the tags balance; `tests/help_modal_markdown.test.mjs`
+checks jsdom has nothing to repair.
+
+**Help topics in markdown.** A `HelpProvider`'s `loadTopic` may now answer
+`{ title, markdown }`; the modal renders it with `renderMarkdown` and the
+provider's optional `markdownOptions`. `{ title, html }` is unchanged:
+pre-rendered, **trusted** HTML, inserted as it is.
+
 ## Notifications: `NotificationCenter`
 
 Toasts, from `toast:show` on the bus (or `toastInfo` / `toastWarn` /

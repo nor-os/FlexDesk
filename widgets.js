@@ -42,6 +42,7 @@ export * from './src/ui/controllers/panel_state_machine.js';
 export * from './src/ui/controllers/window_chrome_controller.js';
 export * from './src/ui/notification_center.js';
 export * from './src/ui/utils/auto_scrollbars.js';
+export * from './src/ui/utils/markdown.js';
 export * from './src/ui/utils/native_context_menu.js';
 export * from './src/ui/utils/overlay_scrollbar.js';
 export * from './src/ui/utils/raf_resize_observer.js';

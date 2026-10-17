@@ -2,7 +2,9 @@
  * HelpModal - Modal dialog for displaying help content
  *
  * Features:
- * - Markdown rendering with syntax highlighting
+ * - Topics as trusted HTML (`topic.html`) or as markdown (`topic.markdown`),
+ *   rendered safe by `renderMarkdown` with the provider's `markdownOptions`
+ *   (a highlighter, math, extension rules)
  * - Table of contents navigation
  * - Topic search
  * - Category browsing
@@ -10,6 +12,7 @@
  */
 
 import { helpProvider, helpCategories, helpCopy } from './help_registry.js';
+import { renderMarkdown } from '../ui/utils/markdown.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HelpModal Class
@@ -297,7 +300,7 @@ export class HelpModal {
                         <span class="help-breadcrumb__title">${escapeHtml(topic.title)}</span>
                     </div>
                     <article class="help-article">
-                        ${topic.html}
+                        ${this._articleHtml(topic)}
                     </article>
                 </div>
             `;
@@ -315,6 +318,18 @@ export class HelpModal {
                 </div>
             `;
         }
+    }
+
+    /**
+     * The article body: a markdown topic rendered safe, else the provider's
+     * own HTML, which is trusted by contract.
+     * @private
+     */
+    _articleHtml(topic) {
+        if (typeof topic.markdown === 'string') {
+            return renderMarkdown(topic.markdown, this._service.markdownOptions ?? {});
+        }
+        return topic.html ?? '';
     }
 
     /**
@@ -418,7 +433,8 @@ export class HelpModal {
 /**
  * Text for an innerHTML template. Everything the modal interpolates — the
  * search query the user typed, and the topic ids, titles and categories the
- * provider hands back — is TEXT; only `topic.html` is markup, by contract.
+ * provider hands back — is TEXT; only `topic.html` is markup, by contract
+ * (and `topic.markdown` becomes markup through `renderMarkdown`).
  * Quotes are escaped too, because ids and categories land in attributes.
  */
 function escapeHtml(value) {

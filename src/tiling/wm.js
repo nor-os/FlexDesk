@@ -244,10 +244,13 @@ export class WindowManager {
                     }
                 }
             }
-            this._canonicalize(d.tree, d);
         }
+        // A single kind is open once, whatever the saved layout says.
+        const deduped = this._dropDuplicateSingles();
+        for (const d of this.desktops.desktops) this._canonicalize(d.tree, d);
         this.renderer.tree = this.desktops.active().tree;
         this.renderer.render();
+        if (deduped) this._persist();
         this._notifyChange();
     }
 
@@ -257,6 +260,186 @@ export class WindowManager {
             this._persistTimer = null;
             await saveDesktops(this.host?.state, this.desktops.serialize());
         }, 500);
+    }
+
+    // ── Single-instance kinds (KindDef `single`) ────────────────────
+    //
+    // Some content holds heavy app-wide state and must exist once. The
+    // taxonomy says which kinds (`single: true`, or `single: '<prop>'` for one
+    // per value of that prop); the WM keeps three promises about them:
+    //
+    //   - every OPEN path reveals the instance that exists — it switches to
+    //     its desktop, activates its tab (restoring an archived page if that is
+    //     where it is) and focuses its tile, or raises its window — instead of
+    //     mounting a second one;
+    //   - the COPY verbs (Alt+T / Alt+N / Alt+Shift+H / Alt+Shift+V, the tile
+    //     menu's "Open in new tab" and "Open a copy in a window", the palette's
+    //     split and window modes) are refused, the menus greyed with a reason;
+    //   - a restored layout holding duplicates keeps the FIRST (desktop order,
+    //     then tile order; live tabs before archived pages).
+    //
+    // MOVE verbs (float, dock, drag a tab, move to desktop) carry the one
+    // instance somewhere else and are untouched.
+
+    /** The instance key of a tab spec, or null when its kind is not single.
+     *  Optional-called: a hand-built taxonomy without the method has no single
+     *  kinds. */
+    _instanceKey(kind, props) {
+        return this.taxonomy.instanceKey?.(kind, props) ?? null;
+    }
+
+    /** Whether `kind` exists once, and so refuses the copy verbs. */
+    isSingleKind(kind) {
+        return !!this.taxonomy.isSingle?.(kind);
+    }
+
+    /** Where the one instance of a single kind is open, or null — also null
+     *  for a kind that is not single. One of:
+     *    `{ where: 'window',  windowId, idx, desktopIdx }`
+     *    `{ where: 'tab',     desktopIdx, leafId, idx }`
+     *    `{ where: 'archive', desktopIdx, leafId, page, idx }` — a tab of a
+     *      top-nav page the tile has switched away from (`pageTabs`). */
+    findInstance(kind, props = {}) {
+        const key = this._instanceKey(kind, props);
+        if (key == null) return null;
+        const same = (t) => !!t && this._instanceKey(t.kind, t.props) === key;
+        for (const [windowId, rec] of this._windowToLeaf) {
+            const idx = _windowTabSpecs(rec).findIndex(same);
+            if (idx >= 0) return { where: 'window', windowId, idx, desktopIdx: rec.desktopIdx };
+        }
+        const desktops = this.desktops.desktops;
+        for (const [desktopIdx, d] of desktops.entries()) {
+            for (const leaf of d.tree.leaves()) {
+                const idx = (leaf.tabs || []).findIndex(same);
+                if (idx >= 0) return { where: 'tab', desktopIdx, leafId: leaf.id, idx };
+            }
+        }
+        for (const [desktopIdx, d] of desktops.entries()) {
+            for (const leaf of d.tree.leaves()) {
+                for (const [page, arc] of this._archivedPages(leaf)) {
+                    const idx = arc.tabs.findIndex(same);
+                    if (idx >= 0) return { where: 'archive', desktopIdx, leafId: leaf.id, page, idx };
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Reveal the instance of a single kind that is open: answers whether
+     *  there was one. Every open path asks this first. */
+    revealInstance(kind, props = {}) {
+        const loc = this.findInstance(kind, props);
+        return loc ? this._revealAt(loc) : false;
+    }
+
+    /** A leaf's archived pages that can come back — every `pageTabs` entry
+     *  but the CURRENT page's. `swapToPage` restores an archive without
+     *  deleting it, so the current page's entry is a stale copy of the live
+     *  tabs, overwritten the next time the tile leaves the page; counting it
+     *  would find every live instance twice. */
+    _archivedPages(leaf) {
+        const kind = leaf?.content?.kind;
+        const current = kind ? this.taxonomy.topNavFor(kind) || null : null;
+        return Object.entries(leaf?.pageTabs || {})
+            .filter(([page, arc]) => page !== current && Array.isArray(arc?.tabs));
+    }
+
+    _revealAt(loc) {
+        if (loc.where === 'window') {
+            const rec = this._windowToLeaf.get(loc.windowId);
+            if (!rec) return false;
+            if (Array.isArray(rec.tabs) && rec.tabs.length) this.showWindowTab(loc.windowId, loc.idx);
+            // A window contained to a pane lives on that pane's desktop;
+            // `revealWindow` switches there. An uncontained one floats over
+            // every desktop and is already on screen.
+            this.revealWindow(rec.window);
+            // `show()` restores a minimised window and raises a visible one.
+            try { rec.window.show(); } catch (err) { console.warn('[wm] reveal: show failed', err); }
+            this._notifyChange('single-reveal');
+            return true;
+        }
+        const tree = this.desktops.desktops[loc.desktopIdx]?.tree;
+        const leaf = tree?.get(loc.leafId);
+        if (!leaf || leaf.kind !== 'leaf') return false;
+        if (loc.where === 'archive') {
+            const tab = leaf.pageTabs[loc.page].tabs[loc.idx];
+            const key = this._instanceKey(tab.kind, tab.props);
+            const curKind = leaf.content?.kind;
+            const current = curKind ? this.taxonomy.topNavFor(curKind) || null : null;
+            tree.swapToPage(loc.leafId,
+                { kind: tab.kind, props: tab.props || {}, title: tab.title },
+                current, loc.page, { recordHistory: false });
+            const at = (leaf.tabs || []).findIndex((t) => this._instanceKey(t.kind, t.props) === key);
+            if (at >= 0) tree.setActiveLeafTab(loc.leafId, at);
+        } else {
+            tree.setActiveLeafTab(loc.leafId, loc.idx);
+        }
+        tree.focus(loc.leafId);
+        // The tree is settled BEFORE the switch, so the switch's one repaint
+        // mounts the instance and nothing else first.
+        if (loc.desktopIdx !== this.desktops.activeIdx) {
+            this.switchDesktop(loc.desktopIdx);
+        } else {
+            this.renderer.render();
+            this._persist();
+        }
+        this._notifyChange('single-reveal');
+        return true;
+    }
+
+    /** A restored layout keeps the FIRST instance of each single kind: later
+     *  live tabs are dropped (the tile shows the tab that took the dropped
+     *  one's place, or closes when it held nothing else), and so are later
+     *  archived ones. Answers whether anything was dropped. */
+    _dropDuplicateSingles() {
+        const seen = new Set();
+        let dropped = false;
+        const keep = (t) => {
+            const k = t ? this._instanceKey(t.kind, t.props) : null;
+            if (k == null) return true;
+            if (seen.has(k)) return false;
+            seen.add(k);
+            return true;
+        };
+        for (const d of this.desktops.desktops) {
+            const tree = d.tree;
+            for (const leaf of tree.leaves()) {
+                const tabs = Array.isArray(leaf.tabs) ? leaf.tabs : [];
+                let active = leaf.activeTabIdx || 0;
+                let changed = false;
+                for (let i = 0; i < tabs.length;) {
+                    if (keep(tabs[i])) { i++; continue; }
+                    tabs.splice(i, 1);
+                    if (i < active) active -= 1;
+                    changed = true;
+                }
+                if (!changed) continue;
+                dropped = true;
+                if (tabs.length) {
+                    tree.setActiveLeafTab(leaf.id, Math.max(0, Math.min(tabs.length - 1, active)));
+                    continue;
+                }
+                tree.close(leaf.id);
+                if (!tree.rootId) tree.setRoot(makeLeaf(this._rootLeaf()));
+                if (!tree.leaves().some((l) => !String(l.content?.kind || '').startsWith('panel:'))) {
+                    const spawned = this._spawnContentLeaf(tree);
+                    if (spawned) this._seedHome(tree, spawned);
+                }
+            }
+        }
+        for (const d of this.desktops.desktops) {
+            for (const leaf of d.tree.leaves()) {
+                for (const [page, arc] of this._archivedPages(leaf)) {
+                    const kept = arc.tabs.filter(keep);
+                    if (kept.length === arc.tabs.length) continue;
+                    dropped = true;
+                    if (!kept.length) { delete leaf.pageTabs[page]; continue; }
+                    arc.tabs = kept;
+                    arc.activeTabIdx = Math.max(0, Math.min(kept.length - 1, arc.activeTabIdx || 0));
+                }
+            }
+        }
+        return dropped;
     }
 
     // ── Content loading ─────────────────────────────────────────────
@@ -485,6 +668,9 @@ export class WindowManager {
         const tree = this._tree();
         const prior = tree.popActiveTabHistory?.(id);
         if (!prior || !prior.kind) return false;
+        // A single kind opened elsewhere since this entry was pushed is
+        // revealed there, not put back here as a second copy.
+        if (this.revealInstance(prior.kind, prior.props || {})) return true;
         // Cross-page back entries carry a `topNav` marker — pop
         // routes via swapToPage so we land on the correct page.
         const curKind = tree.get(id)?.content?.kind;
@@ -593,6 +779,7 @@ export class WindowManager {
      *  the leaf. Used by Backspace + breadcrumb segments + anything
      *  else that should walk WITHIN the tile rather than reset it. */
     navigateActiveTab(leafId, kind, props = {}) {
+        if (this.revealInstance(kind, props)) return;
         const tree = this._tree();
         const leaf = tree.get(leafId);
         if (!leaf || leaf.kind !== 'leaf') {
@@ -648,6 +835,7 @@ export class WindowManager {
      *  tab feature shipped), the behavior is identical to the old
      *  setLeafContent: one tab in, one tab out. */
     openInLeaf(leafId, kind, props = {}) {
+        if (this.revealInstance(kind, props)) return;
         const tree = this._tree();
         const leaf = tree.get(leafId);
         if (!leaf || leaf.kind !== 'leaf') {
@@ -665,6 +853,7 @@ export class WindowManager {
      *  previous mount, mounts the new kind into the same body element,
      *  and updates the window's title. */
     openInWindow(winId, kind, props = {}) {
+        if (this.revealInstance(kind, props)) return;
         const rec = this._windowToLeaf.get(winId);
         if (!rec) { this.openInPrimary(kind, props); return; }
         try { rec.mountInfo?.destroy?.(); } catch {}
@@ -706,6 +895,7 @@ export class WindowManager {
      *  If only panel tiles exist (or the tree is empty), spawn a new
      *  content leaf and canonicalize so the panels wrap it. */
     openInPrimary(kind, props = {}) {
+        if (this.revealInstance(kind, props)) return;
         const tree = this._tree();
         let leafId = tree.primaryLeafId();
         let spawned = false;
@@ -788,6 +978,7 @@ export class WindowManager {
      *  pane in a split never dismounts the original). Returns the new
      *  leaf id, or null if the leaf can't be split. */
     splitLeafWith(leafId, dir, kind, props = {}, title = '') {
+        if (this.revealInstance(kind, props)) return null;
         const tree = this._tree();
         leafId = this._contentLeafId(leafId);
         const src = leafId ? tree.get(leafId) : null;
@@ -826,10 +1017,11 @@ export class WindowManager {
         return { leafId: id, kind, props: leaf.content.props || {}, title: leaf.title };
     }
 
-    /** Alt+T — open the focused tile's content in a new tab on that tile. */
+    /** Alt+T — open the focused tile's content in a new tab on that tile.
+     *  A copy verb, so a single kind refuses it (and Alt+N, Alt+Shift+H/V). */
     openFocusedInTab() {
         const c = this._focusedContent();
-        if (!c) return;
+        if (!c || this.isSingleKind(c.kind)) return;
         this.openInTabFromContext({ leafId: c.leafId }, c.kind, c.props);
     }
 
@@ -837,7 +1029,7 @@ export class WindowManager {
      *  Unlike Alt+F (promote) this DUPLICATES: the source tile stays put. */
     openFocusedInWindow() {
         const c = this._focusedContent();
-        if (!c) return;
+        if (!c || this.isSingleKind(c.kind)) return;
         this._navigateWindow(c.kind, c.props);
     }
 
@@ -847,6 +1039,7 @@ export class WindowManager {
     splitFocusedWith(dir) {
         const c = this._focusedContent();
         if (!c) { this.split(dir); return; }
+        if (this.isSingleKind(c.kind)) return;
         this.splitLeafWith(c.leafId, dir, c.kind, c.props, c.title);
     }
 
@@ -3692,6 +3885,7 @@ export class WindowManager {
     /** Spawn a fresh ManagedWindow with the requested content. No
      *  source leaf — closing the window just disposes the content. */
     _navigateWindow(kind, props) {
+        if (this.revealInstance(kind, props)) return;
         const winId = `twm-mw-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`;
         const contentEl = document.createElement('div');
         contentEl.className = 'twm-window-content';
@@ -3820,6 +4014,7 @@ export class WindowManager {
      *  routing) but uses `appendLeafTab` so the existing content
      *  stays in place as a tab. */
     openInTabFromContext(ctx, kind, props = {}, transient = false, background = false) {
+        if (this.revealInstance(kind, props)) return;
         // Managed-window content: just open in the window — managed
         // windows aren't tabbed (one window = one content).
         if (ctx?.windowId && this._windowToLeaf.has(ctx.windowId)) {
@@ -3855,6 +4050,7 @@ export class WindowManager {
      *  "Add row" button, which passes no ctx) reliably lands as a sibling
      *  tab in the main tile rather than swapping its content. */
     openInTabInPrimary(kind, props = {}, transient = false, background = false) {
+        if (this.revealInstance(kind, props)) return;
         const tree = this._tree();
         const leafId = tree.primaryLeafId();
         // No content tile on this desktop (e.g. a panels-only layout) —
@@ -3884,6 +4080,13 @@ function _tabTitle(kind, props) {
     if (props && (typeof props.id === 'string' || typeof props.id === 'number')
         && String(props.id)) return String(props.id);
     return kind || '';
+}
+
+/** The tab specs a window record holds: a floated pane's list, or the one
+ *  content an Alt+N / adopted window carries. */
+function _windowTabSpecs(rec) {
+    if (Array.isArray(rec?.tabs) && rec.tabs.length) return rec.tabs;
+    return rec?.original ? [rec.original] : [];
 }
 
 /** R8. A leaf's tabs as the plain specs a window record holds — deep enough

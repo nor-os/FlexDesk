@@ -10452,6 +10452,33 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 }
 /* ══ end SECTION STACK ══ */
 
+/* ── The conversation view (conversation_view.js, STORY-0057) ─────────────
+ * A transcript of role-tagged messages above a growing composer. The view
+ * fills its host; the transcript scrolls, the composer stays at the foot. */
+.twm-chat { display: flex; flex-direction: column; height: 100%; min-height: 0; font-size: var(--font-size-sm); color: var(--text-body); }
+.twm-chat .material-symbols-outlined { font-size: 18px; line-height: 1; }
+.twm-chat__viewport { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.twm-chat__log { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--space-md); display: flex; flex-direction: column; gap: var(--space-sm); }
+.twm-chat__msg { max-width: 85%; padding: var(--space-sm) var(--space-md); border-radius: var(--radius-md); background: var(--surface-1); line-height: var(--line-height-relaxed); overflow-wrap: anywhere; }
+.twm-chat__msg--user { align-self: flex-end; background: var(--state-selected); }
+.twm-chat__msg--assistant { align-self: flex-start; }
+.twm-chat__msg--system { align-self: center; background: none; color: var(--text-muted); font-size: var(--font-size-xs); }
+.twm-chat__msg--streaming .twm-chat__body::after { content: '\258D'; margin-left: 1px; color: var(--text-muted); }
+.twm-chat__body--plain { white-space: pre-wrap; }
+.twm-chat__extra:empty { display: none; }
+.twm-chat__extra { margin-top: var(--space-sm); }
+.twm-chat__jump { position: absolute; left: 50%; bottom: var(--space-md); transform: translateX(-50%); display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 12px; border: 1px solid var(--border-default); border-radius: var(--radius-pill); background: var(--surface-2); color: var(--text-body); font: inherit; font-size: var(--font-size-xs); box-shadow: var(--shadow-md); cursor: pointer; }
+.twm-chat__jump:hover { background: var(--state-hover); }
+.twm-chat__jump[hidden] { display: none; }
+.twm-chat__composer { flex: 0 0 auto; display: flex; align-items: flex-end; gap: var(--space-sm); padding: var(--space-sm) var(--space-md); border-top: 1px solid var(--border-subtle); }
+.twm-chat__input { flex: 1 1 auto; min-height: 30px; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--surface-3); border-radius: var(--radius-sm); background: var(--surface-1); color: var(--text-body); font: inherit; line-height: var(--line-height-normal); resize: none; overflow-y: hidden; }
+.twm-chat__input:focus { outline: none; border-color: var(--accent-bright); }
+.twm-chat__send { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 0; border-radius: var(--radius-sm); background: var(--accent); color: var(--text-bright); cursor: pointer; }
+.twm-chat__send:hover { background: var(--accent-hover); }
+.twm-chat__send--cancel { background: var(--color-danger); }
+.twm-chat__send--cancel:hover { background: var(--color-danger-hover); }
+.twm-chat--busy .twm-chat__input { border-color: var(--border-default); }
+
 /* ══ FLOW · KIT ═══════════════════════════════════════════════════════ */
 /* The shared flow-editor kit (36 §3, §3.12): the settings panel and its
  * fields, the generic widgets, reference chips and the chip input, the two

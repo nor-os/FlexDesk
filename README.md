@@ -43,7 +43,7 @@ manager, and neither of them should drag in a plotting engine or a code editor.
 | `@flexdesk/core` | 30 kB | Event bus, settings store, logging, state machine, state guard |
 | `@flexdesk/host` | 5 kB | The host port (below) |
 | `@flexdesk/wm` | 166 kB | Tiling window manager: tabs, splits, desktops, command palette, taxonomy, `createShell()` |
-| `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus, menu bars, a document outline, progress |
+| `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus, menu bars, a document outline, progress, a conversation view |
 | `@flexdesk/charts` | 26 kB | Plotly wrapper, chart types, subplot layouts, downsampling, plot windows, injected series transforms |
 | `@flexdesk/tiles` | 67 kB | Draggable/resizable widget grid, tile base class, widget registry, layout persistence, figure, chart and KPI tiles |
 | `@flexdesk/editor` | 62 kB | Monaco loader + factory, multi-file tab bar, search, split panes, undo manager |
@@ -2758,6 +2758,53 @@ An eager pane, and the first one shown, mount inside `createBottomPanelTabs`
 before it returns. Reach the host through `mount`'s `api` argument, not the
 variable being assigned. Without `alertLog` and `mountPoint`, `NotificationHistory`
 is the bell it was.
+
+## A conversation: `mountConversationView` (0.17.0)
+
+A transcript of role-tagged messages above a composer, in `@flexdesk/widgets`.
+It has no markdown and no model in it: you draw a message's body, and it tells
+you when the user submits or cancels.
+
+```js
+const view = mountConversationView(el, {
+    render:   (message, bodyEl, { streaming }) => { bodyEl.innerHTML = toHtml(message.text); },
+    onSubmit: (text) => { view.append({ role: 'user', text }); view.setBusy(true); ask(text); },
+    onCancel: () => abort(),
+    placeholder: 'Ask anything',
+});
+view.beginStream({ role: 'assistant' });
+for await (const chunk of reply) view.appendChunk(chunk);  // re-renders this message only
+view.endStream();
+view.setBusy(false);
+```
+
+| Method | Does |
+|---|---|
+| `append({ id?, role, text, meta? })` → id | Adds a message; `role` becomes `twm-chat__msg--<role>` |
+| `replaceAll(messages)`, `clear()` | Restores a transcript (and scrolls to its end), or empties it |
+| `beginStream(message?)` → id, `appendChunk(text)`, `endStream()` | A message that grows; each chunk re-renders that message's body and nothing else |
+| `slot(id)` | The element below a message's body, yours to fill (tool output, buttons); a re-render leaves it alone |
+| `messages()`, `streamingId()` | Copies of the messages; the one streaming |
+| `getScrollTop()`, `setScrollTop(px)`, `scrollToBottom()`, `isPinned()` | The transcript's scroll position, to keep across a remount |
+| `setBusy(bool)`, `isBusy()` | `true` turns Send into Cancel |
+| `getText()`, `setText(text)`, `focus()`, `destroy()` | The composer, and teardown |
+
+- **`render(message, bodyEl, { streaming })`** fills an emptied body. One that
+  throws leaves that message as its plain text and the view carries on; the
+  error goes to `onRenderError(error, message)`. Without `render`, every body
+  is plain text (`textContent`, never markup).
+- **Pinned to the bottom.** Within `pinThreshold` px (32) of the end the
+  transcript follows new content. Scrolling up stops that and shows *Jump to
+  latest*; clicking it, or scrolling back to the end, follows again. Content
+  growing below never unpins it: only the reader scrolling up does.
+- **The composer** grows with its text up to `composerMaxHeight` (200 px).
+  Enter submits and clears it (blank text is ignored, and so is Enter during
+  IME composition); Shift+Enter inserts a newline. While busy, Enter submits
+  nothing, and Esc or a click on Cancel calls `onCancel` once per busy period.
+- `labels: { send, cancel, jump, input }` replaces the four texts.
+
+`tests/conversation_view.test.mjs` drives all of it in jsdom with a fake
+scroll geometry.
 
 ## The host port
 

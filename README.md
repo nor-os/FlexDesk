@@ -175,7 +175,8 @@ bar.setChecked('dark', true);     // …and unchecks the rest of the radio group
   context: 'File › Open recent', action }`), so the palette and the bar list the
   same verbs.
 
-In a shell, pass the model as `menuBar` and the element as `chrome.menuBar`;
+In a shell, pass the model as `menuBar` and the element as `chrome.menuBar`
+(each needs the other; either alone throws at boot);
 `shell.chrome.menuBar` is the bar, and its enabled items follow the palette's
 own `commands` unless `menuBar.palette` is `false`:
 

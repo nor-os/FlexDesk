@@ -132,7 +132,8 @@ import { openForm } from '../ui/components/modal.js';
  *                                      `chrome.menuBar` (see menu_bar.js). Its
  *                                      enabled items are also the palette's
  *                                      commands, after `palette.commands`'
- *                                      own, unless `palette: false`.
+ *                                      own, unless `palette: false`. Each needs
+ *                                      the other: either alone is a boot error.
  * @param {object}     [cfg.chrome]     { topNav?, paletteButton?, desktops?,
  *                                        panelToggles?: { left?, right?, bottom? },
  *                                        zoom?, menuBar? }
@@ -195,6 +196,9 @@ export async function createShell({
     if (!entities) throw new Error('createShell: an entity catalog is required');
     if (chrome.menuBar && !menuBarCfg?.menus) {
         throw new TypeError('createShell: `chrome.menuBar` needs `menuBar: { menus }`');
+    }
+    if (menuBarCfg && !chrome.menuBar) {
+        throw new TypeError('createShell: `menuBar` needs `chrome.menuBar`, the element it is painted into');
     }
     // `keymap` is checked here, not left to the keymap: a typo such as
     // `{ binding: … }` would otherwise be dropped without a word, and the chord

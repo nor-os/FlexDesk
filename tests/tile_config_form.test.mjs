@@ -14,7 +14,9 @@
  *       sees them — validateConfig({decimals: 99}, KpiTile schema) fails
  *   §7  readonly, options via getFieldOptions, mergeWithDefaults, setValues,
  *       dispose, and a field with no key throws
- *   §8  openTileConfig: a slide-out saves each valid edit; a modal on Save
+ *   §8  openTileConfig: a slide-out saves each valid edit; a modal on Save;
+ *       a request while a modal is open is ignored; stop() leaves an open
+ *       modal working
  *
  *     node tests/tile_config_form.test.mjs
  *     node tests/run.mjs
@@ -263,6 +265,20 @@ console.log('§7 readonly, dynamic options, setValues, a missing key');
     check('…without calling onChange', calls.length, 0);
     form.dispose();
 
+    // a consumer renderer on a readonly field: its commit applies nothing
+    const h2 = host();
+    let roCtx = null;
+    const roCalls = [];
+    const roForm = mountTileConfigForm(h2, {
+        schema: { fields: [{ key: 'series', type: 'variable', label: 'Series', readonly: true }] },
+        config: { series: 'a' }, renderers: { variable: (ctx) => { roCtx = ctx; return document.createElement('div'); } },
+        onChange: (...a) => roCalls.push(a) });
+    ok('a renderer is told the field is readonly', roCtx.readonly === true);
+    const roResult = roCtx.commit('b');
+    check('a commit on a readonly custom field changes nothing',
+        [roResult.valid, typeof roResult.error, roCalls.length, roForm.getValues().series], [false, 'string', 0, 'a']);
+    roForm.dispose();
+
     let threw = null;
     try { mountTileConfigForm(host(), { schema: { fields: [{ name: 'title', type: 'text', label: 'Tile title' }] } }); }
     catch (err) { threw = err; }
@@ -324,7 +340,32 @@ console.log('§8 openTileConfig');
     button('Save').click();
     await ticks();
     check('Save saves the edited config', modalSaves.map((c) => c.label), ['Open bugs']);
+
+    // a second request while a modal is open is ignored
+    open();
+    await ticks();
+    field = document.querySelector('.fd-tile-config-host .fd-tile-config__row[data-field="label"] input');
+    type(field, 'First');
+    open();
+    await ticks();
+    check('a second request while a modal is open opens no second modal', document.querySelectorAll('.fd-tile-config-host').length, 1);
+    ok('…and leaves the first form as it was',
+        document.querySelector('.fd-tile-config-host .fd-tile-config__row[data-field="label"] input') === field && field.value === 'First');
+
+    // stop() while a modal is open: the modal keeps its form and Save still saves
     stop2();
+    check('stop() unsubscribes the modal mode', bus2.listenerCount('grid:config-modal-show'), 0);
+    await ticks();
+    ok('…and the open modal keeps its form',
+        document.querySelector('.fd-tile-config-host .fd-tile-config__row[data-field="label"] input') === field);
+    type(field, 'After stop');
+    button('Save').click();
+    await ticks();
+    check('…whose Save still saves', modalSaves.map((c) => c.label), ['Open bugs', 'After stop']);
+    ok('…and dismissing it removes the form', !document.querySelector('.fd-tile-config-host .fd-tile-config'));
+    open();
+    await ticks();
+    ok('after stop() a request opens nothing', !document.querySelector('.fd-tile-config-host'));
 
     let threw = null;
     try { openTileConfig(new EventBus(), { mode: 'slide-out' }); } catch (err) { threw = err; }

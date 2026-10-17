@@ -2007,6 +2007,14 @@ Three stylesheets, and that is the whole CSS contract:
 | `dist/reset.css` | The reset. |
 | `dist/flexdesk.css` | The library. Every class is `twm-` prefixed (the original working name; the prefix is stable and not worth a breaking rename). |
 
+`createDetailHeader` follows the prefix too: a badge is a `.twm-detail-header__badge`
+pill (a badge's `className` is added beside it, to recolour it), and an action is a
+`.twm-btn` — `variant: 'primary'` adds `.twm-btn--primary`, `'danger'` adds
+`.twm-btn--danger` — that also carries `.twm-detail-header__btn` and
+`.twm-detail-header__btn--<variant>`. The unprefixed `detail-header__badge` and
+`detail-header__btn--<variant>` it emitted before, which no FlexDesk rule styled, are
+gone.
+
 Icons are rendered by applying the `material-symbols-outlined` class. FlexDesk does
 not ship the font — supply it from Google Fonts or self-host. Without it, icons fall
 back to their text names and nothing breaks.

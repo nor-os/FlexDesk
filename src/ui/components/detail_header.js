@@ -27,7 +27,8 @@ const ESC = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').
 /**
  * @typedef {Object} DetailHeaderBadge
  * @property {string} text
- * @property {string} [className]  - Extra CSS modifier (e.g., 'detail-header__badge--mc')
+ * @property {string} [className]  - Extra class(es) of your own (e.g., 'my-badge--live'); the
+ *                                   pill itself is `.twm-detail-header__badge`
  * @property {string} [icon]       - Material Symbols icon name
  */
 
@@ -35,8 +36,10 @@ const ESC = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').
  * @typedef {Object} DetailHeaderAction
  * @property {string} key           - data-action value
  * @property {string} label         - Button text
- * @property {string} icon          - Material Symbols icon name
- * @property {'primary'|'secondary'|'danger'} [variant='secondary']
+ * @property {string} [icon]        - Material Symbols icon name (none: label only)
+ * @property {'primary'|'secondary'|'danger'} [variant='secondary'] - The button is a `.twm-btn`;
+ *           'primary' and 'danger' add `.twm-btn--primary` / `.twm-btn--danger`, and every
+ *           variant is also named `.twm-detail-header__btn--<variant>`
  * @property {boolean} [disabled=false]
  * @property {string} [title]       - Tooltip
  * @property {Function} handler     - Click callback
@@ -107,10 +110,10 @@ function _populate(header, config) {
 
     for (const badge of badges) {
         const badgeEl = document.createElement('span');
-        badgeEl.className = `detail-header__badge${badge.className ? ` ${badge.className}` : ''}`;
+        badgeEl.className = `twm-detail-header__badge${badge.className ? ` ${badge.className}` : ''}`;
         if (badge.icon) {
             const bi = document.createElement('span');
-            bi.className = 'material-symbols-outlined';
+            bi.className = 'twm-detail-header__badge-icon material-symbols-outlined';
             bi.textContent = badge.icon;
             badgeEl.appendChild(bi);
         }
@@ -141,16 +144,24 @@ function _populate(header, config) {
             const btn = document.createElement('button');
             btn.type = 'button';
             const variant = action.variant || 'secondary';
-            btn.className = `twm-detail-header__btn detail-header__btn--${variant}`;
+            // The shared `.twm-btn` look (BUG-0015): 'primary' and 'danger'
+            // wear its colour variants; 'secondary' is the plain button.
+            const look = variant === 'secondary' ? '' : ` twm-btn--${variant}`;
+            btn.className = `twm-btn${look} twm-detail-header__btn twm-detail-header__btn--${variant}`;
             btn.dataset.action = action.key;
             if (action.disabled) btn.disabled = true;
             if (action.title) btn.title = action.title;
 
-            const iconSpan = document.createElement('span');
-            iconSpan.className = 'material-symbols-outlined';
-            iconSpan.textContent = action.icon;
-            btn.appendChild(iconSpan);
-            btn.appendChild(document.createTextNode(` ${action.label}`));
+            if (action.icon) {
+                const iconSpan = document.createElement('span');
+                iconSpan.className = 'material-symbols-outlined twm-btn__glyph';
+                iconSpan.textContent = action.icon;
+                btn.appendChild(iconSpan);
+            }
+            const labelSpan = document.createElement('span');
+            labelSpan.className = 'twm-btn__label';
+            labelSpan.textContent = action.label ?? '';
+            btn.appendChild(labelSpan);
 
             btn.addEventListener('click', () => action.handler?.());
             actionsEl.appendChild(btn);

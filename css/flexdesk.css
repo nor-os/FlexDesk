@@ -4574,7 +4574,36 @@ button.twm-about-dialog__btn--close:focus {
 }
 /* ─── Badges ──────────────────────────────────────────────────────────── */
 
-/* .detail-header__badge* — moved to components/controls.css (Phase 2). */
+/* A badge beside the title (`createDetailHeader({badges})`, BUG-0015): a
+ * neutral pill from tokens. A caller's own `className` sits on the same
+ * element, after this rule's single class, to recolour it. */
+.twm-detail-header__badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: 2px var(--space-md);
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--border-subtle);
+    background: var(--surface-2);
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-tight);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+/* Compounded for the Material Symbols tie — see `.twm-leaf__icon`. */
+.twm-detail-header__badge-icon,
+.twm-detail-header__badge-icon.material-symbols-outlined {
+    font-size: 14px;
+    line-height: 1;
+}
+
+/* ─── Buttons ─────────────────────────────────────────────────────────── */
+
+/* An action is a `.twm-btn` (BUG-0015): the shared button look, with
+ * 'primary' wearing `.twm-btn--primary` and 'danger' `.twm-btn--danger`;
+ * 'secondary' is the plain button. Its icon is a `.twm-btn__glyph`. */
 
 /* ─── Subtitle ────────────────────────────────────────────────────────── */
 

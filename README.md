@@ -1077,6 +1077,39 @@ later. It watches `root` only and returns a disconnect. (It used to take no
 argument and look for a `#twm-fixed-200` that nothing created, so visible
 sections got no bar until a class changed — BUG-0006.)
 
+### SliderField: a number box, a readout, a default and an enable toggle
+
+`new SliderField({ fieldId, field, onChange })` (from `@flexdesk/widgets`)
+draws a range input. Its companions are opt-in through `field`; with none of
+them the DOM is the range and the helper line, as it always was.
+
+```js
+import { SliderField } from '@flexdesk/widgets';
+
+const slider = new SliderField({
+    fieldId: 'rate',
+    field: {
+        min: 0, max: 1, step: 0.01, value: 0.25,
+        numberInput: true,                         // an editable box, kept in sync both ways
+        readout: (v) => `${Math.round(v * 100)}%`, // or true for the plain value
+        defaultValue: 0.25,                        // --modified state and a reset button
+        toggleable: true, disabledValue: null,     // an enable checkbox before the slider
+    },
+    onChange: (value, { immediate }) => save(value),
+});
+host.appendChild(slider.render());
+```
+
+| Field / method | What it does |
+| --- | --- |
+| `numberInput` | A text box beside the slider. Dragging updates it on every frame; Enter (or leaving the box) commits what was typed, clamped to `[min, max]` and snapped to `step`. Text that is not a finite number (`abc`, empty, `Infinity`) changes nothing and the box shows the value again; Escape does the same |
+| `readout` | A span after the slider: `true` shows the value, a function `(value: number) => string` formats it. It follows the drag live |
+| `defaultValue` | While the value differs from it the root carries `twm-slider-field--modified` and the reset button shows; reset restores it and reports it through `onChange`, like a release |
+| `toggleable`, `enabled`, `disabledValue` | A checkbox before the slider (`enabled: false` starts it off). While off, the inputs are disabled, the root carries `twm-slider-field--off`, and `onChange`/`getValue()` report `disabledValue` (default `null`) |
+| `onChange(value, { immediate })` | Called once per commit: a drag release, a typed Enter, a reset, a toggle. The value is the slider's value as a string, as before. With `emitOnInput` it is also called on every drag frame with `immediate: true` |
+| `setValue(x, { silent })`, `setRange({ min, max, step }, { silent })`, `setEnabled(on, { silent })`, `reset({ silent })` | Change the field from code. Each reports at most once, nothing with `silent: true`, and nothing when the reported value did not move, so a caller that writes back from its own `onChange` does not loop. `setValue` refuses a non-finite value (returns `false`); `setRange` refits the value and the default |
+| `getValue()`, `isEnabled()`, `isModified()` | What `onChange` would report now, the toggle state, and whether the value differs from `defaultValue` |
+
 ## Flow editors
 
 *New in 0.6.0.* Both entries first ship in FlexDesk 0.6.0.

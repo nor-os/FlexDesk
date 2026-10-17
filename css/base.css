@@ -986,6 +986,82 @@ body.twm-dt-col-resizing {
     cursor: grab;
     border: 2px solid var(--surface-0);
 }
+/* ══ SLIDER FIELD COMPANIONS ══ number box, readout, reset, enable toggle (STORY-0045) */
+.twm-slider-field__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    min-width: 0;
+}
+.twm-slider-field__row > .twm-slider-field__input {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.twm-slider-field__toggle {
+    flex: 0 0 auto;
+    margin: 0;
+    cursor: pointer;
+}
+.twm-slider-field__readout {
+    flex: 0 0 auto;
+    min-width: 3em;
+    text-align: right;
+    font-size: var(--font-size-sm);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-dim);
+}
+.twm-slider-field__number {
+    flex: 0 0 auto;
+    width: 6em;
+    padding: var(--space-xxs) var(--space-xs);
+    font: inherit;
+    font-size: var(--font-size-sm);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    color: var(--text-body);
+    background: var(--surface-well);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+}
+.twm-slider-field__number:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+.twm-slider-field__reset {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    width: 22px;
+    height: 22px;
+    color: var(--text-dim);
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    visibility: hidden;
+}
+.twm-slider-field__reset .material-symbols-outlined {
+    font-size: 16px;
+}
+.twm-slider-field__reset:hover {
+    color: var(--text-bright);
+    background: var(--state-hover);
+}
+.twm-slider-field--modified .twm-slider-field__reset {
+    visibility: visible;
+}
+.twm-slider-field--modified .twm-slider-field__number,
+.twm-slider-field--modified .twm-slider-field__readout {
+    color: var(--accent-bright);
+}
+.twm-slider-field--off .twm-slider-field__input,
+.twm-slider-field--off .twm-slider-field__number,
+.twm-slider-field--off .twm-slider-field__readout {
+    opacity: 0.45;
+}
+/* ══ end SLIDER FIELD COMPANIONS ══ */
 /* ===== Sortable List Component ===== */
 .twm-sortable-list {
     display: flex;

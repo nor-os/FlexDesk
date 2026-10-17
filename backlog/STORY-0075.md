@@ -2,7 +2,7 @@
 id: 75
 type: story
 title: "Canvas data ports connect under host rules, with port typing, drag-to-connect and a compatible-type picker on empty drop"
-status: draft
+status: refined
 parent: 73
 phase: 
 assignee:
@@ -28,3 +28,13 @@ The canvas editor refuses connections between non-flow ports and allows one line
 - [ ] A policy returning `{ok: true, offer}` shows the offer and accepting it applies it
 - [ ] While dragging a connection, only compatible ports carry the can-drop class
 - [ ] Dropping a drag on empty canvas and picking a type adds the node and the connection as one undo entry; cancelling the picker adds nothing
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T21:20Z · norman_agent (status: draft -> refined)
+
+Refined: 6 acceptance criteria, 5 points, parented to EPIC-0073. Criteria drafted from the legacy modeler (../EcoSim_legacy) and the current canvas editor code, with norman's 2026-10-17 decisions applied; correct them before anything is built against them.

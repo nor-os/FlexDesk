@@ -2,7 +2,7 @@
 id: 83
 type: story
 title: "Canvas nodes show host-driven live values and can collapse to their header"
-status: draft
+status: refined
 parent: 73
 phase: 
 assignee:
@@ -26,3 +26,13 @@ A modeler shows live values on nodes and ports while something runs (legacy node
 - [ ] setNodeValues creates no undo entry and fires no onChange
 - [ ] Collapsing a node hides its ports and keeps its lines attached to the header; Ctrl+Z expands it again
 - [ ] A collapsed flag survives serialise -> load; an expanded node writes no collapsed key
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T21:20Z · norman_agent (status: draft -> refined)
+
+Refined: 4 acceptance criteria, 3 points, parented to EPIC-0073. Criteria drafted from the legacy modeler (../EcoSim_legacy) and the current canvas editor code, with norman's 2026-10-17 decisions applied; correct them before anything is built against them.

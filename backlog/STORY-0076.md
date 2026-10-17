@@ -2,7 +2,7 @@
 id: 76
 type: story
 title: "Canvas editor multi-selection with bulk move, delete, nudge, align and distribute"
-status: draft
+status: refined
 parent: 73
 phase: 
 assignee:
@@ -29,3 +29,13 @@ Canvas selection is a single `{kind, id}` and the kernel's marquee selection is 
 - [ ] An arrow key nudges the selection by gridSize, Shift+arrow by ten grid steps; Tab moves keyboard focus to the next node
 - [ ] In read-only mode none of these gestures change the graph
 - [ ] On a 300-node graph, a bulk move of 50 selected nodes and its undo each complete in under 100 ms in the probe
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T21:20Z · norman_agent (status: draft -> refined)
+
+Refined: 7 acceptance criteria, 5 points, parented to EPIC-0073. Criteria drafted from the legacy modeler (../EcoSim_legacy) and the current canvas editor code, with norman's 2026-10-17 decisions applied; correct them before anything is built against them.

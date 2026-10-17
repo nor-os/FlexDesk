@@ -2,7 +2,7 @@
 id: 84
 type: story
 title: "A modeler demo page, a headless probe and a README section show the canvas modeler options working together"
-status: draft
+status: refined
 parent: 73
 phase: 
 assignee:
@@ -27,3 +27,13 @@ The modeler options are only proven when used together. `demo/flow_modeler.html`
 - [ ] Live badges in the demo update at least once per second without moving focus
 - [ ] The README section lists every modeler option with a short example
 - [ ] The vocabulary gate passes over the demo's FlexDesk sources
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T21:20Z · norman_agent (status: draft -> refined)
+
+Refined: 5 acceptance criteria, 3 points, parented to EPIC-0073. Criteria drafted from the legacy modeler (../EcoSim_legacy) and the current canvas editor code, with norman's 2026-10-17 decisions applied; correct them before anything is built against them.

@@ -2,7 +2,7 @@
 id: 81
 type: story
 title: "Canvas connections take host styles (tone, dash, width, arrow, label), optional obstacle routing and hover highlight"
-status: draft
+status: refined
 parent: 73
 phase: 
 assignee:
@@ -27,3 +27,13 @@ Canvas lines are always simple curves (`routeEdge(..., {simple: true})`) with no
 - [ ] A style `label` is drawn at the line's midpoint and is not hidden behind nodes
 - [ ] With `routing: 'obstacles'`, a line does not cross a node placed between its ends (probe); above the kernel's node limit it falls back to simple curves and says so through findings
 - [ ] Hovering a node gives its lines the highlighted class, and leaving removes it
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T21:20Z · norman_agent (status: draft -> refined)
+
+Refined: 5 acceptance criteria, 3 points, parented to EPIC-0073. Criteria drafted from the legacy modeler (../EcoSim_legacy) and the current canvas editor code, with norman's 2026-10-17 decisions applied; correct them before anything is built against them.

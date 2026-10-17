@@ -2,7 +2,7 @@
 id: 77
 type: story
 title: "Canvas editor copy, cut, paste and duplicate of nodes and the lines between them"
-status: draft
+status: refined
 parent: 73
 phase: 
 assignee:
@@ -28,3 +28,13 @@ The canvas editor binds no clipboard. The legacy modeler copied nodes with their
 - [ ] A `prepareCopy` hook can clear a config key on the copy while the original keeps it
 - [ ] A host `clipboard` hook receives the copied JSON and supplies what is pasted
 - [ ] In read-only mode Paste and Cut are refused with a reason and change nothing
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T21:20Z · norman_agent (status: draft -> refined)
+
+Refined: 6 acceptance criteria, 3 points, parented to EPIC-0073. Criteria drafted from the legacy modeler (../EcoSim_legacy) and the current canvas editor code, with norman's 2026-10-17 decisions applied; correct them before anything is built against them.

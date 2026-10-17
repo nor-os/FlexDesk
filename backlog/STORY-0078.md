@@ -2,7 +2,7 @@
 id: 78
 type: story
 title: "Canvas graphs carry flat groups and free-text notes that move, edit and undo with the nodes"
-status: draft
+status: refined
 parent: 73
 phase: 
 assignee:
@@ -29,3 +29,13 @@ The legacy modeler had named, coloured groups whose members moved together, and 
 - [ ] A note can be added, edited in place, moved and each step undone
 - [ ] A marquee selects notes and nodes together, and copy/paste (STORY-0077) carries both
 - [ ] Groups and notes survive serialise -> load unchanged
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T21:20Z · norman_agent (status: draft -> refined)
+
+Refined: 7 acceptance criteria, 8 points, parented to EPIC-0073. Criteria drafted from the legacy modeler (../EcoSim_legacy) and the current canvas editor code, with norman's 2026-10-17 decisions applied; correct them before anything is built against them.

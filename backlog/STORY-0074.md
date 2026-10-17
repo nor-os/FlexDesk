@@ -2,7 +2,7 @@
 id: 74
 type: story
 title: "Canvas node types draw their own body, size and accent, and can be registered after the editor opens"
-status: draft
+status: refined
 parent: 73
 phase: 
 assignee:
@@ -28,3 +28,13 @@ Today every canvas node is the same header + port rows + summary (`buildNode` in
 - [ ] On a node with a custom `size`, every line end meets its port dot within 1 px (probe)
 - [ ] A type registered after `load` appears in the palette and its nodes draw without reloading the graph
 - [ ] A `render` that throws leaves that node drawn with the default body and reports the error through the editor's findings, without breaking other nodes
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T21:20Z · norman_agent (status: draft -> refined)
+
+Refined: 6 acceptance criteria, 5 points, parented to EPIC-0073. Criteria drafted from the legacy modeler (../EcoSim_legacy) and the current canvas editor code, with norman's 2026-10-17 decisions applied; correct them before anything is built against them.

@@ -2,7 +2,7 @@
 id: 80
 type: story
 title: "Canvas Arrange takes a pluggable layered layout with rank hints, crossing reduction and separate components"
-status: draft
+status: refined
 parent: 73
 phase: 
 assignee:
@@ -28,3 +28,13 @@ Canvas Arrange is flow-specific (orders from start-role steps), and the kernel `
 - [ ] Two disconnected components do not overlap
 - [ ] With two nodes selected, Arrange moves only those two, as one undo entry
 - [ ] A layout of 300 nodes and 400 edges completes in under 200 ms in the unit test
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T21:20Z · norman_agent (status: draft -> refined)
+
+Refined: 6 acceptance criteria, 5 points, parented to EPIC-0073. Criteria drafted from the legacy modeler (../EcoSim_legacy) and the current canvas editor code, with norman's 2026-10-17 decisions applied; correct them before anything is built against them.

@@ -2,7 +2,7 @@
 id: 82
 type: story
 title: "Canvas editor viewport API, zoom buttons and an optional minimap"
-status: draft
+status: refined
 parent: 73
 phase: 
 assignee:
@@ -26,3 +26,13 @@ The canvas editor has no viewport API and no zoom controls, and auto-fits on loa
 - [ ] `onViewportChange` fires once per finished pan or zoom gesture, not per pointer move
 - [ ] The zoom buttons change scale in fixed steps and stop at the kernel's limits
 - [ ] With `minimap: true`, clicking the minimap centres the view on that point; without it no minimap is in the DOM
+
+## History
+
+- 2026-10-17 · norman_agent · status: draft -> refined
+
+## Comments
+
+### 2026-10-17T21:20Z · norman_agent (status: draft -> refined)
+
+Refined: 4 acceptance criteria, 3 points, parented to EPIC-0073. Criteria drafted from the legacy modeler (../EcoSim_legacy) and the current canvas editor code, with norman's 2026-10-17 decisions applied; correct them before anything is built against them.

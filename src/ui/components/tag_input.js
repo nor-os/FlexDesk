@@ -89,35 +89,37 @@ export function createTagInput(host, options = {}) {
         if (typeof options.onChange === 'function') options.onChange([...tags]);
     };
 
+    const chipFor = (tag, idx) => {
+        const chip = document.createElement('li');
+        chip.className = 'twm-tag-input__chip';
+        const text = document.createElement('span');
+        text.className = 'twm-tag-input__text';
+        text.textContent = tag;
+        text.title = tag;
+        chip.appendChild(text);
+        if (!readOnly) {
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'twm-tag-input__remove';
+            remove.setAttribute('aria-label', removeLabel(tag));
+            remove.textContent = '×';
+            // The text box keeps the focus: a blur would commit its text
+            // and redraw the chips under the pointer before the click.
+            remove.addEventListener('mousedown', (ev) => ev.preventDefault());
+            remove.addEventListener('click', (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                removeAt(idx);
+                input?.focus();
+            });
+            chip.appendChild(remove);
+        }
+        return chip;
+    };
+
+    /** Redraws every chip. */
     const paint = () => {
-        chips.replaceChildren();
-        tags.forEach((tag, idx) => {
-            const chip = document.createElement('li');
-            chip.className = 'twm-tag-input__chip';
-            const text = document.createElement('span');
-            text.className = 'twm-tag-input__text';
-            text.textContent = tag;
-            text.title = tag;
-            chip.appendChild(text);
-            if (!readOnly) {
-                const remove = document.createElement('button');
-                remove.type = 'button';
-                remove.className = 'twm-tag-input__remove';
-                remove.setAttribute('aria-label', removeLabel(tag));
-                remove.textContent = '×';
-                // The text box keeps the focus: a blur would commit its text
-                // and redraw the chips under the pointer before the click.
-                remove.addEventListener('mousedown', (ev) => ev.preventDefault());
-                remove.addEventListener('click', (ev) => {
-                    ev.preventDefault();
-                    ev.stopPropagation();
-                    removeAt(idx);
-                    input?.focus();
-                });
-                chip.appendChild(remove);
-            }
-            chips.appendChild(chip);
-        });
+        chips.replaceChildren(...tags.map(chipFor));
     };
 
     function removeAt(idx) {
@@ -138,8 +140,12 @@ export function createTagInput(host, options = {}) {
             next.push(tag);
         }
         if (next.length === tags.length) return false;
+        // Only the new chips are drawn: the ones already there stay in place,
+        // so a remove button that the focus is moving to (Tab out of the box
+        // commits its text) is still in the document when the focus lands.
+        const added = next.slice(tags.length).map((tag, i) => chipFor(tag, tags.length + i));
         tags = next;
-        paint();
+        chips.append(...added);
         changed();
         return true;
     };
@@ -169,7 +175,7 @@ export function createTagInput(host, options = {}) {
         });
         input.addEventListener('blur', commitInput);
         input.addEventListener('paste', (ev) => {
-            const pasted = ev.clipboardData?.getData('text/plain') ?? ev.clipboardData?.getData('text') ?? '';
+            const pasted = ev.clipboardData?.getData('text/plain') ?? '';
             if (!pasted.includes(',')) return;
             ev.preventDefault();
             const start = input.selectionStart ?? input.value.length;

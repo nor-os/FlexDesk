@@ -6,7 +6,8 @@
  *       a comma key and a blur commit too, trimmed
  *   §3  empty text is ignored; a duplicate is ignored unless allowDuplicates
  *   §4  each chip's remove button has an aria-label and removes it;
- *       Backspace in an empty box removes the last chip
+ *       Backspace in an empty box removes the last chip; moving the focus
+ *       from a box holding text to a remove button keeps it on that button
  *   §5  a paste with commas is split; a paste without one is plain text
  *   §6  readOnly: chips, no remove buttons, no text box
  *   §7  setValue (no onChange), getValue copies, dispose; the barrel exports it
@@ -163,6 +164,26 @@ section("§4 each chip's remove button");
     key(t.input, 'Backspace');
     key(t.input, 'Backspace');
     check('…until there are none, then does nothing', [chipTexts(t), seen.length], [[], 2]);
+}
+
+{
+    // Shift+Tab from a box holding text to the last chip's remove button:
+    // the blur commits the text, and the button keeps the focus.
+    const { t, seen } = make({ value: ['a', 'b'] });
+    t.input.focus();
+    t.input.value = 'x';
+    const target = removes(t)[1];
+    check('the button the focus moves to is "Remove b"', target.getAttribute('aria-label'), 'Remove b');
+    target.focus();
+    check('the blur committed the text', [chipTexts(t), seen], [['a', 'b', 'x'], [['a', 'b', 'x']]]);
+    ok('the remove button is still in the document', target.isConnected);
+    ok('…and has the focus', document.activeElement === target);
+    check('the new chip got its own button', removes(t).map((b) => b.getAttribute('aria-label')),
+          ['Remove a', 'Remove b', 'Remove x']);
+    click(target);
+    check('that button still removes its chip', chipTexts(t), ['a', 'x']);
+    click(removes(t)[1]);
+    check('…and the appended chip\'s button removes the appended chip', chipTexts(t), ['a']);
 }
 
 section('§5 paste');

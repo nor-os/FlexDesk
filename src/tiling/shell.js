@@ -142,7 +142,9 @@ import { openForm } from '../ui/components/modal.js';
  *                                      warned about once and ignored. The
  *                                      palette's *Keyboard shortcuts* lists the
  *                                      bindings in effect. Omitted, the default
- *                                      keymap, `?` for help included.
+ *                                      keymap, `?` for help included. Anything
+ *                                      but an object whose only key is
+ *                                      `bindings` is a TypeError.
  * @returns {Promise<object>} the frozen shell
  */
 export async function createShell({
@@ -180,6 +182,19 @@ export async function createShell({
     }
     if (!taxonomy) throw new Error('createShell: a taxonomy is required');
     if (!entities) throw new Error('createShell: an entity catalog is required');
+    // `keymap` is checked here, not left to the keymap: a typo such as
+    // `{ binding: … }` would otherwise be dropped without a word, and the chord
+    // the embedder meant to take back would stay bound.
+    if (keymap != null) {
+        if (typeof keymap !== 'object' || Array.isArray(keymap)) {
+            throw new TypeError('createShell: `keymap` must be an object of { bindings }');
+        }
+        const extra = Object.keys(keymap).filter((k) => k !== 'bindings');
+        if (extra.length) {
+            throw new TypeError(`createShell: unknown \`keymap\` key(s) ${extra.map((k) => `"${k}"`).join(', ')}`
+                + ' — the only key is `bindings`');
+        }
+    }
 
     const log = logger ?? { info(){}, warn(){}, error(){}, debug(){} };
     const registry = createContentRegistry(content);   // throws on a non-function

@@ -285,7 +285,20 @@ the Alt+letter suppression. Modifiers may come in any order and case. A chord id
 or action the keymap does not know is warned about once, through `logger` (else
 `console`), when the shell is built, and is then ignored. Only the window
 manager's own chords can be rebound. To add a new key, put your own listener on
-the page.
+the page. `keymap` itself must be an object whose only key is `bindings`:
+anything else (a string, a typo such as `{ binding: … }`) makes `createShell`
+throw a `TypeError`, so a binding you meant to change never stays in force
+unnoticed.
+
+**A key press is read as loosely as before.** With no bindings every key does
+what it did in 0.16, and a binding takes over every key press its chord was
+read as. Backspace ignores Shift and Alt, so `{ Backspace: false }` also hands
+Shift+Backspace and Alt+Backspace to the page. Alt+T/N/W/F ignore Shift. With
+Alt held, Ctrl and Meta are ignored, so Alt+Ctrl+H is `Alt+H`. Ctrl+K and
+Ctrl+Tab also match with Meta held, and Ctrl wins when both are held:
+Ctrl+Meta+K is `Ctrl+K`, and Meta+K is `Meta+K` only without Ctrl. Esc and `?`
+ignore every modifier. F1..F12, Shift+Left/Right and Ctrl+Left/Right match only
+with exactly those modifiers.
 
 **A key a component handled is the component's.** The keymap skips every
 keydown that is already `defaultPrevented`. A list that deletes a row on
@@ -302,6 +315,9 @@ returns its disposer. `HelpModal.toggle()` is what `?` does.
 `keymapShortcuts(bindings)` from `@flexdesk/wm`. That is `KEYMAP_SHORTCUTS`
 with each changed row replaced by one line per chord still bound, and no line
 for a chord you disabled. `createCommandPalette({ shortcuts })` takes that table.
+The command's hint names the keys that open help in it: `?` by default, `F9`
+after `{ '?': false, F9: 'help' }`, and none when no key opens help (for
+example after `{ '?': 'palette' }`).
 
 **`chrome.zoom`** paints a − / track / + / readout control into the element you
 pass, restores the saved zoom through the host's `state` capability, and scales

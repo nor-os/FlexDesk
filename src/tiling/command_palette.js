@@ -83,19 +83,23 @@ import { KEYBOARD_SHORTCUTS_TOPIC_ID, KEYMAP_SHORTCUTS, keyboardShortcutsTopic }
 
 const ROOT_ID = 'twm-cmdpal';
 
+/** The words a shortcuts table uses for the help action — the default `?` row's. */
+const HELP_ACTION = KEYMAP_SHORTCUTS.find((r) => r.keys === '?').action;
+
 /**
  * Non-entity commands surfaced in the palette's search results. They carry an
  * `action` so `commit()` runs them instead of opening a tile. `shortcuts` is
  * the table the *Keyboard shortcuts* command shows — the shell passes the one
- * its keymap's bindings produced (`keymapShortcuts`) — and its `?` hint is
- * drawn only while `?` is in that table.
+ * its keymap's bindings produced (`keymapShortcuts`). The command's hint names
+ * the keys that open help in that table: `?` by default, `F9` when an embedder
+ * moved help there, none when no key opens it.
  */
 function _staticCommands(shortcuts) {
-    const help = shortcuts.some((r) => r.keys === '?');
+    const helpKeys = shortcuts.filter((r) => r.action === HELP_ACTION).map((r) => r.keys).join(' / ');
     return [
         { kind: 'command', id: 'shortcuts', label: 'Keyboard shortcuts',
-          hint: help ? 'Show all key bindings (?)' : 'Show all key bindings',
-          icon: 'keyboard', ...(help ? { shortcut: '?' } : {}), verb: 'run',
+          hint: helpKeys ? `Show all key bindings (${helpKeys})` : 'Show all key bindings',
+          icon: 'keyboard', ...(helpKeys ? { shortcut: helpKeys } : {}), verb: 'run',
           // The application's help may define the topic; when it does not, the
           // window manager's own bindings are shown rather than an error.
           action: () => HelpModal.open(KEYBOARD_SHORTCUTS_TOPIC_ID,

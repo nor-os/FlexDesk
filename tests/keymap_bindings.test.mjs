@@ -17,7 +17,11 @@
  *   §7  an unknown chord id (or action) is warned about once and ignored
  *   §8  the shortcuts help reflects the effective bindings
  *   §9  a function binding; chord spelling; installHelpShortcut's disposer
- *   §10 with no bindings every default chord still does what it did
+ *   §10 with no bindings every default chord still does what it did — read
+ *       as loosely as 0.16 read it, checked against 0.16's handler for every
+ *       key and all 16 modifier sets, in and out of a field
+ *   §11 the *Keyboard shortcuts* hint names the keys that open help
+ *   §12 createShell refuses a `keymap` that is not `{ bindings }`
  *
  *     node tests/keymap_bindings.test.mjs
  *
@@ -460,6 +464,208 @@ console.log('§10 the default chords, unchanged');
     log.length = 0;
     key('w', { altKey: true });
     ok('the disposer removes the keymap', log.length === 0);
+
+    // The loose reads 0.16 had, named one by one.
+    const offAgain = wmEntry.installKeymap({ wm, palette });
+    const realToggle = HelpModal.toggle;
+    HelpModal.toggle = () => { log.push('help()'); return null; };
+    const loose = [
+        ['Backspace', { shiftKey: true }, 'navigateBack()'],
+        ['Backspace', { altKey: true }, 'navigateBack()'],
+        ['Backspace', { altKey: true, shiftKey: true }, 'navigateBack()'],
+        ['T', { altKey: true, shiftKey: true }, 'openFocusedInTab()'],
+        ['N', { altKey: true, shiftKey: true }, 'openFocusedInWindow()'],
+        ['W', { altKey: true, shiftKey: true }, 'closeFocused()'],
+        ['F', { altKey: true, shiftKey: true }, 'toggleManagedFocused()'],
+        ['k', { ctrlKey: true, metaKey: true }, 'toggle()'],
+        ['k', { ctrlKey: true, altKey: true }, 'toggle()'],
+        ['Tab', { ctrlKey: true, metaKey: true }, 'cycleFocusedTab(1)'],
+        ['Tab', { metaKey: true, shiftKey: true }, 'cycleFocusedTab(-1)'],
+        ['h', { altKey: true, ctrlKey: true }, 'split(h)'],
+        ['1', { altKey: true, metaKey: true }, 'switchDesktop(0)'],
+        ['ArrowLeft', { altKey: true, ctrlKey: true }, 'focusDir(left)'],
+        ['?', { shiftKey: true, ctrlKey: true }, 'help()'],
+    ];
+    for (const [k, mods, want] of loose) {
+        log.length = 0;
+        open = false;
+        const e = key(k, mods);
+        ok(`${JSON.stringify(mods)} ${k} -> ${want}, as in 0.16`, log.join(';') === want && e.defaultPrevented,
+           `${log.join(';')} prevented=${e.defaultPrevented}`);
+    }
+    log.length = 0;
+    const tIn = key('T', { altKey: true, shiftKey: true }, inp);
+    ok('Alt+Shift+T in a field still opens in a tab', log.join(';') === 'openFocusedInTab()' && tIn.defaultPrevented,
+       log.join(';'));
+    offAgain();
+
+    // …and every other key: 0.16's handler (with its import-time `?`
+    // listener) and this one, side by side, for every key and modifier set,
+    // with the palette closed and open, on the page and in a field.
+    const KEYS = [...'abcdefghijklmnopqrstuvwxyz', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', ...'0123456789',
+        ...Array.from({ length: 12 }, (_, i) => `F${i + 1}`), 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
+        'Tab', 'Backspace', 'Escape', 'Enter', ' ', '?', '/', '!', 'Delete', 'Home'];
+    const MODS = Array.from({ length: 16 }, (_, i) => ({
+        ctrlKey: !!(i & 1), metaKey: !!(i & 2), altKey: !!(i & 4), shiftKey: !!(i & 8) }));
+    const sweep = (install) => {
+        const offs = install();
+        const out = [];
+        for (const target of [document.body, inp]) {
+            for (const wasOpen of [false, true]) {
+                for (const k of KEYS) {
+                    for (const mods of MODS) {
+                        log.length = 0;
+                        open = wasOpen;
+                        const e = key(k, mods, target);
+                        out.push([`${target === inp ? 'field' : 'page'} open=${wasOpen} ${JSON.stringify(mods)} ${k}`,
+                                  `${log.join(';')} prevented=${e.defaultPrevented}`]);
+                    }
+                }
+            }
+        }
+        offs.forEach((f) => f());
+        return out;
+    };
+    navClicks.length = 0;
+    const before16 = sweep(() => [installKeymap016({ wm, palette }), installHelpShortcut016()]);
+    const now = sweep(() => [wmEntry.installKeymap({ wm, palette })]);
+    HelpModal.toggle = realToggle;
+    const diffIdx = before16.map(([, got], i) => (now[i][1] !== got ? i : -1)).filter((i) => i >= 0);
+    ok(`${before16.length} key presses do what 0.16 did`, diffIdx.length === 0,
+       diffIdx.slice(0, 6).map((i) => `${before16[i][0]}: 0.16 "${before16[i][1]}", now "${now[i][1]}"`).join(' | '));
+}
+
+// ── §11 ──────────────────────────────────────────────────────────────────
+console.log('§11 the Keyboard shortcuts hint names the keys that open help');
+{
+    // The flat layout draws the hint; the grouped one draws `shortcut` as a key cap.
+    const rowFor = async (keymap, layout) => {
+        const s = await buildShell({ ...(keymap ? { keymap } : {}), palette: { layout } });
+        key('k', { ctrlKey: true });
+        await tick();
+        const input = document.querySelector('.twm-cmdpal__input');
+        input.value = 'shortcuts';
+        input.dispatchEvent(new window.Event('input', { bubbles: true }));
+        await tick();
+        const row = [...document.querySelectorAll('.twm-cmdpal__item')]
+            .find((r) => r.textContent.includes('Keyboard shortcuts'));
+        const hint = row ? (row.querySelector('.twm-cmdpal__hint, .twm-cmdpal__context')?.textContent ?? '') : null;
+        const kbd = row ? (row.querySelector('.twm-cmdpal__shortcut')?.textContent ?? '') : null;
+        key('Escape');
+        s.shell.dispose();
+        return { hint, kbd };
+    };
+    const both = async (keymap) => ({ flat: await rowFor(keymap, 'flat'), grouped: await rowFor(keymap, 'grouped') });
+    const cases = [
+        ['by default the hint is `?`', null, 'Show all key bindings (?)', '?'],
+        ['with `?` rebound to the palette, nothing is offered as the help key',
+         { bindings: { '?': 'palette' } }, 'Show all key bindings', ''],
+        ['with help moved to F9, the hint is F9', { bindings: { '?': false, F9: 'help' } },
+         'Show all key bindings (F9)', 'F9'],
+        ['with no key opening help, there is no help key', { bindings: { '?': false } }, 'Show all key bindings', ''],
+    ];
+    for (const [what, keymap, hint, kbd] of cases) {
+        const got = await both(keymap);
+        ok(what, got.flat.hint === hint && got.grouped.hint === hint && got.grouped.kbd === kbd,
+           JSON.stringify(got));
+    }
+}
+
+// ── §12 ──────────────────────────────────────────────────────────────────
+console.log('§12 createShell refuses a keymap that is not { bindings }');
+{
+    for (const [what, keymap] of [
+        ['a typo, { binding }', { binding: { F1: false } }],
+        ['a string', 'x'],
+        ['an array', [{ F1: false }]],
+        ['bindings beside an unknown key', { bindings: { F1: false }, extra: 1 }],
+    ]) {
+        let err = null;
+        try { await buildShell({ keymap }); } catch (e) { err = e; }
+        ok(`${what} throws a TypeError`, err instanceof TypeError, String(err));
+    }
+    let err = null;
+    let s = null;
+    try { s = await buildShell({ keymap: {} }); } catch (e) { err = e; }
+    ok('an empty keymap is the default keymap', !err, String(err));
+    s?.shell.dispose();
+}
+
+// ══ 0.16, verbatim ══════════════════════════════════════════════════════
+// The reference §10 compares against: installKeymap and the help module's
+// import-time `?` listener as FlexDesk 0.16 shipped them (`palette`/`wm` calls
+// only; the `?` listener's `HelpModal` toggle is `HelpModal.toggle`).
+function installKeymap016({ wm, palette, ...opts } = {}) {
+    const onKeyDown = (e) => {
+        const inField = e.target?.closest?.('input, textarea, select, [contenteditable="true"]');
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k' && !e.shiftKey) {
+            e.preventDefault(); palette.toggle(); return;
+        }
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key === 'Tab') {
+            e.preventDefault(); wm.cycleFocusedTab(e.shiftKey ? -1 : 1); return;
+        }
+        if (e.key === 'Escape') {
+            if (palette.isOpen()) { palette.close(); return; }
+        }
+        if (e.key === 'Backspace' && !inField && !e.metaKey && !e.ctrlKey) {
+            e.preventDefault(); wm.navigateBack?.(); return;
+        }
+        const fMatch = /^F([1-9]|1[0-2])$/.exec(e.key);
+        if (fMatch && !inField && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+            const btns = document.querySelectorAll(
+                opts.navSelector || '.twm-global-top-bar .twm-bar-center.twm-top-nav .twm-top-nav__btn');
+            const idx = Number(fMatch[1]) - 1;
+            if (idx < btns.length) { e.preventDefault(); btns[idx].click(); return; }
+        }
+        if (e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && !inField
+            && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+            const tabs = [...document.querySelectorAll('.twm-bp__tabs .twm-bp__tab')];
+            if (tabs.length) {
+                const cur = tabs.findIndex((t) => t.classList.contains('twm-bp__tab--on'));
+                const dir = e.key === 'ArrowRight' ? 1 : -1;
+                const next = ((cur < 0 ? 0 : cur) + dir + tabs.length) % tabs.length;
+                e.preventDefault(); tabs[next].click(); return;
+            }
+        }
+        if (e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey && !inField
+            && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+            e.preventDefault(); wm.cycleDesktop(e.key === 'ArrowRight' ? 1 : -1); return;
+        }
+        if (!e.altKey) return;
+        const key = e.key.toLowerCase();
+        if (/^[1-9]$/.test(e.key)) {
+            e.preventDefault();
+            const idx = Number(e.key) - 1;
+            if (e.shiftKey) wm.moveFocusedToDesktop(idx); else wm.switchDesktop(idx);
+            return;
+        }
+        switch (key) {
+            case 'h': e.preventDefault(); e.shiftKey ? wm.splitFocusedWith('h') : wm.split('h'); return;
+            case 'v': e.preventDefault(); e.shiftKey ? wm.splitFocusedWith('v') : wm.split('v'); return;
+            case 't': e.preventDefault(); wm.openFocusedInTab(); return;
+            case 'n': e.preventDefault(); wm.openFocusedInWindow(); return;
+            case 'w': e.preventDefault(); wm.closeFocused(); return;
+            case 'f': e.preventDefault(); wm.toggleManagedFocused(); return;
+            case 'arrowleft': e.preventDefault(); e.shiftKey ? wm.moveFocused('left') : wm.focusDir('left'); return;
+            case 'arrowright': e.preventDefault(); e.shiftKey ? wm.moveFocused('right') : wm.focusDir('right'); return;
+            case 'arrowup': e.preventDefault(); e.shiftKey ? wm.moveFocused('up') : wm.focusDir('up'); return;
+            case 'arrowdown': e.preventDefault(); e.shiftKey ? wm.moveFocused('down') : wm.focusDir('down'); return;
+        }
+        if (key.length === 1 && /[a-z]/.test(key) && !inField) e.preventDefault();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+}
+
+function installHelpShortcut016() {
+    const onKeyDown = (event) => {
+        if (event.key !== '?') return;
+        if (event.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+        event.preventDefault();
+        HelpModal.toggle();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
 }
 
 function keymapShortcutsHas(keys, action) {

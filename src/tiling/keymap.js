@@ -287,16 +287,55 @@ function _compose(mods, key) {
     return [...used, k].join('+');
 }
 
-/** The chord id of a keydown event, in `DEFAULT_CHORDS`' spelling. */
+/**
+ * The chord id a keydown event is read as, in `DEFAULT_CHORDS`' spelling, or
+ * null. This is NOT an exact match on the modifier set: it reads an event the
+ * way the window manager always has, so a page with no bindings behaves as it
+ * did before chords could be rebound. In order, first match wins:
+ *
+ *   Ctrl or Meta (either or both, Alt allowed) + K, no Shift   Ctrl+K (Meta+K
+ *                                                  when Ctrl is not held)
+ *   Ctrl or Meta (either or both) + Tab, no Alt    Ctrl+Tab / Ctrl+Shift+Tab
+ *                                                  (Meta+… when Ctrl is not held)
+ *   Esc, any modifiers                             Escape
+ *   ?, any modifiers                               ?
+ *   Backspace, neither Ctrl nor Meta (Shift and Alt ignored)    Backspace
+ *   F1..F12, Shift+Left/Right, Ctrl+Left/Right     exactly those modifiers
+ *   with Alt held, Ctrl and Meta are ignored:
+ *     Alt(+Shift)+1..9, +H, +V, +Arrow             Shift picks the Alt+Shift+… row
+ *     Alt+T / N / W / F                            Shift ignored
+ *     any other Alt+letter                         Alt+Letter
+ *
+ * A disabled chord therefore takes every event read as it: `{Backspace:
+ * false}` leaves Shift+Backspace and Alt+Backspace to the page as well.
+ */
 function _chordOfEvent(e) {
     const key = e.key;
     if (!key || key === 'Control' || key === 'Shift' || key === 'Alt' || key === 'Meta') return null;
-    const mods = new Set();
-    if (e.ctrlKey) mods.add('Ctrl');
-    if (e.metaKey) mods.add('Meta');
-    if (e.altKey) mods.add('Alt');
-    if (e.shiftKey) mods.add('Shift');
-    return _compose(mods, key);
+    const { ctrlKey: ctrl, metaKey: meta, altKey: alt, shiftKey: shift } = e;
+    const lower = key.toLowerCase();
+    const cm = ctrl ? 'Ctrl' : 'Meta';
+    if ((ctrl || meta) && lower === 'k' && !shift) return `${cm}+K`;
+    if ((ctrl || meta) && !alt && key === 'Tab') return `${cm}+${shift ? 'Shift+' : ''}Tab`;
+    if (key === 'Escape') return 'Escape';
+    if (key === '?') return '?';
+    if (key === 'Backspace') return ctrl || meta ? null : 'Backspace';
+    if (!alt) {
+        const only = (m) => ctrl === (m === 'Ctrl') && shift === (m === 'Shift') && !meta;
+        if (/^F([1-9]|1[0-2])$/.test(key)) return !ctrl && !meta && !shift ? key : null;
+        if (key === 'ArrowLeft' || key === 'ArrowRight') {
+            if (only('Shift')) return `Shift+${key}`;
+            if (only('Ctrl')) return `Ctrl+${key}`;
+        }
+        return null;
+    }
+    const sh = shift ? 'Shift+' : '';
+    if (/^[1-9]$/.test(key)) return `Alt+${sh}${key}`;
+    if (lower === 'h' || lower === 'v') return `Alt+${sh}${lower.toUpperCase()}`;
+    if (lower === 't' || lower === 'n' || lower === 'w' || lower === 'f') return `Alt+${lower.toUpperCase()}`;
+    if (ARROWS.includes(key)) return `Alt+${sh}${key}`;
+    if (/^[a-z]$/.test(lower)) return 'Alt+Letter';
+    return null;
 }
 
 /** An embedder's chord id in canonical spelling, or null if the keymap does
@@ -395,15 +434,13 @@ export function installKeymap({ wm, palette, navSelector = null, bindings = null
     const log = logger ?? console;
     for (const p of problems) log.warn?.(`[keymap] ${p}`);
     const ctx = { wm, palette, navSelector };
-    const altLetter = table.get('Alt+Letter');
 
     const onKeyDown = (e) => {
         // A component that handled the key keeps it.
         if (e.defaultPrevented) return;
         const chord = _chordOfEvent(e);
         if (!chord) return;
-        let b = table.get(chord);
-        if (!b && e.altKey && /^[a-z]$/i.test(e.key)) b = altLetter;
+        const b = table.get(chord);
         if (!b || b.disabled) return;
         if (!b.inField && e.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
         if (b.run(ctx, e) !== false) e.preventDefault();

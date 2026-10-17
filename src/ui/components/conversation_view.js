@@ -19,7 +19,9 @@
  * MESSAGES are `{ id?, role, text, meta? }`. `id` is assigned when absent;
  * `role` becomes a modifier class (`twm-chat__msg--<role>`); `meta` is the
  * caller's and is handed back untouched. `append`, `replaceAll` and `clear`
- * change the list; `messages()` reads it. Each message has an EXTRA SLOT
+ * change the list; `messages()` reads it. An id already in the transcript (or
+ * repeated within one `replaceAll`) is refused with a throw, and a refused
+ * call changes nothing. Each message has an EXTRA SLOT
  * (`slot(id)`), an element below the body the caller fills with whatever
  * belongs to that message — tool output, buttons, a diff — and which a
  * re-render of the body never touches.
@@ -44,9 +46,14 @@
  *
  * THE COMPOSER is a textarea that grows with its text up to
  * `composerMaxHeight`. Enter submits (the trimmed-empty text is ignored) and
- * clears it; Shift+Enter inserts a newline. `setBusy(true)` turns Send into
- * Cancel: Enter then submits nothing, and Esc or a click on Cancel calls
- * `onCancel` — once per busy period, however often it is pressed.
+ * clears it; Shift+Enter is left to the browser, which inserts the newline
+ * (native undo, `input` events). `setBusy(true)` turns Send into Cancel: Enter
+ * then submits nothing, and Esc — wherever focus is inside the view — or a
+ * click on Cancel calls `onCancel`, once per busy period, however often it is
+ * pressed.
+ *
+ * `destroy()` removes the view. Every listener sits on an element the view
+ * created, so they go with it; none is on the host or the document.
  */
 
 /** How near the end of the transcript still counts as "at the bottom". */
@@ -150,18 +157,18 @@ export function mountConversationView(host, {
     jump.addEventListener('click', onJump);
 
     // ── messages ─────────────────────────────────────────────────────────
-    /** A fresh id, never one a caller's message already holds. */
-    const newId = () => {
+    /** A fresh id, never one `taken` holds. */
+    const newId = (taken = (id) => entries.has(id)) => {
         let id;
-        do id = `m${nextId++}`; while (entries.has(id));
+        do id = `m${nextId++}`; while (taken(id));
         return id;
     };
+    const duplicate = (id) => new Error(`conversation view: duplicate message id "${id}"`);
     const roleClass = (role) => String(role ?? '').toLowerCase().replace(/[^a-z0-9-]+/g, '-') || 'none';
     const snapshot = (message) => ({ ...message });
 
-    function drawBody(entry) {
+    function drawBody(entry, streaming = entry.message.id === streamId) {
         const { message, body } = entry;
-        const streaming = message.id === streamId;
         body.replaceChildren();
         body.classList.remove('twm-chat__body--plain');
         if (render) {
@@ -179,21 +186,27 @@ export function mountConversationView(host, {
         body.textContent = message.text;
     }
 
-    function build(spec) {
+    /**
+     * One entry, drawn, and added to `into` (the transcript unless a
+     * replaceAll is building its own). Throws on an id `into` already holds,
+     * before anything is changed.
+     */
+    function build(spec, { into = entries, taken, streaming = false } = {}) {
         const message = {
             ...spec,
-            id: spec?.id ?? newId(),
+            id: spec?.id ?? newId(taken ?? ((id) => into.has(id))),
             role: spec?.role ?? 'assistant',
             text: String(spec?.text ?? ''),
         };
-        if (entries.has(message.id)) throw new Error(`conversation view: duplicate message id "${message.id}"`);
+        if (into.has(message.id)) throw duplicate(message.id);
         const row = el('div', `twm-chat__msg twm-chat__msg--${roleClass(message.role)}`);
+        if (streaming) row.classList.add('twm-chat__msg--streaming');
         const body = el('div', 'twm-chat__body');
         const extra = el('div', 'twm-chat__extra');
         row.append(body, extra);
         const entry = { message, row, body, extra };
-        entries.set(message.id, entry);
-        drawBody(entry);
+        into.set(message.id, entry);
+        drawBody(entry, streaming);
         return entry;
     }
 
@@ -204,11 +217,22 @@ export function mountConversationView(host, {
         return entry.message.id;
     }
 
+    /** All or nothing: a repeated id throws before the transcript is touched. */
     function replaceAll(messages = []) {
+        const list = [...messages];
+        const given = new Set();
+        for (const m of list) {
+            if (m?.id == null) continue;
+            if (given.has(m.id)) throw duplicate(m.id);
+            given.add(m.id);
+        }
+        const next = new Map();
+        const taken = (id) => given.has(id) || next.has(id);
+        const frag = doc.createDocumentFragment();
+        for (const m of list) frag.append(build(m, { into: next, taken }).row);
         streamId = null;
         entries.clear();
-        const frag = doc.createDocumentFragment();
-        for (const m of messages) frag.append(build(m).row);
+        for (const [id, entry] of next) entries.set(id, entry);
         log.replaceChildren(frag);
         setPinned(true);
         toBottom();
@@ -217,15 +241,15 @@ export function mountConversationView(host, {
     function clear() { replaceAll([]); }
 
     // ── streaming ────────────────────────────────────────────────────────
+    /** Refused (a throw, nothing changed, an open stream left open) on an id already present. */
     function beginStream(message = {}) {
+        if (message.id != null && entries.has(message.id)) throw duplicate(message.id);
         if (streamId !== null) endStream();
-        const id = message.id ?? newId();
-        streamId = id;
-        const entry = build({ role: 'assistant', text: '', ...message, id });
-        entry.row.classList.add('twm-chat__msg--streaming');
+        const entry = build({ role: 'assistant', text: '', ...message }, { streaming: true });
+        streamId = entry.message.id;
         log.append(entry.row);
         settle();
-        return id;
+        return streamId;
     }
 
     function appendChunk(chunk) {
@@ -276,26 +300,22 @@ export function mountConversationView(host, {
         onCancel?.();
     }
 
-    function onKey(e) {
-        if (e.isComposing) return;
-        if (e.key === 'Enter' && e.shiftKey) {
-            e.preventDefault();
-            input.setRangeText('\n', input.selectionStart, input.selectionEnd, 'end');
-            grow();
-            return;
-        }
-        if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-            e.preventDefault();
-            submit();
-            return;
-        }
-        if (e.key === 'Escape' && busy) {
-            e.preventDefault();
-            cancel();
-        }
+    /** Enter submits; Shift+Enter (and Ctrl/Meta/Alt+Enter) is the browser's to handle. */
+    function onInputKey(e) {
+        if (e.isComposing || e.key !== 'Enter') return;
+        if (e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+        e.preventDefault();
+        submit();
     }
-    input.addEventListener('keydown', onKey);
+    /** Esc while busy cancels wherever focus is inside the view. */
+    function onRootKey(e) {
+        if (e.isComposing || e.key !== 'Escape' || !busy) return;
+        e.preventDefault();
+        cancel();
+    }
+    input.addEventListener('keydown', onInputKey);
     input.addEventListener('input', grow);
+    root.addEventListener('keydown', onRootKey);
     send.addEventListener('click', () => (busy ? cancel() : submit()));
     drawSend();
 
@@ -336,9 +356,9 @@ export function mountConversationView(host, {
         destroy() {
             if (destroyed) return;
             destroyed = true;
-            log.removeEventListener('scroll', onScroll);
-            log.removeEventListener('wheel', onWheel);
-            jump.removeEventListener('click', onJump);
+            streamId = null;
+            busy = false;
+            cancelled = false;
             entries.clear();
             root.remove();
         },

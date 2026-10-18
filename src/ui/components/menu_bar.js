@@ -416,9 +416,28 @@ export class MenuBar {
 
     /** The items the keyboard can land on: no separators, nothing disabled. */
     _enabledIn(menu) {
+        return this._itemsIn(menu).filter((b) => !this._isDisabled(this._models.get(b)));
+    }
+
+    /** Every item cell of `menu` in DOM order, disabled ones included. */
+    _itemsIn(menu) {
         return [...menu.children]
             .map((w) => w.firstElementChild)
-            .filter((b) => b?.matches?.(SEL_ITEM) && !this._isDisabled(this._models.get(b)));
+            .filter((b) => b?.matches?.(SEL_ITEM));
+    }
+
+    /** The next (`dir` 1) or previous (-1) enabled item from `btn`'s place
+     *  among all the cells, wrapping. `btn` itself may be disabled: one
+     *  setEnabled(id, false) leaves focus on it. */
+    _stepFrom(menu, btn, dir) {
+        const all = this._itemsIn(menu);
+        const n = all.length;
+        const at = all.indexOf(btn);
+        for (let k = 1; k <= n; k++) {
+            const b = all[(((at + dir * k) % n) + n) % n];
+            if (!this._isDisabled(this._models.get(b))) return b;
+        }
+        return null;
     }
 
     _buildMenu(items, label) {
@@ -602,15 +621,13 @@ export class MenuBar {
         const level = this._levelOf(btn);
         if (level < 0) return false;
         const menu = this._stack[level].menu;
-        const items = this._enabledIn(menu);
-        const at = items.indexOf(btn);
         const item = this._models.get(btn);
         const go = (b) => b?.focus({ preventScroll: true });
         switch (key) {
-            case 'ArrowDown': go(items[(at + 1) % items.length]); return true;
-            case 'ArrowUp':   go(items[(at - 1 + items.length) % items.length]); return true;
-            case 'Home': go(items[0]); return true;
-            case 'End':  go(items[items.length - 1]); return true;
+            case 'ArrowDown': go(this._stepFrom(menu, btn, 1)); return true;
+            case 'ArrowUp':   go(this._stepFrom(menu, btn, -1)); return true;
+            case 'Home': this._focusIn(menu, 'first'); return true;
+            case 'End':  this._focusIn(menu, 'last'); return true;
             case 'ArrowRight':
                 if (item?.submenu != null && !this._isDisabled(item)) this._openSub(btn, 'first');
                 else this._open(this._openIdx + 1, 'first');

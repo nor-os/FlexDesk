@@ -489,6 +489,25 @@ section('§9 disabled items and separators are skipped by the keyboard and never
     press('ArrowDown'); press('ArrowDown');
     check('a disabled submenu item is skipped as well', focused(), 'Quit');
     bar.setEnabled('export', true);
+    // setEnabled(id, false) leaves focus on the item it disables (§8): the
+    // keys still step from that item's own place in the menu.
+    itemIn(openMenus()[0], 'Open…').focus();
+    bar.setEnabled('open', false);
+    check('focus stays on an item disabled under it', focused(), 'Open…');
+    press('ArrowDown');
+    check('Down from it goes to the next enabled item', focused(), 'Open recent');
+    itemIn(openMenus()[0], 'Open…').focus();
+    press('ArrowUp');
+    check('Up from it goes to the previous enabled item', focused(), 'New');
+    itemIn(openMenus()[0], 'Export').focus();
+    bar.setEnabled('export', false);
+    press('ArrowUp');
+    check('Up from a disabled Export skips the disabled Save and the separator', focused(), 'Open recent');
+    itemIn(openMenus()[0], 'Export').focus();
+    press('ArrowDown');
+    check('Down from a disabled Export goes to Quit', focused(), 'Quit');
+    bar.setEnabled('open', true);
+    bar.setEnabled('export', true);
     reset();
 }
 

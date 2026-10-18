@@ -115,6 +115,16 @@ export function createPywebviewHost({ bridgeRef = null, resolvePath = (k) => `${
             // Blob download, never report a failed save. Covered by
             // tests/ui/test_host_save_fallback.mjs.
             saveFile: ({ data, filename, kind }) => call('save_file_dialog', [data, filename, kind]),
+            // POSITIONAL on the wire like save_file_dialog: read_file_dialog(accept,
+            // kind, encoding), where `accept` is a list of extensions or MIME types
+            // (may be empty), `kind` a label for the filter or null, and `encoding`
+            // 'text' or 'base64'. The reply is openFile's result shape (host.js);
+            // null when the transport has no read_file_dialog, and pickFile() then
+            // opens the browser's file chooser instead. See the README host contract.
+            async openFile({ accept = [], kind = null, encoding = 'text' } = {}) {
+                const r = await call('read_file_dialog', [accept, kind, encoding]);
+                return r && typeof r === 'object' ? r : null;
+            },
         },
         state: {
             async read(key) {

@@ -14,7 +14,8 @@
  *   §6  a value keeps its type in a map and a list of assignments (BUG-0058's
  *       rule, carried over)
  *   §7  string-list, enum-chips, choice-cards
- *   §8  upstream-column(s): by NAME, from ctx.columns(); a missing one kept
+ *   §8  upstream-column(s): by NAME, from ctx.columns(); a missing one kept;
+ *       columns not known yet: typed by name (flow_kit_columns_unknown has the rest)
  *   §9  Insert a value: the "{ }" is there only when the consumer gives a
  *       picker, and what it inserts lands at the caret, as text
  *   §10 x-ui-references names the syntaxes; each widget has its default
@@ -283,8 +284,9 @@ t.section('§7 string-list, enum-chips, choice-cards');
 t.section('§8 upstream columns, by name');
 {
     const none = field('key', { type: 'string', 'x-ui-widget': 'upstream-column' }, 'id', { columns: () => null });
-    t.ok('no input yet: a sentence, and the stored name kept on screen', none.el.textContent.includes('connect a step before')
-         && none.el.textContent.includes('id') && none.writes.length === 0);
+    t.ok('columns not known yet: a text box holding the stored name, the hint, and nothing written',
+         none.el.querySelector('input')?.value === 'id' && none.el.textContent.includes('Columns not known yet')
+         && none.writes.length === 0);
     const cols = [{ name: 'id', type: 'integer' }, { name: 'email', type: 'text' }];
     const one = field('key', { type: 'string', 'x-ui-widget': 'upstream-column' }, 'gone', { columns: () => cols });
     const sel = one.el.querySelector('select');

@@ -29,9 +29,17 @@ import { stepPorts } from './layout.js';
 
 /** The edits the lane editor records — anything else is refused by its history. */
 export const LANE_ACTIONS = Object.freeze([
-    'flow:step:add', 'flow:step:remove', 'flow:step:label', 'flow:step:config', 'flow:join:set',
-    'flow:source:add', 'flow:parameter:add', 'flow:parameter:change', 'flow:parameter:remove', 'flow:settings',
+    'flow:step:add', 'flow:step:remove', 'flow:step:label', 'flow:step:config', 'flow:step:duplicate',
+    'flow:step:menu', 'flow:join:set', 'flow:source:add', 'flow:parameter:add', 'flow:parameter:change',
+    'flow:parameter:remove', 'flow:settings',
 ]);
+
+/** The words the pure edits say: a copy's name, and why a step cannot be copied. */
+export const PIPELINE_STRINGS = Object.freeze({
+    copyLabel: (title, n) => (n > 1 ? `${title} (copy ${n})` : `${title} (copy)`),
+    duplicateNoStep: (id) => `There is no step ‘${id}’ to copy.`,
+    duplicateUnavailable: (title, why) => `‘${title}’ cannot be copied: ${why}`,
+});
 
 /** A parameter's name: what a reference to it can spell. */
 export const PARAMETER_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -248,6 +256,40 @@ export function removeStep(pipeline, catalogue, id) {
     pipeline.connections = kept;
     pipeline.nodes = pipeline.nodes.filter((n) => n.id !== id);
     return true;
+}
+
+/**
+ * A copy of step `id`, put right after it in `nodes`: a fresh id (the
+ * catalogue's stem, as for a new step), a label derived from the step's title
+ * (`Title (copy)`, then `(copy 2)`, … — never one another step already has), a
+ * DEEP copy of its config and every other key it carries (bar `position`, which
+ * belongs to the original's place), and THE SAME LINES IN: each connection into
+ * the step is repeated into the copy at the same port, under the lowest free
+ * ids. Nothing leads out of the copy, so it is a fork of what fed the step (a
+ * copied source starts a lane of its own).
+ *
+ * Returns `{ok: true, node}`, or `{ok: false, reason}` — and changes nothing —
+ * when there is no such step, or its type is one the catalogue says is not
+ * available here (`unavailable`, which is the reason given).
+ */
+export function duplicateStep(pipeline, catalogue, id, { strings = null } = {}) {
+    const S = { ...PIPELINE_STRINGS, ...(isObject(strings) ? strings : {}) };
+    const original = findNode(pipeline, id);
+    if (!original) return { ok: false, reason: S.duplicateNoStep(String(id)) };
+    const type = catalogue?.get?.(original.type) ?? null;
+    const title = original.label || type?.label || String(original.type);
+    if (type?.unavailable) return { ok: false, reason: S.duplicateUnavailable(title, String(type.unavailable)) };
+    const titles = new Set(pipeline.nodes.map((n) => n.label || catalogue?.get?.(n.type)?.label || String(n.type)));
+    let label = S.copyLabel(title, 1);
+    for (let i = 2; titles.has(label); i += 1) label = S.copyLabel(title, i);
+    const copy = { id: nextStepId(pipeline, original.type, catalogue), type: original.type, label,
+                   config: isObject(original.config) ? clone(original.config) : {} };
+    for (const [k, v] of Object.entries(original)) if (!NODE_KEYS.includes(k)) copy[k] = clone(v);
+    pipeline.nodes.splice(pipeline.nodes.indexOf(original) + 1, 0, copy);
+    for (const c of pipeline.connections.filter((x) => x.targetId === id)) {
+        pipeline.connections.push({ ...clone(c), id: nextConnectionId(pipeline), targetId: copy.id });
+    }
+    return { ok: true, node: copy };
 }
 
 /** May `sourceId` feed `stepId` without making a cycle? */

@@ -10,13 +10,17 @@
  *
  * Field schema:
  *   { name, label, type='text', default, step?, options?, required?,
- *     placeholder?, hint?, validator?, rows?, create?, pick?, displayFor? }
+ *     placeholder?, hint?, validator?, rows?, create?, pick?, displayFor?,
+ *     onText?, offText?, disabled?, compact? }
  *
  *   - type: 'text' | 'number' | 'password' | 'select' | 'textarea' |
- *           'checkbox' | 'picker' | 'color' | 'colorList'
+ *           'checkbox' | 'toggle' | 'picker' | 'color' | 'colorList'
  *   - hint: small dim help line rendered under the field
  *   - validator: fn(value, allValues) => string | null    (inline error)
  *   - rows: number of textarea rows (only used for type='textarea')
+ *   - toggle: a `ToggleField` switch, submitted as a boolean like a checkbox;
+ *     `onText` / `offText` label its state, `disabled` and `compact` pass
+ *     through to it
  *
  * Section dividers — entries of the form `{ section: 'Label' }` are
  * rendered as a small uppercase heading that groups the fields below
@@ -71,6 +75,7 @@
  */
 
 import { ManagedWindow } from '../../ui/components/managed_window.js';
+import { ToggleField } from '../../ui/components/toggle_field.js';
 import { ColorField } from './color_field.js';
 import { ColorListField } from './color_list_field.js';
 
@@ -158,21 +163,46 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
             defaultWidth: _estimateWidth(fields),
             defaultHeight: _estimateHeight(fields),
             onClose: () => {
-                if (_resolved) return;
-                _resolved = true;
-                for (const c of components.values()) c.dispose();
-                resolve(null);
+                disposeComponents();
+                if (!_resolved) { _resolved = true; resolve(null); }
             },
         });
+
+        // Toggles are components, not markup: each is mounted into the slot
+        // its row left for it, and its input carries the field's name.
+        const toggles = new Map();
+        for (const f of fields) {
+            if (!f || f.section != null || f.type !== 'toggle') continue;
+            const slot = body.querySelector(`[data-toggle-slot="${f.name}"]`);
+            if (!slot) continue;
+            const value = defaults[f.name] ?? f.default;
+            const toggle = new ToggleField({
+                name: f.name,
+                checked: value === true || value === 'true',
+                ariaLabel: f.label || f.name,
+                onText: f.onText ?? null,
+                offText: f.offText ?? null,
+                disabled: !!f.disabled,
+                compact: !!f.compact,
+            });
+            slot.appendChild(toggle.render());
+            toggles.set(f.name, toggle);
+        }
+        function disposeComponents() {
+            for (const t of toggles.values()) t.dispose();
+            toggles.clear();
+            for (const c of components.values()) c.dispose();
+            components.clear();
+        }
         win.show();
 
         let _resolved = false;
         const close = (result) => {
             if (_resolved) return;
             _resolved = true;
-            for (const c of components.values()) c.dispose();
             resolve(result);
             try { win.close({ force: true }); } catch {}
+            disposeComponents();
         };
 
         const errEl = body.querySelector('[data-role="form-error"]');
@@ -242,6 +272,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                     if (components.has(name)) { components.get(name).setValue(value); return; }
                     const el = body.querySelector(`[name="${name}"]`);
                     if (!el) return;
+                    if (toggles.has(name)) { toggles.get(name).set(value); return; }
                     if (el.type === 'checkbox') { el.checked = !!value; return; }
                     el.value = value == null ? '' : String(value);
                     const f = fieldOf(name);
@@ -275,7 +306,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                 let v;
                 if (components.has(f.name)) {
                     v = components.get(f.name).getValue();
-                } else if (f.type === 'checkbox') {
+                } else if (f.type === 'checkbox' || f.type === 'toggle') {
                     v = !!el.checked;
                 } else if (f.type === 'number') {
                     v = (el.value === '' ? null : Number(el.value));
@@ -748,7 +779,7 @@ function _estimateHeight(fields) {
             body += 32 + rows * 18;
             if (f.hint) body += 16;
         }
-        else if (f.type === 'checkbox') { body += 32; if (f.hint) body += 16; }
+        else if (f.type === 'checkbox' || f.type === 'toggle') { body += 32; if (f.hint) body += 16; }
         else if (f.type === 'colorList') {
             const n = Array.isArray(f.default) ? f.default.length : 0;
             body += 46 + Math.max(n, 1) * 40 + 40;
@@ -927,6 +958,20 @@ function _renderField(f, value) {
                 ${hintHtml}
                 ${errHtml}
             </label>
+        `;
+    }
+
+    if (f.type === 'toggle') {
+        // A div, not a label: the switch's own root is the <label>, and a
+        // label may not hold another. `openForm` mounts the ToggleField into
+        // the slot once the markup is in the document.
+        return `
+            <div class="twm-modal__row" data-field-row="${f.name}">
+                <span>${_esc(f.label || '')}</span>
+                <span class="twm-modal__toggle" data-toggle-slot="${f.name}"></span>
+                ${hintHtml}
+                ${errHtml}
+            </div>
         `;
     }
 

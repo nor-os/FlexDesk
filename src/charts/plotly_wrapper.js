@@ -88,7 +88,7 @@ if (typeof HTMLCanvasElement !== 'undefined') {
 }
 
 /**
- * Dark theme layout defaults matching EcoSim UI
+ * Dark theme layout defaults matching the shell's dark UI
  */
 export const DARK_THEME_LAYOUT = {
     paper_bgcolor: 'transparent',
@@ -146,6 +146,9 @@ export const DARK_THEME_LAYOUT = {
     }
 };
 
+/** The PNG export's file name (without extension) when the embedder names none. */
+export const DEFAULT_CHART_EXPORT_FILENAME = 'chart';
+
 /**
  * Default Plotly config options
  */
@@ -156,10 +159,27 @@ export const DEFAULT_CONFIG = {
     scrollZoom: true,       // Allow zoom with scroll wheel instead
     toImageButtonOptions: {
         format: 'png',
-        filename: 'ecosim_chart',
+        filename: DEFAULT_CHART_EXPORT_FILENAME,
         scale: 2
     }
 };
+
+/**
+ * Name the file a chart's PNG export saves as (Plotly adds `.png`). Applies to
+ * every chart created afterwards through DEFAULT_CONFIG; a chart's own
+ * `config.toImageButtonOptions` still wins.
+ *
+ * @param {string} [filename=DEFAULT_CHART_EXPORT_FILENAME]
+ */
+export function setChartExportFilename(filename = DEFAULT_CHART_EXPORT_FILENAME) {
+    DEFAULT_CONFIG.toImageButtonOptions.filename =
+        (typeof filename === 'string' && filename) ? filename : DEFAULT_CHART_EXPORT_FILENAME;
+}
+
+/** @returns {string} The PNG export's file name (without extension). */
+export function getChartExportFilename() {
+    return DEFAULT_CONFIG.toImageButtonOptions.filename;
+}
 
 /**
  * Load Plotly.js from CDN.

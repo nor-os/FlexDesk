@@ -8,16 +8,19 @@
  *       the tab already in front
  *   §3  update(items, activeId): the tab in front stays when its id is still
  *       there, the first is selected otherwise; activeId wins when present;
- *       kept tabs keep their button
+ *       kept tabs keep their button; emptying the strip is heard as
+ *       onSelect(null, null)
  *   §4  panes: mounted on first selection only (the one in front at creation
  *       counts), onShow each time, destroyed when their item goes; eager opts in,
  *       at creation and for an item an update adds
  *   §5  the bus: no subscription unless an event name is passed
  *   §6  setBadge / setIndicator
- *   §7  close (mark, Delete, middle click), context menu, reorder wiring
+ *   §7  close (mark, Delete, middle click), context menu, reorder wiring;
+ *       focus on a tab an update removes moves to the tab in front
  *   §8  overflow: a vertical wheel scrolls the strip; compact variant
  *   §9  destroy
- *   §10 CSS exists for every class the strip writes under its default block
+ *   §10 CSS exists for every class the strip writes under its default block;
+ *       a dirty tab hides its dot on hover only when it has a close mark
  *   §11 ids that are not strings (numbers) come back unchanged: click, arrow
  *       keys, Home/End, close, context menu and a drag reorder all work on them
  *
@@ -192,7 +195,9 @@ console.log('§3 update(items, activeId)');
 {
     const host = fresh();
     const log = [];
-    const tabs = createTabs(host, { items: ITEMS, active: 'c', onSelect: (id) => log.push(id) });
+    const heard = [];
+    const tabs = createTabs(host, { items: ITEMS, active: 'c',
+        onSelect: (id, item) => { log.push(id); heard.push([id, item]); } });
     const before = buttons(host);
     tabs.update([ITEMS[3], ITEMS[2], { id: 'e', label: 'Epsilon' }]);
     ok('the active id still exists: it stays in front', tabs.active() === 'c');
@@ -214,6 +219,11 @@ console.log('§3 update(items, activeId)');
     ok('neither present: the first', tabs.active() === 'p');
     tabs.update([]);
     ok('no items: nothing in front', tabs.active() === null && buttons(host).length === 0);
+    const last = heard[heard.length - 1];
+    ok('…and that is heard as onSelect(null, null)', last[0] === null && last[1] === null);
+    const n = heard.length;
+    tabs.update([]);
+    ok('emptying an empty strip again tells no one', heard.length === n);
     tabs.update([{ id: 'r', label: 'R' }]);
     ok('items again: the first', tabs.active() === 'r');
     tabs.update([{ id: 'r', label: 'R' }, { id: 'r', label: 'dup' }]);
@@ -372,6 +382,33 @@ console.log('§7 close, context menu, reorder');
        [...re.root.querySelectorAll('.twm-tabs__tab')].every((b) => b.getAttribute('draggable') === 'true'));
     re.update([...ITEMS, { id: 'e', label: 'E' }]);
     ok('…including one added by update', re.root.querySelector('[data-tab-id="e"]').getAttribute('draggable') === 'true');
+
+    // Delete on a focused closable tab; the caller drops it with update().
+    let list = ITEMS.map((i) => ({ ...i, closable: true }));
+    const kb = createTabs(fresh(), {
+        items: list, active: 'a',
+        onClose: (id) => { list = list.filter((i) => i.id !== id); kb.update(list); },
+    });
+    const bBtn = kb.root.querySelector('[data-tab-id="b"]');
+    bBtn.focus();
+    ok('(the closable tab has focus)', document.activeElement === bBtn);
+    key(bBtn, 'Delete');
+    ok('Delete closed it', !kb.has('b') && kb.active() === 'a');
+    ok('focus moves to the tab in front, not to <body>',
+       document.activeElement === kb.root.querySelector('[data-tab-id="a"]'),
+       `activeElement is ${document.activeElement?.tagName}`);
+    // The tab in front, focused, closes: focus follows the new front.
+    const aBtn = kb.root.querySelector('[data-tab-id="a"]');
+    key(aBtn, 'Delete');
+    ok('closing the focused tab in front focuses the new one',
+       kb.active() === 'c' && document.activeElement === kb.root.querySelector('[data-tab-id="c"]'));
+    // Focus elsewhere: an update does not steal it.
+    const outside = document.createElement('input');
+    document.body.appendChild(outside);
+    outside.focus();
+    kb.update(list.filter((i) => i.id !== 'd'));
+    ok('focus outside the strip stays where it is', document.activeElement === outside);
+    outside.remove();
 }
 
 console.log('§8 overflow and compact');
@@ -413,10 +450,28 @@ console.log('§10 CSS');
 {
     const css = readFileSync(resolvePath(HERE, '../css/flexdesk.css'), 'utf8');
     const classes = ['twm-tabs', 'twm-tabs--compact', 'twm-tabs__tabs', 'twm-tabs__tab', 'twm-tabs__tab--on',
-        'twm-tabs__tab--dirty', 'twm-tabs__icon', 'twm-tabs__label', 'twm-tabs__badge', 'twm-tabs__indicator',
+        'twm-tabs__tab--dirty', 'twm-tabs__tab--closable', 'twm-tabs__icon', 'twm-tabs__label', 'twm-tabs__badge', 'twm-tabs__indicator',
         'twm-tabs__dirty', 'twm-tabs__close', 'twm-tabs__body', 'twm-tabs-pane',
         ...TAB_LEVELS.flatMap((l) => [`twm-tabs__badge--${l}`, `twm-tabs__indicator--${l}`])];
     for (const c of classes) ok(`.${c} is styled`, new RegExp(`\\.${c}[\\s{\\[:,.]`).test(css));
+    const hidesDot = css.split('}').map((r) => r.trim())
+        .filter((r) => /\.twm-tabs__dirty\s*\{[^]*display:\s*none/.test(r));
+    ok('a rule hides the dirty dot on hover', hidesDot.length > 0);
+    ok('…and every such rule needs the tab to be closable',
+       hidesDot.every((r) => r.includes('.twm-tabs__tab--closable')), hidesDot.join(' | '));
+    const host = fresh();
+    createTabs(host, { items: [{ id: 'k', label: 'K', dirty: true, closable: true },
+                               { id: 'm', label: 'M', dirty: true }],
+                       onClose: () => {} });
+    const k = host.querySelector('[data-tab-id="k"]');
+    const m = host.querySelector('[data-tab-id="m"]');
+    ok('a tab with a close mark is --closable',
+       k.classList.contains('twm-tabs__tab--closable') && !!k.querySelector('.twm-tabs__close'));
+    ok('a dirty tab with no close mark is not', !m.classList.contains('twm-tabs__tab--closable')
+       && !m.querySelector('.twm-tabs__close') && !!m.querySelector('.twm-tabs__dirty'));
+    const noClose = createTabs(fresh(), { items: [{ id: 'k', label: 'K', dirty: true, closable: true }] });
+    ok('closable without onClose: no mark, not --closable',
+       !noClose.root.querySelector('.twm-tabs__tab--closable') && !noClose.root.querySelector('.twm-tabs__close'));
 }
 
 console.log('§11 numeric ids');

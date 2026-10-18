@@ -2352,7 +2352,7 @@ tabs.setIndicator('inputs', 'info');
 
 | Member | Does |
 |---|---|
-| `update(items, activeId?)` | Replaces the items, keeping the button of every id it keeps. In front: `activeId` if present, else the tab in front now if it is still there, else the first. Panes of items that went are destroyed |
+| `update(items, activeId?)` | Replaces the items, keeping the button of every id it keeps. In front: `activeId` if present, else the tab in front now if it is still there, else the first (none when no items are left). Panes of items that went are destroyed |
 | `select(id)`, `active()`, `has(id)`, `ids()` | The tab in front; `select` answers false for an id it does not have |
 | `setBadge(id, n, level?)` | A count, `99+` above 99, none at zero; `level` is `info`, `warning` or `alert` (`TAB_LEVELS`) |
 | `setIndicator(id, value)` | A dot: a level, `true` for the neutral one, falsy for none |
@@ -2365,19 +2365,24 @@ tabs.setIndicator('inputs', 'info');
   instance hears `onShow()` whenever its tab comes to the front and `destroy()`
   when its item goes.
 - **`onSelect` hears changes**, not the tab chosen at creation. A click on the
-  tab already in front is not a change; `onReselect(id, item)` hears it.
+  tab already in front is not a change; `onReselect(id, item)` hears it. An
+  `update` that leaves no items empties the front, heard as `onSelect(null, null)`.
 - **The bus is opt-in:** pass `eventBus` *and* `selectEvent: 'views:show'` and
   that event selects `payload.id` (or `selectFrom(payload)`). No event name, no
   subscription.
 - **Keys** follow the ARIA tabs pattern with automatic activation:
   ArrowLeft/ArrowRight (wrapping), Home, End; Delete (and a middle click) closes
-  a closable tab. Only the tab in front is in the tab order.
+  a closable tab. Only the tab in front is in the tab order. When an `update`
+  removes the tab that has focus (Delete, then your `onClose` drops it), focus
+  moves to the tab now in front instead of falling to the page.
 - **Overflow scrolls**, never wraps: a vertical wheel moves the strip sideways and
   the tab coming to the front is scrolled into view (`revealInStrip`,
   `wheelStripSideways`, shared with `NotebookTabBar`).
 - **Classes** are BEM under `block` (default `twm-tabs`): `__tabs`, `__tab`,
-  `__tab--on`, `__tab--dirty`, `__icon`, `__label`, `__badge`, `__indicator`,
-  `__dirty`, `__close`, `__body`, `--compact`, and `twm-tabs-pane`. Tabs and panes
+  `__tab--on`, `__tab--dirty`, `__tab--closable` (it has a close mark), `__icon`,
+  `__label`, `__badge`, `__indicator`, `__dirty`, `__close`, `__body`,
+  `--compact`, and `twm-tabs-pane`. A dirty tab shows its dot until hovered,
+  then its close mark; one with no close mark keeps the dot. Tabs and panes
   carry the id in `data-tab-id` (`dataKey`), as a string; callbacks and `ids()`
   hand back the id as you gave it, so a numeric id stays a number.
 

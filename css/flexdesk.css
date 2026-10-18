@@ -8726,9 +8726,10 @@ tr:hover .twm-row-action { opacity: 1; }
     font-size: 13px;
 }
 .twm-tabs__close:hover { opacity: 1; background: var(--surface-2); }
-/* A dirty, closable tab shows the dot until hovered, then the close mark. */
+/* A dirty, closable tab shows the dot until hovered, then the close mark.
+   A dirty tab with no close mark keeps its dot. */
 .twm-tabs__tab--dirty:not(:hover) .twm-tabs__close { display: none; }
-.twm-tabs__tab--dirty:hover .twm-tabs__dirty { display: none; }
+.twm-tabs__tab--dirty.twm-tabs__tab--closable:hover .twm-tabs__dirty { display: none; }
 .twm-tabs__badge[hidden],
 .twm-tabs__indicator[hidden] { display: none; }
 .twm-tabs__body { flex: 1 1 auto; min-height: 0; overflow: auto; }

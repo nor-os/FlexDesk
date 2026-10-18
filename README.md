@@ -138,7 +138,7 @@ is `{ id, label, shortcut?, disabled?, checked?, radio?, submenu? }` or
 `{ separator: true }`:
 
 ```js
-import { createMenuBar } from '@flexdesk/widgets';
+import { createMenuBar, MenuBar } from '@flexdesk/widgets';
 
 const bar = createMenuBar(document.getElementById('menus'), {
     menus: [
@@ -160,6 +160,11 @@ bar.setEnabled('save', true);     // patches an open menu in place
 bar.setChecked('dark', true);     // …and unchecks the rest of the radio group
 ```
 
+`createMenuBar(el, opts)` returns a `MenuBar` (also exported, for
+`instanceof`). Its methods: `open(menuId, { focusItem })`, `close()`,
+`focus()`, `isOpen()`, `isEnabled(id)`, `isChecked(id)`, `setEnabled(id, on)`,
+`setChecked(id, on)`, `commands()` and `dispose()`.
+
 - **Pointer.** Clicking a title opens its menu; while one is open, hovering
   another title switches to it. Hovering an item with a submenu opens it.
 - **Keyboard.** Alt (on its own) or F10 focuses the bar. Left/Right move across
@@ -177,7 +182,7 @@ bar.setChecked('dark', true);     // …and unchecks the rest of the radio group
 
 In a shell, pass the model as `menuBar` and the element as `chrome.menuBar`
 (each needs the other; either alone throws at boot);
-`shell.chrome.menuBar` is the bar, and its enabled items follow the palette's
+`shell.chrome.menuBar` is that `MenuBar`, and its enabled items follow the palette's
 own `commands` unless `menuBar.palette` is `false`:
 
 ```js

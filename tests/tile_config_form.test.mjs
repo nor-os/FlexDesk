@@ -93,6 +93,11 @@ function check(what, actual, expected) {
 }
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const ticks = async (n = 5) => { for (let i = 0; i < n; i++) await tick(); };
+// A modal focuses its first field one animation frame after it opens; a test
+// that checks where a refused Save puts focus waits for that frame first, or
+// the modal's own focus can land after the click and the check is a coin toss.
+const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+const settled = async () => { await ticks(); await frame(); };
 
 const host = () => { const h = document.createElement('div'); document.getElementById('root').append(h); return h; };
 const row = (h, key) => h.querySelector(`.fd-tile-config__row[data-field="${key}"]`);
@@ -240,6 +245,19 @@ console.log('§5 a custom renderer for "variable"');
     form.dispose();
     check('dispose reaches the renderer', disposed, 1);
 }
+{
+    // A renderer whose element carries an id of its own keeps it, and the
+    // field's <label> points at that id, not at a generated one.
+    const h = host();
+    let made = null;
+    const renderers = { variable: () => { made = document.createElement('input'); made.id = 'my-own-id'; return made; } };
+    const form = mountTileConfigForm(h, { schema: { fields: [{ key: 'series', type: 'variable', label: 'Series' }] }, renderers });
+    const lbl = row(h, 'series').querySelector('.fd-tile-config__label');
+    check('a preset id on the renderer\'s element is kept', made.id, 'my-own-id');
+    check('…and the label points at it', lbl.htmlFor, made.id);
+    ok('…so the label names the control', lbl.control === made && [...made.labels].includes(lbl));
+    form.dispose();
+}
 
 console.log('§6 BUG-0021: the built-in schemas');
 {
@@ -383,7 +401,7 @@ console.log('§8 openTileConfig');
 
     // Save is refused while a field shows an error
     open();
-    await ticks();
+    await settled();
     const decimals = document.querySelector('.fd-tile-config-host .fd-tile-config__row[data-field="decimals"] input');
     type(decimals, '99');
     ok('the invalid value shows its error',
@@ -398,6 +416,38 @@ console.log('§8 openTileConfig');
     await ticks();
     check('once corrected, Save saves it', [modalSaves.length, modalSaves[1]?.decimals], [2, 3]);
     ok('…and closes the modal', !document.querySelector('.fd-tile-config-host'));
+
+    // a refused Save focuses an invalid field drawn by a renderer
+    let pickerCtx = null;
+    let pickerButton = null;
+    const bus3 = new EventBus();
+    const stop3 = openTileConfig(bus3, { mode: 'modal', renderers: {
+        variable: (ctx) => {
+            pickerCtx = ctx;
+            const box = document.createElement('div');
+            pickerButton = document.createElement('button');
+            pickerButton.type = 'button';
+            pickerButton.textContent = 'Pick';
+            box.append(pickerButton);
+            return box;
+        },
+    } });
+    const pickerSaves = [];
+    bus3.emit('grid:config-modal-show', { tileType: 'x', config: { series: 'a', note: '' },
+        schema: { fields: [{ key: 'note', type: 'text' }, { key: 'series', type: 'variable', label: 'Series', required: true }] },
+        onSave: (cfg) => pickerSaves.push(cfg) });
+    await settled();
+    check('the renderer\'s commit of an empty value is refused', pickerCtx.commit(''), { valid: false, error: 'Series is required' });
+    document.querySelector('.fd-tile-config-host .fd-tile-config__row[data-field="note"] input').focus();
+    button('Save').click();
+    await ticks();
+    check('Save with an invalid renderer field calls no onSave', pickerSaves.length, 0);
+    ok('…and focuses the focusable control inside the renderer\'s element', document.activeElement === pickerButton);
+    pickerCtx.commit('b');
+    button('Save').click();
+    await ticks();
+    check('once corrected, Save saves it', pickerSaves.map((c) => c.series), ['b']);
+    stop3();
 
     // a second request while a modal is open is ignored
     open();

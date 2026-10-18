@@ -11,9 +11,9 @@ due:
 points: 3
 subsystem: build
 labels: [release]
-links: [blocked-by 31, blocked-by 32, blocked-by 33, blocked-by 34, blocked-by 35, blocked-by 36, blocked-by 37, blocked-by 38, blocked-by 62, blocked-by 39, blocked-by 43, blocked-by 44, blocked-by 50, blocked-by 30, blocked-by 41, blocked-by 42, blocked-by 45, blocked-by 46, blocked-by 47, blocked-by 48, blocked-by 49, blocked-by 67, blocked-by 52, blocked-by 53, blocked-by 55, blocked-by 57, blocked-by 56, blocked-by 58, blocked-by 60, blocked-by 61, blocked-by 63, blocked-by 64, blocked-by 65, blocked-by 66, blocked-by 3, blocked-by 74, blocked-by 75, blocked-by 76, blocked-by 77, blocked-by 78, blocked-by 79, blocked-by 80, blocked-by 81, blocked-by 82, blocked-by 83, blocked-by 84, relates-to BUG-0003, relates-to BUG-0004, relates-to BUG-0005, relates-to BUG-0006, relates-to BUG-0008, relates-to BUG-0009, relates-to BUG-0026, relates-to BUG-0011, relates-to BUG-0012, relates-to BUG-0013, relates-to BUG-0014, relates-to BUG-0015, relates-to BUG-0016, relates-to BUG-0017, relates-to BUG-0018, relates-to BUG-0019, relates-to BUG-0020, relates-to BUG-0023, relates-to BUG-0024, relates-to BUG-0025, relates-to BUG-0027, relates-to BUG-0028]
+links: [blocked-by 31, blocked-by 32, blocked-by 33, blocked-by 34, blocked-by 35, blocked-by 36, blocked-by 37, blocked-by 38, blocked-by 62, blocked-by 39, blocked-by 43, blocked-by 44, blocked-by 50, blocked-by 30, blocked-by 41, blocked-by 42, blocked-by 45, blocked-by 46, blocked-by 47, blocked-by 48, blocked-by 49, blocked-by 67, blocked-by 52, blocked-by 53, blocked-by 55, blocked-by 57, blocked-by 56, blocked-by 58, blocked-by 60, blocked-by 61, blocked-by 63, blocked-by 64, blocked-by 65, blocked-by 66, blocked-by 3, blocked-by 85, blocked-by 86, blocked-by 87, blocked-by 88, blocked-by 89, blocked-by 90, blocked-by 91, blocked-by 74, blocked-by 75, blocked-by 76, blocked-by 77, blocked-by 78, blocked-by 79, blocked-by 80, blocked-by 81, blocked-by 82, blocked-by 83, blocked-by 84, relates-to BUG-0003, relates-to BUG-0004, relates-to BUG-0005, relates-to BUG-0006, relates-to BUG-0008, relates-to BUG-0009, relates-to BUG-0026, relates-to BUG-0011, relates-to BUG-0012, relates-to BUG-0013, relates-to BUG-0014, relates-to BUG-0015, relates-to BUG-0016, relates-to BUG-0017, relates-to BUG-0018, relates-to BUG-0019, relates-to BUG-0020, relates-to BUG-0023, relates-to BUG-0024, relates-to BUG-0025, relates-to BUG-0027, relates-to BUG-0028]
 created: 2026-10-17
-updated: 2026-10-18T09:31Z
+updated: 2026-10-18T10:34Z
 ---
 
 ## Description
@@ -53,3 +53,7 @@ Scope added by norman (2026-10-17): the generic node modeler, EPIC-0073 with STO
 ### 2026-10-18T09:31Z · norman_agent
 
 Scope added by norman (2026-10-18): STORY-0003 (the editable grid) ships in 0.17.0 because STORY-0066 builds on it. Added to blocked-by.
+
+### 2026-10-18T10:34Z · norman_agent
+
+Scope added by norman (2026-10-18): the whole editable-grid split ships in 0.17.0, STORY-0085 to STORY-0091 (range copy, column reorder, six editors, staged edits, fill handle, paste, crosstab grid), on top of STORY-0003. Added to blocked-by.

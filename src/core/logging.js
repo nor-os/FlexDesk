@@ -26,7 +26,7 @@ const QUIET_MODE_LEVEL = 'warn';
 
 export class LoggingService {
     constructor({
-        name = 'ecosim',
+        name = 'flexdesk',
         eventBus = null,
         minLevel = 'info',
         historyLimit = 500,

@@ -18,8 +18,9 @@
  *   getSetting() / setSetting() / registerSettings() / …
  *       A thin binding over ONE instance of that primitive for THIS document.
  *       The cardinality is correct, not merely convenient: the store has a
- *       single physical backing key (`localStorage['ecosim.settings.v1']`), so
- *       two live stores in one document would be two writers to one key.
+ *       single physical backing key (`localStorage['flexdesk.settings.v1']`
+ *       unless `configureSettings({ storageKey })` names another), so two
+ *       live stores in one document would be two writers to one key.
  *
  * Usage
  * -----
@@ -300,7 +301,7 @@ const SCHEMA = Object.freeze({
         label: 'Projects directory',
         description: 'Default directory for new projects and bundled demos. Leave empty for OS default.',
         defaultValue: null,
-        placeholder: 'OS default (%APPDATA%/EcoSim/projects)',
+        placeholder: 'OS default',
     },
 
     // ── AI Assistant ────────────────────────────────────────────────────────
@@ -387,7 +388,10 @@ const CATEGORIES = Object.freeze([
     { id: 'advanced',   label: 'Advanced',     icon: 'code',         description: 'Debug and developer settings',              order: 80 },
 ]);
 
-const STORAGE_KEY = 'ecosim.settings.v1';
+/** The binding's localStorage key when the embedder names none. An embedder
+ *  that stored settings under another key keeps them by passing that key to
+ *  `configureSettings({ storageKey })` before anything reads a setting. */
+export const DEFAULT_SETTINGS_STORAGE_KEY = 'flexdesk.settings.v1';
 
 // ─── Path / value helpers ────────────────────────────────────────────────────
 
@@ -494,8 +498,9 @@ export function createSettingsStore({
     const _defaults = _clone(defaults) ?? {};
     const _schema = { ...schema };
     let _categories = categories.map(c => ({ ...c }));
-    const _values = _clone(defaults) ?? {};
+    let _values = _clone(defaults) ?? {};
     let _bus = eventBus;
+    let _storageKey = storageKey;
 
     const _sortCategories = () => {
         // Array#sort is stable, so equal `order` keeps registration order.
@@ -513,8 +518,8 @@ export function createSettingsStore({
      */
     const _load = () => {
         try {
-            if (!storageKey || typeof localStorage === 'undefined') return;
-            const raw = localStorage.getItem(storageKey);
+            if (!_storageKey || typeof localStorage === 'undefined') return;
+            const raw = localStorage.getItem(_storageKey);
             if (!raw) return;
             const saved = JSON.parse(raw);
             for (const path of Object.keys(_schema)) {
@@ -532,7 +537,7 @@ export function createSettingsStore({
     /** Persist values that differ from their defaults (sparse storage). */
     const _save = () => {
         try {
-            if (!storageKey || typeof localStorage === 'undefined') return;
+            if (!_storageKey || typeof localStorage === 'undefined') return;
             const sparse = {};
             for (const path of Object.keys(_schema)) {
                 const parts = path.split('.');
@@ -543,9 +548,9 @@ export function createSettingsStore({
                 }
             }
             if (Object.keys(sparse).length === 0) {
-                localStorage.removeItem(storageKey);
+                localStorage.removeItem(_storageKey);
             } else {
-                localStorage.setItem(storageKey, JSON.stringify(sparse));
+                localStorage.setItem(_storageKey, JSON.stringify(sparse));
             }
         } catch (err) {
             console.warn('[Settings] Failed to persist settings', err);
@@ -582,6 +587,23 @@ export function createSettingsStore({
         }
         _sortCategories();
         _load();   // idempotent: overlays only paths it finds in storage
+    };
+
+    /**
+     * Move the store onto another localStorage key: every value goes back to
+     * its default and is then overlaid from the NEW key only. Nothing is
+     * written, so the key the store leaves keeps whatever it held. Listeners
+     * hear one `settings:changed` with a null path, as after a reset.
+     *
+     * @param {string|null} key  localStorage key; null -> no persistence.
+     * @param {object} [opts]
+     * @param {boolean} [opts.notify=true]  false -> emit nothing.
+     */
+    const setStorageKey = (key, { notify = true } = {}) => {
+        _storageKey = key || null;
+        _values = _clone(_defaults) ?? {};
+        _load();
+        if (notify && _bus) _bus.emit('settings:changed', { path: null });
     };
 
     const get = (path, defaultValue = undefined) => {
@@ -683,6 +705,8 @@ export function createSettingsStore({
         getCategories: () => Object.freeze(_categories.slice()),
         getByCategory,
         setEventBus: (bus) => { _bus = bus; },
+        setStorageKey,
+        getStorageKey: () => _storageKey,
     });
 }
 
@@ -691,7 +715,8 @@ export function createSettingsStore({
 // A capability *port* (the host bridge) may have many implementations at once,
 // so a singleton there is a category error. A *value store* with a single
 // physical backing key has cardinality one by construction: two live stores in
-// one document would be two writers to `localStorage[STORAGE_KEY]`. The
+// one document would be two writers to the one key `configureSettings()`
+// names (default `DEFAULT_SETTINGS_STORAGE_KEY`). The
 // singleton is the correct cardinality, not a shortcut — and the factory above
 // is the primitive, so tests and a standalone demo never touch this binding.
 
@@ -699,8 +724,48 @@ const _store = createSettingsStore({
     defaults: DEFAULTS,
     schema: SCHEMA,
     categories: CATEGORIES,
-    storageKey: STORAGE_KEY,
+    storageKey: null,
 });
+
+// The binding reads its key LAZILY — on the first call that reads, writes or
+// resets a VALUE — so an embedder that calls `configureSettings({ storageKey })`
+// at boot never has the default key read at all, and importing this module
+// touches no storage. registerSettings(), registerSettingsEventBus() and the
+// schema/category/default getters do not attach it: they may come before or
+// after configureSettings().
+let _bindingKey = DEFAULT_SETTINGS_STORAGE_KEY;
+let _bound = false;
+
+/** The binding's store, attached to its key on first use. */
+function _binding() {
+    if (!_bound) {
+        _bound = true;
+        _store.setStorageKey(_bindingKey, { notify: false });
+    }
+    return _store;
+}
+
+/**
+ * Choose the localStorage key the app-global binding reads and writes.
+ * Call it at boot, before the first getSetting/setSetting/reset*: from then on
+ * the binding touches only `storageKey`.
+ *
+ * Called later, the binding moves: values return to their defaults, are
+ * reloaded from the new key, and a `settings:changed` (path null) is emitted.
+ * The old key is left as it was.
+ *
+ * @param {object} [opts]
+ * @param {string} [opts.storageKey=DEFAULT_SETTINGS_STORAGE_KEY]
+ */
+export function configureSettings({ storageKey = DEFAULT_SETTINGS_STORAGE_KEY } = {}) {
+    _bindingKey = storageKey;
+    if (_bound) _store.setStorageKey(storageKey);
+}
+
+/** @returns {string} The localStorage key the app-global binding uses. */
+export function getSettingsStorageKey() {
+    return _bindingKey;
+}
 
 /**
  * Push an embedder's settings namespace into the app-global store.
@@ -733,7 +798,7 @@ export function registerSettingsEventBus(eventBus) {
  * @returns {*} The setting value or defaultValue
  */
 export function getSetting(path, defaultValue = undefined) {
-    return _store.get(path, defaultValue);
+    return _binding().get(path, defaultValue);
 }
 
 /**
@@ -743,7 +808,7 @@ export function getSetting(path, defaultValue = undefined) {
  * @returns {boolean} True if set successfully
  */
 export function setSetting(path, value) {
-    return _store.set(path, value);
+    return _binding().set(path, value);
 }
 
 /**
@@ -761,7 +826,7 @@ export function getDefaultValue(path) {
  * @returns {boolean} True if reset successfully
  */
 export function resetSetting(path) {
-    return _store.resetOne(path);
+    return _binding().resetOne(path);
 }
 
 /**
@@ -769,12 +834,12 @@ export function resetSetting(path) {
  * @param {string} categoryId
  */
 export function resetCategory(categoryId) {
-    _store.resetCategory(categoryId);
+    _binding().resetCategory(categoryId);
 }
 
 /** Reset all settings to their defaults. */
 export function resetAllSettings() {
-    _store.resetAll();
+    _binding().resetAll();
 }
 
 /**
@@ -782,7 +847,7 @@ export function resetAllSettings() {
  * @returns {object} Deep copy of current settings
  */
 export function getAllSettings() {
-    return _store.getAll();
+    return _binding().getAll();
 }
 
 // ─── Schema / Category API (for Settings page UI) ───────────────────────────

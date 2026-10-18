@@ -2,10 +2,10 @@
 id: 76
 type: story
 title: "Canvas editor multi-selection with bulk move, delete, nudge, align and distribute"
-status: refined
+status: in-progress
 parent: 73
 phase: 
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 5
@@ -13,7 +13,7 @@ subsystem: canvas
 labels: [flexdesk, modeler]
 links: []
 created: 2026-10-17
-updated: 2026-10-17T21:20Z
+updated: 2026-10-18T09:41Z
 ---
 
 ## Description
@@ -33,6 +33,8 @@ Canvas selection is a single `{kind, id}` and the kernel's marquee selection is 
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
+- 2026-10-18 · norman_agent · status: refined -> in-progress
+- 2026-10-18 · norman_agent · assignee: (none) -> norman_agent
 
 ## Comments
 

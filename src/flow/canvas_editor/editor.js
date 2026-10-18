@@ -60,6 +60,7 @@
 
 import { CanvasAdapter } from '../../canvas/canvas_adapter.js';
 import { returnEdge, routeEdge } from '../../canvas/edge_router.js';
+import { layeredLayout } from '../../canvas/layered_layout.js';
 import { button, el, icon, toneClass, closeFlowPopovers } from '../kit/dom.js';
 import { createStrings, say } from '../kit/strings.js';
 import { createStepCatalogue } from '../kit/catalogue.js';
@@ -127,7 +128,11 @@ export function createCanvasEditor(host, options = {}) {
         slots = {}, strings = null, services = null, onChange = null, onSelect = null,
         history: historyOptions = {}, loop = {}, node: nodeOptions = {}, dataPortRead = null,
         removable = null, paletteTypes = null, label = null, gridSize = 16, waitsForAll = undefined,
+        layout = 'flow',
     } = options;
+    if (layout !== 'flow' && layout !== 'layered' && typeof layout !== 'function') {
+        throw new Error(`createCanvasEditor's layout is 'flow', 'layered' or a function (graph, ctx) → Map; got ${String(layout)}.`);
+    }
     const catalogue = Array.isArray(options.catalogue) ? createStepCatalogue(options.catalogue)
         : options.catalogue;
     if (!catalogue?.get || !catalogue?.byCategory) {
@@ -278,7 +283,8 @@ export function createCanvasEditor(host, options = {}) {
     const tools = {
         undo: tool('undo', { label: say(S, 'undo'), icon: 'undo', title: say(S, 'undoTitle'), onClick: () => undo() }),
         redo: tool('redo', { label: say(S, 'redo'), icon: 'redo', title: say(S, 'redoTitle'), onClick: () => redo() }),
-        arrange: tool('arrange', { label: say(S, 'arrange'), icon: 'account_tree', title: say(S, 'arrangeTitle'),
+        arrange: tool('arrange', { label: say(S, 'arrange'), icon: 'account_tree',
+                                   title: say(S, layout === 'flow' ? 'arrangeTitle' : 'arrangeLayeredTitle'),
                                    onClick: () => arrangeGraph() }),
         fit: tool('fit', { label: say(S, 'fit'), icon: 'fit_screen', title: say(S, 'fitTitle'),
                            onClick: () => fit({ whole: true }) }),
@@ -732,20 +738,43 @@ export function createCanvasEditor(host, options = {}) {
         }
     }
 
-    /** ARRANGE: `layoutGraph`, anchored at the graph's current top-left corner
-     *  so nothing jumps off screen, and ONE undo entry. */
-    function arrangeGraph() {
+    /** Where the `layout` option puts each of `part`'s steps: a Map of id →
+     *  `{x, y}` from the origin. */
+    function placeSteps(part, ids) {
+        if (layout === 'flow') return layoutGraph(part, catalogue, { ...BOX, loopEntry: loopPorts.entry });
+        const sizeOf = (n) => ({ width: BOX.width, height: bottomOf({ ...n, position: { x: 0, y: 0 } }) });
+        if (layout === 'layered') {
+            return layeredLayout(part.nodes, part.connections.map((c) => ({ from: c.source, to: c.target })), {
+                rank: (n) => typeOf(n)?.rank ?? null, sizeOf, columnGap: 96, rowGap: 40, componentGap: 80 });
+        }
+        const at = layout(normalise(part), { catalogue, node: BOX, ids, sizeOf, layeredLayout });
+        if (!(at instanceof Map)) throw new Error('The canvas editor\'s layout function must return a Map of id → {x, y}.');
+        return at;
+    }
+
+    /** ARRANGE: the `layout` option's places, anchored at the current top-left
+     *  corner of what is arranged so nothing jumps off screen, and ONE undo
+     *  entry. With `ids`, only those steps (two or more) and the lines between
+     *  them are laid out, and only they move. */
+    function arrangeGraph({ ids = null } = {}) {
         if (refusals().arrange) return false;
-        const at = layoutGraph(graph, catalogue, { ...BOX, loopEntry: loopPorts.entry });
-        const ox = Math.min(...graph.nodes.map((x) => x.position.x));
-        const oy = Math.min(...graph.nodes.map((x) => x.position.y));
-        for (const nodeRow of graph.nodes) {
+        const only = Array.isArray(ids) ? new Set(ids.map(String)) : null;
+        const nodes = only ? graph.nodes.filter((n) => only.has(n.id)) : graph.nodes;
+        if (nodes.length < 2) return false;
+        const part = only ? { nodes, connections: graph.connections.filter((c) => only.has(c.source) && only.has(c.target)) }
+            : graph;
+        const at = placeSteps(part, only ? nodes.map((n) => n.id) : null);
+        const ox = Math.min(...nodes.map((x) => x.position.x));
+        const oy = Math.min(...nodes.map((x) => x.position.y));
+        for (const nodeRow of nodes) {
             const p = at.get(nodeRow.id);
-            if (p) nodeRow.position = { x: canvas.snap(ox + p.x), y: canvas.snap(oy + p.y) };
+            if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) {
+                nodeRow.position = { x: canvas.snap(ox + p.x), y: canvas.snap(oy + p.y) };
+            }
         }
         paintNodes();
         commit('flow:arrange');
-        fit();
+        if (!only) fit();
         return true;
     }
 
@@ -1055,7 +1084,7 @@ export function createCanvasEditor(host, options = {}) {
         focus() { canvas.root.focus({ preventScroll: true }); },
         undo,
         redo,
-        arrange: () => arrangeGraph(),
+        arrange: (opts) => arrangeGraph(opts),
         fit,
         destroy() {
             if (destroyed) return;

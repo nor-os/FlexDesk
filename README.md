@@ -1614,7 +1614,7 @@ editor.setRunOverlay({ steps, ports, banner });
 | `setActionState(id, {disabled, reason, busy})`, `setStatus(text)`, `setMessage(text, tone)` | A verb refused in place, with its reason printed beside the toolbar; the status line; the gesture line |
 | `align(kind)`, `distribute(axis)` (0.17.0) | With `multiSelect`: line the picked steps up (`'left'`, `'center'`, `'right'`, `'top'`, `'middle'`, `'bottom'`; two or more picked) or give them equal gaps (`'horizontal'`, `'vertical'`; three or more), one `flow:nodes:align` entry. `false` when refused (too few picked, read only, or no `multiSelect`); an unknown kind or axis throws |
 | `select(id \| [id, …] \| 'flow' \| null)`, `repaintPanel()`, `focus()`, `undo()`, `redo()`, `arrange()`, `fit({whole})` | `select([id, …])` (0.17.0, `multiSelect`) picks several steps at once (unknown ids are left out; one left is one step picked, none lets go) |
-| `setCatalogue(catalogue \| types)` | Swaps the step types while the editor is open, for a type registered after `load`: the palette is redrawn and a node whose type's definition changed is rebuilt, so a node of a type that was unknown now draws. The graph and the history are untouched (0.17.0) |
+| `setCatalogue(catalogue \| types)` | Swaps the step types while the editor is open, for a type registered after `load`: the palette is redrawn and a node whose type's definition changed is rebuilt, so a node of a type that was unknown now draws. A definition is compared by what the node is drawn from (known or not, `icon`, `label`, tone, ports, `render` and `update`), not by object identity: a new catalogue of the same types plus one more rebuilds no node and calls no `render` again. The graph and the history are untouched (0.17.0) |
 | `history`, `canvas` | The editor's `FlowHistory` (`keep()`, `adopt(kept, editor.snapshot())`, `baseline(editor.snapshot())` for your publish) and its `CanvasAdapter` |
 | `destroy()` | Removes every listener, the ghost of a drag and any picker it opened. It saves nothing, because the editor holds nothing |
 
@@ -1658,7 +1658,10 @@ editor.setCatalogue(createStepCatalogue([...types, gauge], { categories }));   /
 - **The body sits below the ports** and is built once with the node. `update`
   runs on the same element on every repaint, so a control inside it keeps its
   focus and what was typed into it. `node` is a copy: the body writes only
-  through `ctx`.
+  through `ctx`. A later `setCatalogue` keeps that body too, unless the type's
+  own definition changed (its ports, `label`, `icon`, category tone, `render`
+  or `update`): then the node is built again and `render` runs again. A new
+  `size` or `accent` is applied in place.
 - **`ctx`** is `{setConfig(patch), readOnly, services}`. `setConfig` merges
   `patch` into the node's config (an `undefined` value removes the key) as one
   `flow:node:config` edit: one undo entry, and `onChange` is called. It is

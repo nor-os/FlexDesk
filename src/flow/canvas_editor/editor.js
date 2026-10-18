@@ -80,7 +80,12 @@
  * other step is, and what it threw is one of the editor's own findings beside
  * the consumer's. A type without these keys is drawn exactly as before.
  * `setCatalogue` swaps the types while the editor is open: the palette is
- * redrawn and only the nodes whose type changed are rebuilt.
+ * redrawn and only the nodes whose type's definition changed are rebuilt. A
+ * definition is compared by what the node is built from — known or not, its
+ * icon, label and tone, its ports and its `render` and `update` functions —
+ * never by object identity, so a new catalogue made from the same types plus
+ * one more keeps every existing node, its body and what was typed into it.
+ * A `size` or an `accent` is applied on every repaint and rebuilds nothing.
  */
 
 import { CanvasAdapter } from '../../canvas/canvas_adapter.js';
@@ -264,7 +269,7 @@ export function createCanvasEditor(host, options = {}) {
     /** Whether `routing: 'obstacles'` is drawing plain curves, the graph being over the kernel's limit. */
     let routingFallback = false;
     const nodeEls = new Map();
-    /** The type definition each node element was built from, by node id. */
+    /** What each node element was built from (`buildKey`), by node id. */
     const builtFrom = new Map();
     /** A node's own body, by node id: {el, ctx, update} — built once with the node. */
     const bodies = new Map();
@@ -619,6 +624,33 @@ export function createCanvasEditor(host, options = {}) {
     const bottomOf = (n) => Math.max(nodeBottom(catalogue, n, BOX), n.position.y + measured(n));
     const isReturn = (c, target) => isReturnEdge(c, target, catalogue, loopPorts.entry);
 
+    /** A port as the node draws it and hands it on: its JSON, or the port
+     *  itself when it has none (then only the same object is the same port). */
+    const portKey = (p) => {
+        try { return JSON.stringify(p); } catch { return p; }
+    };
+
+    /** What `buildNode` reads from the catalogue for this node — compared
+     *  field by field (`sameBuild`), so an equal definition in a new
+     *  catalogue is the same build and a changed one is not. */
+    function buildKey(nodeRow) {
+        const def = typeOf(nodeRow);
+        const own = def ? catalogue.body?.(nodeRow.type) : null;
+        return {
+            known: Boolean(def),
+            icon: def?.icon || '',
+            label: def?.label ?? null,
+            tone: catalogue.tone(nodeRow.type),
+            ports: [...catalogue.inputs(nodeRow.type), ...catalogue.outputs(nodeRow.type)].map(portKey),
+            render: own?.render ?? null,
+            update: own?.update ?? null,
+        };
+    }
+
+    const sameBuild = (a, b) => Boolean(a && b) && a.known === b.known && a.icon === b.icon
+        && a.label === b.label && a.tone === b.tone && a.render === b.render && a.update === b.update
+        && a.ports.length === b.ports.length && a.ports.every((p, i) => p === b.ports[i]);
+
     function buildNode(nodeRow, def) {
         const tone = catalogue.tone(nodeRow.type);
         const n = el('div', 'twm-flow-graph__node');
@@ -923,7 +955,8 @@ export function createCanvasEditor(host, options = {}) {
         let n = nodeEls.get(nodeRow.id);
         const def = typeOf(nodeRow);
         const shape = `${nodeRow.type}|${nodeRow.label || ''}`;
-        if (!n || n.dataset.shape !== shape || builtFrom.get(nodeRow.id) !== def) {
+        const key = buildKey(nodeRow);
+        if (!n || n.dataset.shape !== shape || !sameBuild(builtFrom.get(nodeRow.id), key)) {
             bodies.delete(nodeRow.id);
             bodyChanged = bodyFindings.delete(nodeRow.id);
             const fresh = buildNode(nodeRow, def);
@@ -932,7 +965,7 @@ export function createCanvasEditor(host, options = {}) {
             const focused = n && n.contains(document.activeElement);
             if (n) n.replaceWith(fresh); else canvas.nodeLayer.appendChild(fresh);
             nodeEls.set(nodeRow.id, fresh);
-            builtFrom.set(nodeRow.id, def);
+            builtFrom.set(nodeRow.id, key);
             n = fresh;
             if (focused) fresh.focus({ preventScroll: true });
         }
@@ -1544,7 +1577,8 @@ export function createCanvasEditor(host, options = {}) {
         /**
          * Swap the step types while the editor is open — a type registered
          * after `load`. The palette is redrawn; a node whose type's definition
-         * changed is rebuilt (so a node of a type that was unknown now draws);
+         * changed — what it is built from, not the object — is rebuilt (so a node
+         * of a type that was unknown now draws); the rest keep their elements;
          * the graph, and so the history, are untouched.
          */
         setCatalogue(next) {

@@ -1,0 +1,150 @@
+{
+  "single line": {
+    "figures": [
+      {
+        "traces": [
+          {
+            "name": "Alpha",
+            "type": "scatter",
+            "yaxis": "y"
+          }
+        ],
+        "yAxes": [
+          "yaxis"
+        ]
+      }
+    ],
+    "empty": []
+  },
+  "2x2 with dual axes, overlays, stacks, bands and a dataless subplot": {
+    "figures": [
+      {
+        "traces": [
+          {
+            "name": "Alpha",
+            "type": "scatter",
+            "yaxis": "y"
+          },
+          {
+            "name": "Beta (bare name)",
+            "type": "scatter",
+            "yaxis": "y"
+          },
+          {
+            "name": "Gamma right",
+            "type": "scatter",
+            "yaxis": "y2"
+          },
+          {
+            "name": "Gamma observed",
+            "type": "scatter",
+            "yaxis": "y2"
+          }
+        ],
+        "yAxes": [
+          "yaxis",
+          "yaxis2"
+        ]
+      },
+      {
+        "traces": [
+          {
+            "name": "Stack A",
+            "type": "scatter",
+            "yaxis": "y"
+          },
+          {
+            "name": "Stack C",
+            "type": "scatter",
+            "yaxis": "y"
+          }
+        ],
+        "yAxes": [
+          "yaxis"
+        ]
+      },
+      {
+        "traces": [
+          {
+            "name": "Holes",
+            "type": "bar",
+            "yaxis": "y"
+          },
+          {
+            "name": "Keyed",
+            "type": "bar",
+            "yaxis": "y"
+          }
+        ],
+        "yAxes": [
+          "yaxis"
+        ]
+      }
+    ],
+    "empty": [
+      "No data yet."
+    ]
+  },
+  "1x2 with one subplot configured": {
+    "figures": [
+      {
+        "traces": [
+          {
+            "name": "Only",
+            "type": "scatter",
+            "yaxis": "y"
+          }
+        ],
+        "yAxes": [
+          "yaxis"
+        ]
+      }
+    ],
+    "empty": [
+      "No subplot configured."
+    ]
+  },
+  "wide-top, three axes": {
+    "figures": [
+      {
+        "traces": [
+          {
+            "name": "a",
+            "type": "scatter",
+            "yaxis": "y"
+          },
+          {
+            "name": "b",
+            "type": "scatter",
+            "yaxis": "y2"
+          },
+          {
+            "name": "c",
+            "type": "scatter",
+            "yaxis": "y3"
+          }
+        ],
+        "yAxes": [
+          "yaxis",
+          "yaxis2",
+          "yaxis3"
+        ]
+      },
+      {
+        "traces": [
+          {
+            "name": "B again",
+            "type": "scatter",
+            "yaxis": "y"
+          }
+        ],
+        "yAxes": [
+          "yaxis"
+        ]
+      }
+    ],
+    "empty": [
+      "No data yet."
+    ]
+  }
+}

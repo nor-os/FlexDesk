@@ -2796,13 +2796,17 @@ view.setBusy(false);
 - **Pinned to the bottom.** Within `pinThreshold` px (32) of the end the
   transcript follows new content. Scrolling up stops that and shows *Jump to
   latest*; clicking it, or scrolling back to the end, follows again. Content
-  growing below never unpins it: only the reader scrolling up does.
+  growing below never unpins it: only the reader scrolling up does. A wheel
+  over a scroller nested in a body or a slot (a `<pre>`, a tool-output box)
+  scrolls that scroller, so the transcript keeps following.
 - **The composer** grows with its text up to `composerMaxHeight` (200 px).
   Enter submits and clears it (blank text is ignored, and so is Enter during
   IME composition); Shift+Enter is left to the browser, which inserts the
   newline (so undo and `input` listeners see it). While busy, Enter submits
   nothing, and Esc (wherever focus is inside the view) or a click on Cancel
-  calls `onCancel` once per busy period.
+  calls `onCancel` once per busy period. That Esc goes no further
+  (`stopPropagation`), so a `ManagedWindow` or panel holding the view that
+  closes on Escape stays open.
 - **Ids are unique.** `append`, `beginStream` or `replaceAll` with an id already
   in the transcript (or repeated within the `replaceAll` list) throws, and the
   refused call changes nothing: no row, no open stream, the old transcript kept.

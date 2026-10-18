@@ -2,11 +2,13 @@
  * ══ THE CONVERSATION VIEW (STORY-0057) ═══════════════════════════════════
  *
  *   §1  append, replaceAll, clear, messages(); role classes; the extra slot
- *   §2  appendChunk updates only the last message's DOM
+ *   §2  appendChunk updates only the last message's DOM; beginStream(null)
  *   §3  scrolling up while streaming stops following and shows Jump to latest;
- *       clicking it follows again; content growing never unpins
+ *       clicking it follows again; content growing never unpins; a wheel
+ *       over a nested scroller does not unpin
  *   §4  Enter submits and clears; Shift+Enter is left to the browser; empty is ignored
- *   §5  setBusy(true) turns Send into Cancel; Esc (anywhere in the view) or a click cancels once
+ *   §5  setBusy(true) turns Send into Cancel; Esc (anywhere in the view) or a click cancels once,
+ *       and that Esc never reaches the ManagedWindow holding the view
  *   §6  a render callback that throws shows plain text and the view keeps working
  *   §7  replaceAll restores 100 messages and scrolls to the bottom
  *   §8  the scroll position is readable and settable; destroy
@@ -48,7 +50,8 @@ if (!JSDOM) {
 
 const dom = new JSDOM('<!doctype html><body><div id="root"></div></body>',
                       { url: 'http://localhost/', pretendToBeVisual: true });
-for (const key of ['window', 'document', 'HTMLElement', 'Node', 'Event', 'MouseEvent', 'KeyboardEvent']) {
+for (const key of ['window', 'document', 'HTMLElement', 'Node', 'Event', 'MouseEvent', 'KeyboardEvent',
+                   'CustomEvent', 'localStorage', 'requestAnimationFrame', 'cancelAnimationFrame']) {
     if (globalThis[key] === undefined) globalThis[key] = dom.window[key];
 }
 
@@ -207,6 +210,24 @@ console.log('§2 appendChunk updates only the last message\'s DOM');
     t.view.endStream();
 }
 
+// beginStream(null) is beginStream(): an empty assistant message, as append(null) is.
+{
+    const t = fresh();
+    let threw = null;
+    let id = null;
+    try { id = t.view.beginStream(null); } catch (e) { threw = e; }
+    ok('beginStream(null) does not throw', threw === null, threw?.message);
+    ok('…and streams an empty assistant message', id !== null && t.view.streamingId() === id
+        && t.rows().length === 1 && t.rows()[0].classList.contains('twm-chat__msg--assistant')
+        && t.rows()[0].classList.contains('twm-chat__msg--streaming'));
+    t.view.appendChunk('x');
+    t.view.endStream();
+    const appended = t.view.append(null);
+    const ms = t.view.messages();
+    ok('…the same message append(null) builds', ms.length === 2 && ms[0].role === ms[1].role && ms[0].text === 'x'
+        && ms[1].text === '' && ms[1].id === appended);
+}
+
 console.log('§3 scrolling up during streaming stops auto-scroll; Jump to latest resumes');
 {
     const t = fresh();
@@ -246,6 +267,58 @@ console.log('§3 scrolling up during streaming stops auto-scroll; Jump to latest
 
     t.log.dispatchEvent(new dom.window.WheelEvent('wheel', { deltaY: -50 }));
     ok('a wheel up stops following before its scroll is reported', !t.view.isPinned() && !t.jump.hidden);
+    t.view.endStream();
+}
+
+// A wheel over a scroller nested in a body (a <pre>, a tool-output box)
+// scrolls that scroller, not the transcript: the view keeps following.
+{
+    const t = fresh({
+        render: (m, body) => {
+            if (m.text !== 'code') { body.textContent = m.text; return; }
+            const pre = document.createElement('pre');
+            pre.className = 'inner';
+            pre.style.overflowY = 'auto';
+            pre.textContent = 'line\n'.repeat(30);
+            body.append(pre);
+        },
+    });
+    for (let i = 0; i < 19; i++) t.view.append({ role: i % 2 ? 'assistant' : 'user', text: `m${i}` });
+    const codeId = t.view.append({ role: 'assistant', text: 'code' });
+    const pre = t.log.querySelector('pre.inner');
+    Object.defineProperty(pre, 'scrollHeight', { configurable: true, get: () => 600 });
+    Object.defineProperty(pre, 'clientHeight', { configurable: true, get: () => 100 });
+    Object.defineProperty(pre, 'scrollTop', { configurable: true, writable: true, value: 300 });
+    t.view.beginStream();
+    t.view.appendChunk('a');
+    ok('(nested) pinned at the bottom first', t.view.isPinned() && t.log.scrollTop === t.geo.max());
+    const before = t.log.scrollTop;
+    pre.dispatchEvent(new dom.window.WheelEvent('wheel', { deltaY: -50, bubbles: true }));
+    ok('a wheel up over a nested scroller that can still go up leaves the view following',
+        t.view.isPinned() && t.jump.hidden && t.log.scrollTop === before);
+    t.view.appendChunk('b');
+    t.view.append({ role: 'user', text: 'after' });
+    ok('…so the next chunk and message are followed', t.view.isPinned() && t.log.scrollTop === t.geo.max(),
+        `scrollTop ${t.log.scrollTop}, max ${t.geo.max()}`);
+    const slotBox = document.createElement('div');
+    slotBox.style.overflowY = 'scroll';
+    Object.defineProperty(slotBox, 'scrollHeight', { configurable: true, get: () => 500 });
+    Object.defineProperty(slotBox, 'clientHeight', { configurable: true, get: () => 80 });
+    Object.defineProperty(slotBox, 'scrollTop', { configurable: true, writable: true, value: 40 });
+    const inner = document.createElement('span');
+    slotBox.append(inner);
+    t.view.slot(codeId).append(slotBox);
+    inner.dispatchEvent(new dom.window.WheelEvent('wheel', { deltaY: -50, bubbles: true }));
+    t.view.appendChunk('c');
+    ok('…and so does a wheel over a scroller in an extra slot', t.view.isPinned() && t.log.scrollTop === t.geo.max());
+    pre.scrollTop = 0;
+    pre.dispatchEvent(new dom.window.WheelEvent('wheel', { deltaY: -50, bubbles: true }));
+    ok('a nested scroller already at its top passes the wheel on: the view stops following',
+        !t.view.isPinned() && !t.jump.hidden);
+    click(t.jump);
+    const plain = t.rows()[0].querySelector('.twm-chat__body');
+    plain.dispatchEvent(new dom.window.WheelEvent('wheel', { deltaY: -50, bubbles: true }));
+    ok('a wheel up over a body that does not scroll stops following', !t.view.isPinned());
     t.view.endStream();
 }
 
@@ -343,6 +416,40 @@ console.log('§5 setBusy(true) turns Send into Cancel; Esc anywhere in the view 
     t.view.setBusy(false);
     const idleEsc = key(t.send, 'Escape');
     ok('Esc on the button while idle is left alone', !idleEsc.defaultPrevented && cancels === 4);
+}
+
+// The Esc that cancels is the view's alone: a document-level Escape listener
+// (a ManagedWindow's, a slide-out panel's) never sees it, so the window
+// holding the conversation stays open.
+{
+    const { ManagedWindow } = await import('../src/ui/components/managed_window.js');
+    let cancels = 0;
+    let closes = 0;
+    let docEscapes = 0;
+    const onDocKey = (e) => { if (e.key === 'Escape') docEscapes++; };
+    document.addEventListener('keydown', onDocKey);
+    const content = document.createElement('div');
+    const win = new ManagedWindow({ id: 'chat-esc', title: 'Chat', content, onClose: () => { closes++; } });
+    win.show();
+    const view = mountConversationView(content, { onCancel: () => { cancels++; } });
+    const input = content.querySelector('.twm-chat__input');
+    ok('(window) the view is shown inside an open window', win.isVisible && content.contains(input));
+    view.setBusy(true);
+    const first = key(input, 'Escape');
+    ok('Esc while busy inside a ManagedWindow calls cancel once', cancels === 1 && first.defaultPrevented);
+    ok('…and the window stays open', win.isVisible && closes === 0);
+    ok('…because the Esc never reaches a document listener', docEscapes === 0);
+    key(input, 'Escape');
+    key(content.querySelector('.twm-chat__send'), 'Escape');
+    ok('a repeat Esc in the same busy period neither cancels again nor closes the window',
+        cancels === 1 && win.isVisible && closes === 0 && docEscapes === 0);
+    view.setBusy(false);
+    key(input, 'Escape');
+    ok('Esc while idle is not the view\'s: it reaches the document and the window closes',
+        docEscapes === 1 && !win.isVisible && cancels === 1);
+    document.removeEventListener('keydown', onDocKey);
+    view.destroy();
+    win.destroy?.();
 }
 
 console.log('§6 a render callback that throws shows plain text and the view keeps working');

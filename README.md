@@ -1195,7 +1195,7 @@ touches browser storage — and is shown to fail on a planted one.
 | `groupFindings(list)`, `createFindingsStrip({onGoTo, nameOf})` | The consumer's findings (`{code, message, severity, node_id?, field?}`) by step, and the strip: *"N things to fix before this can be published."*, a line each, *Go to it* |
 | `new FlowHistory({actions, restore, onState, limit, mergeMs})` | Undo and redo over whole snapshots. The editor passes its own list of actions and `commit` throws on any other, so an edit nobody named fails its first test. Loading and publishing are `baseline`s, never entries. Keyed commits within `mergeMs` merge (typing a name is one entry), never across an undo. `keep()` and `adopt(kept, state)` carry the stacks to a successor that loaded the same bytes |
 | `bindFlowKeys(root, handlers)`, `ownsUndo(target)` | An editor's keys, bound on its root, never on `window` (below) |
-| `emptyGraph`, `normalise`, `serialise`, `nextId`, `addNode`, `removeNode`, `connect`, `canConnect`, `disconnect`, `inputNamesOf` | A logic flow's graph — `{nodes: [{id, type, label?, config, position}], connections: [{source, target, sourcePort, targetPort}]}`, the shape the canvas and the outline both save. `serialise` is byte-stable: a graph opened and saved with no edit is the same text |
+| `emptyGraph`, `normalise`, `serialise`, `nextId`, `addNode`, `removeNode`, `connect`, `canConnect`, `disconnect`, `inputNamesOf` | A logic flow's graph — `{nodes: [{id, type, label?, config, position}], connections: [{source, target, sourcePort, targetPort}]}`, the shape the canvas and the outline both save. `serialise` is byte-stable: a graph opened and saved with no edit is the same text. `canConnect(graph, catalogue, edge, {strings, dataRead, dataPorts})` refuses only what an editor cannot draw; with `dataPorts: true` a data port connects to a data port, any number of lines out of one |
 | `createStrings(...layers)`, `FLOW_STRINGS` | Every word drawn, English and domain-free by default; an editor lays its own words over these, and the consumer lays its words over both |
 
 **The settings panel.**
@@ -1380,7 +1380,8 @@ editor.setRunOverlay({ steps, ports, banner });
 | `widgets`, `references`, `strings`, `services` | The kit's widget registry, the reference syntaxes by name, your words (`CANVAS_STRINGS` and the kit's), and your bag, handed to every widget unchanged |
 | `values` | *Insert a value*: called with `{graph, stepId, field, key, before, loops}`, where `before` is the steps that always run before this one (`alwaysBefore`, nearest first) and `loops` the loops around it. Returns groups, or `{groups, note}` |
 | `summarise(node, type)` | A line under a node's ports. `summariseReads(node, type)` is the panel's id line |
-| `dataPortRead(node, port)` | How a data port is read, in your syntax. It is shown on the port, which cannot be connected |
+| `dataPortRead(node, port)` | How a data port is read, in your syntax. It is shown on the port, which cannot be connected (unless `connections.dataPorts` is `'connect'`) |
+| `connections` | `{dataPorts: 'connect', policy(ctx)}`, absent by default, and then nothing below is drawn or bound. With it every line is asked, in order: what the canvas cannot draw (`canConnect` with `dataPorts`: a data port connects only to a data port, and a data output carries any number of lines); the kernel's `ConnectorRouter` over the catalogue ports, which take its descriptor keys (`disabled`, `disabledReason`, `maxConnections`, `allowMultiple`); the port types (an input's `accepts: ['number']` refuses an output whose `provides` names none of them, in a sentence); and your `policy(ctx)` — the router's context plus `connection` and a copy of the `graph` — which may refuse with a `reason`, allow, or answer `{ok: true, offer: {message, accept, apply(draft)}}`. An offer is shown with Accept and Not now: Accept makes the line and runs `apply` on a copy of the graph (change it in place or return a new one), as one undo entry. An output can also be dragged: while it is, the inputs it may end on carry `twm-flow-graph__port--can-drop`; released on one it connects; released on the empty canvas it opens the step picker with the types that have an input it may connect to, and the step picked is added with the line as one `flow:node:add` |
 | `flowSettings` | `{title, schema, value}` — the flow's own settings, edited as `flow:settings` |
 | `readOnly` | `false`, or `{reason}`, which is shown above the editor. Every verb is then refused with that reason, and no gesture writes |
 | `actions` | Your toolbar verbs, `[{id, label, icon, primary, danger, title, run(editor)}]`, after Undo, Redo, Arrange and Fit |
@@ -1411,7 +1412,9 @@ Arrange puts each step: a Map of id → `{x, y}` from the origin),
 `canvasPortAnchor`, `canvasNodeBottom` and `isCanvasReturnEdge`.
 
 **Gestures.** A node's header moves it. A connection is made by clicking an
-output and then an input, and Escape cancels one in progress. A line is picked
+output and then an input, and Escape cancels one in progress. Under the
+`connections` option an output can also be dragged to an input, or onto the
+empty canvas to pick a step that arrives connected. A line is picked
 by clicking it, and Delete removes it or the picked step. A palette step is
 added by clicking it (at the centre of the view) or by dragging it onto the
 canvas (where it is dropped). The drag uses pointer events and a ghost on

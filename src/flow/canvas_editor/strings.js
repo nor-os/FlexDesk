@@ -34,4 +34,16 @@ export const CANVAS_STRINGS = Object.freeze({
     removeConnection: 'Remove connection',
     portCount: (n) => `×${n}`,
     portNotTaken: 'not taken',
+
+    // ── under the `connections` option ───────────────────────────────
+    connectTypes: ({ from, fromStep, to, toStep, accepts, provides }) => `${to} on ${toStep} takes `
+        + `${accepts.join(' or ')}, and ${from} on ${fromStep} gives ${provides.join(' or ')}.`,
+    connectRefused: 'These two cannot be connected.',
+    connectDrag: 'Drop it on an input to connect, or on the canvas to add a step there. Esc cancels.',
+    dropOnInput: 'Drop the line on an input to connect it.',
+    dropPickerTitle: 'Add a step and connect it',
+    dropNothingFits: 'No step has an input this output can connect to.',
+    offerAccept: 'Accept',
+    offerDismiss: 'Not now',
+    offerStale: 'The flow changed, so that suggestion no longer applies.',
 });

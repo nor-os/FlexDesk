@@ -10887,6 +10887,21 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     color: var(--twm-flow-blue-fg);
     border-bottom: 1px solid var(--twm-flow-blue-line);
 }
+/* A host policy's offer: its sentence, Accept and Not now, on one line. */
+.twm-flow-graph__offer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+    padding: 4px 10px;
+    font-size: var(--font-size-xs);
+    background: var(--twm-flow-blue-bg);
+    color: var(--twm-flow-blue-fg);
+    border-bottom: 1px solid var(--twm-flow-blue-line);
+}
+.twm-flow-graph__offer-text { margin: 0; flex: 1 1 200px; min-width: 0; line-height: 1.4; }
+.twm-flow-graph__offer-accept,
+.twm-flow-graph__offer-dismiss { flex: 0 0 auto; }
 
 /* Three columns; the CANVAS is the one that flexes — `flex: 1 1 0px` AND
  * `min-width: 0`, or an open settings panel squeezes the palette instead. */
@@ -10958,6 +10973,8 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 }
 .twm-flow-graph__canvas { position: relative; flex: 1 1 0px; min-width: 0; min-height: 0; }
 .twm-flow-graph__canvas--drop { outline: 2px dashed var(--twm-flow-focus); outline-offset: -2px; }
+/* Where a dragged line was let go: what the step picker is anchored to. */
+.twm-flow-graph__drop-anchor { position: absolute; width: 1px; height: 1px; pointer-events: none; }
 .twm-flow-graph__aside {
     flex: 0 0 300px;
     min-width: 0;
@@ -11130,6 +11147,15 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 .twm-flow-graph__port--taken .twm-flow-graph__port-dot { border-color: var(--twm-flow-ok); background: var(--twm-flow-ok); }
 .twm-flow-graph__port--taken .twm-flow-graph__port-count { color: var(--twm-flow-ok); }
 .twm-flow-graph__port--untaken { opacity: 0.5; }
+/* Under `connections` only the inputs the line may end on are lit. */
+.twm-flow-graph--linking.twm-flow-graph--connecting .twm-flow-graph__port--in:not(.twm-flow-graph__port--can-drop) .twm-flow-graph__port-dot {
+    background: transparent;
+    box-shadow: none;
+}
+.twm-flow-graph__port--can-drop .twm-flow-graph__port-dot {
+    background: var(--twm-flow-focus);
+    box-shadow: 0 0 0 3px rgba(0, 122, 204, 0.35);
+}
 
 /* ── a line ─────────────────────────────────────────────────────────── */
 .twm-flow-graph__edge { fill: none; stroke: #8fb4d8; stroke-width: 1.6; }
@@ -11140,6 +11166,8 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 .twm-flow-graph__edge--back { stroke-dasharray: 6 4; }
 .twm-flow-graph__edge--taken { stroke: var(--twm-flow-ok); }
 .twm-flow-graph__edge--untaken { opacity: 0.35; }
+/* The line a drag is drawing: dashed, and never what the release lands on. */
+.twm-flow-graph__edge--draft { stroke: var(--twm-flow-focus); stroke-dasharray: 4 3; pointer-events: none; }
 /* The 14px target a 1.6px line cannot be. It opts back into the pointer the
  * edge layer turns off. */
 .twm-flow-graph__edge-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }

@@ -87,9 +87,6 @@ function makeDefaultSubplot(index) {
         interpolation: 'linear',
         nanHandling: 'gap',
         showDataPoints: false,
-        showHpTrend: false,
-        showHpCycle: false,
-        hpLambda: 1600,
         xAxis: { useTime: true, variable: '' },
         zAxis: null,
         yAxes: [{

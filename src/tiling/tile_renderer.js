@@ -1374,7 +1374,7 @@ export class TileRenderer {
     _topTabCallbacks(leafId) {
         return {
             // C33. `DragReorder` calls this through `NotebookTabBar`, which
-            // sets its own `application/x-ecosim-tab` first and unchanged — so
+            // sets its own tab MIME (getTabDragMime()) first and unchanged — so
             // an editor pane sharing the page cannot notice that tiles are
             // dragging tabs too.
             onDragStart: (ev, key, item) => {

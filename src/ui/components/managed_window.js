@@ -19,7 +19,11 @@
 
 import { getSetting } from '../../core/settings.js';
 
-const STORAGE_KEY = 'ecosim.managedWindows.v1';
+/** Where window geometry lives when the embedder names no key. An embedder
+ *  that saved geometry under another key keeps it by passing that key to
+ *  `ManagedWindow.configure({ storageKey })` before the first window opens. */
+export const DEFAULT_WINDOW_STORAGE_KEY = 'flexdesk.managedWindows.v1';
+let _storageKey = DEFAULT_WINDOW_STORAGE_KEY;
 const BASE_Z_INDEX = 6000;
 const MAX_Z_INDEX = 6999;
 
@@ -70,7 +74,7 @@ let _stateCache = null;
 function _loadState() {
     if (_stateCache) return _stateCache;
     try {
-        const raw = localStorage.getItem(STORAGE_KEY);
+        const raw = localStorage.getItem(_storageKey);
         _stateCache = raw ? JSON.parse(raw) : {};
     } catch {
         _stateCache = {};
@@ -81,7 +85,7 @@ function _loadState() {
 function _saveState(state) {
     _stateCache = state;
     try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        localStorage.setItem(_storageKey, JSON.stringify(state));
     } catch (err) {
         console.warn('[ManagedWindow] Failed to save state:', err);
     }
@@ -958,7 +962,7 @@ export class ManagedWindow {
      *      x         = max(minX, min(x, maxX))        = max(0, min(x, maxX))                    ✓
      *      y         = max(minY, min(y, maxY))        = max(TOP, min(y, maxY))                  ✓
      *
-     *  EcoAgent's and EcoSim's modals depend on that arithmetic; prove the
+     *  Embedders' modals depend on that arithmetic; prove the
      *  equivalence in review by substitution rather than by testing.
      */
     _bounds() {
@@ -1660,6 +1664,25 @@ export class ManagedWindow {
     }
 
     // ========== Static Methods ==========
+
+    /**
+     * Choose where window geometry is saved and restored. Call once at boot,
+     * before the first window opens; from then on windows read and write only
+     * `storageKey`. The geometry already read from another key is dropped, so
+     * a window shown afterwards restores what `storageKey` holds.
+     *
+     * @param {object} [opts]
+     * @param {string} [opts.storageKey=DEFAULT_WINDOW_STORAGE_KEY]
+     */
+    static configure({ storageKey = DEFAULT_WINDOW_STORAGE_KEY } = {}) {
+        _storageKey = storageKey;
+        _stateCache = null;
+    }
+
+    /** @returns {string} The localStorage key window geometry uses. */
+    static get storageKey() {
+        return _storageKey;
+    }
 
     /**
      * Get a window by ID.

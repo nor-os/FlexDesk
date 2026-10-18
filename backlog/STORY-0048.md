@@ -2,10 +2,10 @@
 id: 48
 type: story
 title: "A public tab strip with optional pane host, decoupled from bus names and file paths"
-status: refined
+status: in-progress
 parent: 40
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 5
@@ -13,7 +13,7 @@ subsystem: widgets
 labels: [widgets, new-component, tabs]
 links: []
 created: 2026-10-17
-updated: 2026-10-17T07:55Z
+updated: 2026-10-18T02:19Z
 ---
 
 ## Description
@@ -35,9 +35,23 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
+- 2026-10-17 · norman_agent · status: refined -> in-progress
+- 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
 
 ## Comments
 
 ### 2026-10-17T07:55Z · norman_agent (status: draft -> refined)
 
 Refined: 5 acceptance criteria, 5 points, parented to EPIC-0040. Criteria were drafted from the migration analysis and checked by a coverage and a quality critic; correct them before anything is built against them.
+
+### 2026-10-18T02:19Z · norman_agent
+
+Where this stands: built on branch story-0048 @ 42b21fb, but an independent review still finds problems after two fix rounds, so it has not landed. Status and assignee are unchanged.
+
+What I checked: all five criteria hold when I read the code, but none is ticked yet because the branch has not landed. tests/tabs.test.mjs and tests/bottom_panel_tabs.test.mjs pass. `node tests/run.mjs` is GREEN: 119 suites, none SKIPPED. `node build.mjs` succeeds, and I reverted dist/ afterwards. The diff has no edits under backlog/, bugs/ or dist/, no TODOs and no EcoSim vocabulary. widgets.js exports createTabs, TAB_LEVELS, revealInStrip and wheelStripSideways with no name collisions. The README is updated, and STORY-0018 was released in 0.14.0.
+
+Still open: three problems in behaviour this branch adds and documents.
+
+1. css/flexdesk.css:8348: `.twm-tabs__tab--dirty:hover .twm-tabs__dirty { display: none; }` applies to every dirty tab, closable or not. The comment at 8346 says it is meant for "a dirty, closable tab". The close mark is drawn only when `item.closable && onClose` (src/ui/components/tabs.js:206). So hovering a dirty tab that cannot be closed hides its unsaved dot and shows nothing in its place. Done looks like: the dot is hidden only when a close mark is present, e.g. `.twm-tabs__tab--dirty:hover:has(.twm-tabs__close) .twm-tabs__dirty { display: none; }` or a `--closable` modifier set in draw(), plus a §10 assertion in tests/tabs.test.mjs that the dot-hiding rule needs the close mark.
+2. src/ui/components/tabs.js:346-349, with update() at 405-414: Delete on the focused closable tab calls onClose. When the caller then removes the item with update(), as README.md shows, the focused button is removed and focus falls to <body>. A jsdom probe confirms it: focus on b, press Delete, and document.activeElement is BODY while active() is 'a'. A keyboard user loses their place in the tablist, which breaks the "ARIA tabs pattern" the README claims ('Keys' bullet). Done looks like: if focus was inside the strip and update() removes the focused tab, focus moves to the new active tab, plus a §7 test (focus a closable tab, press Delete, caller calls update() without it, document.activeElement is the new active tab's button).
+3. src/ui/components/tabs.js:412 with 280: update() with no items left calls onSelect(null, null). The JSDoc (`(id, item)`) and README.md:1747 ("onSelect hears changes") do not say the id can be null. Either document that an emptied strip reports `onSelect(null, null)`, or skip the call when nothing is in front, and cover the choice in tests/tabs.test.mjs §3.

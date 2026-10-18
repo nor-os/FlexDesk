@@ -7,16 +7,20 @@
  *
  *   §1  one control per field, for every `FieldTypes` entry
  *   §2  an edit calls onChange(key, value, config) with the field's key
- *   §3  a number below min shows an inline error and is not applied
+ *   §3  a number below min shows an inline error and is not applied; a field
+ *       with no label is called by its key in that error
  *   §4  visibleWhen toggles the row without rebuilding the focused control
  *   §5  a consumer renderer for type 'variable' is used for that field
  *   §6  BUG-0021: the built-in schemas use key/description, so validateConfig
  *       sees them — validateConfig({decimals: 99}, KpiTile schema) fails
  *   §7  readonly, options via getFieldOptions, mergeWithDefaults, setValues,
  *       dispose, and a field with no key throws
- *   §8  openTileConfig: a slide-out saves each valid edit; a modal on Save;
- *       a request while a modal is open is ignored; stop() leaves an open
- *       modal working
+ *   §8  openTileConfig: a slide-out saves each finished, valid edit (not one
+ *       per keystroke; closing it saves an edit still being typed); a modal on
+ *       Save, refused while a field shows an error; a request while a modal is
+ *       open is ignored; stop() leaves an open modal working
+ *   §9  the grid's cogwheel: grid:config-modal-show carries the grid's data,
+ *       and openTileConfig fills an `options: 'variables'` select from it
  *
  *     node tests/tile_config_form.test.mjs
  *     node tests/run.mjs
@@ -61,6 +65,9 @@ for (const key of ['window', 'document', 'HTMLElement', 'Element', 'Node', 'Even
     }
 }
 globalThis.Event = dom.window.Event;
+// Node has a CustomEvent of its own, which jsdom's dispatchEvent refuses — the
+// cogwheel's config request in §9 would then never reach the grid.
+globalThis.CustomEvent = dom.window.CustomEvent;
 globalThis.ResizeObserver ||= class { observe() {} unobserve() {} disconnect() {} };
 
 const { mountTileConfigForm, openTileConfig } = await import('../src/tiles/tile_config_form.js');
@@ -68,6 +75,9 @@ const { FieldTypes, validateConfig } = await import('../src/tiles/config_schema.
 const { KpiTile, ChartTile } = await import('../src/tiles/chart_tiles.js');
 const { ListTile, PeopleTile } = await import('../src/tiles/list_tiles.js');
 const { EventBus } = await import('../src/core/event_bus.js');
+const { TileBase } = await import('../src/tiles/tile_base.js');
+const { TileGrid } = await import('../src/tiles/tile_grid.js');
+const { registerWidget } = await import('../src/tiles/tile_registry.js');
 const barrel = await import('../tiles.js');
 
 let failures = 0;
@@ -165,6 +175,18 @@ console.log('§3 a number below min');
     ok('a valid value clears the error', err.hidden && !row(h, 'count').classList.contains('fd-tile-config__row--invalid'));
     check('…and is applied', [calls.length, form.getValues().count], [1, 5]);
     form.dispose();
+
+    // label is optional: the field is called by its key, never "undefined"
+    const h2 = host();
+    const bare = mountTileConfigForm(h2, { schema: { fields: [{ key: 'count', type: 'number', min: 1 }] } });
+    type(input(h2, 'count'), '0');
+    check('a field with no label is called by its key in the error',
+        row(h2, 'count').querySelector('.fd-tile-config__error').textContent, 'count must be at least 1');
+    check('…and on its label', row(h2, 'count').querySelector('.fd-tile-config__label').textContent, 'count');
+    ok('isValid() is false while the row shows an error', bare.isValid() === false);
+    type(input(h2, 'count'), '2');
+    ok('…and true once it is corrected', bare.isValid() === true);
+    bare.dispose();
 }
 
 console.log('§4 visibleWhen without a rebuild');
@@ -284,6 +306,11 @@ console.log('§7 readonly, dynamic options, setValues, a missing key');
     catch (err) { threw = err; }
     ok('a field with no key throws, naming it', threw instanceof TypeError && /Tile title/.test(threw.message), threw?.message);
     threw = null;
+    try { mountTileConfigForm(host(), { schema: { fields: [{ key: 'a', type: 'text' }, { type: 'text' }] } }); }
+    catch (err) { threw = err; }
+    ok('…by its position when it has no label either',
+        threw instanceof TypeError && /field #2 has no key/.test(threw.message), threw?.message);
+    threw = null;
     try { mountTileConfigForm(host(), { schema: { fields: [{ key: 'v', type: 'variable' }] } }); }
     catch (err) { threw = err; }
     ok('a type with no control and no renderer throws', threw instanceof TypeError && /variable/.test(threw.message), threw?.message);
@@ -306,10 +333,23 @@ console.log('§8 openTileConfig');
     const body = panelHost.querySelector('.twm-slide-out-panel__body');
     ok('the form is in the slide-out', !!body?.querySelector('.fd-tile-config'));
     ok('…and the panel is open', panelHost.querySelector('.twm-slide-out-panel')?.classList.contains('twm-slide-out-panel--open'));
+    const label = input(body, 'label');
+    for (const typed of ['O', 'Op', 'Ope', 'Open', 'Open ', 'Open b']) type(label, typed);
+    check('typing six characters saves nothing yet (not one save per keystroke)', saves.length, 0);
+    label.dispatchEvent(new Event('change', { bubbles: true }));
+    check('finishing the edit saves once, with the typed text', saves.map((c) => c.label), ['Open b']);
     type(input(body, 'decimals'), '9');
-    check('an invalid edit is not saved', saves.length, 0);
+    input(body, 'decimals').dispatchEvent(new Event('change', { bubbles: true }));
+    check('an invalid edit is not saved', saves.length, 1);
+    ok('…and shows its error', row(body, 'decimals').classList.contains('fd-tile-config__row--invalid'));
     type(input(body, 'decimals'), '2');
-    check('a valid edit is saved with the whole config', [saves.length, saves[0]?.decimals, saves[0]?.format], [1, 2, 'number']);
+    input(body, 'decimals').dispatchEvent(new Event('change', { bubbles: true }));
+    check('a valid edit is saved with the whole config', [saves.length, saves[1]?.decimals, saves[1]?.format, saves[1]?.label],
+        [2, 2, 'number', 'Open b']);
+    type(label, 'Still typing');
+    panelHost.querySelector('.twm-slide-out-panel__close').click();
+    check('closing the panel saves an edit still being typed', saves.map((c) => c.label), ['Open b', 'Open b', 'Still typing']);
+    ok('…and the panel is closed', !panelHost.querySelector('.twm-slide-out-panel')?.classList.contains('twm-slide-out-panel--open'));
     stop();
     check('the returned function unsubscribes', bus.listenerCount('grid:config-modal-show'), 0);
     ok('…and removes the panel', !panelHost.querySelector('.twm-slide-out-panel'));
@@ -341,6 +381,24 @@ console.log('§8 openTileConfig');
     await ticks();
     check('Save saves the edited config', modalSaves.map((c) => c.label), ['Open bugs']);
 
+    // Save is refused while a field shows an error
+    open();
+    await ticks();
+    const decimals = document.querySelector('.fd-tile-config-host .fd-tile-config__row[data-field="decimals"] input');
+    type(decimals, '99');
+    ok('the invalid value shows its error',
+        decimals.closest('.fd-tile-config__row').querySelector('.fd-tile-config__error').textContent === 'Decimals must be at most 6');
+    button('Save').click();
+    await ticks();
+    check('Save with an invalid field calls no onSave', modalSaves.length, 1);
+    ok('…and the modal is still open', document.querySelector('.fd-tile-config-host .fd-tile-config__row[data-field="decimals"] input') === decimals);
+    ok('…with the invalid field focused', document.activeElement === decimals);
+    type(decimals, '3');
+    button('Save').click();
+    await ticks();
+    check('once corrected, Save saves it', [modalSaves.length, modalSaves[1]?.decimals], [2, 3]);
+    ok('…and closes the modal', !document.querySelector('.fd-tile-config-host'));
+
     // a second request while a modal is open is ignored
     open();
     await ticks();
@@ -361,7 +419,7 @@ console.log('§8 openTileConfig');
     type(field, 'After stop');
     button('Save').click();
     await ticks();
-    check('…whose Save still saves', modalSaves.map((c) => c.label), ['Open bugs', 'After stop']);
+    check('…whose Save still saves', modalSaves.at(-1)?.label, 'After stop');
     ok('…and dismissing it removes the form', !document.querySelector('.fd-tile-config-host .fd-tile-config'));
     open();
     await ticks();
@@ -370,6 +428,49 @@ console.log('§8 openTileConfig');
     let threw = null;
     try { openTileConfig(new EventBus(), { mode: 'slide-out' }); } catch (err) { threw = err; }
     ok('a slide-out with no host throws', threw instanceof TypeError);
+}
+
+console.log('§9 the grid\'s cogwheel');
+{
+    class SeriesTile extends TileBase {
+        static TYPE = 'test.series';
+        static TITLE = 'Series';
+        static DEFAULT_SIZE = { w: 4, h: 3 };
+        getDefaultConfig() { return { title: 'Series', series: null }; }
+        getConfigSchema() {
+            return { fields: [
+                { key: 'title', type: 'text', label: 'Title' },
+                { key: 'series', type: 'select', label: 'Series', options: 'variables' },
+            ] };
+        }
+        render() {}
+    }
+    registerWidget(SeriesTile);
+
+    const bus = new EventBus();
+    const seen = [];
+    bus.on('grid:config-modal-show', (d) => seen.push(d));
+    const gridHost = host();
+    const grid = new TileGrid({ container: gridHost, eventBus: bus, showToolbar: false, onLayoutChange: () => {} });
+    const data = { stocks: { s1: [1] }, flows: { f1: [2] } };
+    grid.setData(data);
+    const tile = grid.addTile('test.series', { x: 0, y: 0, w: 4, h: 3 });
+    const panelHost = host();
+    const stop = openTileConfig(bus, { mode: 'slide-out', host: panelHost });
+
+    tile.element.querySelector('.tile-config-btn').dispatchEvent(
+        new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+    check('the cogwheel emitted one grid:config-modal-show', seen.length, 1);
+    ok('…carrying the grid\'s data', seen[0]?.data === grid.data && grid.data === data);
+    const body = panelHost.querySelector('.twm-slide-out-panel__body');
+    check('openTileConfig fills an options: \'variables\' select from it',
+        [...(input(body, 'series')?.options ?? [])].map((o) => o.textContent), ['s1', 'f1']);
+    const sel = input(body, 'series');
+    sel.selectedIndex = 1;
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    check('a pick is saved to the tile', tile.config.series, 'f1');
+    stop();
+    grid.dispose();
 }
 
 console.log(failures === 0 ? '\nall assertions passed\n' : `\n${failures} FAILED\n`);

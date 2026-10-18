@@ -3193,16 +3193,22 @@ const form = mountTileConfigForm(host, {
     onChange: (key, value, config) => tile.update(undefined, config),
     renderers: { variable: ({ field, value, data, readonly, commit }) => myPicker(...) },
 });
-form.getValues(); form.setValues(next); form.dispose();
+form.getValues(); form.setValues(next); form.isValid(); form.flush(); form.dispose();
 ```
 
-- A field is `{key, type, label, description?, default?, required?, readonly?,
-  min?, max?, step?, options?, visibleWhen?}`. Every `FieldTypes` entry has a
+- A field is `{key, type, label?, description?, default?, required?, readonly?,
+  min?, max?, step?, options?, visibleWhen?}`. Without a `label` the field is
+  called by its `key`, on its label and in its error messages. Every `FieldTypes` entry has a
   control (text, number, checkbox, select, multiselect, color, range); any other
   `type` needs a renderer, which answers an element or
   `{element, setValue?, dispose?}` and calls `commit(value)` on an edit.
 - An edit is checked by `validateField`. An invalid one shows its error under the
   field and is **not applied**; a valid one calls `onChange` with the field's key.
+  `isValid()` is false while a shown row has an error.
+- `commitOn: 'input'` (the default) checks text, number, range and colour
+  controls on every keystroke; `commitOn: 'change'` checks them once the edit is
+  finished (blur, Enter, a released slider), for an `onChange` that is expensive.
+  `flush()` commits an edit typed but not yet finished.
 - `visibleWhen: {field, in: [...]}` (or `{field, equals}`) hides the row, never
   rebuilds the form, so the control being typed into keeps its focus.
 - A field with no `key` throws. **The built-in tiles' schemas now use `key` and
@@ -3213,8 +3219,11 @@ form.getValues(); form.setValues(next); form.dispose();
 The grid's cogwheel emits `grid:config-modal-show`, which now also carries the
 grid's `data`. Nothing listens unless you ask:
 `openTileConfig(eventBus, {mode: 'slide-out', host})` shows the form in a
-`SlideOutPanel` over `host` and saves every valid edit as it is made;
-`{mode: 'modal'}` (the default) saves on Save. A request that arrives while a
+`SlideOutPanel` over `host` and saves every finished, valid edit (it runs the
+form with `commitOn: 'change'`, so typing a title is one save, not one per
+keystroke; closing the panel saves an edit still being typed);
+`{mode: 'modal'}` (the default) saves on Save, and refuses Save while a field
+shows an error (the modal stays open and the first invalid field is focused). A request that arrives while a
 modal is open is ignored. It answers a function that unsubscribes and closes the
 slide-out; an open modal is left to the user, keeps its form and still saves on
 Save. A renderer's `commit` on a `readonly` field applies nothing and answers

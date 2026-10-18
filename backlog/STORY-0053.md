@@ -2,10 +2,10 @@
 id: 53
 type: story
 title: "NotificationCenter toasts can carry live, collapsible progress"
-status: refined
+status: in-progress
 parent: 51
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 3
@@ -13,7 +13,7 @@ subsystem: notifications
 labels: [notifications, progress]
 links: [blocked-by 52]
 created: 2026-10-17
-updated: 2026-10-17T07:55Z
+updated: 2026-10-18T03:30Z
 ---
 
 ## Description
@@ -35,6 +35,8 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
+- 2026-10-18 · norman_agent · status: refined -> in-progress
+- 2026-10-18 · norman_agent · assignee: (none) -> norman_agent
 
 ## Comments
 

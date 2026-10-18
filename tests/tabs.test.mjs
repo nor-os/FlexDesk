@@ -444,6 +444,16 @@ console.log('§9 destroy');
     tabs.destroy();
     ok('a second destroy is harmless', log.length === 2);
     ok('select after destroy does nothing', tabs.select('b') === false);
+
+    // A pane that destroys the strip inside its mount at creation.
+    let subs = 0;
+    const bus = { on: () => { subs++; return { dispose() {} }; } };
+    const err = console.error; const errors = []; console.error = (...a) => errors.push(a);
+    const early = createTabs(fresh(), { items: ITEMS, eventBus: bus, selectEvent: 'tabs:select',
+        mountPane: (item, el, api) => { api.destroy(); return {}; } });
+    console.error = err;
+    ok('a pane may destroy the strip while it mounts', errors.length === 0, String(errors[0]?.[1]));
+    ok('…and then the bus is never subscribed', subs === 0 && early.select('b') === false);
 }
 
 console.log('§10 CSS');

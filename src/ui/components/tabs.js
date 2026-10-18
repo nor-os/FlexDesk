@@ -139,6 +139,8 @@ export function createTabs(container, {
     let current = null;
     let serial = 0;
     let destroyed = false;
+    /** The bus subscription, made last; a pane may destroy the strip first. */
+    let subscription = null;
 
     // ── a tab ───────────────────────────────────────────────────────────
 
@@ -467,9 +469,10 @@ export function createTabs(container, {
     mountEager();
     show(current, false);
 
-    const subscription = eventBus && selectEvent
-        ? eventBus.on?.(selectEvent, (payload) => select(selectFrom(payload))) ?? null
-        : null;
+    // A pane that destroyed the strip while it mounted leaves nothing to subscribe.
+    if (eventBus && selectEvent && !destroyed) {
+        subscription = eventBus.on?.(selectEvent, (payload) => select(selectFrom(payload))) ?? null;
+    }
 
     return api;
 }

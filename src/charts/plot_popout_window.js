@@ -18,6 +18,9 @@
  * - Live streaming updates while the data source is running
  * - Derived series from injected transforms (`seriesTransforms`)
  * - ETL actuals overlay support
+ *
+ * The figures are drawn by renderPlotGrid (plot_grid.js); this window adds the
+ * tabs, the toolbar, the series toggles and the data table around them.
  */
 
 import { ManagedWindow } from '../ui/components/managed_window.js';
@@ -28,18 +31,8 @@ import {
     purge,
     getSeriesColor,
 } from './plotly_wrapper.js';
-import {
-    buildTrace,
-    buildYAxisLayout,
-    buildLegendLayout,
-    buildOverlayShapes,
-} from './chart_types.js';
-import {
-    PLOT_LAYOUTS,
-    migrateData,
-    applyNanHandling,
-} from './plot_config.js';
-import { deriveSeriesTraces } from './series_transforms.js';
+import { migrateData } from './plot_config.js';
+import { renderPlotGrid, resolveSeriesData } from './plot_grid.js';
 
 export class PlotPopoutWindow {
     /**
@@ -56,9 +49,11 @@ export class PlotPopoutWindow {
      * @param {Function} [options.configRenderer] - (container) => void — renders config panel
      * @param {Object} [options.seriesTransforms] - `{ [id]: transform }` (series_transforms.js);
      *        absent => no derived series are drawn
+     * @param {Function} [options.resolveSeries] - `(series, results, subplot) => { y, x? } | null`
+     *        (plot_grid.js); used by the chart and the data table. Default resolveSeriesData.
      */
     constructor({ id, title, plotConfig, getResults, services, host, onClose, actuals,
-                  configRenderer, seriesTransforms,
+                  configRenderer, seriesTransforms, resolveSeries = resolveSeriesData,
                   // The window used to listen for 'simulation:run:completed' and tell
                   // the user to "run simulation first". A chart window does not know
                   // that its data comes from a simulation; the app that opens it does.
@@ -75,6 +70,7 @@ export class PlotPopoutWindow {
         this._actuals = actuals ?? null;
         this._configRenderer = configRenderer ?? null;
         this._seriesTransforms = seriesTransforms ?? null;
+        this._resolveSeries = resolveSeries;
         this.refreshEvent = refreshEvent;
         // TWO messages, not one. The chart says "No data — run simulation first."
         // and the data table underneath says "Run simulation to see data". Folding
@@ -86,11 +82,10 @@ export class PlotPopoutWindow {
 
         this._window = null;
         this._contentEl = null;
-        this._chartDivs = [];
+        this._grid = null;
         this._gridEl = null;
         this._activeTab = 'plot';
         this._eventDisposers = [];
-        this._resizeObserver = null;
         this._chartCreated = false;
         this._lastResults = null;
 
@@ -139,7 +134,6 @@ export class PlotPopoutWindow {
         await ensurePlotly();
         this.#createWindow();
         this.#subscribeEvents();
-        this.#setupResizeObserver();
         await this.#render();
     }
 
@@ -150,7 +144,6 @@ export class PlotPopoutWindow {
     /** Update plot config and re-render. */
     updateConfig(plotConfig) {
         this._plotConfig = migrateData(plotConfig);
-        this.#buildSubplotGrid();
         this.#scheduleRender();
     }
 
@@ -283,7 +276,20 @@ export class PlotPopoutWindow {
         this._gridEl.className = 'twm-plot-window-chart';
         this._plotContent.appendChild(this._gridEl);
 
-        this.#buildSubplotGrid();
+        this._grid = renderPlotGrid(this._gridEl, this._plotConfig, null, {
+            resolveSeries: this._resolveSeries,
+            overlays: this._actuals,
+            hiddenSeries: this._hiddenSeries,
+            seriesTransforms: this._seriesTransforms,
+            onTransformError: ({ transformId, traceName, error }) => this._services?.logger?.warn?.(
+                `[PlotPopoutWindow] transform "${transformId}" failed on "${traceName}"`, error),
+            // Popout windows have space — always show the legend.
+            alwaysShowLegend: true,
+            layout: { autosize: true, hovermode: 'x unified' },
+            emptyMessage: this.emptyMessage,
+            onError: ({ index, error }) => this._services?.logger?.warn?.(
+                `[PlotPopoutWindow] subplot ${index + 1} failed to draw`, error),
+        });
 
         // Data tab content
         this._dataContent = document.createElement('div');
@@ -320,40 +326,6 @@ export class PlotPopoutWindow {
         return container;
     }
 
-    // ── Subplot grid ────────────────────────────────────────────────────
-
-    #buildSubplotGrid() {
-        if (!this._gridEl) return;
-
-        // Purge existing charts
-        for (const div of this._chartDivs) {
-            if (div && window.Plotly) {
-                try { purge(div); } catch (_) {}
-            }
-        }
-        this._gridEl.innerHTML = '';
-        this._chartDivs = [];
-
-        const tmpl = PLOT_LAYOUTS[this._plotConfig.layout] || PLOT_LAYOUTS['1x1'];
-        this._gridEl.style.display = 'grid';
-        this._gridEl.style.gridTemplateColumns = tmpl.grid.columns;
-        this._gridEl.style.gridTemplateRows = tmpl.grid.rows;
-        this._gridEl.style.gap = '4px';
-        this._gridEl.style.height = '100%';
-        this._gridEl.style.width = '100%';
-
-        for (let i = 0; i < tmpl.slots; i++) {
-            const div = document.createElement('div');
-            div.className = 'plot-tile-chart';
-            div.style.gridArea = tmpl.areas[i].gridArea;
-            div.style.minHeight = '0';
-            this._gridEl.appendChild(div);
-            this._chartDivs.push(div);
-        }
-
-        this._chartCreated = false;
-    }
-
     // ── Toolbar helpers ─────────────────────────────────────────────────
 
     #toolbarGroup() {
@@ -374,9 +346,11 @@ export class PlotPopoutWindow {
 
     // ── Plotly toolbar actions ───────────────────────────────────────────
 
+    get #charts() { return this._grid?.charts ?? []; }
+
     #setDragMode(mode) {
         if (!this._chartCreated) return;
-        for (const div of this._chartDivs) {
+        for (const div of this.#charts) {
             if (div._fullLayout) {
                 window.Plotly.relayout(div, { dragmode: mode }).catch(() => {});
             }
@@ -386,7 +360,7 @@ export class PlotPopoutWindow {
     }
 
     #zoom(factor) {
-        for (const div of this._chartDivs) {
+        for (const div of this.#charts) {
             if (!div._fullLayout) continue;
             const xa = div._fullLayout.xaxis;
             const ya = div._fullLayout.yaxis;
@@ -407,27 +381,13 @@ export class PlotPopoutWindow {
     }
 
     #autoscale() {
-        for (const div of this._chartDivs) {
+        for (const div of this.#charts) {
             if (!div._fullLayout) continue;
             window.Plotly.relayout(div, {
                 'xaxis.autorange': true,
                 'yaxis.autorange': true,
             }).catch(() => {});
         }
-    }
-
-    #setupResizeObserver() {
-        if (!this._plotContent) return;
-        this._resizeObserver = createRafResizeObserver(() => {
-            if (this._activeTab === 'plot' && this._chartCreated && window.Plotly) {
-                for (const div of this._chartDivs) {
-                    if (div._fullLayout) {
-                        Plotly.Plots.resize(div).catch(() => {});
-                    }
-                }
-            }
-        });
-        this._resizeObserver.observe(this._plotContent);
     }
 
     #switchTab(tabName) {
@@ -447,13 +407,7 @@ export class PlotPopoutWindow {
             this._configContent.style.display = tabName === 'config' ? 'flex' : 'none';
         }
 
-        if (tabName === 'plot' && this._chartCreated && window.Plotly) {
-            for (const div of this._chartDivs) {
-                if (div._fullLayout) {
-                    Plotly.Plots.resize(div).catch(() => {});
-                }
-            }
-        }
+        if (tabName === 'plot') this._grid?.resize();
 
         if (tabName === 'data') {
             this.#renderDataTable();
@@ -711,7 +665,14 @@ export class PlotPopoutWindow {
         this.#collectSeriesInfo();
 
         // Render all subplot charts
-        this.#renderAllCharts(results);
+        const drawn = await this._grid.update({
+            plotConfig: this._plotConfig,
+            results,
+            overlays: this._actuals,
+            hiddenSeries: this._hiddenSeries,
+        });
+        if (!this._window) return;
+        this._chartCreated = this._chartCreated || drawn;
 
         // Update table data
         this.#updateTableData(results);
@@ -741,7 +702,7 @@ export class PlotPopoutWindow {
                     this._allSeriesLabels.push(label);
 
                     // Include overlay in toggle list
-                    if (s.overlay?.etlKey) {
+                    if (s.overlay) {
                         const ovLabel = s.overlay.label || `${label} (actual)`;
                         this._allSeriesInfo.push({
                             label: ovLabel,
@@ -782,174 +743,6 @@ export class PlotPopoutWindow {
         }
     }
 
-    #renderAllCharts(results) {
-        if (!window.Plotly) return;
-
-        const subplots = this._plotConfig.subplots ?? [];
-        for (let i = 0; i < this._chartDivs.length; i++) {
-            const chartDiv = this._chartDivs[i];
-            const sp = subplots[i];
-            if (!chartDiv) continue;
-            if (!sp) {
-                chartDiv.innerHTML = '<div class="twm-plot-no-data" style="color:rgba(255,255,255,0.3);text-align:center;padding:16px;">No subplot configured.</div>';
-                continue;
-            }
-            this.#renderSubplotChart(chartDiv, sp, results);
-        }
-    }
-
-    async #renderSubplotChart(chartDiv, sp, results) {
-        const { time, series } = results;
-        const traces = [];
-        const layoutAxes = {};
-        const yRefByAxisId = {};
-        let axisCount = 0;
-
-        for (const axis of sp.yAxes ?? []) {
-            axisCount++;
-            const yAxisKey = axisCount === 1 ? 'yaxis' : `yaxis${axisCount}`;
-            const yRef = axisCount === 1 ? 'y' : `y${axisCount}`;
-            if (axis.id) yRefByAxisId[axis.id] = yRef;
-
-            layoutAxes[yAxisKey] = buildYAxisLayout({
-                axisId: yAxisKey,
-                title: axis.label || '',
-                position: axis.position || 'left',
-                scaleType: axis.scale || 'linear',
-                min: axis.min,
-                max: axis.max,
-                showGrid: (sp.yAxes ?? []).length === 1,
-                axisPosition: axisCount > 1 ? (axis.position === 'right' ? 1 : 0) : null,
-            });
-
-            for (const s of axis.series ?? []) {
-                if (!s.variable) continue;
-
-                const label = s.label || s.variable;
-
-                // Skip hidden series
-                if (this._hiddenSeries.has(label)) continue;
-
-                // Resolve variable: try result key (paper multi-scenario), exact, then bare (without namespace prefix)
-                let rawY = series?.[s._resultKey ?? s.variable];
-                if (!rawY && s._resultKey) {
-                    rawY = series?.[s.variable];
-                }
-                if (!rawY) {
-                    const dotIdx = s.variable.indexOf('.');
-                    if (dotIdx >= 0) rawY = series?.[s.variable.slice(dotIdx + 1)];
-                }
-                if (!rawY) continue;
-
-                const y = Array.isArray(rawY) ? applyNanHandling(rawY, sp.nanHandling ?? 'gap', time) : rawY;
-                const seriesTime = s._resultTime ?? time;
-                traces.push(buildTrace({
-                    chartType: sp.chartType || 'line',
-                    x: seriesTime,
-                    y,
-                    name: label,
-                    color: s.color,
-                    lineWidth: s.lineWidth ?? 2,
-                    lineStyle: s.lineStyle ?? 'solid',
-                    interpolation: sp.interpolation ?? 'linear',
-                    yAxisId: yRef,
-                    showMarkers: sp.showDataPoints ?? false,
-                    stackGroup: s.stackGroup ?? null,
-                }));
-
-                // Per-series overlay trace (ETL actuals)
-                if (s.overlay?.etlKey && this._actuals?.[s.id]) {
-                    const ovLabel = s.overlay.label || `${label} (actual)`;
-                    if (!this._hiddenSeries.has(ovLabel)) {
-                        const act = this._actuals[s.id];
-                        if (act?.years?.length) {
-                            const ov = s.overlay;
-                            const dashMap = { dashed: 'dash', dotted: 'dot', solid: 'solid' };
-                            traces.push({
-                                type: 'scatter',
-                                mode: ov.mode || 'markers+lines',
-                                x: act.years,
-                                y: act.values,
-                                name: ov.label || `${label} (actual)`,
-                                yaxis: yRef === 'y' ? undefined : yRef,
-                                line: {
-                                    color: ov.color || s.color,
-                                    width: ov.lineWidth ?? 2,
-                                    dash: dashMap[ov.lineStyle] || 'dash',
-                                },
-                                marker: {
-                                    color: ov.color || s.color,
-                                    size: 4,
-                                    symbol: 'circle',
-                                },
-                                showlegend: true,
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
-        traces.push(...await deriveSeriesTraces(traces, sp, this._seriesTransforms, {
-            onError: ({ transformId, traceName, error }) => this._services?.logger?.warn?.(
-                `[PlotPopoutWindow] transform "${transformId}" failed on "${traceName}"`, error),
-        }));
-
-        if (traces.length === 0 && this._hiddenSeries.size === 0) {
-            chartDiv.innerHTML = `<div class="twm-plot-no-data" style="color:rgba(255,255,255,0.3);text-align:center;padding:16px;font-size:11px;">${this.emptyMessage}</div>`;
-            return;
-        }
-
-        // Popout windows have space — always show legend
-        const legendPos = sp.legendPosition === 'hidden' ? 'top' : (sp.legendPosition ?? 'top');
-        const legend = buildLegendLayout(legendPos);
-
-        // Clip the x-axis to the data's time range so overlays don't run past t0–t1
-        const xRange = time?.length >= 2 ? [time[0], time[time.length - 1]] : undefined;
-
-        const { shapes, annotations } = buildOverlayShapes({
-            referenceLines: sp.referenceLines,
-            shadedBands: sp.shadedBands,
-            yRefByAxisId,
-        });
-
-        const layout = {
-            ...layoutAxes,
-            ...(shapes.length ? { shapes } : {}),
-            ...(annotations.length ? { annotations } : {}),
-            xaxis: {
-                gridcolor: 'rgba(255,255,255,0.05)',
-                linecolor: 'rgba(255,255,255,0.08)',
-                tickcolor: 'rgba(255,255,255,0.3)',
-                zerolinecolor: 'rgba(255,255,255,0.06)',
-                automargin: true,
-                ...(xRange ? { range: xRange } : {}),
-            },
-            ...legend,
-            paper_bgcolor: 'transparent',
-            plot_bgcolor: 'transparent',
-            font: { family: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif', color: '#cccccc', size: 11 },
-            margin: { t: 10, r: 20, b: 40, l: 50 },
-            hoverlabel: {
-                bgcolor: '#1e2228',
-                bordercolor: '#444444',
-                font: { family: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif', color: '#cccccc' },
-            },
-            autosize: true,
-            hovermode: 'x unified',
-        };
-
-        // Guard: skip if div is detached or zero-size
-        if (!chartDiv.isConnected || chartDiv.offsetWidth === 0) return;
-
-        try {
-            await Plotly.react(chartDiv, traces, layout, { responsive: true, displayModeBar: false });
-            this._chartCreated = true;
-        } catch (_) {
-            // Plotly can throw if div is removed mid-render
-        }
-    }
-
     // ── Data table ──────────────────────────────────────────────────────
 
     #updateTableData(results) {
@@ -961,7 +754,7 @@ export class PlotPopoutWindow {
 
         const headers = ['Time'];
         const seriesColumns = [];
-        const { time, series } = results;
+        const { time } = results;
         const subplots = this._plotConfig.subplots ?? [];
 
         for (const sp of subplots) {
@@ -969,14 +762,7 @@ export class PlotPopoutWindow {
                 for (const s of axis.series ?? []) {
                     if (!s.variable) continue;
                     const label = s.label || s.variable;
-                    let rawY = series?.[s._resultKey ?? s.variable];
-                    if (!rawY && s._resultKey) {
-                        rawY = series?.[s.variable];
-                    }
-                    if (!rawY) {
-                        const dotIdx = s.variable.indexOf('.');
-                        if (dotIdx >= 0) rawY = series?.[s.variable.slice(dotIdx + 1)];
-                    }
+                    const rawY = this._resolveSeries(s, results, sp)?.y;
                     if (!rawY) continue;
                     headers.push(label);
                     seriesColumns.push(rawY);
@@ -1084,7 +870,7 @@ export class PlotPopoutWindow {
     async #downloadPNG() {
         // For multi-subplot, capture the grid container as a whole
         // Fall back to first chart div if only one subplot
-        const targetDiv = this._chartDivs.length === 1 ? this._chartDivs[0] : this._chartDivs[0];
+        const targetDiv = this.#charts[0];
         if (!targetDiv || !window.Plotly || !this._chartCreated) {
             this.#notify('Download', 'Plot not ready', 'warn');
             return;
@@ -1144,26 +930,17 @@ export class PlotPopoutWindow {
 
         this.#hideSeriesPanel();
 
-        if (this._resizeObserver) {
-            this._resizeObserver.disconnect();
-            this._resizeObserver = null;
-        }
-
         for (const disposer of this._eventDisposers) {
             try { disposer?.dispose?.(); } catch (_) {}
         }
         this._eventDisposers = [];
 
-        for (const div of this._chartDivs) {
-            if (div && window.Plotly) {
-                try { purge(div); } catch (_) {}
-            }
-        }
+        this._grid?.dispose();
+        this._grid = null;
 
         this._window = null;
         this._contentEl = null;
         this._gridEl = null;
-        this._chartDivs = [];
         this._plotTab = null;
         this._dataTab = null;
         this._plotContent = null;

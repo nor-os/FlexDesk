@@ -9712,6 +9712,29 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 }
 /* ══ end SERIES TRANSFORMS ══ */
 
+/* ══ PLOT GRID ════════════════════════════════════════════════════════
+ *
+ * `renderPlotGrid` (src/charts/plot_grid.js): a CSS grid of one Plotly figure
+ * per subplot. The template columns/rows and each cell's grid-area are inline,
+ * from PLOT_LAYOUTS. */
+.twm-plot-grid {
+    display: grid;
+    gap: 4px;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+}
+.twm-plot-grid__cell {
+    position: relative; /* Anchor for Plotly's positioning */
+    min-width: 0;
+    min-height: 0;
+}
+.twm-plot-grid__cell > .twm-plot-no-data {
+    padding: var(--space-lg);
+    font-size: var(--font-size-xs);
+}
+/* ══ end PLOT GRID ══ */
+
 /* ══ WIZARD (STORY-0047) ══════════════════════════════════════════════════
  * A step indicator, a body slot and a footer. Steps are drawn done / current /
  * upcoming / error and joined by a connector that fills once the step after it

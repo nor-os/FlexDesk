@@ -44,7 +44,7 @@ manager, and neither of them should drag in a plotting engine or a code editor.
 | `@flexdesk/host` | 5 kB | The host port (below) |
 | `@flexdesk/wm` | 166 kB | Tiling window manager: tabs, splits, desktops, command palette, taxonomy, `createShell()` |
 | `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus, a document outline, progress |
-| `@flexdesk/charts` | 26 kB | Plotly wrapper, chart types, subplot layouts, downsampling, plot windows, injected series transforms |
+| `@flexdesk/charts` | 26 kB | Plotly wrapper, chart types, subplot layouts, downsampling, a plot grid, plot windows, injected series transforms |
 | `@flexdesk/tiles` | 67 kB | Draggable/resizable widget grid, tile base class, widget registry, layout persistence, chart and KPI tiles |
 | `@flexdesk/editor` | 62 kB | Monaco loader + factory, multi-file tab bar, search, split panes, undo manager |
 | `@flexdesk/canvas` | 14 kB | The canvas kernel: a pannable, zoomable surface, the edge router, a generic graph layer ([Flow editors](#flow-editors)) |
@@ -2525,6 +2525,57 @@ Hodrick-Prescott filter, and every default subplot carried `showHpTrend`,
 `showHpCycle` and `hpLambda`. Those keys are gone and are ignored in saved
 configs; without `seriesTransforms` no derived trace is drawn.
 `tests/series_transforms.test.mjs` pins all of it.
+
+## A plot config in any container: `renderPlotGrid` (0.17.0)
+
+`PlotPopoutWindow` used to keep its subplot renderer private, so anything else
+that showed the same plot config (a notebook cell, a dashboard tile) had to
+copy it. It is now exported, and the window is one of its callers:
+
+```js
+import { renderPlotGrid, migrateData } from '@flexdesk/charts';
+
+const grid = renderPlotGrid(el, migrateData(savedConfig), { time, series }, {
+    overlays,                 // { [series.id]: { years, values } } for series with an `overlay`
+    seriesTransforms,         // as above
+    hiddenSeries: new Set(),  // trace names not to draw
+});
+await grid.update({ results: next });   // any of plotConfig, results, overlays, hiddenSeries
+grid.resize();
+grid.dispose();
+```
+
+It lays a `.twm-plot-grid` out from `PLOT_LAYOUTS` (a cell per slot, a
+`.twm-plot-grid__cell` in that slot's grid area) and draws one figure per
+subplot: its chart type, interpolation, data points and stack groups, every
+y-axis (left or right, linear or log, min, max, step), reference lines and
+shaded bands, the NaN strategy, the x-axis clipped to the results' time
+range, or an x variable instead of time (`xAxis: { useTime: false, variable }`).
+A subplot with nothing to draw shows `emptyMessage` (default `No data yet.`); a
+slot with no subplot shows `noSubplotMessage` (`No subplot configured.`); null
+results empty every subplot. A cell that is detached or has no size is not
+drawn: the grid's own ResizeObserver draws it once it has one. `dispose()`
+purges every figure and removes the grid; `grid.charts` is the cells, for
+Plotly calls of your own (relayout, toImage).
+
+The other options:
+
+| Option | What it does |
+|---|---|
+| `resolveSeries(series, results, subplot)` | Returns `{ y, x? }` or null. Default `resolveSeriesData`: `series[_resultKey ?? variable]`, then `variable`, then the name after its first `.`; `x` is `_resultTime`. Also resolves the x variable. |
+| `derivedTraces(traces, subplot, { results, index })` | Extra Plotly traces (or a promise of them) appended to a subplot's figure. |
+| `onTransformError`, `onError` | A transform that failed (`{ transformId, traceName, error }`); a subplot that failed to draw (`{ index, error }`), which then shows the empty message. |
+| `theme` | Overrides for `PLOT_GRID_THEME`: `fontFamily`, `fontColor`, `fontSize`, `paperBackground`, `plotBackground`, `gridColor`, `lineColor`, `tickColor`, `zeroLineColor`, `hoverBackground`, `hoverBorder`. |
+| `alwaysShowLegend` | Draws a subplot whose legend is `'hidden'` with one at the top. |
+| `layout` | Plotly layout fields merged over every figure's (`hovermode`, `margin`, ...). |
+
+`PlotPopoutWindow` takes `resolveSeries` too, for its chart and its data
+table. Its chart cells were `div.plot-tile-chart` and are now
+`div.twm-plot-grid__cell` inside a `.twm-plot-grid`. An overlay is drawn for
+any series with an `overlay` and data under its id in `actuals`; it used to
+need `overlay.etlKey` as well. `tests/plot_grid.test.mjs` pins all of it,
+including that the window draws the same traces, names and axes for the
+fixture configs (`tests/fixtures/plot_grid_fixtures.mjs`) as it did before.
 
 ## Layouts are keyed by whatever you key them by
 

@@ -2,10 +2,10 @@
 id: 80
 type: story
 title: "Canvas Arrange takes a pluggable layered layout with rank hints, crossing reduction and separate components"
-status: refined
+status: in-progress
 parent: 73
 phase: 
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 5
@@ -13,7 +13,7 @@ subsystem: canvas
 labels: [flexdesk, modeler]
 links: []
 created: 2026-10-17
-updated: 2026-10-17T21:20Z
+updated: 2026-10-18T09:42Z
 ---
 
 ## Description
@@ -32,6 +32,8 @@ Canvas Arrange is flow-specific (orders from start-role steps), and the kernel `
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
+- 2026-10-18 · norman_agent · status: refined -> in-progress
+- 2026-10-18 · norman_agent · assignee:  -> norman_agent
 
 ## Comments
 

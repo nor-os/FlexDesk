@@ -14,9 +14,10 @@ host → page   {"event": "window.maximizedChanged", "value": true}
 ```
 
 - Every request gets exactly one reply with the same `id`. A request that gets
-  none is given up after 10 s (`timeoutMs`). `dialogs.saveFile` is the
-  exception: the page waits for it without a timeout, because the dialog stays
-  open as long as the user takes. Always answer it.
+  none is given up after 10 s (`timeoutMs`). `dialogs.saveFile` and
+  `dialogs.openFile` are the exceptions: the page waits for them without a
+  timeout, because the dialog stays open as long as the user takes. Always
+  answer them.
 - `ok: false` means "I can't": the adapter logs it and degrades, exactly as it
   does with pywebview. Use it for unknown ops and for failures.
 - A message with no `id` and an `event` name is an event. The adapter hands it
@@ -40,6 +41,7 @@ host → page   {"event": "window.maximizedChanged", "value": true}
 | `window.startDrag` | `[]` | anything, **after mouse-up** | custom chrome only: the OS move loop (below) |
 | `window.startResize` | `[edge]`: `n` `s` `e` `w` `ne` `nw` `se` `sw` | anything, **after mouse-up** | custom chrome only: the OS size loop (below) |
 | `dialogs.saveFile` | `[{data, filename, kind}]` | see below | `ShowSaveFile(...)` + write |
+| `dialogs.openFile` | `[{accept, kind, encoding}]` | see below | `ShowOpenFile(...)` + read |
 | `shell.openExternal` | `[url]` | `true` when opened | the OS's default browser (below) |
 | `state.read` | `[key]` | the stored value, or `null` | a file per key |
 | `state.write` | `[key, value]` | `true` | a file per key |
@@ -112,6 +114,22 @@ base64, for `png` (decode it before writing). Show a save dialog suggesting
 as the reply's `value` (the envelope's own `ok` stays `true`). A reply with the
 envelope's `ok: false`, or none at all, makes `saveFile` resolve `null`, and the
 caller downloads the file the browser way instead.
+
+**`dialogs.openFile`** (0.17.0, optional). `accept` is a list of extensions or
+MIME types to filter by (`[".json"]`, may be empty), `kind` a label for the
+filter or `null`, and `encoding` `"text"` or `"base64"`. Show an open dialog,
+read the chosen file, and reply with one of:
+
+```
+{"ok": true,  "name": "model.json", "path": "C:\\Users\\me\\model.json", "text": "{...}"}   encoding "text": UTF-8
+{"ok": true,  "name": "pic.png",    "path": "C:\\Users\\me\\pic.png",    "data": "iVBO..."}  encoding "base64": the bytes
+{"ok": false, "cancelled": true}
+{"ok": false, "error": "The file is in use."}
+```
+
+as the reply's `value`. A reply with the envelope's `ok: false` (an older
+native side without the op) makes `openFile` resolve `null`, and `pickFile()`
+opens the browser's file chooser instead.
 
 **`state`.** `value` is any JSON value; store it and give it back unchanged. A
 string value that holds JSON is parsed on the way back, for hosts that store

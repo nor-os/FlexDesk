@@ -35,9 +35,18 @@
  *
  * The kit's (`bindFlowKeys`, on the editor's root): ← → ↑ ↓ move between cards
  * (and between the step tabs), Enter opens the step's settings, Delete removes
- * it, F2 renames it, Ctrl/⌘+Z and Ctrl/⌘+Y undo and redo, Escape goes back
- * from the settings to the card. The context-menu key (or Shift+F10) opens a
- * card's menu. Backspace is never the editor's: a host may climb a level on it.
+ * it, Ctrl/⌘+D duplicates it, F2 renames it, Ctrl/⌘+Z and Ctrl/⌘+Y undo and
+ * redo, Escape goes back from the settings to the card. The context-menu key
+ * (or Shift+F10) opens a card's menu. Backspace is never the editor's: a host
+ * may climb a level on it.
+ *
+ * ══ THE CARD'S MENU ════════════════════════════════════════════════════
+ *
+ * *Open its settings*, *Add a step after it*, *Duplicate*, *Remove step*, then
+ * the host's own items (`menuItems(step)`). An item that cannot be chosen is
+ * greyed WITH ITS REASON in its own line, never only greyed. A host item edits
+ * a DRAFT of the flow, and what it changed is taken as one undoable edit
+ * (`flow:step:menu`): it goes through the history like every other edit.
  */
 
 import { createStrings, say } from '../kit/strings.js';
@@ -53,8 +62,9 @@ import { bindFlowKeys } from '../kit/keys.js';
 import { DataTable } from '../../ui/components/data_table.js';
 import { layoutLanes, placeLanes, stepPorts } from './layout.js';
 import {
-    LANE_ACTIONS, PARAMETER_NAME, addSource, addStepAfter, emptyPipeline, inputCandidates, inputOf, laneFeedOf,
-    normalisePipeline, portsOf, removeParameter, removeStep, serialisePipeline, setInput, setParameter, upstreamOf,
+    LANE_ACTIONS, PARAMETER_NAME, addSource, addStepAfter, duplicateStep, emptyPipeline, inputCandidates, inputOf,
+    laneFeedOf, normalisePipeline, portsOf, removeParameter, removeStep, serialisePipeline, setInput, setParameter,
+    upstreamOf,
 } from './pipeline.js';
 import { createPreviewRunner } from './preview.js';
 import { LANE_STRINGS } from './strings.js';
@@ -124,6 +134,7 @@ export function createLaneEditor(host, options = {}) {
     let travelling = null;          // 'undo' | 'redo' while a history step is applied
     let shownColumns = '';          // the selected step's input columns the panel was drawn with
     let panelReadOnly = false;      // what the panel was last told
+    let panelPainting = false;      // inside paintPanel: a field it removes losing the focus is not the reader leaving
 
     const node = (id) => pipeline.nodes.find((n) => n.id === id) ?? null;
     const typeOf = (n) => catalogue.get(n?.type) ?? null;
@@ -164,6 +175,7 @@ export function createLaneEditor(host, options = {}) {
     let undoBtn = null;
     let redoBtn = null;
     let statusEl = null;
+    let noticeEl = null;            // why a key did nothing (a refused Ctrl+D)
     let showPreviewBtn = null;
     let showRunBtn = null;
     const actionButtons = new Map();
@@ -203,6 +215,10 @@ export function createLaneEditor(host, options = {}) {
         statusEl = el('span', 'twm-flow-lanes__status');
         statusEl.setAttribute('aria-live', 'polite');
         toolbar.appendChild(statusEl);
+        noticeEl = el('span', 'twm-flow-lanes__notice');
+        noticeEl.setAttribute('role', 'status');
+        noticeEl.hidden = true;
+        toolbar.appendChild(noticeEl);
         toolbar.appendChild(el('span', 'twm-flow-lanes__spacer'));
         const showId = uid('lanes-show');
         const showLabel = el('span', 'twm-flow-lanes__show-label', say(S, 'stepsShow'));
@@ -361,6 +377,7 @@ export function createLaneEditor(host, options = {}) {
     function commit(action, key = null, { preview = true } = {}) {
         const moved = history.commit(snapshot(), action, key);
         if (!moved) return false;
+        notice('');
         report(action, key);
         if (preview) runner.schedule();
         return true;
@@ -776,6 +793,16 @@ export function createLaneEditor(host, options = {}) {
         }
         const n = selected && selected !== 'flow' ? node(selected) : null;
         settingsHint.hidden = true;
+        panelPainting = true;
+        try {
+            paintPanelBody(n);
+        } finally {
+            panelPainting = false;
+        }
+        panel.setFindings(findings);
+    }
+
+    function paintPanelBody(n) {
         if (n) {
             panel.show(stepPanelSpec(n));
             shownColumns = JSON.stringify(inputColumns(n.id));
@@ -790,16 +817,15 @@ export function createLaneEditor(host, options = {}) {
             settingsHint.hidden = false;
             shownColumns = '';
         }
-        panel.setFindings(findings);
     }
 
     /** A describe or preview answer changed the selected step's input columns: redraw its fields, unless
      *  the reader is in them — a repaint the reader did not ask for rebuilds no field they hold. */
-    function reshowForColumns() {
+    function reshowForColumns({ leaving = false } = {}) {
         if (!panel || !selected || selected === 'flow' || !node(selected)) return;
         const now = JSON.stringify(inputColumns(selected));
         if (now === shownColumns) return;
-        if (panel.el.contains(root.ownerDocument.activeElement)) return;
+        if (!leaving && panel.el.contains(root.ownerDocument.activeElement)) return;
         paintPanel();
     }
 
@@ -1063,6 +1089,59 @@ export function createLaneEditor(host, options = {}) {
         return true;
     }
 
+    /** Why a step cannot be copied now, or null. */
+    function duplicateRefusal(id) {
+        if (isReadOnly()) return readOnlyReason()[0] ?? say(S, 'readOnlyTitle');
+        const r = duplicateStep(normalisePipeline(pipeline), catalogue, id, { strings: options.strings });
+        return r.ok ? null : r.reason;
+    }
+
+    /** Copy a step (`duplicateStep`), choose the copy and put the focus on it. */
+    function duplicate(id) {
+        if (isReadOnly() || !node(id)) return false;
+        const r = duplicateStep(pipeline, catalogue, id, { strings: options.strings });
+        if (!r.ok) {
+            notice(r.reason);
+            return false;
+        }
+        selected = r.node.id;
+        commit('flow:step:duplicate');
+        afterShapeChange(r.node.id);
+        options.onSelect?.({ kind: 'step', id: r.node.id });
+        return true;
+    }
+
+    /** Words for a refused key, beside the status; an edit clears them. */
+    function notice(text) {
+        if (!noticeEl) return;
+        noticeEl.textContent = String(text ?? '');
+        noticeEl.hidden = !noticeEl.textContent;
+    }
+
+    /**
+     * Run a host's menu item on a DRAFT of the flow and take what it changed as
+     * ONE undoable edit. An item may answer later (a promise); a draft that
+     * answers after another edit, or once the flow is read only, is dropped —
+     * it was made from a flow that is no longer there.
+     */
+    async function runHostItem(item, id) {
+        if (isReadOnly() || !node(id)) return false;
+        const before = serialisePipeline(pipeline);
+        const draft = normalisePipeline(pipeline);
+        const step = clone(node(id));
+        const answer = await item.run?.({ step, pipeline: draft, editor: api });
+        if (answer === false || destroyed || isReadOnly()) return false;
+        if (serialisePipeline(pipeline) !== before) return false;
+        if (serialisePipeline(draft) === before) return false;
+        pipeline = normalisePipeline(draft);
+        relayout();
+        if (selected && selected !== 'flow' && !node(selected)) selected = firstStep();
+        commit('flow:step:menu');
+        paintAll();
+        focusCard(selected);
+        return true;
+    }
+
     function changeSetting(stepId, key, value) {
         if (isReadOnly()) return;
         if (stepId === null) {
@@ -1217,28 +1296,52 @@ export function createLaneEditor(host, options = {}) {
         const menu = el('div', 'twm-flow-lanes__menu');
         menu.setAttribute('role', 'menu');
         let handle = null;
-        const item = (label, glyph, run, { danger = false, disabled = false } = {}) => {
+        const item = (label, glyph, run, { danger = false, refusal = null, id: itemId = null } = {}) => {
             const b = el('button', `twm-flow-lanes__menu-item${danger ? ' twm-flow-lanes__menu-item--danger' : ''}`);
+            b.classList.toggle('twm-flow-lanes__menu-item--refused', Boolean(refusal));
             b.type = 'button';
             b.setAttribute('role', 'menuitem');
-            b.disabled = disabled;
-            b.append(icon(glyph), el('span', '', label));
+            if (itemId) b.dataset.item = itemId;
+            const words = el('span', 'twm-flow-lanes__menu-words');
+            words.appendChild(el('span', 'twm-flow-lanes__menu-label', label));
+            if (refusal) {
+                // Greyed WITH its reason, in its own line: a greyed line nobody can read the reason of is dead.
+                b.disabled = true;
+                b.setAttribute('aria-disabled', 'true');
+                words.appendChild(el('span', 'twm-flow-lanes__menu-reason', refusal));
+            }
+            b.append(icon(glyph || ''), words);
             b.addEventListener('click', () => {
+                if (b.disabled) return;
                 handle?.close('chosen');
                 run();
             });
             menu.appendChild(b);
             return b;
         };
-        const first = item(say(S, 'openSettings'), 'tune', () => openSettingsOf(id));
+        const first = item(say(S, 'openSettings'), 'tune', () => openSettingsOf(id), { id: 'settings' });
         if (canAddAfter(id)) {
             item(say(S, 'addStepAfter'), 'add', () => {
                 const add = [...surface.querySelectorAll('.twm-flow-lanes__node')].find((w) => w.dataset.step === id)
                     ?.querySelector('.twm-flow-lanes__add');
                 if (add) pickAfter(id, add);
-            });
+            }, { id: 'add' });
         }
-        if (!isReadOnly()) item(say(S, 'removeStep'), 'delete', () => remove(id), { danger: true });
+        item(say(S, 'duplicate'), 'content_copy', () => duplicate(id), { refusal: duplicateRefusal(id), id: 'duplicate' });
+        if (!isReadOnly()) item(say(S, 'removeStep'), 'delete', () => remove(id), { danger: true, id: 'remove' });
+        const extra = typeof options.menuItems === 'function' ? options.menuItems(clone(node(id))) : null;
+        const hosts = (Array.isArray(extra) ? extra : []).filter((x) => isObject(x) && x.label !== undefined);
+        if (hosts.length) {
+            const sep = el('div', 'twm-flow-lanes__menu-sep');
+            sep.setAttribute('role', 'separator');
+            menu.appendChild(sep);
+        }
+        const roWhy = isReadOnly() ? (readOnlyReason()[0] ?? say(S, 'readOnlyTitle')) : null;
+        for (const h of hosts) {
+            const refusal = roWhy ?? (h.disabled ? String(h.reason || say(S, 'unavailable')) : null);
+            item(String(h.label), h.icon || '', () => { runHostItem(h, id); },
+                 { danger: Boolean(h.danger), refusal, id: h.id !== undefined ? String(h.id) : null });
+        }
         menu.addEventListener('keydown', (ev) => {
             if (ev.key !== 'ArrowDown' && ev.key !== 'ArrowUp') return;
             ev.preventDefault();
@@ -1277,6 +1380,14 @@ export function createLaneEditor(host, options = {}) {
             remove(id);
             return true;
         },
+        duplicate: (ev) => {
+            if (!(inSurface(ev) || inTabs(ev))) return false;
+            const id = stepAt(ev) ?? selected;
+            if (!id || id === 'flow' || !node(id)) return false;
+            if (isReadOnly()) notice(readOnlyReason()[0] ?? say(S, 'readOnlyTitle'));
+            else duplicate(id);
+            return true;
+        },
         rename: () => {
             if (!selected || selected === 'flow' || !panel) return false;
             const t = panel.el.querySelector('[data-twm-flow-title]');
@@ -1310,6 +1421,16 @@ export function createLaneEditor(host, options = {}) {
         if (focusCard(selected)) ev.preventDefault();
     };
     settingsCol?.addEventListener('keydown', onPanelKey);
+
+    // Columns that arrived while the reader was in the settings are drawn when
+    // the focus LEAVES them (for anything but a popover the panel opened): a
+    // column typed by name before the columns were known becomes a select then.
+    const onPanelLeave = (ev) => {
+        const to = ev.relatedTarget;
+        if (panelPainting || (to && (panel.el.contains(to) || to.closest?.('.twm-flow-popover')))) return;
+        reshowForColumns({ leaving: true });
+    };
+    settingsCol?.addEventListener('focusout', onPanelLeave);
 
     function arrow(ev, dir) {
         if (inTabs(ev)) {
@@ -1449,6 +1570,7 @@ export function createLaneEditor(host, options = {}) {
             lastRunAsk?.abort();
             unbindKeys();
             settingsCol?.removeEventListener('keydown', onPanelKey);
+            settingsCol?.removeEventListener('focusout', onPanelLeave);
             closeFlowPopovers();
             table?.dispose?.();
             table = null;

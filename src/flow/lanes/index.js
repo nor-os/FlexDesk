@@ -20,7 +20,9 @@ export {
     LANE_GEOMETRY, LANE_PAD, LANE_GAP, CW as LANE_CW, CH as LANE_CH, GAP as LANE_COLUMN_GAP,
     LAYOUT_STRINGS as LANE_LAYOUT_STRINGS, layoutLanes, placeLanes, stepPorts as laneStepPorts,
 } from './layout.js';
-export { LANE_ACTIONS, emptyPipeline, normalisePipeline, serialisePipeline } from './pipeline.js';
+export {
+    LANE_ACTIONS, PIPELINE_STRINGS as LANE_PIPELINE_STRINGS, emptyPipeline, normalisePipeline, serialisePipeline,
+} from './pipeline.js';
 export * as lanePipeline from './pipeline.js';
 export { createPreviewRunner as createLanePreviewRunner } from './preview.js';
 export { LANE_STRINGS } from './strings.js';

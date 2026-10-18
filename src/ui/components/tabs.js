@@ -19,8 +19,9 @@
  * AN ITEM is `{ id, label, icon?, title?, badge?, indicator?, closable?, dirty?, eager? }`:
  *   badge      a count (`n`, or `{ count, level }`); none at zero, `99+` above 99
  *   indicator  a dot: `true`, or a level (`info` | `warning` | `alert`)
- *   closable   draws a close mark and lets Delete close — both call `onClose(id)`;
- *              without an `onClose` there is nothing to close and none is drawn
+ *   closable   draws a close mark (and `{block}__tab--closable`) and lets Delete
+ *              close — both call `onClose(id)`; without an `onClose` there is
+ *              nothing to close and none is drawn
  *   dirty      the unsaved dot
  *   eager      mount this item's pane at once instead of on first selection —
  *              at creation, or when an `update` brings the item in
@@ -38,7 +39,9 @@
  *
  * `onSelect(id, item)` hears every change of the tab in front AFTER creation —
  * a click, a key, `select`, the bus, an `update` that had to move it — but not
- * the tab chosen at creation, which the caller already knows. A click on the
+ * the tab chosen at creation, which the caller already knows. An `update` that
+ * leaves no items empties the front, and that is a change too: it is heard as
+ * `onSelect(null, null)`. A click on the
  * tab ALREADY in front changes nothing, so it is not a select; a caller that
  * acts on it anyway (the bottom panel re-shows its pane) passes
  * `onReselect(id, item)`, which hears exactly that click.
@@ -49,14 +52,16 @@
  *
  * KEYS are the ARIA tabs pattern with automatic activation: ArrowLeft/Right move
  * the selection (wrapping), Home and End go to the ends, Delete closes a
- * closable tab. One tab is in the tab order — the one in front.
+ * closable tab. One tab is in the tab order — the one in front. When an
+ * `update` removes the tab that has focus (Delete, then the caller drops the
+ * item), focus moves to the tab now in front, so the keyboard keeps its place.
  *
  * OVERFLOW scrolls, never wraps: a vertical wheel moves the strip sideways and a
  * tab that comes to the front is scrolled into it (`../utils/strip_scroll.js`).
  *
  * CLASSES are BEM under `block` (default `twm-tabs`): `{block}` root,
  * `{block}--compact`, `{block}__tabs`, `{block}__tab`, `{block}__tab--on`,
- * `{block}__tab--dirty`, `{block}__icon`, `{block}__label`, `{block}__badge`
+ * `{block}__tab--dirty`, `{block}__tab--closable`, `{block}__icon`, `{block}__label`, `{block}__badge`
  * (`--{level}`), `{block}__indicator` (`--{level}`), `{block}__dirty`,
  * `{block}__close`, `{block}__body`, `{block}-pane`. The bottom panel passes
  * `twm-bp` and gets its existing markup. Tabs and panes carry the item id in
@@ -81,7 +86,7 @@ let stripCount = 0;
  * @param {object}    opts
  * @param {Array}     opts.items           see AN ITEM above
  * @param {string}   [opts.active]         the tab in front at creation; the first by default
- * @param {Function} [opts.onSelect]       `(id, item)`
+ * @param {Function} [opts.onSelect]       `(id, item)`; `(null, null)` when an `update` empties the strip
  * @param {Function} [opts.onReselect]     `(id, item)` on a click on the tab already in front
  * @param {Function} [opts.onClose]        `(id, item)` — the caller removes it with `update`
  * @param {Function} [opts.onReorder]      `(ids)` after a drag; omit and tabs do not drag
@@ -175,7 +180,9 @@ export function createTabs(container, {
     function draw(id) {
         const item = byId.get(id);
         const { el } = tabFor(id);
+        const closable = !!(item.closable && onClose);
         el.classList.toggle(`${cls('tab')}--dirty`, !!item.dirty);
+        el.classList.toggle(`${cls('tab')}--closable`, closable);
         if (item.title) el.title = item.title; else el.removeAttribute('title');
         const parts = [];
         if (item.icon) {
@@ -203,7 +210,7 @@ export function createTabs(container, {
             dirty.textContent = '●';
             parts.push(dirty);
         }
-        if (item.closable && onClose) {
+        if (closable) {
             // A mark, not a button: a button inside the tab's button is not
             // HTML. The keyboard closes with Delete.
             const close = doc.createElement('span');
@@ -401,9 +408,12 @@ export function createTabs(container, {
          * present, else the one in front now if it is still there, else the
          * first. Panes of items that went are destroyed; eager items that
          * came are mounted, in order, before the tab in front is settled.
+         * No items left: nothing is in front, heard as `onSelect(null, null)`.
+         * Focus on a tab that went moves to the tab in front.
          */
         update(next = [], activeId = undefined) {
             if (destroyed) return;
+            const hadFocus = strip.contains(doc.activeElement);
             setItems(next);
             mountEager();
             const want = activeId !== undefined && byId.has(activeId) ? activeId
@@ -411,6 +421,10 @@ export function createTabs(container, {
                 : order[0] ?? null;
             if (want !== current) show(want, true);
             else paint();   // a new button is drawn off; the kept ones keep their state
+            // The focused tab went with its item: focus would fall to <body>.
+            if (hadFocus && current != null && !strip.contains(doc.activeElement)) {
+                tabs.get(current).el.focus();
+            }
         },
         /** `count` on a tab, coloured by `level`; nothing at zero. */
         setBadge(id, count, level = null) {

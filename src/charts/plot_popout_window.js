@@ -128,6 +128,8 @@ export class PlotPopoutWindow {
         this._outsideClickHandler = null;
 
         this._renderPending = false;
+        /** updateConfig() ran since the last #render(); applied even without results. */
+        this._configChanged = false;
 
         // Live-update toggle: when true, window re-renders on streaming events
         this._liveUpdate = true;
@@ -155,6 +157,7 @@ export class PlotPopoutWindow {
     /** Update plot config and re-render. */
     updateConfig(plotConfig) {
         this._plotConfig = migrateData(plotConfig);
+        this._configChanged = true;
         this.#scheduleRender();
     }
 
@@ -669,7 +672,21 @@ export class PlotPopoutWindow {
         if (!this._window?.isVisible) return;
 
         const results = this._getResults?.();
-        if (!results) return;
+        const configChanged = this._configChanged;
+        this._configChanged = false;
+        if (!results) {
+            // No data yet: the figures already drawn stay, unless the layout or
+            // the subplots changed, in which case the grid is rebuilt for them.
+            if (configChanged) {
+                await this._grid.update({
+                    plotConfig: this._plotConfig,
+                    results: null,
+                    overlays: this._actuals,
+                    hiddenSeries: this._hiddenSeries,
+                });
+            }
+            return;
+        }
 
         this._lastResults = results;
 

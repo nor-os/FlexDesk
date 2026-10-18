@@ -8,10 +8,12 @@
  *
  *   §1  a 2x2 config renders four subplots in the right grid areas
  *   §2  a subplot with no data shows the empty message; a slot with no subplot
- *       shows its own; null results empty every subplot
+ *       shows its own; null results empty every subplot; PlotPopoutWindow's
+ *       updateConfig() with no data rebuilds the cells for the new layout
  *   §3  for the fixture configs, PlotPopoutWindow draws the same trace count,
  *       names and axes as before the refactor (tests/fixtures/plot_grid_baseline.json)
- *   §4  a zero-size or detached container defers drawing until it has a size;
+ *   §4  a zero-size or detached container defers drawing until it has a size
+ *       (the fake ResizeObserver reports a resize only to observers of that element);
  *       a deferred draw that fails shows the empty message; PlotPopoutWindow's
  *       toolbar and PNG export see a figure the grid drew on a resize
  *   §5  dispose() purges every figure
@@ -80,7 +82,12 @@ globalThis.ResizeObserver = class {
     unobserve() {}
     disconnect() { observers.delete(this); this.targets = []; }
 };
-const fireResize = () => { for (const o of [...observers]) o.cb(o.targets.map((target) => ({ target }))); };
+/** `el` changed size: only the observers that observe `el` hear of it, as in a browser. */
+const fireResize = (el) => {
+    if (!el) throw new Error('fireResize needs the element that changed size');
+    for (const o of [...observers]) if (o.targets.includes(el)) o.cb([{ target: el }]);
+};
+const observing = (el) => [...observers].some((o) => o.targets.includes(el));
 
 // jsdom lays nothing out. Every element is 400x300 unless it, or an ancestor,
 // is in `zeroSize`.
@@ -225,6 +232,30 @@ console.log('\ncharts: renderPlotGrid\n');
     grid.dispose();
     host.remove();
 
+    // PlotPopoutWindow with no data yet: updateConfig() to another layout
+    // still rebuilds the cells for it (it used to, through #buildSubplotGrid).
+    resetPlotly();
+    const win = new PlotPopoutWindow({
+        id: 'no-data-popout', title: 'No data',
+        plotConfig: { layout: '1x1', subplots: [sp(['a'])] },
+        getResults: () => null,
+        services: { eventBus: { on: () => ({ dispose() {} }), emit() {} } },
+    });
+    await win.show();
+    await settle();
+    const popoutCells = () => [...win._contentEl.querySelectorAll('.twm-plot-grid > .twm-plot-grid__cell')];
+    check('a popout with no results shows one cell for 1x1', popoutCells().length, 1);
+    win.updateConfig({ layout: '2x2', subplots: [sp(['a']), sp(['b']), sp(['c']), sp(['d'])] });
+    await settle();
+    check('  ...updateConfig to 2x2 with null results rebuilds four cells in the 2x2 grid areas',
+          popoutCells().map((c) => c.style.gridArea.replace(/\s/g, '')),
+          PLOT_LAYOUTS['2x2'].areas.map((a) => a.gridArea));
+    check('  ...each showing the empty message, with nothing drawn',
+          [popoutCells().map(msg), Plotly.reacts.length],
+          [Array(4).fill('No data yet.'), 0]);
+    win.close();
+    await settle();
+
     const host2 = mountHost();
     const grid2 = renderPlotGrid(host2, { layout: '1x1', subplots: [sp(['a'])] }, null);
     await settle();
@@ -270,19 +301,21 @@ console.log('\ncharts: renderPlotGrid\n');
     check('nothing is drawn into a zero-size container', Plotly.reacts.length, 0);
     ok('  ...and no message is shown in its place',
        grid.charts.every((c) => c.childElementCount === 0));
+    const gridEl = host.querySelector('.twm-plot-grid');
+    ok('the grid\'s ResizeObserver observes its .twm-plot-grid element', !!gridEl && observing(gridEl));
 
-    fireResize();
+    fireResize(gridEl);
     await settle();
     check('a resize while still zero-size draws nothing', Plotly.reacts.length, 0);
 
     zeroSize.delete(host);
-    fireResize();
+    fireResize(gridEl);
     await settle();
     check('once it has a size, its ResizeObserver draws both figures',
           Plotly.reacts.map((r) => grid.charts.indexOf(r.gd)).sort(), [0, 1]);
 
     resetPlotly();
-    fireResize();
+    fireResize(gridEl);
     await settle();
     check('a later resize only fits the drawn figures', [Plotly.reacts.length, Plotly.resized.length], [0, 2]);
     grid.dispose();
@@ -392,7 +425,11 @@ console.log('\ncharts: renderPlotGrid\n');
     await settle();
     check('a popout shown at zero size draws nothing yet', Plotly.reacts.length, 0);
     zeroSize.delete(document.body);
-    fireResize();
+    // Only the grid element is reported resized, so it is the grid's own
+    // observer (not the window's) that has to draw the figure.
+    const popoutGridEl = win._contentEl.querySelector('.twm-plot-window-chart > .twm-plot-grid');
+    ok('  ...its grid observes its own .twm-plot-grid element', !!popoutGridEl && observing(popoutGridEl));
+    fireResize(popoutGridEl);
     await settle();
     check('  ...its grid draws the figure once it has a size', Plotly.reacts.length, 1);
     const btn = (tip) => document.querySelector(`.twm-plot-window-toolbar [data-tooltip="${tip}"]`)

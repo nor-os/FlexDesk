@@ -10,13 +10,17 @@
  *
  * Field schema:
  *   { name, label, type='text', default, step?, options?, required?,
- *     placeholder?, hint?, validator?, rows?, create?, pick?, displayFor? }
+ *     placeholder?, hint?, validator?, rows?, create?, pick?, displayFor?,
+ *     onText?, offText?, disabled?, compact? }
  *
  *   - type: 'text' | 'number' | 'password' | 'select' | 'textarea' |
- *           'checkbox' | 'picker' | 'checklist' | 'radio'
+ *           'checkbox' | 'toggle' | 'picker' | 'checklist' | 'radio'
  *   - hint: small dim help line rendered under the field
  *   - validator: fn(value, allValues) => string | null    (inline error)
  *   - rows: number of textarea rows (only used for type='textarea')
+ *   - toggle: a `ToggleField` switch, submitted as a boolean like a checkbox;
+ *     `onText` / `offText` label its state, `disabled` and `compact` pass
+ *     through to it
  *
  * Options — `select`, `checklist` and `radio` take `options`: bare values, or
  * `{ value, label?, disabled?, reason?, description? }`. A value comes back AS
@@ -26,7 +30,10 @@
  * selected by a default or by `api.set`, the reader cannot pick it, and a
  * submit that finds one selected anyway is refused with a field error.
  * `{ group: 'Heading', options: [...] }` in a select's list is an `<optgroup>`;
- * a checklist or radio draws a group's options in place.
+ * in a checklist or radio it is a `.twm-choice__group` heading over its
+ * options. A combobox (a `select` with `create`) offers a group's enabled
+ * options, flattened, and an entry naming a disabled one — a default or an
+ * `api.set` — leaves the box empty.
  *
  *   - `checklist`: toggle chips; submits the ARRAY of chosen values in the
  *     list's order (`[]` for none). `required` means at least one.
@@ -77,6 +84,7 @@
  */
 
 import { ManagedWindow } from '../../ui/components/managed_window.js';
+import { ToggleField } from '../../ui/components/toggle_field.js';
 import { choiceList, findChoice, flatChoices, selectBox, toggleChips } from './choice_controls.js';
 
 /**
@@ -111,14 +119,15 @@ let _modalSeq = 1;
  *   consistent with its defaults. `api` is
  *   `{ setVisible(name, on), get(name), set(name, value), setOptions(name,
  *   options) }`, addressing fields and named sections by name. `get` reads the
- *   control as it stands (a checkbox as a boolean, a select or radio as its
+ *   control as it stands (a checkbox or toggle as a boolean, a select or radio as its
  *   option's own value — a select with no option selected as '', a radio
  *   with none as null — a combobox as the value of the option its text names,
  *   exactly as it submits, or as its text when it names none — a checklist as
  *   the array of chosen values, everything else as its string). An option
  *   whose value IS the given one wins over one that only has its text, here,
  *   in `set` and in defaults. `set` writes it (a value a select or radio does not
- *   offer, or offers only disabled, clears it) and does NOT call
+ *   offer, or offers only disabled, clears it; so does a disabled option's
+ *   value in a combobox) and does NOT call
  *   `onFieldChange` back, so a hook that fills one field from another cannot
  *   loop. `setOptions` replaces the options of a `select` (a combobox's too),
  *   `checklist` or `radio` while the form is open, keeping the current value
@@ -171,9 +180,11 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
             canDrag: true,
             defaultWidth: _estimateWidth(fields),
             defaultHeight: _estimateHeight(fields),
-            onClose: () => { if (!_resolved) { _resolved = true; resolve(null); } },
+            onClose: () => {
+                disposeControls();
+                if (!_resolved) { _resolved = true; resolve(null); }
+            },
         });
-        win.show();
 
         let _resolved = false;
         const close = (result) => {
@@ -181,6 +192,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
             _resolved = true;
             resolve(result);
             try { win.close({ force: true }); } catch {}
+            disposeControls();
         };
 
         const errEl = body.querySelector('[data-role="form-error"]');
@@ -217,24 +229,30 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
             if (row) row.classList.add('twm-is-invalid');
             if (errEl) { errEl.textContent = msg; errEl.hidden = false; }
         };
-        // Selects, checklists and radios — drawn by `choice_controls.js`, read
-        // back as their options' own values. `onChoice` is what a checklist or
-        // radio calls when the reader changes it (a select is a named control
-        // and is heard by the loops below).
+        // Fields that are components, not markup — toggles, selects,
+        // checklists and radios — are mounted into the slot their row left
+        // (`_mountControl`) and read back through it: a toggle as a boolean, a
+        // choice as its option's own value. `onChoice` is what a checklist or
+        // radio calls when the reader changes it (a toggle or select is a
+        // named control and is heard by the loops below).
         let onChoice = (name) => clearFieldError(name);
-        const choices = new Map();
+        const controls = new Map();
         for (const f of formFields) {
-            if (!(f.type === 'checklist' || f.type === 'radio' || (f.type === 'select' && !f.create))) continue;
-            const c = _mountChoice(body, f, defaults[f.name] ?? f.default, (name) => onChoice(name));
-            if (c) choices.set(f.name, c);
+            const c = _mountControl(body, f, defaults[f.name] ?? f.default, (name) => onChoice(name));
+            if (c) controls.set(f.name, c);
         }
+        function disposeControls() {
+            for (const c of controls.values()) c.dispose?.();
+            controls.clear();
+        }
+        win.show();
         /** The option a combobox entry names — the one whose value IS it, else the
          *  one whose value has its text — or undefined. `get` and the submit both
          *  read a combobox through this, so they agree (`'2'` is option `2`). */
         const comboOption = (f, text) => findChoice(flatChoices(optionsOf.get(f.name)), text, true);
         /** A disabled option's reason ('' with none) when one is the value, else null. */
         const unavailable = (f, value) => {
-            const c = choices.get(f.name);
+            const c = controls.get(f.name);
             if (c) return c.unavailable();
             if (f.type !== 'select' || !f.create || value == null || value === '') return null;
             const o = comboOption(f, value);
@@ -270,7 +288,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                     }
                 },
                 get(name) {
-                    if (choices.has(name)) return choices.get(name).read();
+                    if (controls.has(name)) return controls.get(name).read();
                     const el = body.querySelector(`[name="${name}"]`);
                     if (!el) return undefined;
                     if (el.type === 'checkbox') return !!el.checked;
@@ -282,12 +300,15 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                     return el.value;
                 },
                 set(name, value) {
-                    if (choices.has(name)) { choices.get(name).write(value); return; }
+                    if (controls.has(name)) { controls.get(name).write(value); return; }
                     const el = body.querySelector(`[name="${name}"]`);
                     if (!el) return;
                     if (el.type === 'checkbox') { el.checked = !!value; return; }
-                    el.value = value == null ? '' : String(value);
                     const f = fieldOf(name);
+                    // A combobox does not take a disabled option's text either.
+                    const shut = f?.type === 'select' && f.create && comboOption(f, value)?.disabled;
+                    el.value = value == null || shut ? '' : String(value);
+                    comboHints.get(name)?.();
                     if (f?.type === 'picker') {
                         const display = body.querySelector(`[data-picker-display="${name}"]`);
                         if (display) display.value = _pickerLabel(f, el.value);
@@ -296,9 +317,10 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                 setOptions(name, options) {
                     const f = fieldOf(name);
                     if (!f) return;
-                    if (choices.has(name)) {
+                    const c = controls.get(name);
+                    if (c?.setOptions) {
                         optionsOf.set(name, options);
-                        choices.get(name).setOptions(options);
+                        c.setOptions(options);
                         return;
                     }
                     if (f.type !== 'select' || !f.create) return;
@@ -328,12 +350,12 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
             showError('');
             const data = {};
             for (const f of formFields) {
-                const choice = choices.get(f.name);
-                const el = choice ? null : body.querySelector(`[name="${f.name}"]`);
-                if (!choice && !el) continue;
+                const control = controls.get(f.name);
+                const el = control ? null : body.querySelector(`[name="${f.name}"]`);
+                if (!control && !el) continue;
                 let v;
-                if (choice) {
-                    v = choice.read();
+                if (control) {
+                    v = control.read();
                     // An option with no value submits '', as an empty select does.
                     if (v === undefined) v = f.type === 'select' ? '' : null;
                 } else if (f.type === 'checkbox') {
@@ -397,7 +419,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                 }
             }
             if (firstBadName) {
-                choices.get(firstBadName)?.focus();
+                controls.get(firstBadName)?.focus();
                 body.querySelector(`[data-picker="${firstBadName}"]`)?.focus();
                 body.querySelector(`[name="${firstBadName}"]:not([type="hidden"])`)?.focus();
                 return;
@@ -825,7 +847,7 @@ function _estimateHeight(fields) {
             body += 32 + rows * 18;
             if (f.hint) body += 16;
         }
-        else if (f.type === 'checkbox') { body += 32; if (f.hint) body += 16; }
+        else if (f.type === 'checkbox' || f.type === 'toggle') { body += 32; if (f.hint) body += 16; }
         else if (f.type === 'radio') {
             const opts = flatChoices(f.options);
             body += 12 + opts.reduce((h, o) => h + 22 + (o.description || o.reason ? 16 : 0), 0);
@@ -856,15 +878,39 @@ function _datalistOptions(options) {
 }
 
 /**
- * Draw a `select`, `checklist` or `radio` field into its slot, and hand back
- * what the form needs of it: `{ read(), write(v), focus(), unavailable(),
- * setOptions(options) }`. `unavailable()` is the reason (or '') when the
- * selected option is disabled, else null. `onChange(name)` hears the reader's
- * choice on a checklist or radio; a select is a named control, heard as one.
+ * Mount a field that is a component rather than markup — a `toggle`, or a
+ * `select` (not a combobox), `checklist` or `radio` drawn by
+ * `choice_controls.js` — into the `data-control-slot` its row left, and hand
+ * back what the form needs of it: `{ read(), write(v), focus(), unavailable(),
+ * setOptions?(options), dispose?() }`. `unavailable()` is the reason (or '')
+ * when the selected option is disabled, else null. `onChange(name)` hears the
+ * reader's choice on a checklist or radio; a toggle or select is a named
+ * control, heard as one. Null for any other field.
  */
-function _mountChoice(host, f, value, onChange) {
-    const slot = host.querySelector(`[data-choice-slot="${f.name}"]`);
+function _mountControl(host, f, value, onChange) {
+    const slot = host.querySelector(`[data-control-slot="${f.name}"]`);
     if (!slot) return null;
+    if (f.type === 'toggle') {
+        // Mounted INTO the slot: the slot is the row's `.twm-modal__toggle`
+        // cell, and the switch's own root is the <label>.
+        const toggle = new ToggleField({
+            name: f.name,
+            checked: value === true || value === 'true',
+            ariaLabel: f.label || f.name,
+            onText: f.onText ?? null,
+            offText: f.offText ?? null,
+            disabled: !!f.disabled,
+            compact: !!f.compact,
+        });
+        slot.appendChild(toggle.render());
+        return {
+            read: () => toggle.get(),
+            write: (v) => toggle.set(v),
+            focus: () => toggle.input?.focus(),
+            unavailable: () => null,
+            dispose: () => toggle.dispose(),
+        };
+    }
     const common = { keepMissing: false, loose: true };
     const disabledReason = (entry) => (entry?.disabled ? (entry.reason || '') : null);
     if (f.type === 'select') {
@@ -1017,8 +1063,8 @@ function _renderField(f, value) {
             ${errHtml}
         </${tag}>
     `;
-    // Drawn by `choice_controls.js` once the markup is in (`_mountChoice`).
-    const slot = `<span data-choice-slot="${f.name}"></span>`;
+    // A component's place, filled once the markup is in (`_mountControl`).
+    const slot = `<span data-control-slot="${f.name}"></span>`;
 
     if (f.type === 'checkbox') {
         const checked = (value === true || value === 'true') ? 'checked' : '';
@@ -1038,6 +1084,12 @@ function _renderField(f, value) {
     // A group of controls is not one labelable control: a `<label>` round it
     // would hand every click on the row to its first chip or radio.
     if (f.type === 'checklist' || f.type === 'radio') return wrap(slot, 'div');
+
+    // A div, not a label: the switch's own root is the <label>, and a label
+    // may not hold another.
+    if (f.type === 'toggle') {
+        return wrap(`<span class="twm-modal__toggle" data-control-slot="${f.name}"></span>`, 'div');
+    }
 
     if (f.type === 'textarea') {
         const v = value == null ? '' : String(value);
@@ -1066,6 +1118,8 @@ function _renderField(f, value) {
         `);
     }
     if (f.type === 'select' && f.create) {
+        // A default naming a disabled option is not taken, as in a select.
+        const shown = findChoice(flatChoices(f.options), value, true)?.disabled ? '' : v;
         const dlId = `ea-dl-${f.name}-${_modalSeq}`;
         const opts = _datalistOptions(f.options);
         const placeholder = f.placeholder
@@ -1073,7 +1127,7 @@ function _renderField(f, value) {
         return wrap(`
             <div class="twm-combobox">
                 <input name="${f.name}" type="text" list="${dlId}"
-                       value="${_esc(v)}" ${placeholder} ${required}
+                       value="${_esc(shown)}" ${placeholder} ${required}
                        autocomplete="off">
                 <datalist id="${dlId}" data-datalist-for="${f.name}">${opts}</datalist>
                 <span class="twm-combobox__hint" data-for="${f.name}" hidden></span>

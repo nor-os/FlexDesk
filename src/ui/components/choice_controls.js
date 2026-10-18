@@ -8,8 +8,9 @@
  * values beside the DOM it draws and resolves the reader's choice by position.
  *
  * An option is a bare value, or `{ value, label?, description?, disabled?,
- * reason? }`. `selectBox` also takes `{ group, options }` entries, drawn as an
- * `<optgroup>`; the chips and the radio list draw a group's options in place.
+ * reason? }`. Each also takes `{ group, options }` entries: `selectBox` draws
+ * one as an `<optgroup>`, the chips and the radio list as a `.twm-choice__group`
+ * heading over its options. A group with no options draws no heading there.
  *
  * A DISABLED OPTION IS SHOWN, WITH ITS REASON, AND IS NEVER CHOSEN BY VALUE:
  * a stored value that names one is not selected (the select falls to its first
@@ -47,7 +48,7 @@ function el(tag, className, text) {
 const isGroup = (o) => o !== null && typeof o === 'object' && Array.isArray(o.options) && 'group' in o;
 
 /** One option, normalised: `{value, label, description, disabled, reason}`. */
-export function choiceOption(o) {
+function choiceOption(o) {
     if (o === null || typeof o !== 'object') {
         return { value: o, label: shownValue(o), description: null, disabled: false, reason: null };
     }
@@ -70,8 +71,25 @@ export function flatChoices(options) {
     return out;
 }
 
+/**
+ * Where the chips and the radio list draw a group heading: the position in
+ * the flattened list of each non-empty group's first option, to its heading.
+ */
+function groupHeads(options) {
+    const heads = new Map();
+    let at = 0;
+    for (const o of options || []) {
+        if (!isGroup(o)) { at += 1; continue; }
+        if (o.options.length) heads.set(at, String(o.group ?? ''));
+        at += o.options.length;
+    }
+    return heads;
+}
+
+const groupHeading = (text) => el('div', 'twm-choice__group', text);
+
 /** Does stored `value` name option value `v`? */
-export function sameChoice(v, value, loose = false) {
+function sameChoice(v, value, loose = false) {
     if (v === value) return true;
     if (!loose || v === undefined || value === undefined || v === null || value === null) return false;
     return String(v) === String(value);
@@ -82,7 +100,7 @@ export function sameChoice(v, value, loose = false) {
  * names, or -1: the first whose value IS `v`, else — with `loose` — the first
  * whose value has the same text. `from` skips the leading entries.
  */
-export function choiceIndex(list, v, loose = false, from = 0) {
+function choiceIndex(list, v, loose = false, from = 0) {
     for (let i = from; i < list.length; i += 1) if (list[i].value === v) return i;
     if (!loose) return -1;
     for (let i = from; i < list.length; i += 1) if (sameChoice(list[i].value, v, true)) return i;
@@ -201,6 +219,7 @@ export function toggleChips({ options, value, label, readOnly, onChange, notFoun
     const root = el('div', 'twm-flow-togglechips');
     root.setAttribute('role', 'group');
     if (label) root.setAttribute('aria-label', label);
+    let shown = [];           // the options as given, groups and all
     let list = [];
     let chosen = new Set();
     let strays = [];
@@ -226,7 +245,9 @@ export function toggleChips({ options, value, label, readOnly, onChange, notFoun
         return b;
     };
     const draw = (opts, stored) => {
-        list = flatChoices(opts);
+        shown = opts || [];
+        list = flatChoices(shown);
+        const heads = groupHeads(shown);
         const wanted = Array.isArray(stored) ? stored : [];
         const offered = (v) => {
             const o = findChoice(list, v, loose);
@@ -235,13 +256,14 @@ export function toggleChips({ options, value, label, readOnly, onChange, notFoun
         chosen = new Set(wanted.map(offered).filter(Boolean).map((o) => o.value));
         strays = keepMissing ? wanted.filter((v) => !offered(v)) : [];
         root.replaceChildren();
-        for (const o of list) {
+        list.forEach((o, i) => {
+            if (heads.has(i)) root.appendChild(groupHeading(heads.get(i)));
             root.appendChild(chipFor(o.label, chosen.has(o.value), () => {
                 if (o.disabled) return false;           // never chosen, even with the button forced
                 if (chosen.has(o.value)) chosen.delete(o.value); else chosen.add(o.value);
                 return chosen.has(o.value);
             }, { disabled: o.disabled, reason: o.disabled ? o.reason : null }));
-        }
+        });
         for (const v of [...strays]) {
             root.appendChild(chipFor(notFound(shownValue(v)), true, () => {
                 const i = strays.indexOf(v);
@@ -256,7 +278,7 @@ export function toggleChips({ options, value, label, readOnly, onChange, notFoun
     return {
         el: root,
         valueOf,
-        setValue: (stored) => draw(list, stored),
+        setValue: (stored) => draw(shown, stored),
         setOptions: (opts) => draw(opts, valueOf()),
     };
 }
@@ -281,11 +303,13 @@ export function choiceList({ options, value, name, label, readOnly, onChange, no
 
     const draw = (opts, current) => {
         list = flatChoices(opts);
+        const heads = groupHeads(opts);
         radios = [];
         root.replaceChildren();
         const named = choiceIndex(list, current, loose);
         const at = named >= 0 && !list[named].disabled ? named : -1;
         list.forEach((o, i) => {
+            if (heads.has(i)) root.appendChild(groupHeading(heads.get(i)));
             const row = el('label', `twm-flow-choice${o.disabled ? ' twm-choice--disabled' : ''}`);
             const radio = el('input', 'twm-flow-choice__radio');
             radio.type = 'radio';

@@ -38,9 +38,6 @@ import { createStrings, say } from './strings.js';
 
 // ── values that keep their type ──────────────────────────────────────────
 
-/** A stored value as a one-line box shows it: a string as itself, anything else as JSON. */
-export { shownValue };
-
 /**
  * The text typed into a box, as a value OF THE TYPE IT WAS:
  *  - an untouched box writes back what was stored, exactly;
@@ -349,14 +346,30 @@ function choiceCardsWidget(spec, value, ctx) {
 
 const columnWords = (c) => (c.type ? `${c.name} · ${c.type}` : String(c.name));
 
+/**
+ * The columns are NOT KNOWN YET (`ctx.columns()` is null: nothing described or
+ * previewed the step's input so far): a column is typed by name, and the field
+ * says why it is not a choice. The name is stored as typed; once the columns
+ * arrive the panel is drawn again and the same setting is a choice among them,
+ * a name they lack kept and marked not found.
+ */
+function columnsNotKnownNote(S) {
+    return el('p', 'twm-flow-field__note', say(S, 'noColumns'));
+}
+
 /** One column of the step's input, by NAME. */
 function upstreamColumnWidget(spec, value, ctx) {
     const S = ctx.strings;
     const columns = ctx.columns?.();
     if (!Array.isArray(columns)) {
-        const note = el('p', 'twm-flow-field__note', say(S, 'noColumns'));
-        if (value !== undefined) note.appendChild(el('span', 'twm-flow-field__kept', ` ${shownValue(value)}`));
-        return { el: note };
+        const root = el('div', 'twm-flow-field__typed');
+        const box = textBox(shownValue(value), { label: ctx.label,
+                                                 placeholder: spec['x-ui-placeholder'] ?? say(S, 'columnName') });
+        box.spellcheck = false;
+        box.readOnly = Boolean(ctx.readOnly);
+        box.addEventListener('input', () => ctx.set(clean(typedValue(box.value, value))));
+        root.append(box, columnsNotKnownNote(S));
+        return { el: root, focus: () => box.focus({ preventScroll: true }) };
     }
     const { box, valueOf } = selectBox(columns.map((c) => ({ value: String(c.name), label: columnWords(c) })),
                                        value, { empty: say(S, 'choose'), label: ctx.label,
@@ -366,16 +379,68 @@ function upstreamColumnWidget(spec, value, ctx) {
     return { el: box };
 }
 
+/**
+ * Names typed into a chip list: Enter (or a comma, or leaving the box) makes
+ * the text a chip, pressing a chip removes it. The list keeps the order the
+ * names were given in, a name given twice once, and a stored entry as it is.
+ */
+function typedChips({ value, label, placeholder, readOnly, onChange, strings }) {
+    const root = el('div', 'twm-flow-togglechips twm-flow-typedchips');
+    root.setAttribute('role', 'group');
+    if (label) root.setAttribute('aria-label', label);
+    const list = Array.isArray(value) ? [...value] : [];
+    const input = textBox('', { label, placeholder });
+    input.classList.add('twm-flow-typedchips__input');
+    input.spellcheck = false;
+    input.readOnly = Boolean(readOnly);
+    const emit = () => onChange(list.length ? [...list] : undefined);
+    const chipFor = (v) => {
+        const text = shownValue(v);
+        const b = el('button', 'twm-flow-togglechip', text);
+        b.type = 'button';
+        b.setAttribute('aria-pressed', 'true');
+        b.setAttribute('aria-label', say(strings, 'removeNamed', text));
+        b.title = say(strings, 'removeNamed', text);
+        b.disabled = Boolean(readOnly);
+        b.addEventListener('click', () => {
+            const i = list.indexOf(v);
+            if (i >= 0) list.splice(i, 1);
+            b.remove();
+            emit();
+            input.focus({ preventScroll: true });
+        });
+        return b;
+    };
+    const take = () => {
+        const name = input.value.replace(/,+$/, '').trim();
+        input.value = '';
+        if (!name || list.includes(name)) return;
+        list.push(name);
+        root.insertBefore(chipFor(name), input);
+        emit();
+    };
+    for (const v of list) root.appendChild(chipFor(v));
+    root.appendChild(input);
+    input.addEventListener('keydown', (ev) => {
+        if (ev.isComposing || (ev.key !== 'Enter' && ev.key !== ',')) return;
+        ev.preventDefault();
+        take();
+    });
+    input.addEventListener('blur', () => { if (input.value.trim()) take(); });
+    return { el: root, input };
+}
+
 /** Several columns of the step's input, by name, as chips in the input's order. */
 function upstreamColumnsWidget(spec, value, ctx) {
     const S = ctx.strings;
     const columns = ctx.columns?.();
     if (!Array.isArray(columns)) {
-        const note = el('p', 'twm-flow-field__note', say(S, 'noColumns'));
-        if (Array.isArray(value) && value.length) {
-            note.appendChild(el('span', 'twm-flow-field__kept', ` ${value.map(shownValue).join(', ')}`));
-        }
-        return { el: note };
+        const root = el('div', 'twm-flow-field__typed');
+        const chips = typedChips({ value, label: ctx.label, readOnly: ctx.readOnly, strings: S,
+                                   placeholder: spec['x-ui-placeholder'] ?? say(S, 'columnNames'),
+                                   onChange: (v) => ctx.set(v) });
+        root.append(chips.el, columnsNotKnownNote(S));
+        return { el: root, focus: () => chips.input.focus({ preventScroll: true }) };
     }
     return {
         el: toggleChips({

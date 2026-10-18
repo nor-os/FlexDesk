@@ -294,6 +294,26 @@ section('§2 a disabled option shows its reason and is never the submitted value
     ok('typing it is refused on the field', !f.settled() && (f.fieldError('who') || '').includes('left'));
     await f.cancel();
 }
+{
+    // A combobox takes a disabled option's text from neither a default nor api.set.
+    const g = grab();
+    const f = await open({
+        fields: [{ name: 'who', label: 'Who', type: 'select', create: true, options: [
+            'ann', { value: 'bob', label: 'bob', disabled: true, reason: 'left' }] }],
+        defaults: { who: 'bob' },
+        onFieldChange: g.hook,
+    });
+    check('a default naming a disabled option leaves the combobox empty', f.field('who').value, '');
+    g.api.set('who', 'ann');
+    check('(api.set to an enabled one writes it)', g.api.get('who'), 'ann');
+    g.api.set('who', 'bob');
+    check('api.set to a disabled one clears the box', f.field('who').value, '');
+    check('…and api.get reads it as empty', g.api.get('who'), '');
+    g.api.set('who', 'carol');
+    check('(api.set to a value the list lacks still writes it: a combobox takes new values)',
+          g.api.get('who'), 'carol');
+    await f.cancel();
+}
 
 {
     // A hidden row is not asked about, but a disabled option is still never its value.
@@ -360,6 +380,38 @@ section('§3 grouped options render under their headings');
     f.type('fruit', 'blue');
     await f.submit();
     check('a grouped option submits its value', await f.result, { fruit: 'blue' });
+}
+{
+    const g = grab();
+    const grouped = [
+        'c',
+        { group: 'G1', options: ['a', 'b'] },
+        { group: 'Empty', options: [] },
+        { group: 'G2', options: [{ value: 'z', label: 'Zed', disabled: true, reason: 'gone' }, 'y'] },
+    ];
+    const f = await open({
+        fields: [
+            { name: 'pick', label: 'Pick', type: 'checklist', options: grouped },
+            { name: 'one', label: 'One', type: 'radio', options: grouped },
+        ],
+        defaults: { pick: ['b'], one: 'y' },
+        onFieldChange: g.hook,
+    });
+    // What each control draws, in order: a heading as '#text', a chip or a row as its label.
+    const drawn = (name, item) => [...f.row(name).querySelectorAll(`.twm-choice__group, ${item}`)].map((n) =>
+        n.classList.contains('twm-choice__group') ? `#${n.textContent}`
+            : (n.querySelector('.twm-flow-choice__label') || n).firstChild.textContent);
+    check('a checklist draws each group\'s heading over its chips (an empty group none)',
+          drawn('pick', '.twm-flow-togglechip'), ['c', '#G1', 'a', 'b', '#G2', 'Zed', 'y']);
+    check('a radio draws each group\'s heading over its rows',
+          drawn('one', '.twm-flow-choice'), ['c', '#G1', 'a', 'b', '#G2', 'Zed', 'y']);
+    g.api.set('pick', ['a', 'y']);
+    check('the headings survive api.set', drawn('pick', '.twm-flow-togglechip'),
+          ['c', '#G1', 'a', 'b', '#G2', 'Zed', 'y']);
+    g.api.setOptions('one', [{ group: 'New', options: ['y', 'x'] }]);
+    check('…and setOptions draws the new list\'s headings', drawn('one', '.twm-flow-choice'), ['#New', 'y', 'x']);
+    await f.submit();
+    check('grouped chips and radios submit their values', await f.result, { pick: ['a', 'y'], one: 'y' });
 }
 
 // ── §4 ──────────────────────────────────────────────────────────────────
@@ -569,6 +621,29 @@ section('§7 one implementation: the flow kit\'s controls');
     ok('…and widgets.js defines none of its own', !/const shownValue\s*=/.test(kit));
     check('it still shows a string as itself and anything else as JSON',
           [kitIndex.shownValue('a'), kitIndex.shownValue(2), kitIndex.shownValue(undefined)], ['a', '2', '']);
+    ok('widgets.js does not pass shownValue through', !/export \{\s*shownValue\s*\}/.test(kit));
+    check('choice_controls exports only what its consumers use', Object.keys(controls).sort(),
+          ['choiceList', 'findChoice', 'flatChoices', 'selectBox', 'shownValue', 'toggleChips']);
+    ok('a toggle and a choice field are mounted through one slot',
+       /data-control-slot/.test(modal) && !/data-(toggle|choice)-slot/.test(modal));
+}
+{
+    // One form with a toggle beside the choice fields: both mounted, both submitted.
+    const g = grab();
+    const f = await open({
+        fields: [
+            { name: 'on', label: 'On', type: 'toggle', default: true },
+            { name: 'n', label: 'N', type: 'select', options: [1, 2] },
+        ],
+        defaults: { n: 2 },
+        onFieldChange: g.hook,
+    });
+    ok('the toggle is mounted in its row', !!f.row('on').querySelector('.twm-toggle input[name="on"]'));
+    check('api.get reads it as a boolean', g.api.get('on'), true);
+    g.api.set('on', false);
+    check('api.set moves it', f.field('on').checked, false);
+    await f.submit();
+    check('a toggle and a typed select submit together', await f.result, { on: false, n: 2 });
 }
 
 console.log(failures === 0

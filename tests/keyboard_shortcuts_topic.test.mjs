@@ -78,6 +78,7 @@ const catalog = createEntityCatalog({ sources: [] });
 const wm = {
     openInPrimary: () => {},
     isPanelOpen: () => false,
+    getPanelAvailability: () => ({ available: true, reason: null }),
     togglePanel: () => {},
     content: { has: () => true },
 };

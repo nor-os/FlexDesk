@@ -146,6 +146,12 @@ section('§3 Alt or F10 focuses the bar');
     keyup(outside, 'h', { altKey: true });
     keyup(outside, 'Alt');
     check('Alt+H is a chord, not the bar', document.activeElement === outside, true);
+    // Alt+Tab away and back: the Tab goes to the OS, the window blurs, and the
+    // Alt keyup arrives on return with nothing between it and the keydown.
+    keydown(outside, 'Alt', { altKey: true });
+    window.dispatchEvent(new window.Event('blur'));
+    keyup(outside, 'Alt');
+    check('Alt, the window losing focus, then Alt up is not the bar', document.activeElement === outside, true);
     press('F10', { shiftKey: true });
     check('Shift+F10 is the context menu, not the bar', document.activeElement === outside, true);
     const ev = new window.KeyboardEvent('keydown', { key: 'F10', bubbles: true, cancelable: true });

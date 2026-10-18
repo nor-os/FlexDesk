@@ -229,6 +229,20 @@ console.log('\ncharts: renderPlotGrid\n');
     await grid.update({ hiddenSeries: new Set(['a']) });
     check('a subplot whose series are all hidden draws an empty figure, not the message',
           [msg(cells[0]), lastFigureFor(cells[0])?.data.length], [null, 0]);
+
+    // Only the subplot's OWN series count: a series hidden in another subplot,
+    // or one hidden while another of its own just has no data, is not "all hidden".
+    resetPlotly();
+    await grid.update({
+        plotConfig: { layout: '2x2', subplots: [sp(['a', 'nowhere']), sp(['nowhere']), sp(['b']), sp([])] },
+        hiddenSeries: new Set(['a', 'b']),
+    });
+    check('one series hidden, the other without data: the message, no empty figure',
+          [msg(cells[0]), lastFigureFor(cells[0])], ['Nothing to show.', undefined]);
+    check('a series hidden in another subplot leaves an empty subplot showing the message',
+          msg(cells[1]), 'Nothing to show.');
+    check('the subplot whose one series is hidden draws an empty figure',
+          [msg(cells[2]), lastFigureFor(cells[2])?.data.length], [null, 0]);
     grid.dispose();
     host.remove();
 

@@ -187,6 +187,8 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
         const traces = [];
         const layoutAxes = {};
         const yRefByAxisId = {};
+        /** The subplot's own series (overlays and derived traces aside), and how many are hidden. */
+        let ownCount = 0;
         let hiddenCount = 0;
 
         const useX = sp.xAxis && sp.xAxis.useTime === false && sp.xAxis.variable;
@@ -219,6 +221,7 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
             for (const s of axis.series ?? []) {
                 if (!s.variable) continue;
                 const label = s.label || s.variable;
+                ownCount++;
                 if (isHidden(label)) { hiddenCount++; continue; }
 
                 const resolved = opts.resolveSeries(s, data, sp);
@@ -245,7 +248,7 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
                 if (!overlay?.years?.length) continue;
                 const ov = s.overlay;
                 const ovLabel = ov.label || `${label} (actual)`;
-                if (isHidden(ovLabel)) { hiddenCount++; continue; }
+                if (isHidden(ovLabel)) continue;
                 const ovTrace = {
                     type: 'scatter',
                     mode: ov.mode || 'markers+lines',
@@ -277,7 +280,10 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
             if (Array.isArray(extra)) traces.push(...extra);
         }
 
-        if (traces.length === 0 && hiddenCount === 0) return null;
+        // Nothing to draw is the empty message — unless every one of the
+        // subplot's own series is hidden: then it is an empty figure, so the
+        // viewer can tell "hidden" from "no data".
+        if (traces.length === 0 && !(ownCount > 0 && hiddenCount === ownCount)) return null;
 
         const legendPos = opts.alwaysShowLegend && (sp.legendPosition ?? 'hidden') === 'hidden'
             ? 'top' : (sp.legendPosition ?? 'hidden');

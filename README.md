@@ -2663,8 +2663,12 @@ configs outside the fixtures:
   `mode: 'lines'`, no fill), so they read on the same 0..1 scale as the stack.
   They used to be drawn unstacked, at their raw values.
 - A subplot with no traces draws an empty figure, not the empty message, only
-  when one of **its own** series or overlays is hidden. It used to do that for
-  every subplot as soon as any series anywhere in the window was hidden.
+  when **all of its own** series are hidden (its overlays and derived traces do
+  not count). It used to do that for every subplot as soon as any series
+  anywhere in the window was hidden.
+- While `getResults()` answers null and nothing has been drawn yet, every cell
+  shows `emptyMessage`; the cells used to stay blank. Figures already drawn
+  stay while the results are briefly null, as before.
 
 Its zoom and pan buttons and Download PNG act on `grid.plotted`, so a figure the
 grid drew on a resize (the window opened while its plot area had no size) is

@@ -30,6 +30,30 @@
  * `activate()` runs on every selection, INCLUDING the first — a pane that
  * has to rebuild on each visit (a git status list, say) does its work there.
  * The filter query is remembered per mode.
+ *
+ * A mode may also carry `filter: false`: a pane with controls of its own.
+ * While it is the active mode the shared filter box is hidden and its pane's
+ * `filter()` is not called; the next mode with a filter shows its own saved
+ * text again.
+ *
+ * Options beyond `modes`:
+ *
+ *   showModeStrip  (true)   false renders no strip: the embedder switches
+ *                           modes through `select()` instead.
+ *   showFilter     (true)   false renders no filter box at all.
+ *   initialMode    (first)  the mode shown at mount; an unknown id falls back
+ *                           to the first mode.
+ *
+ * The handle:
+ *
+ *   select(modeId) -> Promise   the strip click's own path: mounts the mode
+ *                               on first use, runs its `activate()` and
+ *                               restores its filter; resolves once
+ *                               `activate()` has run. An unknown id is
+ *                               ignored (a resolved promise).
+ *   active()       -> modeId    the mode currently shown.
+ *   refresh()      -> Promise   re-runs the active mode's `activate()`.
+ *   destroy()
  */
 
 export function mountNavPanel(hostEl, {
@@ -37,39 +61,54 @@ export function mountNavPanel(hostEl, {
     wm = null,
     eventBus = null,
     filterPlaceholder = 'Filter…',
+    showModeStrip = true,
+    showFilter = true,
+    initialMode = null,
 } = {}) {
     if (!Array.isArray(modes) || modes.length === 0) {
         throw new Error('mountNavPanel: at least one mode is required');
     }
 
-    hostEl.classList.add('twm-nav');
-    hostEl.innerHTML = `
-        <div class="twm-nav__modes" data-role="modes"></div>
+    const stripHtml = showModeStrip
+        ? `
+        <div class="twm-nav__modes" data-role="modes"></div>`
+        : '';
+    const filterHtml = showFilter
+        ? `
         <div class="twm-sidebar-controls twm-nav__filter">
             <span class="material-symbols-outlined twm-sidebar-search-icon">search</span>
             <input class="twm-data-page__search twm-nav__filter-input"
                    type="search" placeholder="${_esc(filterPlaceholder)}"
                    autocomplete="off" />
-        </div>
+        </div>`
+        : '';
+    hostEl.classList.add('twm-nav');
+    hostEl.innerHTML = `${stripHtml}${filterHtml}
         <div class="twm-nav__body" data-role="body"></div>
     `;
     const modesEl = hostEl.querySelector('[data-role="modes"]');
     const bodyEl  = hostEl.querySelector('[data-role="body"]');
+    const filterBoxEl = hostEl.querySelector('.twm-nav__filter');
     const filterEl = hostEl.querySelector('.twm-nav__filter-input');
 
-    modesEl.innerHTML = modes.map((m) => `
+    if (modesEl) {
+        modesEl.innerHTML = modes.map((m) => `
         <button class="twm-nav__mode twm-has-tooltip" data-mode="${_esc(m.id)}"
                 data-tooltip="${_esc(m.label)}">
             <span class="material-symbols-outlined">${_esc(m.icon)}</span>
             <span>${_esc(m.label)}</span>
         </button>
     `).join('');
+    }
 
     const byId = new Map(modes.map((m) => [m.id, m]));
     const hosts = {};   // mode id -> pane host element
     const panes = {};   // mode id -> the object the mode's mount() returned
     const filterByMode = Object.fromEntries(modes.map((m) => [m.id, '']));
-    let mode = modes[0].id;
+    let mode = byId.has(initialMode) ? initialMode : modes[0].id;
+
+    /** Whether the shared filter box serves this mode. */
+    const hasFilter = (id) => !!filterEl && byId.get(id)?.filter !== false;
 
     const ensureHost = (id) => {
         if (hosts[id]) return hosts[id];
@@ -88,9 +127,15 @@ export function mountNavPanel(hostEl, {
         for (const m of modes) {
             ensureHost(m.id).style.display = (m.id === next) ? 'flex' : 'none';
         }
-        modesEl.querySelectorAll('[data-mode]').forEach((b) =>
+        modesEl?.querySelectorAll('[data-mode]').forEach((b) =>
             b.classList.toggle('twm-nav__mode--on', b.dataset.mode === next));
-        filterEl.value = filterByMode[next] || '';
+        if (filterEl) {
+            // Touch the box's style only when a mode without a filter is
+            // involved, so a panel whose modes all filter renders as it always has.
+            if (!hasFilter(next)) filterBoxEl.style.display = 'none';
+            else if (filterBoxEl.style.display) filterBoxEl.style.removeProperty('display');
+            filterEl.value = hasFilter(next) ? (filterByMode[next] || '') : '';
+        }
 
         const paneEl = ensureHost(next);
         if (!panes[next]) {
@@ -108,17 +153,19 @@ export function mountNavPanel(hostEl, {
     };
 
     const _applyFilter = () => {
+        if (!hasFilter(mode)) return;
         const q = filterByMode[mode] || '';
         try { panes[mode]?.filter?.(q); }
         catch (err) { console.warn('[nav] filter failed', mode, err); }
     };
 
-    filterEl.addEventListener('input', () => {
+    filterEl?.addEventListener('input', () => {
+        if (!hasFilter(mode)) return;
         filterByMode[mode] = filterEl.value;
         _applyFilter();
     });
 
-    modesEl.addEventListener('click', (e) => {
+    modesEl?.addEventListener('click', (e) => {
         const btn = e.target.closest('[data-mode]');
         if (btn) activate(btn.dataset.mode);
     });
@@ -126,6 +173,8 @@ export function mountNavPanel(hostEl, {
     activate(mode);
 
     return {
+        select: (modeId) => activate(modeId),
+        active: () => mode,
         refresh: () => activate(mode),
         destroy: () => {
             for (const p of Object.values(panes)) {

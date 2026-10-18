@@ -13,7 +13,7 @@ subsystem: grid
 labels: [grid, editing, tables-consumer]
 links: [blocked-by 66]
 created: 2026-10-18
-updated: 2026-10-18T10:34Z
+updated: 2026-10-18T10:35Z
 ---
 
 ## Description
@@ -40,3 +40,7 @@ Owner decisions (norman, 2026-10-18): FlexDesk provides every UI operation and m
 ### 2026-10-18T10:34Z · norman_agent (status: draft -> refined)
 
 Split out of STORY-0003 with norman (Claude Code session, 2026-10-18): 6 criteria, 5 points, parented to EPIC-0001, in 0.17.0 by his decision. Correct the criteria before anything is built against them.
+
+### 2026-10-18T10:35Z · norman_agent
+
+The Tables half is Tables STORY-0297 (`../Tables/backlog/STORY-0297.md`): its pivot matrix draws through this grid once it ships.

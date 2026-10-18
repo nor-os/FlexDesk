@@ -3,8 +3,8 @@
  *
  * Three things used to make this un-shippable, and all three are now injected:
  *
- *   1. It wrote to `localStorage` under 'ecosim.results.layouts' and
- *      'ecosim.results.configs' — a LIBRARY scribbling on one application's storage
+ *   1. It wrote to `localStorage` under two keys named after one application
+ *      — a LIBRARY scribbling on one application's storage
  *      keys. The keys are the consumer's now, and EcoAgent passes its existing ones,
  *      so not a single saved layout is orphaned.
  *
@@ -639,7 +639,7 @@ let _options = {};
  * called first won. That is a trap with teeth: if ANY code path had reached the
  * store before the dashboard did, the singleton would have been built with the
  * library's generic defaults, and the app would have read
- * 'twm.tiles.layouts' instead of 'ecosim.results.layouts' — an empty store. Every
+ * 'twm.tiles.layouts' instead of the app's own key — an empty store. Every
  * saved dashboard a user had ever built would have silently vanished, with no
  * error, and no captured view would show it because the pixel gate runs on a
  * fresh template that has no saved layouts to lose.

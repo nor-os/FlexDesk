@@ -1,6 +1,6 @@
 /**
- * context_menu.js — small popup menu that matches Ecosim's `.context-menu`
- * idiom (see main_new.css line 9713 and ui/js/ui/components/data_table.js).
+ * context_menu.js — small popup menu in the `.context-menu` idiom the
+ * DataTable's own right-click menu uses (./data_table.js).
  *
  * Usage:
  *   showContextMenu(x, y, [

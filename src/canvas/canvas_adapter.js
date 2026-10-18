@@ -43,6 +43,11 @@ const COARSE_GRID_EVERY = 5;
 const SUB_PIXEL = 0.5;
 
 export class CanvasAdapter {
+    /** The zoom limits every `setViewport`, `zoomAt` and `fit` clamps to, for an
+     *  embedder whose own zoom controls must stop where the kernel stops. */
+    static MIN_SCALE = MIN_SCALE;
+    static MAX_SCALE = MAX_SCALE;
+
     /**
      * @param {object} o
      * @param {HTMLElement} o.container        the box the canvas fills (it needs a height)

@@ -27,7 +27,8 @@
  * `'redo'`), because an undo is a change to what the consumer holds. `load` is
  * a baseline, so opening a flow and looking at it makes nothing to undo; a
  * consumer's publish is a baseline too (`history.baseline(editor.snapshot())`).
- * `destroy` flushes nothing, because nothing is held.
+ * `destroy` flushes nothing, because nothing is held (a viewport report
+ * waiting for the wheel to settle is told, not saved: see below).
  *
  * ══ THE KEYS STOP AT THIS ROOT ══════════════════════════════════════════
  *
@@ -56,6 +57,17 @@
  * retargets the release, and then the click, to the button, which would add a
  * second step). A drag swallows the click that follows it; Escape,
  * `pointercancel` and a destroy each take the ghost away.
+ *
+ * ══ THE VIEWPORT IS THE CONSUMER'S TO KEEP ══════════════════════════════
+ *
+ * `viewport` opens there instead of fitting; `onViewportChange` hears ONE
+ * report per finished gesture of the reader's — a pan's release, a run of
+ * wheel turns once it has settled, a zoom button, Fit, Arrange, a minimap
+ * click, *Go to it* — never one per pointer move, and never what the consumer
+ * set itself (`load`, `setViewport`, `fit()`). The wheel has no release, so its
+ * report waits until the wheel has been still for `WHEEL_SETTLE_MS`; the next
+ * press, the next gesture and `destroy` each hand a waiting one on at once.
+ * That is the editor's only timer, and it writes nothing: it tells.
  */
 
 import { CanvasAdapter } from '../../canvas/canvas_adapter.js';
@@ -96,6 +108,15 @@ const NATURAL = 1;
 /** Opening (and Arrange) keeps a long flow at this or above, from its first
  *  step on the left; a press on Fit frames ALL of it, however small. */
 const READABLE = 0.8;
+/** The zoom buttons' steps: from the kernel's floor to its ceiling, through
+ *  natural size. A press goes to the next step, whatever scale the wheel left. */
+const ZOOM_STEPS = Object.freeze([CanvasAdapter.MIN_SCALE, 0.25, 0.33, 0.5, 0.67, 0.8, 1, 1.25, 1.5, 2, 3,
+                                  CanvasAdapter.MAX_SCALE]);
+const ZOOM_EPSILON = 1e-6;
+/** How long the wheel is still before a run of turns is one finished zoom or pan. */
+const WHEEL_SETTLE_MS = 300;
+/** The minimap's drawing, in screen pixels, and its margin round what it shows, in canvas pixels. */
+const MINIMAP = Object.freeze({ width: 180, height: 120, margin: 40 });
 /** How far a palette press must travel before it is a drag, not a click. */
 const DRAG_PX = 4;
 /** How far below the lower of its two ends a loop's return line runs. */
@@ -127,6 +148,7 @@ export function createCanvasEditor(host, options = {}) {
         slots = {}, strings = null, services = null, onChange = null, onSelect = null,
         history: historyOptions = {}, loop = {}, node: nodeOptions = {}, dataPortRead = null,
         removable = null, paletteTypes = null, label = null, gridSize = 16, waitsForAll = undefined,
+        onViewportChange = null, zoomControls = false, minimap = false,
     } = options;
     const catalogue = Array.isArray(options.catalogue) ? createStepCatalogue(options.catalogue)
         : options.catalogue;
@@ -192,8 +214,17 @@ export function createCanvasEditor(host, options = {}) {
     let lastSelect = '';
     const nodeEls = new Map();
     const consumerState = new Map();
+    /** The `viewport` option, until the first `load` opens there instead of fitting. */
+    let startView = viewportOf(options.viewport);
+    /** The viewport the consumer last heard of (or set): a gesture ending there is no change. */
+    let reportedView = '';
+    let wheelTimer = null;
+    let pressEnd = null;
+    let zoomLimit = '';
+    let miniMap = null;
 
     const canvas = new CanvasAdapter({ container: canvasHost, gridSize });
+    if (startView) canvas.setViewport(startView);
     canvas.root.setAttribute('role', 'application');
     canvas.root.setAttribute('aria-label', label || say(S, 'canvasLabel'));
     // A press on the empty surface lets go of the pick (and of a connection
@@ -279,10 +310,18 @@ export function createCanvasEditor(host, options = {}) {
         undo: tool('undo', { label: say(S, 'undo'), icon: 'undo', title: say(S, 'undoTitle'), onClick: () => undo() }),
         redo: tool('redo', { label: say(S, 'redo'), icon: 'redo', title: say(S, 'redoTitle'), onClick: () => redo() }),
         arrange: tool('arrange', { label: say(S, 'arrange'), icon: 'account_tree', title: say(S, 'arrangeTitle'),
-                                   onClick: () => arrangeGraph() }),
+                                   onClick: () => { if (arrangeGraph()) viewportSettled(); } }),
         fit: tool('fit', { label: say(S, 'fit'), icon: 'fit_screen', title: say(S, 'fitTitle'),
-                           onClick: () => fit({ whole: true }) }),
+                           onClick: () => { fit({ whole: true }); viewportSettled(); } }),
     };
+    if (zoomControls) {
+        tools['zoom-out'] = tool('zoom-out', { label: say(S, 'zoomOut'), icon: 'zoom_out', title: say(S, 'zoomOutTitle'),
+                                               onClick: () => zoomStep(-1) });
+        tools['zoom-in'] = tool('zoom-in', { label: say(S, 'zoomIn'), icon: 'zoom_in', title: say(S, 'zoomInTitle'),
+                                             onClick: () => zoomStep(1) });
+        tools['zoom-reset'] = tool('zoom-reset', { label: say(S, 'zoomReset'), title: say(S, 'zoomResetTitle'),
+                                                   onClick: () => zoomTo(NATURAL) });
+    }
     const own = new Set(Object.keys(tools));
     const consumerTools = [];
     for (const a of Array.isArray(actions) ? actions : []) {
@@ -292,8 +331,7 @@ export function createCanvasEditor(host, options = {}) {
                                onClick: () => { if (!b.disabled) a.run?.(api); } });
         consumerTools.push({ spec: a, el: b });
     }
-    toolbar.append(tools.undo, tools.redo, tools.arrange, tools.fit, ...consumerTools.map((t) => t.el),
-                   status, toolbarEnd);
+    toolbar.append(...Object.values(tools), ...consumerTools.map((t) => t.el), status, toolbarEnd);
     if (typeof slots.toolbarEnd === 'function') slots.toolbarEnd(toolbarEnd);
 
     function refusals() {
@@ -303,6 +341,9 @@ export function createCanvasEditor(host, options = {}) {
             redo: stop || (history.canRedo ? null : say(S, 'nothingToRedo')),
             arrange: stop || (graph.nodes.length < 2 ? say(S, 'arrangeNeedsTwo') : null),
             fit: null,
+            'zoom-out': canvas.scale <= ZOOM_STEPS[0] + ZOOM_EPSILON ? say(S, 'zoomAtMin') : null,
+            'zoom-in': canvas.scale >= ZOOM_STEPS[ZOOM_STEPS.length - 1] - ZOOM_EPSILON ? say(S, 'zoomAtMax') : null,
+            'zoom-reset': null,
         };
     }
 
@@ -348,6 +389,131 @@ export function createCanvasEditor(host, options = {}) {
         if (connecting) { cancelConnect(); setMessage(''); }
         travelling = 'redo';
         try { return history.redo(); } finally { travelling = null; }
+    }
+
+    // ── the viewport ────────────────────────────────────────────────────
+
+    const viewKey = (v) => `${v.scale}|${v.tx}|${v.ty}`;
+
+    /** What the consumer set is what it has: nothing to report back. */
+    function viewportBaseline() {
+        reportedView = viewKey(canvas.viewport());
+    }
+
+    /** A gesture of the reader's has finished: one report, if it moved the view. */
+    function viewportSettled() {
+        if (wheelTimer !== null) { clearTimeout(wheelTimer); wheelTimer = null; }
+        if (destroyed) return;
+        const now = canvas.viewport();
+        const key = viewKey(now);
+        if (key === reportedView) return;
+        reportedView = key;
+        onViewportChange?.({ ...now });
+    }
+
+    /** Scale to `scale` about the centre of the view, so what is in the middle stays there. */
+    function zoomTo(scale) {
+        const r = canvas.root.getBoundingClientRect();
+        const centre = canvas.clientToCanvas(r.left + r.width / 2, r.top + r.height / 2);
+        const s = Math.max(ZOOM_STEPS[0], Math.min(scale, ZOOM_STEPS[ZOOM_STEPS.length - 1]));
+        canvas.setViewport({ scale: s, tx: r.width / 2 - centre.x * s, ty: r.height / 2 - centre.y * s });
+        viewportSettled();
+    }
+
+    /** The next step up (+1) or down (-1) from the scale the view is at; none past a limit. */
+    function zoomStep(direction) {
+        const s = canvas.scale;
+        const next = direction > 0 ? ZOOM_STEPS.find((z) => z > s + ZOOM_EPSILON)
+            : [...ZOOM_STEPS].reverse().find((z) => z < s - ZOOM_EPSILON);
+        if (next === undefined) return false;
+        zoomTo(next);
+        return true;
+    }
+
+    /** Every kernel move: the zoom buttons' limits, and the minimap's frame. */
+    function viewportMoved() {
+        if (destroyed) return;
+        if (zoomControls) {
+            const r = refusals();
+            const limit = `${r['zoom-out'] || ''}|${r['zoom-in'] || ''}`;
+            if (limit !== zoomLimit) { zoomLimit = limit; paintToolbar(); }
+        }
+        paintMinimap();
+    }
+
+    if (zoomControls || minimap) canvas.onViewportChange = () => viewportMoved();
+
+    if (typeof onViewportChange === 'function') {
+        // A press on the canvas is a gesture until it is released, wherever it
+        // is released; capture, because a node's header stops its press.
+        canvas.root.addEventListener('pointerdown', () => {
+            viewportSettled();
+            pressEnd?.();
+            const end = () => { pressEnd?.(); viewportSettled(); };
+            window.addEventListener('pointerup', end, true);
+            window.addEventListener('pointercancel', end, true);
+            pressEnd = () => {
+                window.removeEventListener('pointerup', end, true);
+                window.removeEventListener('pointercancel', end, true);
+                pressEnd = null;
+            };
+        }, true);
+        canvas.root.addEventListener('wheel', () => {
+            if (wheelTimer !== null) clearTimeout(wheelTimer);
+            wheelTimer = setTimeout(() => { wheelTimer = null; viewportSettled(); }, WHEEL_SETTLE_MS);
+        }, { passive: true });
+    }
+
+    // ── the minimap ─────────────────────────────────────────────────────
+
+    const mini = minimap ? el('div', 'twm-flow-graph__minimap') : null;
+    const miniSvg = minimap ? document.createElementNS(SVG, 'svg') : null;
+    if (mini) {
+        miniSvg.setAttribute('class', 'twm-flow-graph__minimap-map');
+        miniSvg.setAttribute('width', String(MINIMAP.width));
+        miniSvg.setAttribute('height', String(MINIMAP.height));
+        mini.title = say(S, 'minimapTitle');
+        // A pointer's shortcut: the keyboard has the zoom buttons, Fit and *Go to it*.
+        mini.setAttribute('aria-hidden', 'true');
+        mini.appendChild(miniSvg);
+        mini.addEventListener('click', (ev) => {
+            if (!miniMap) return;
+            const r = miniSvg.getBoundingClientRect();
+            const x = (ev.clientX - r.left - miniMap.ox) / miniMap.k;
+            const y = (ev.clientY - r.top - miniMap.oy) / miniMap.k;
+            const view = canvas.root.getBoundingClientRect();
+            canvas.setViewport({ tx: view.width / 2 - x * canvas.scale, ty: view.height / 2 - y * canvas.scale });
+            viewportSettled();
+        });
+        canvasHost.appendChild(mini);
+    }
+
+    /** The whole flow and the view's frame, small: what is drawn spans both. */
+    function paintMinimap() {
+        if (!mini || destroyed) return;
+        const view = canvas.visibleBox();
+        const boxes = graph.nodes.map((n) => ({ x: n.position.x, y: n.position.y, width: BOX.width,
+                                                height: bottomOf(n) - n.position.y }));
+        const all = view.width > 0 && view.height > 0 ? [...boxes, view] : boxes;
+        if (!all.length) { miniMap = null; miniSvg.replaceChildren(); return; }
+        const x0 = Math.min(...all.map((b) => b.x)) - MINIMAP.margin;
+        const y0 = Math.min(...all.map((b) => b.y)) - MINIMAP.margin;
+        const x1 = Math.max(...all.map((b) => b.x + b.width)) + MINIMAP.margin;
+        const y1 = Math.max(...all.map((b) => b.y + b.height)) + MINIMAP.margin;
+        const k = Math.min(MINIMAP.width / (x1 - x0), MINIMAP.height / (y1 - y0));
+        miniMap = { k, ox: (MINIMAP.width - (x1 - x0) * k) / 2 - x0 * k, oy: (MINIMAP.height - (y1 - y0) * k) / 2 - y0 * k };
+        const rect = (b, cls) => {
+            const r = document.createElementNS(SVG, 'rect');
+            r.setAttribute('class', cls);
+            r.setAttribute('x', String(b.x * k + miniMap.ox));
+            r.setAttribute('y', String(b.y * k + miniMap.oy));
+            r.setAttribute('width', String(b.width * k));
+            r.setAttribute('height', String(b.height * k));
+            return r;
+        };
+        const parts = boxes.map((b) => rect(b, 'twm-flow-graph__minimap-node'));
+        if (view.width > 0 && view.height > 0) parts.push(rect(view, 'twm-flow-graph__minimap-view'));
+        miniSvg.replaceChildren(...parts);
     }
 
     // ── the palette ─────────────────────────────────────────────────────
@@ -707,6 +873,7 @@ export function createCanvasEditor(host, options = {}) {
             paths.push(line, hit);
         });
         canvas.edgeLayer.replaceChildren(...paths);
+        paintMinimap();
     }
 
     /** Frame the graph. Never above NATURAL: a short flow is not blown up until
@@ -811,6 +978,7 @@ export function createCanvasEditor(host, options = {}) {
                 const n = nodeOf(target.id);
                 canvas.bringIntoView({ x: n.position.x, y: n.position.y, width: BOX.width,
                                        height: bottomOf(n) - n.position.y });
+                viewportSettled();
             }
             if (!(f.field && panel.focusField(f.field))) focusFirstField();
         },
@@ -965,6 +1133,11 @@ export function createCanvasEditor(host, options = {}) {
     root.append(toolbar, why, readonlyBanner, message, strip.el, banner, body);
     if (host) host.appendChild(root);
 
+    function cancelFit() {
+        if (fitFrame !== null) globalThis.cancelAnimationFrame?.(fitFrame);
+        fitFrame = null;
+    }
+
     function paintReadOnly() {
         root.classList.toggle('twm-flow-graph--readonly', isReadOnly());
         readonlyBanner.textContent = readOnlyReason() || (isReadOnly() ? say(S, 'readOnlyRefusal') : '');
@@ -982,7 +1155,7 @@ export function createCanvasEditor(host, options = {}) {
          * was loaded is where undo starts. With `baseline: false` the stacks are
          * kept and the loaded content is the present they undo from.
          */
-        load({ graph: g = null, flowSettings: fs } = {}, { baseline = true, fit: andFit = true } = {}) {
+        load({ graph: g = null, flowSettings: fs } = {}, { baseline = true, fit: andFit = true, viewport } = {}) {
             if (destroyed) return;
             if (connecting) cancelConnect();
             graph = normalise(g);
@@ -1001,11 +1174,31 @@ export function createCanvasEditor(host, options = {}) {
             else if (state !== history.settled) history.adopt({ ...history.keep(), settled: state }, state);
             paintToolbar();
             announceSelection();
-            if (andFit) {
-                if (fitFrame !== null) globalThis.cancelAnimationFrame?.(fitFrame);
+            // A viewport to open at is where the consumer left the reader: no fit.
+            const at = viewportOf(viewport) || startView;
+            startView = null;
+            if (at) {
+                cancelFit();
+                canvas.setViewport(at);
+                viewportBaseline();
+            } else if (andFit) {
+                cancelFit();
+                const fitNow = () => { fit(); viewportBaseline(); };
                 fitFrame = globalThis.requestAnimationFrame
-                    ? globalThis.requestAnimationFrame(() => { fitFrame = null; fit(); }) : (fit(), null);
+                    ? globalThis.requestAnimationFrame(() => { fitFrame = null; fitNow(); }) : (fitNow(), null);
             }
+        },
+        /** `{scale, tx, ty}`, as the kernel holds it. */
+        getViewport: () => canvas.viewport(),
+        /** Put the view there (clamped to the kernel's limits) — a fit still waiting
+         *  for its frame is dropped, and nothing is reported back. */
+        setViewport(next) {
+            const at = viewportOf(next);
+            if (!at || destroyed) return false;
+            cancelFit();
+            canvas.setViewport(at);
+            viewportBaseline();
+            return true;
         },
         getGraph: () => normalise(graph),
         serialise: () => serialise(graph),
@@ -1055,12 +1248,15 @@ export function createCanvasEditor(host, options = {}) {
         focus() { canvas.root.focus({ preventScroll: true }); },
         undo,
         redo,
-        arrange: () => arrangeGraph(),
-        fit,
+        arrange: () => { const done = arrangeGraph(); viewportBaseline(); return done; },
+        fit: (opts) => { fit(opts); viewportBaseline(); },
         destroy() {
             if (destroyed) return;
+            // A wheel's report still waiting is handed on: the reader did zoom.
+            if (wheelTimer !== null) viewportSettled();
+            pressEnd?.();
             dragCleanup?.();
-            if (fitFrame !== null) globalThis.cancelAnimationFrame?.(fitFrame);
+            cancelFit();
             closeFlowPopovers();
             unbindKeys();
             panel.destroy();
@@ -1076,6 +1272,17 @@ export function createCanvasEditor(host, options = {}) {
     paintNodes();
     paintPanel();
     paintToolbar();
+    viewportBaseline();
     history.baseline(snapshot());
     return api;
+}
+
+/** A viewport worth opening at: `{scale, tx, ty}`, every one a finite number, the scale above 0. */
+function viewportOf(v) {
+    if (!v || typeof v !== 'object') return null;
+    const scale = Number(v.scale);
+    const tx = Number(v.tx);
+    const ty = Number(v.ty);
+    if (!(scale > 0) || !Number.isFinite(scale) || !Number.isFinite(tx) || !Number.isFinite(ty)) return null;
+    return { scale, tx, ty };
 }

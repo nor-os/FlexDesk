@@ -21,6 +21,9 @@
  *   §4  the ground is SEVEN background layers, the seven `_apply` sizes
  *   §5  [hidden] wins inside the editor
  *
+ * The harvest includes an editor with the opt-in parts on (`zoomControls`,
+ * `minimap`), so their classes are held to the same two directions.
+ *
  *     node tests/flow_canvas_css.test.mjs
  */
 import { readdirSync, readFileSync } from 'node:fs';
@@ -115,6 +118,17 @@ const graph = {
     for (const kind of ['many', 'one', 'zero-or-many', 'one-or-many', 'zero-or-one', 'exactly-one']) {
         harvest(crowsFoot({ x: 0, y: 0 }, 'right', kind));
     }
+}
+{
+    // the opt-in viewport parts: the zoom buttons and the minimap
+    const ed = createCanvasEditor(t.host(), { catalogue, zoomControls: true, minimap: true,
+                                              viewport: { scale: 1, tx: 0, ty: 0 } });
+    ed.el.querySelector('.twm-flow-graph__canvas .twm-canvas').getBoundingClientRect = () => (
+        { left: 0, top: 0, width: 800, height: 600, right: 800, bottom: 600, x: 0, y: 0 });
+    ed.load({ graph });
+    ed.setViewport({ scale: 1, tx: 0, ty: 0 });
+    harvest(ed.el);
+    ed.destroy();
 }
 const runtime = [...seen].filter((c) => c.startsWith('twm-'));
 

@@ -11801,6 +11801,26 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 }
 .twm-flow-graph__ghost .material-symbols-outlined { font-size: 16px; }
 .twm-flow-graph__ghost-label { white-space: nowrap; }
+/* ── the minimap (`minimap: true`) ──────────────────────────────────── */
+/* Over the canvas's lower right corner, a sibling of the kernel's surface, so a
+ * press on it starts no pan and no marquee. The steps are drawn as boxes and
+ * the view as a frame; a click centres the view there. */
+.twm-flow-graph__minimap {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    z-index: 1;
+    line-height: 0;
+    background: var(--surface-1);
+    border: 1px solid var(--border-default);
+    border-radius: 4px;
+    box-shadow: var(--shadow-md);
+    cursor: pointer;
+    opacity: 0.92;
+}
+.twm-flow-graph__minimap-map { display: block; }
+.twm-flow-graph__minimap-node { fill: var(--border-strong); }
+.twm-flow-graph__minimap-view { fill: none; stroke: var(--twm-flow-focus); stroke-width: 1.5px; }
 /* ══ end FLOW · CANVAS ══ */
 
 

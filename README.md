@@ -45,7 +45,7 @@ manager, and neither of them should drag in a plotting engine or a code editor.
 | `@flexdesk/wm` | 166 kB | Tiling window manager: tabs, splits, desktops, command palette, taxonomy, `createShell()` |
 | `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus, menu bars, a document outline, progress |
 | `@flexdesk/charts` | 26 kB | Plotly wrapper, chart types, subplot layouts, downsampling, plot windows, injected series transforms |
-| `@flexdesk/tiles` | 67 kB | Draggable/resizable widget grid, tile base class, widget registry, layout persistence, chart and KPI tiles |
+| `@flexdesk/tiles` | 67 kB | Draggable/resizable widget grid, tile base class, widget registry, layout persistence, figure, chart and KPI tiles |
 | `@flexdesk/editor` | 62 kB | Monaco loader + factory, multi-file tab bar, search, split panes, undo manager |
 | `@flexdesk/canvas` | 14 kB | The canvas kernel: a pannable, zoomable surface, the edge router, a generic graph layer ([Flow editors](#flow-editors)) |
 | `@flexdesk/flow` | 381 kB | The flow-editor kit and the canvas, outline and lane editors ([Flow editors](#flow-editors)) |
@@ -3095,6 +3095,45 @@ A chart tile's **Download PNG** (0.14.1) goes through the grid's `host`
 (`new TileGrid({ host })`): with `dialogs`, the native Save dialog — a save
 toasts where the file went, a cancel says nothing — and with no host, or a
 `saveFile` that answers null, the browser download it always was.
+
+### Figure tiles: one override, the draw is the base's (0.17.0)
+
+`FigureTile` is the base every Plotly tile draws through — `ChartTile` is one.
+A subclass overrides **one** method, `figure(data)`, answering
+`{traces, layout?, config?, frames?}` or `null`, synchronously:
+
+```js
+import { FigureTile, registerWidget } from '@flexdesk/tiles';
+import { buildHistogramTrace } from '@flexdesk/charts';
+
+class SpreadTile extends FigureTile {
+    static TYPE = 'myapp.spread';
+    static TITLE = 'Spread';
+    figure(data) {
+        if (!data?.values?.length) return null;          // the empty state
+        return { traces: [buildHistogramTrace({ x: data.values })], layout: { margin: { t: 8 } } };
+    }
+}
+registerWidget(SpreadTile);
+```
+
+The base awaits `ensurePlotly()` (so a page using `setPlotlySource` draws on
+first view, and data that changes while Plotly loads draws once), draws through
+`createChart` with `scrollZoom` and the mode bar off (`config` goes over that),
+adds `frames`, and discards a draw that lands after a newer one. `null` is the
+empty state with `static EMPTY_MESSAGE` — call `this.showEmpty(why)` yourself
+first to say why. A `figure()` that throws, or a draw that fails, is the error
+state plus `tile:render-failed {tileId, message}`. Loading, empty, error and
+`dispose()` purge the figure; a resize that settles relayouts it once. The ⋯
+menu is `TileBase`'s entries plus **Download PNG** (through `host.dialogs`, as
+above); extend it with `[...super.menuItems(), …]` and route your actions
+through `_onMenuAction`, calling `super` for the rest. **Expand** opens
+`openRawTracesWindow` with the last figure drawn (`getExpandData()`), and
+`onPointClick({customdata, point, tile})` — an option or a property — hears a
+click on a mark. `setData(data)` feeds one tile; `null` clears it.
+
+`ChartTile` is now a `FigureTile`: its menu stays Download PNG alone, and its
+header gains the Expand button.
 
 ### List and people tiles, and one scope for the board (0.16.1)
 

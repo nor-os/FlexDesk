@@ -1183,7 +1183,7 @@ touches browser storage — and is shown to fail on a planted one.
 
 | Part | What it does |
 |---|---|
-| `createStepCatalogue(types, {categories, idBase})` | The step types the consumer passes in, read as they arrive (`type_id`, `label`, `category`, `role`, `description`, `icon`, `ports`, `config_schema`, `unavailable`; any other key is kept). `get`, `list`, `byCategory`, `role`, `tone`, `inputs(typeId, {flow})`, `outputs`, `port`, `idBase`, and `problems` — a broken type is listed there, never thrown. **Ports keep their declared order**: a lane reads the first input as its own and an outline draws the other outputs as arms in order, so nothing sorts them |
+| `createStepCatalogue(types, {categories, idBase})` | The step types the consumer passes in, read as they arrive (`type_id`, `label`, `category`, `role`, `description`, `icon`, `ports`, `config_schema`, `unavailable`; any other key is kept). `get`, `list`, `byCategory`, `role`, `tone`, `inputs(typeId, {flow})`, `outputs`, `port`, `idBase`, and `problems` — a broken type is listed there, never thrown. A type may also carry `render`, `update`, `size: {w, h}` and `accent` (a tone), which only the canvas editor reads ([Node bodies](#node-bodies-0170)); `size(typeId)`, `accent(typeId)` and `body(typeId)` answer them, `null` when a type has none, and a `size`, `accent` or hook of the wrong kind is a line in `problems` and is not used (0.17.0). **Ports keep their declared order**: a lane reads the first input as its own and an outline draws the other outputs as arms in order, so nothing sorts them |
 | `checkSettingsSchema(schema)` | The JSON-Schema subset a step's settings may use: `type`, `enum`, `const`, `required`, `properties`, `additionalProperties` (a boolean), `items`, `minItems`/`maxItems`, `minimum`/`maximum`, `minLength`/`maxLength`, `format: "uuid"`, the annotations and any `x-` hint. Returns the first refusal as the server's own sentence, or `null`. `oneOf`, `anyOf`, `$ref` and `pattern` are refused. `tests/fixtures/flow_kit_settings_schema.json` holds 30 schemas and their verdicts. Tables' own `check_schema` gave the same 30 verdicts when the file was written, and is meant to read this file in a test of its own |
 | `createWidgetRegistry()` | The controls, by name. The ten generic widgets are registered already; `register(name, widget)` throws for a name that exists, and replacing one takes `{replace: true}`. A widget is `(spec, value, ctx) => {el, destroy?, focus?, caret?, restoreCaret?}` and reports with `ctx.set(value)`; `undefined` removes the setting |
 | `createSettingsPanel(options)` | One step's settings, or the flow's own, drawn from the schema (below) |
@@ -1398,6 +1398,7 @@ editor.setRunOverlay({ steps, ports, banner });
 | `setFindings(list)`, `setRunOverlay(overlay \| null)`, `setReadOnly(false \| {reason})` | — |
 | `setActionState(id, {disabled, reason, busy})`, `setStatus(text)`, `setMessage(text, tone)` | A verb refused in place, with its reason printed beside the toolbar; the status line; the gesture line |
 | `select(id \| 'flow' \| null)`, `repaintPanel()`, `focus()`, `undo()`, `redo()`, `arrange()`, `fit({whole})` | — |
+| `setCatalogue(catalogue \| types)` | Swaps the step types while the editor is open, for a type registered after `load`: the palette is redrawn and a node whose type's definition changed is rebuilt, so a node of a type that was unknown now draws. The graph and the history are untouched (0.17.0) |
 | `history`, `canvas` | The editor's `FlowHistory` (`keep()`, `adopt(kept, editor.snapshot())`, `baseline(editor.snapshot())` for your publish) and its `CanvasAdapter` |
 | `destroy()` | Removes every listener, the ghost of a drag and any picker it opened. It saves nothing, because the editor holds nothing |
 
@@ -1408,7 +1409,52 @@ Its edits are the closed list `CANVAS_ACTIONS`: `flow:node:add`,
 or a setting is one entry. The geometry under it is exported as well, all of it
 pure: `CANVAS_NODE`, `arrangeCanvasGraph(graph, catalogue, {loopEntry})` (where
 Arrange puts each step: a Map of id → `{x, y}` from the origin),
-`canvasPortAnchor`, `canvasNodeBottom` and `isCanvasReturnEdge`.
+`canvasPortAnchor`, `canvasNodeBottom`, `canvasNodeWidth` (a type's own
+`size.w`, else the box's; 0.17.0) and `isCanvasReturnEdge`.
+
+#### Node bodies (0.17.0)
+
+A catalogue type can draw its own controls and values inside its node:
+
+```js
+const gauge = {
+    type_id: 'gauge', label: 'Gauge', ports, size: { w: 280, h: 170 }, accent: 'teal',
+    render(body, node, ctx) {                 // once, when the node is built
+        const range = document.createElement('input');
+        range.type = 'range';
+        range.addEventListener('change', () => ctx.setConfig({ level: Number(range.value) }));
+        body.append(range);
+    },
+    update(body, node, ctx) {                 // after render, and on every repaint
+        body.querySelector('input').value = node.config.level ?? 50;
+        body.querySelector('input').disabled = ctx.readOnly;
+    },
+};
+editor.setCatalogue(createStepCatalogue([...types, gauge], { categories }));   // after load too
+```
+
+- **The body sits below the ports** and is built once with the node. `update`
+  runs on the same element on every repaint, so a control inside it keeps its
+  focus and what was typed into it. `node` is a copy: the body writes only
+  through `ctx`.
+- **`ctx`** is `{setConfig(patch), readOnly, services}`. `setConfig` merges
+  `patch` into the node's config (an `undefined` value removes the key) as one
+  `flow:node:config` edit: one undo entry, and `onChange` is called. It is
+  refused (answers `false`) while the editor is read only and from inside
+  `render` or `update`. `services` is the editor's `services` option.
+- **`size: {w, h}`** is the node's box in pixels; either may be left out. Lines
+  leave a node's outputs at its own width, and a node with `h` is exactly that
+  tall, its body taking what is left. A body node without `h` is as tall as
+  it is drawn. Arrange spaces its columns by the widest node.
+- **`accent`** is a tone (`violet`, `teal`, `amber`, `grey`, `blue`, `indigo`),
+  drawn as a stripe over the node's header.
+- **A `render` that throws** leaves that node drawn as a type without a body
+  is, and what it threw is one of the editor's own findings: on the node and
+  in the strip, beside yours from `setFindings`. An `update` that throws keeps
+  the body and says so the same way until it succeeds. No other node is
+  affected.
+- A type without these keys is drawn exactly as before, with the same markup,
+  and `serialise()` is unchanged.
 
 **Gestures.** A node's header moves it. A connection is made by clicking an
 output and then an input, and Escape cancels one in progress. A line is picked
@@ -1434,9 +1480,9 @@ flow opens on a start step adds that step to the graph before `load`, so it is
 part of the baseline and the first Ctrl+Z does not take it away.
 
 **Where each claim was checked.** `tests/canvas_adapter.test.mjs`,
-`canvas_edge_router`, `canvas_graph`, `flow_canvas_layout`, `flow_canvas_editor`
-and `flow_canvas_css` check the DOM, the events, the geometry and the stylesheet
-as text. In headless Edge, `demo/flow_canvas_probe.mjs` drives
+`canvas_edge_router`, `canvas_graph`, `flow_canvas_layout`, `flow_canvas_editor`,
+`flow_canvas_node_body` and `flow_canvas_css` check the DOM, the events, the
+geometry and the stylesheet as text. In headless Edge, `demo/flow_canvas_probe.mjs` drives
 `demo/flow_canvas.html` with real input:
 - `elementFromPoint` at the centre of Undo, Arrange, Fit, a consumer verb, a
   palette item, a node's header, a port, and the panel's name box, first field
@@ -1449,6 +1495,10 @@ as text. In headless Edge, `demo/flow_canvas_probe.mjs` drives
 - A real click-then-click connected two steps.
 - A header drag moved its node, and a real Ctrl+Z put it back. Backspace removed
   nothing, Delete removed the step, and the focus stayed on the canvas.
+- A type registered with `setCatalogue` after the page opened was in the
+  palette. Its node was drawn at its 280×170 size, with its body below its
+  ports and its accent. Every line into and out of it began and ended on its
+  port dots, within 1px.
 - At 700px the canvas took the editor's whole width.
 
 ### The outline editor

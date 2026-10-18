@@ -56,6 +56,20 @@
  * retargets the release, and then the click, to the button, which would add a
  * second step). A drag swallows the click that follows it; Escape,
  * `pointercancel` and a destroy each take the ghost away.
+ *
+ * ══ A TYPE MAY DRAW ITS OWN BODY ════════════════════════════════════════
+ *
+ * A catalogue type with `render(body, node, ctx)` has a body element below
+ * its ports, built ONCE with the node and filled by `render`; its `update`
+ * runs after it and on every repaint, onto the same element, so a control
+ * inside keeps its focus and its value. `ctx.setConfig(patch)` is the body's
+ * one way to write: a `flow:node:config` edit, one undo entry. A `size` sets
+ * the node's box (its outputs are anchored at its own width) and an `accent`
+ * marks it in a tone. A `render` that throws leaves the node drawn as every
+ * other step is, and what it threw is one of the editor's own findings beside
+ * the consumer's. A type without these keys is drawn exactly as before.
+ * `setCatalogue` swaps the types while the editor is open: the palette is
+ * redrawn and only the nodes whose type changed are rebuilt.
  */
 
 import { CanvasAdapter } from '../../canvas/canvas_adapter.js';
@@ -73,7 +87,7 @@ import { FlowHistory } from '../kit/history.js';
 import { bindFlowKeys } from '../kit/keys.js';
 import { addNode, connect, disconnect, emptyGraph, normalise, removeNode, sameEdge, serialise } from '../kit/logic_graph.js';
 import { CANVAS_STRINGS } from './strings.js';
-import { CANVAS_NODE, isReturnEdge, layoutGraph, nodeBottom, portAnchor } from './layout.js';
+import { CANVAS_NODE, isReturnEdge, layoutGraph, nodeBottom, nodeWidth, portAnchor } from './layout.js';
 
 /** Every edit the canvas editor records (36 §5.4). Anything else is a programming error. */
 export const CANVAS_ACTIONS = Object.freeze([
@@ -116,6 +130,15 @@ function sortedKeys(value) {
 
 const plainObject = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
 
+/** A step catalogue, or the raw list of types made into one. */
+function toCatalogue(value, who) {
+    const catalogue = Array.isArray(value) ? createStepCatalogue(value) : value;
+    if (!catalogue?.get || !catalogue?.byCategory) {
+        throw new Error(`${who} needs a step catalogue (createStepCatalogue(types, …)).`);
+    }
+    return catalogue;
+}
+
 /**
  * @param {HTMLElement|null} host  the editor is appended here when given
  * @param {object} options          36 §3.14 and §5.2; the README lists every one
@@ -128,11 +151,7 @@ export function createCanvasEditor(host, options = {}) {
         history: historyOptions = {}, loop = {}, node: nodeOptions = {}, dataPortRead = null,
         removable = null, paletteTypes = null, label = null, gridSize = 16, waitsForAll = undefined,
     } = options;
-    const catalogue = Array.isArray(options.catalogue) ? createStepCatalogue(options.catalogue)
-        : options.catalogue;
-    if (!catalogue?.get || !catalogue?.byCategory) {
-        throw new Error('createCanvasEditor needs a step catalogue (createStepCatalogue(types, …)).');
-    }
+    let catalogue = toCatalogue(options.catalogue, 'createCanvasEditor');
     const S = createStrings(CANVAS_STRINGS, strings);
     const BOX = Object.freeze({
         width: Number(nodeOptions.width) || CANVAS_NODE.width,
@@ -191,6 +210,13 @@ export function createCanvasEditor(host, options = {}) {
     let travelling = null;
     let lastSelect = '';
     const nodeEls = new Map();
+    /** The type definition each node element was built from, by node id. */
+    const builtFrom = new Map();
+    /** A node's own body, by node id: {el, ctx, update} — built once with the node. */
+    const bodies = new Map();
+    /** What a type's own `render` or `update` threw, by node id: the editor's own findings. */
+    const bodyFindings = new Map();
+    let painting = false;
     const consumerState = new Map();
 
     const canvas = new CanvasAdapter({ container: canvasHost, gridSize });
@@ -207,6 +233,8 @@ export function createCanvasEditor(host, options = {}) {
     const readOnlyReason = () => (ro && typeof ro === 'object' && ro.reason ? String(ro.reason) : '');
     const nodeOf = (id) => graph.nodes.find((x) => x.id === id) || null;
     const typeOf = (n) => catalogue.get(n?.type);
+    /** The consumer's findings, then the editor's own (a node body that threw). */
+    const allFindings = () => (bodyFindings.size ? [...findings, ...bodyFindings.values()] : findings);
 
     // ── state ───────────────────────────────────────────────────────────
 
@@ -241,7 +269,7 @@ export function createCanvasEditor(host, options = {}) {
         if (connecting) cancelConnect();
         if (selected?.kind === 'node' && !nodeOf(selected.id)) selected = null;
         if (selected?.kind === 'edge' && !graph.connections.some((c) => sameEdge(c, selected.edge))) selected = null;
-        findingsBy = groupFindings(findings, { graph });
+        findingsBy = groupFindings(allFindings(), { graph });
         paintNodes();
         paintPanel();
         keepFocus();
@@ -392,8 +420,9 @@ export function createCanvasEditor(host, options = {}) {
         let where = at;
         if (!where) {
             const box = canvas.visibleBox();
+            const width = nodeWidth(catalogue, { type: typeId }, BOX);
             where = {
-                x: canvas.snap((box.width ? box.x + box.width / 2 - BOX.width / 2 : 80) + (n % 4) * 24),
+                x: canvas.snap((box.width ? box.x + box.width / 2 - width / 2 : 80) + (n % 4) * 24),
                 y: canvas.snap((box.height ? box.y + box.height / 3 : 80) + (n % 4) * 24),
             };
         }
@@ -456,7 +485,8 @@ export function createCanvasEditor(host, options = {}) {
                 return;
             }
             const p = canvas.clientToCanvas(u.clientX, u.clientY);
-            addStep(t.type_id, { x: canvas.snap(p.x - BOX.width / 2), y: canvas.snap(p.y - BOX.header / 2) });
+            const width = nodeWidth(catalogue, { type: t.type_id }, BOX);
+            addStep(t.type_id, { x: canvas.snap(p.x - width / 2), y: canvas.snap(p.y - BOX.header / 2) });
         }
         function onCancel() {
             finish();
@@ -480,11 +510,16 @@ export function createCanvasEditor(host, options = {}) {
     // ── the canvas ──────────────────────────────────────────────────────
 
     const anchor = (n, port, direction) => portAnchor(catalogue, n, port, direction, BOX);
-    const bottomOf = (n) => nodeBottom(catalogue, n, BOX);
+    const widthOf = (n) => nodeWidth(catalogue, n, BOX);
+    /** A node with its own body and no `size.h` is as tall as it is drawn,
+     *  measured; jsdom (and a node not yet laid out) answers 0, and then the
+     *  arithmetic box stands. */
+    const measured = (n) => (bodies.has(n.id) && !catalogue.size?.(n.type)?.h
+        ? nodeEls.get(n.id)?.offsetHeight || 0 : 0);
+    const bottomOf = (n) => Math.max(nodeBottom(catalogue, n, BOX), n.position.y + measured(n));
     const isReturn = (c, target) => isReturnEdge(c, target, catalogue, loopPorts.entry);
 
-    function buildNode(nodeRow) {
-        const def = typeOf(nodeRow);
+    function buildNode(nodeRow, def) {
         const tone = catalogue.tone(nodeRow.type);
         const n = el('div', 'twm-flow-graph__node');
         n.dataset.nodeId = nodeRow.id;
@@ -515,6 +550,8 @@ export function createCanvasEditor(host, options = {}) {
                        outputs[i] ? port(nodeRow, outputs[i]) : el('span', 'twm-flow-graph__node-gap'));
             n.appendChild(row);
         }
+        const own = def ? catalogue.body?.(nodeRow.type) : null;
+        if (own) mountBody(n, nodeRow, own);
         if (!def) n.appendChild(el('p', 'twm-flow-graph__node-finding', say(S, 'unknownType', nodeRow.type)));
         if (typeof summarise === 'function') n.appendChild(el('p', 'twm-flow-graph__node-summary'));
         const notes = el('div', 'twm-flow-graph__node-findings');
@@ -528,6 +565,56 @@ export function createCanvasEditor(host, options = {}) {
             if (!(selected?.kind === 'node' && selected.id === nodeRow.id)) select({ kind: 'node', id: nodeRow.id });
         });
         return n;
+    }
+
+    /** A copy of the node for a body to read: it writes through `ctx.setConfig` only. */
+    const nodeCopy = (nodeRow) => normalise({ nodes: [nodeRow], connections: [] }).nodes[0];
+
+    /** The node's own body: `render` fills it once. One that throws leaves the
+     *  node with no body of its own, and says so as one of the editor's findings. */
+    function mountBody(n, nodeRow, own) {
+        const id = nodeRow.id;
+        const box = el('div', 'twm-flow-graph__node-body');
+        const ctx = Object.freeze({
+            get readOnly() { return isReadOnly(); },
+            services,
+            setConfig: (patch) => setNodeConfig(id, patch),
+        });
+        try {
+            own.render(box, nodeCopy(nodeRow), ctx);
+        } catch (err) {
+            bodyFailed(nodeRow, 'render', err);
+            return;
+        }
+        n.appendChild(box);
+        bodies.set(id, { el: box, ctx, update: own.update });
+    }
+
+    function bodyFailed(nodeRow, stage, err) {
+        const name = nodeRow.label || typeOf(nodeRow)?.label || nodeRow.type;
+        const why = err && typeof err === 'object' && 'message' in err ? err.message : err;
+        bodyFindings.set(nodeRow.id, Object.freeze({
+            code: `node-${stage}`, severity: 'error', node_id: nodeRow.id,
+            message: say(S, stage === 'render' ? 'renderFailed' : 'updateFailed', name, String(why ?? '')),
+        }));
+    }
+
+    /** A body's write: the node's config merged with `patch` (an `undefined`
+     *  value removes that key), as ONE `flow:node:config` edit. Refused while
+     *  read only and from inside a `render` or `update`. */
+    function setNodeConfig(id, patch) {
+        if (destroyed || painting || isReadOnly()) return false;
+        const nodeRow = nodeOf(id);
+        if (!nodeRow || !patch || typeof patch !== 'object' || Array.isArray(patch)) return false;
+        const keys = Object.keys(patch).sort();
+        if (!keys.length) return false;
+        for (const k of keys) {
+            if (patch[k] === undefined) delete nodeRow.config[k]; else nodeRow.config[k] = structuredClone(patch[k]);
+        }
+        paintNodes();
+        if (selected?.kind === 'node' && selected.id === id) paintPanel();
+        commit('flow:node:config', `config:${id}:${keys.join(',')}`);
+        return true;
     }
 
     function port(nodeRow, p) {
@@ -613,59 +700,108 @@ export function createCanvasEditor(host, options = {}) {
     }
 
     /** Positions and classes onto the nodes that exist; a node is BUILT only
-     *  when it is new or its type or label changed, never on a press. */
+     *  when it is new or its type, its type's definition or its label changed,
+     *  never on a press. A node's own body is brought up to date in place. */
     function paintNodes() {
         if (destroyed) return;
-        const live = new Set(graph.nodes.map((x) => x.id));
-        for (const [id, n] of nodeEls) {
-            if (!live.has(id)) { n.remove(); nodeEls.delete(id); }
+        painting = true;
+        let bodyChanged = false;
+        try {
+            const live = new Set(graph.nodes.map((x) => x.id));
+            for (const [id, n] of nodeEls) {
+                if (!live.has(id)) {
+                    n.remove();
+                    nodeEls.delete(id);
+                    builtFrom.delete(id);
+                    bodies.delete(id);
+                    bodyChanged = bodyFindings.delete(id) || bodyChanged;
+                }
+            }
+            if (bodyChanged) findingsBy = groupFindings(allFindings(), { graph });
+            for (const nodeRow of graph.nodes) bodyChanged = paintNode(nodeRow) || bodyChanged;
+        } finally {
+            painting = false;
         }
-        for (const nodeRow of graph.nodes) {
-            let n = nodeEls.get(nodeRow.id);
-            const shape = `${nodeRow.type}|${nodeRow.label || ''}`;
-            if (!n || n.dataset.shape !== shape) {
-                const fresh = buildNode(nodeRow);
-                fresh.dataset.shape = shape;
-                const focused = n && n.contains(document.activeElement);
-                if (n) n.replaceWith(fresh); else canvas.nodeLayer.appendChild(fresh);
-                nodeEls.set(nodeRow.id, fresh);
-                n = fresh;
-                if (focused) fresh.focus({ preventScroll: true });
-            }
-            n.style.left = `${nodeRow.position.x}px`;
-            n.style.top = `${nodeRow.position.y}px`;
-            n.style.width = `${BOX.width}px`;
-            const picked = selected?.kind === 'node' && selected.id === nodeRow.id;
-            n.classList.toggle('twm-flow-graph__node--picked', picked);
-            if (picked) n.setAttribute('aria-current', 'true'); else n.removeAttribute('aria-current');
-            n.classList.toggle('twm-flow-graph__node--connect-source', connecting?.source === nodeRow.id);
-            const mine = findingsBy.get(nodeRow.id) || [];
-            const errors = mine.filter((f) => f.severity !== 'warning');
-            n.classList.toggle('twm-flow-graph__node--error', errors.length > 0);
-            n.classList.toggle('twm-flow-graph__node--warning', errors.length === 0 && mine.length > 0);
-            n.querySelector('.twm-flow-graph__node-findings').replaceChildren(...mine.slice(0, 2).map((f) => el('p',
-                `twm-flow-graph__node-finding${f.severity === 'warning' ? ' twm-flow-graph__node-finding--warning' : ''}`,
-                String(f.message ?? ''))));
-            const summary = n.querySelector('.twm-flow-graph__node-summary');
-            if (summary) summary.textContent = summarise(nodeRow, typeOf(nodeRow)) || '';
-            const step = overlay?.steps?.[nodeRow.id] || null;
-            const line = n.querySelector('.twm-flow-graph__node-run');
-            line.textContent = step ? String(step.line ?? step.state ?? '') : '';
-            if (step?.state) line.dataset.state = String(step.state); else delete line.dataset.state;
-            if (step?.tone) line.dataset.tone = String(step.tone); else delete line.dataset.tone;
-            n.classList.toggle('twm-flow-graph__node--skipped', step?.state === 'skipped' || step?.state === 'not-reached');
-            const ports = overlay?.ports?.[nodeRow.id] || null;
-            for (const b of n.querySelectorAll('.twm-flow-graph__port')) {
-                if (!('data' in b.dataset)) b.disabled = isReadOnly();
-                const mark = b.dataset.direction === 'output' ? ports?.[b.dataset.port] : null;
-                b.classList.toggle('twm-flow-graph__port--taken', Boolean(mark?.taken));
-                b.classList.toggle('twm-flow-graph__port--untaken', Boolean(mark) && !mark.taken);
-                const count = b.querySelector('.twm-flow-graph__port-count');
-                count.textContent = mark?.taken && Number.isFinite(Number(mark.count)) && mark.count !== null
-                    ? say(S, 'portCount', mark.count) : mark && !mark.taken ? say(S, 'portNotTaken') : '';
-            }
+        if (bodyChanged) {
+            // The editor's own findings moved: the strip and the panel say so too.
+            strip.set(allFindings());
+            panel.setFindings(allFindings());
         }
         paintEdges();
+    }
+
+    /** One node onto the canvas; true when its body's findings changed. */
+    function paintNode(nodeRow) {
+        let bodyChanged = false;
+        let n = nodeEls.get(nodeRow.id);
+        const def = typeOf(nodeRow);
+        const shape = `${nodeRow.type}|${nodeRow.label || ''}`;
+        if (!n || n.dataset.shape !== shape || builtFrom.get(nodeRow.id) !== def) {
+            bodies.delete(nodeRow.id);
+            bodyChanged = bodyFindings.delete(nodeRow.id);
+            const fresh = buildNode(nodeRow, def);
+            bodyChanged = bodyChanged || bodyFindings.has(nodeRow.id);
+            fresh.dataset.shape = shape;
+            const focused = n && n.contains(document.activeElement);
+            if (n) n.replaceWith(fresh); else canvas.nodeLayer.appendChild(fresh);
+            nodeEls.set(nodeRow.id, fresh);
+            builtFrom.set(nodeRow.id, def);
+            n = fresh;
+            if (focused) fresh.focus({ preventScroll: true });
+        }
+        const own = bodies.get(nodeRow.id);
+        if (typeof own?.update === 'function') {
+            try {
+                own.update(own.el, nodeCopy(nodeRow), own.ctx);
+                if (bodyFindings.get(nodeRow.id)?.code === 'node-update') {
+                    bodyFindings.delete(nodeRow.id);
+                    bodyChanged = true;
+                }
+            } catch (err) {
+                const before = bodyFindings.get(nodeRow.id)?.message;
+                bodyFailed(nodeRow, 'update', err);
+                bodyChanged = bodyChanged || before !== bodyFindings.get(nodeRow.id).message;
+            }
+        }
+        if (bodyChanged) findingsBy = groupFindings(allFindings(), { graph });
+        n.style.left = `${nodeRow.position.x}px`;
+        n.style.top = `${nodeRow.position.y}px`;
+        n.style.width = `${widthOf(nodeRow)}px`;
+        const h = catalogue.size?.(nodeRow.type)?.h;
+        if (h) n.style.height = `${h}px`; else n.style.removeProperty('height');
+        n.classList.toggle('twm-flow-graph__node--sized', Boolean(h));
+        const accent = catalogue.accent?.(nodeRow.type) || null;
+        if (accent) n.dataset.accent = accent; else delete n.dataset.accent;
+        const picked = selected?.kind === 'node' && selected.id === nodeRow.id;
+        n.classList.toggle('twm-flow-graph__node--picked', picked);
+        if (picked) n.setAttribute('aria-current', 'true'); else n.removeAttribute('aria-current');
+        n.classList.toggle('twm-flow-graph__node--connect-source', connecting?.source === nodeRow.id);
+        const mine = findingsBy.get(nodeRow.id) || [];
+        const errors = mine.filter((f) => f.severity !== 'warning');
+        n.classList.toggle('twm-flow-graph__node--error', errors.length > 0);
+        n.classList.toggle('twm-flow-graph__node--warning', errors.length === 0 && mine.length > 0);
+        n.querySelector('.twm-flow-graph__node-findings').replaceChildren(...mine.slice(0, 2).map((f) => el('p',
+            `twm-flow-graph__node-finding${f.severity === 'warning' ? ' twm-flow-graph__node-finding--warning' : ''}`,
+            String(f.message ?? ''))));
+        const summary = n.querySelector('.twm-flow-graph__node-summary');
+        if (summary) summary.textContent = summarise(nodeRow, typeOf(nodeRow)) || '';
+        const step = overlay?.steps?.[nodeRow.id] || null;
+        const line = n.querySelector('.twm-flow-graph__node-run');
+        line.textContent = step ? String(step.line ?? step.state ?? '') : '';
+        if (step?.state) line.dataset.state = String(step.state); else delete line.dataset.state;
+        if (step?.tone) line.dataset.tone = String(step.tone); else delete line.dataset.tone;
+        n.classList.toggle('twm-flow-graph__node--skipped', step?.state === 'skipped' || step?.state === 'not-reached');
+        const ports = overlay?.ports?.[nodeRow.id] || null;
+        for (const b of n.querySelectorAll('.twm-flow-graph__port')) {
+            if (!('data' in b.dataset)) b.disabled = isReadOnly();
+            const mark = b.dataset.direction === 'output' ? ports?.[b.dataset.port] : null;
+            b.classList.toggle('twm-flow-graph__port--taken', Boolean(mark?.taken));
+            b.classList.toggle('twm-flow-graph__port--untaken', Boolean(mark) && !mark.taken);
+            const count = b.querySelector('.twm-flow-graph__port-count');
+            count.textContent = mark?.taken && Number.isFinite(Number(mark.count)) && mark.count !== null
+                ? say(S, 'portCount', mark.count) : mark && !mark.taken ? say(S, 'portNotTaken') : '';
+        }
+        return bodyChanged;
     }
 
     function paintEdges() {
@@ -723,7 +859,8 @@ export function createCanvasEditor(host, options = {}) {
         const x = Math.min(...xs);
         const y = Math.min(...ys);
         const height = Math.max(...graph.nodes.map(bottomOf)) - y;
-        canvas.fit({ x, y, width: Math.max(...xs) + BOX.width - x, height });
+        const right = Math.max(...graph.nodes.map((n) => n.position.x + widthOf(n)));
+        canvas.fit({ x, y, width: right - x, height });
         const scale = canvas.scale > NATURAL ? NATURAL
             : !whole && canvas.scale < READABLE ? READABLE : null;
         if (scale !== null) {
@@ -736,7 +873,8 @@ export function createCanvasEditor(host, options = {}) {
      *  so nothing jumps off screen, and ONE undo entry. */
     function arrangeGraph() {
         if (refusals().arrange) return false;
-        const at = layoutGraph(graph, catalogue, { ...BOX, loopEntry: loopPorts.entry });
+        const at = layoutGraph(graph, catalogue, { ...BOX, loopEntry: loopPorts.entry,
+                                                   heightOf: (n) => measured(n) || null });
         const ox = Math.min(...graph.nodes.map((x) => x.position.x));
         const oy = Math.min(...graph.nodes.map((x) => x.position.y));
         for (const nodeRow of graph.nodes) {
@@ -809,7 +947,7 @@ export function createCanvasEditor(host, options = {}) {
             select(target);
             if (target.kind === 'node') {
                 const n = nodeOf(target.id);
-                canvas.bringIntoView({ x: n.position.x, y: n.position.y, width: BOX.width,
+                canvas.bringIntoView({ x: n.position.x, y: n.position.y, width: widthOf(n),
                                        height: bottomOf(n) - n.position.y });
             }
             if (!(f.field && panel.focusField(f.field))) focusFirstField();
@@ -855,7 +993,7 @@ export function createCanvasEditor(host, options = {}) {
             const nodeRow = nodeOf(selected.id);
             if (!nodeRow || !canRemove(nodeRow, typeOf(nodeRow))) return false;
             removeNode(graph, selected.id);
-            findingsBy = groupFindings(findings, { graph });
+            findingsBy = groupFindings(allFindings(), { graph });
             select(null);
             paintNodes();
             commit('flow:node:remove');
@@ -924,7 +1062,7 @@ export function createCanvasEditor(host, options = {}) {
                 slots: { after },
             });
         }
-        panel.setFindings(findings);
+        panel.setFindings(allFindings());
     }
 
     // ── keys ────────────────────────────────────────────────────────────
@@ -993,7 +1131,7 @@ export function createCanvasEditor(host, options = {}) {
             }
             if (selected?.kind === 'node' && !nodeOf(selected.id)) selected = null;
             if (selected?.kind === 'edge' && !graph.connections.some((c) => sameEdge(c, selected.edge))) selected = null;
-            findingsBy = groupFindings(findings, { graph });
+            findingsBy = groupFindings(allFindings(), { graph });
             paintNodes();
             paintPanel();
             const state = snapshot();
@@ -1007,6 +1145,20 @@ export function createCanvasEditor(host, options = {}) {
                     ? globalThis.requestAnimationFrame(() => { fitFrame = null; fit(); }) : (fit(), null);
             }
         },
+        /**
+         * Swap the step types while the editor is open — a type registered
+         * after `load`. The palette is redrawn; a node whose type's definition
+         * changed is rebuilt (so a node of a type that was unknown now draws);
+         * the graph, and so the history, are untouched.
+         */
+        setCatalogue(next) {
+            if (destroyed) return;
+            catalogue = toCatalogue(next, 'setCatalogue');
+            if (connecting) cancelConnect();
+            paintPalette();
+            paintNodes();
+            paintPanel();
+        },
         getGraph: () => normalise(graph),
         serialise: () => serialise(graph),
         /** The text `onChange` hands on and the history holds: the graph and the flow's settings. */
@@ -1014,10 +1166,10 @@ export function createCanvasEditor(host, options = {}) {
         getFlowSettings: () => structuredClone(settingsValue),
         setFindings(list) {
             findings = findingsList(list);
-            findingsBy = groupFindings(findings, { graph });
-            strip.set(findings);
+            findingsBy = groupFindings(allFindings(), { graph });
+            strip.set(allFindings());
             paintNodes();
-            panel.setFindings(findings);
+            panel.setFindings(allFindings());
         },
         /** Draw a run on the canvas — never changes the graph and rebuilds no field. */
         setRunOverlay(next) {

@@ -117,4 +117,7 @@ const editor = createCanvasEditor(host, {
 editor.load({ graph: GRAPH });
 editor.setStatus('nothing is saved: a demo');
 
-window.__flowCanvas = { editor, get changes() { return changes; }, ready: true };
+// The types and the catalogue factory too: the probe registers a type of its
+// own while the editor is open (`setCatalogue`).
+window.__flowCanvas = { editor, types: TYPES, categories: CATEGORIES, createStepCatalogue,
+                        get changes() { return changes; }, ready: true };

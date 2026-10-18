@@ -18,6 +18,11 @@
  *   move       a real drag of a node's header moves it by the pointer's
  *              travel, snapped; a real Ctrl+Z puts it back; a real Backspace
  *              removes nothing; a real Delete removes the picked step
+ *   bodies     a type registered while the editor is open (`setCatalogue`)
+ *              with its own body, a 280×170 box and an accent: it is in the
+ *              palette, its node is drawn that size with its body below its
+ *              ports, and every line into and out of it starts and ends at
+ *              its ports' dots, measured as above
  *   narrow     at 700px the canvas takes the editor's whole width (the
  *              container query)
  *
@@ -94,14 +99,15 @@ try {
     await page.screenshot(join(OUT, '2-step-picked.png'));
 
     console.log('\nanchors — every line starts and ends at its ports\' dots');
-    const anchors = await page.evaluate(`(() => {
+    const ANCHORS = `(() => {
         const out = [];
         const dot = (nodeId, port, dir) => {
             const b = document.querySelector('.twm-flow-graph__node[data-node-id="' + nodeId + '"] .twm-flow-graph__port[data-port="' + port + '"][data-direction="' + dir + '"]');
             const r = b.getBoundingClientRect();
             return { x: dir === 'input' ? r.left + 6 : r.right - 6, y: r.top + r.height / 2,
-                     dot: (() => { const d = b.querySelector('.twm-flow-graph__port-dot').getBoundingClientRect(); return { x: d.left + d.width / 2, y: d.top + d.height / 2 }; })() };
+                     dot: (() => { const d = b.querySelector('.twm-flow-graph__port-dot').getBoundingClientRect(); return { x: d.left + d.width / 2, y: d.top + d.height / 2, r: d.width / 2 }; })() };
         };
+        const off = (p, d) => Math.round(Math.max(0, Math.hypot(p.x - d.x, p.y - d.y) - d.r) * 10) / 10;
         const g = window.__flowCanvas.editor.getGraph();
         const paths = [...document.querySelectorAll('path.twm-flow-graph__edge')];
         g.connections.forEach((c, i) => {
@@ -111,10 +117,13 @@ try {
             const a = dot(c.source, c.sourcePort, 'output'); const b = dot(c.target, c.targetPort, 'input');
             out.push({ edge: c.source + '.' + c.sourcePort + '→' + c.target + '.' + c.targetPort,
                        start: Math.round(Math.abs(s.y - a.dot.y) * 10) / 10, end: Math.round(Math.abs(e.y - b.dot.y) * 10) / 10,
-                       startX: Math.round(Math.abs(s.x - a.dot.x)), endX: Math.round(Math.abs(e.x - b.dot.x)) });
+                       startX: Math.round(Math.abs(s.x - a.dot.x)), endX: Math.round(Math.abs(e.x - b.dot.x)),
+                       // how far outside the dot's disc each end lies (0: on it)
+                       startOff: off(s, a.dot), endOff: off(e, b.dot) });
         });
         return out;
-    })()`);
+    })()`;
+    const anchors = await page.evaluate(ANCHORS);
     check('every line begins on its output dot\'s centre line (within 1px)', anchors.every((a) => a.start <= 1), JSON.stringify(anchors));
     check('…and ends on its input dot\'s (within 1px)', anchors.every((a) => a.end <= 1), JSON.stringify(anchors));
     check('…at the node\'s edge, beside the dot (within 8px)', anchors.every((a) => a.startX <= 8 && a.endX <= 8), JSON.stringify(anchors));
@@ -215,6 +224,55 @@ try {
     check('Go to it is the element at its own centre', goTo?.hit === true, JSON.stringify(goTo));
     await page.screenshot(join(OUT, '4-run-and-findings.png'));
 
+    console.log('\nbodies — a type registered while open, with its own body, box and accent');
+    const bodies = await page.evaluate(`(() => {
+        const fc = window.__flowCanvas;
+        const F = (name, direction, extra = {}) => ({ name, direction, port_type: 'FLOW', ...extra });
+        const gauge = { type_id: 'gauge', label: 'Gauge', category: 'utility', icon: 'speed', accent: 'teal',
+            size: { w: 280, h: 170 },
+            ports: [F('in', 'input'), F('low', 'output', { label: 'Low' }), F('high', 'output', { label: 'High' })],
+            render(body, node, ctx) {
+                const i = document.createElement('input');
+                i.type = 'range'; i.min = '0'; i.max = '100'; i.className = 'probe-gauge';
+                i.addEventListener('change', () => ctx.setConfig({ level: Number(i.value) }));
+                body.append(i);
+            },
+            update(body, node) { body.querySelector('.probe-gauge').value = String(node.config.level ?? 50); } };
+        fc.editor.setCatalogue(fc.createStepCatalogue([...fc.types, gauge], { categories: fc.categories }));
+        const inPalette = Boolean(document.querySelector('.twm-flow-graph__palette-item[data-type="gauge"]'));
+        const g = fc.editor.getGraph();
+        g.nodes.push({ id: 'before', type: 'log', label: 'Before the gauge', config: {}, position: { x: 48, y: 560 } },
+                     { id: 'gauge', type: 'gauge', config: { level: 30 }, position: { x: 352, y: 528 } },
+                     { id: 'after', type: 'log', label: 'After the gauge', config: {}, position: { x: 736, y: 528 } });
+        g.connections.push({ source: 'before', target: 'gauge', sourcePort: 'out', targetPort: 'in' },
+                           { source: 'gauge', target: 'after', sourcePort: 'low', targetPort: 'in' },
+                           { source: 'gauge', target: 'nothing', sourcePort: 'high', targetPort: 'in' });
+        fc.editor.load({ graph: g }, { baseline: false, fit: false });
+        fc.editor.fit({ whole: true });
+        const n = document.querySelector('[data-node-id="gauge"]');
+        const r = n.getBoundingClientRect();
+        const body = n.querySelector('.twm-flow-graph__node-body');
+        const rows = n.querySelectorAll('.twm-flow-graph__node-row');
+        return { inPalette, scale: fc.editor.canvas.scale, w: r.width, h: r.height, accent: n.dataset.accent,
+                 stripe: getComputedStyle(n, '::before').backgroundColor,
+                 below: Boolean(body) && body.getBoundingClientRect().top >= rows[rows.length - 1].getBoundingClientRect().bottom - 0.5,
+                 value: body ? body.querySelector('.probe-gauge').value : null };
+    })()`);
+    check('the type registered while open is in the palette', bodies.inPalette, JSON.stringify(bodies));
+    check('its node is drawn 280×170 (at the canvas\'s scale)', Math.abs(bodies.w - 280 * bodies.scale) <= 1
+          && Math.abs(bodies.h - 170 * bodies.scale) <= 1, JSON.stringify(bodies));
+    check('with its body below its ports, brought up to date', bodies.below && bodies.value === '30', JSON.stringify(bodies));
+    check('and marked in its accent', bodies.accent === 'teal' && bodies.stripe && bodies.stripe !== 'rgba(0, 0, 0, 0)',
+          JSON.stringify(bodies));
+    const sized = (await page.evaluate(ANCHORS)).filter((a) => a.edge.includes('gauge'));
+    check('three lines meet the sized node', sized.length === 3, JSON.stringify(sized));
+    check('every one begins on its output dot\'s centre line (within 1px)', sized.every((a) => a.start <= 1), JSON.stringify(sized));
+    check('…and ends on its input dot\'s (within 1px)', sized.every((a) => a.end <= 1), JSON.stringify(sized));
+    check('…at the node\'s edge, beside the dot (within 8px)', sized.every((a) => a.startX <= 8 && a.endX <= 8), JSON.stringify(sized));
+    check('every line end meets its port dot (within 1px of the dot)', sized.every((a) => a.startOff <= 1 && a.endOff <= 1),
+          JSON.stringify(sized));
+    await page.screenshot(join(OUT, '5-bodies.png'));
+
     console.log('\nnarrow — the container query');
     await page.send('Emulation.setDeviceMetricsOverride', { width: 700, height: 900, deviceScaleFactor: 1, mobile: false });
     await sleep(200);
@@ -226,7 +284,7 @@ try {
     })()`);
     check('at 700px the canvas takes the whole width, over the palette', Math.abs(narrow.canvas - narrow.editor) <= 2
           && narrow.paletteTop >= narrow.canvasBottom - 2, JSON.stringify(narrow));
-    await page.screenshot(join(OUT, '5-narrow.png'));
+    await page.screenshot(join(OUT, '6-narrow.png'));
 } finally {
     page?.close();
     await browser.close();

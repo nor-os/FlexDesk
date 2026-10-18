@@ -28,6 +28,8 @@ export const CANVAS_STRINGS = Object.freeze({
     returnLine: 'Back to the loop for its next pass',
     connectedReturn: 'Goes round the loop again.',
     unknownType: (type) => `There is no step type "${type}".`,
+    renderFailed: (name, why) => `${name} could not draw its body${why ? `: ${why}` : '.'}`,
+    updateFailed: (name, why) => `${name} could not bring its body up to date${why ? `: ${why}` : '.'}`,
     stepId: (id) => `Step id: ${id}`,
     connection: 'Connection',
     connectionLine: (e) => `${e.source} · ${e.sourcePort} → ${e.target} · ${e.targetPort}`,

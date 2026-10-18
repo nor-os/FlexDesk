@@ -6,6 +6,7 @@
  *                    ARITHMETIC over these, never by measuring, so the
  *                    stylesheet must agree with them — `flow_canvas_css` reads
  *                    the sheet and holds it to them.
+ *   nodeWidth        a node's width: its type's own `size.w`, else the box's
  *   portAnchor       where a port's line starts or ends
  *   nodeBottom       where a node's drawn box ends
  *   isReturnEdge     is this line a loop's body going back round?
@@ -22,6 +23,12 @@ const FOOT = 12;
 const inputsOf = (catalogue, node) => (catalogue?.inputs ? catalogue.inputs(node?.type) : []);
 const outputsOf = (catalogue, node) => (catalogue?.outputs ? catalogue.outputs(node?.type) : []);
 const roleOf = (catalogue, node) => (catalogue?.role ? catalogue.role(node?.type) : 'step');
+const sizeOf = (catalogue, node) => (catalogue?.size ? catalogue.size(node?.type) : null);
+
+/** `node`'s width: its type's own `size.w` when it has one, else the box's. */
+export function nodeWidth(catalogue, node, box = CANVAS_NODE) {
+    return sizeOf(catalogue, node)?.w || box.width;
+}
 
 /**
  * The point a line meets `node`'s port `portName`: an input on the node's
@@ -33,15 +40,18 @@ export function portAnchor(catalogue, node, portName, direction, box = CANVAS_NO
     const list = direction === 'input' ? inputsOf(catalogue, node) : outputsOf(catalogue, node);
     const i = Math.max(0, list.findIndex((p) => p.name === portName));
     return {
-        x: node.position.x + (direction === 'input' ? 0 : box.width),
+        x: node.position.x + (direction === 'input' ? 0 : nodeWidth(catalogue, node, box)),
         y: node.position.y + box.header + box.row * i + box.row / 2,
         side: direction === 'input' ? 'left' : 'right',
     };
 }
 
 /** Where `node`'s drawn box ends — computed, because jsdom and a node not yet
- *  laid out both answer 0 for `offsetHeight`. */
+ *  laid out both answer 0 for `offsetHeight`. A type with its own `size.h` is
+ *  drawn exactly that tall. */
 export function nodeBottom(catalogue, node, box = CANVAS_NODE) {
+    const h = sizeOf(catalogue, node)?.h;
+    if (h) return node.position.y + h;
     const rows = Math.max(inputsOf(catalogue, node).length, outputsOf(catalogue, node).length, 1);
     return node.position.y + box.header + box.row * rows + FOOT;
 }
@@ -74,13 +84,16 @@ export function isReturnEdge(connection, target, catalogue, loopEntry = 'in') {
  *    start step(s) that follows each step's outputs in the order its type
  *    declares them — so a condition's first arm sits above its second
  *    whatever the two steps are called.
+ *  - **each node's own box.** A type's `size` (or `heightOf(node)`, a height
+ *    the editor measured) is the node's height, and the widest node sets the
+ *    column spacing; with neither, every node is the box's.
  *  - **a loop's return lines left out.** The line from a loop's body back into
  *    the loop is the loop, not a dependency; followed, it would pull the body
  *    left of the loop that runs it. Any other cycle is broken by `arrange`.
  */
 export function layoutGraph(graph, catalogue, { width = CANVAS_NODE.width, header = CANVAS_NODE.header,
                                                 row = CANVAS_NODE.row, gap = 96, rowGap = 40,
-                                                loopEntry = 'in' } = {}) {
+                                                loopEntry = 'in', heightOf = null } = {}) {
     const nodes = graph?.nodes || [];
     const connections = graph?.connections || [];
     const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -109,10 +122,15 @@ export function layoutGraph(graph, catalogue, { width = CANVAS_NODE.width, heade
     for (const n of nodes) if (!order.has(n.id)) order.set(n.id, order.size);
 
     const rows = (n) => Math.max(inputsOf(catalogue, n).length, outputsOf(catalogue, n).length);
+    const box = { width, header, row };
+    const height = (n) => {
+        const own = sizeOf(catalogue, n)?.h || (typeof heightOf === 'function' ? heightOf(n) : null);
+        return own ? own + 2 * FOOT : header + row * rows(n) + 24;
+    };
+    const widest = Math.max(width, ...nodes.map((n) => nodeWidth(catalogue, n, box)));
     return arrange(
-        nodes.map((n) => ({ id: n.id, label: String(order.get(n.id)).padStart(6, '0'),
-                            height: header + row * rows(n) + 24 })),
+        nodes.map((n) => ({ id: n.id, label: String(order.get(n.id)).padStart(6, '0'), height: height(n) })),
         connections.filter((c) => !isReturn(c)).map((c) => ({ from: c.target, to: c.source })),
-        { columnGap: width + gap, rowGap },
+        { columnGap: widest + gap, rowGap },
     );
 }

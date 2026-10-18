@@ -11,6 +11,20 @@
  *
  * Any other key a type carries is kept and ignored.
  *
+ * ══ A TYPE MAY DRAW ITS OWN BODY ═══════════════════════════════════════
+ *
+ * Four optional keys are read by the canvas editor, and only by it:
+ *
+ *     render(body, node, ctx)   fills the node's body, below its ports, once
+ *     update(body, node, ctx)   brings that body up to date on every repaint
+ *     size: {w, h}              the node's box in px (either may be left out)
+ *     accent                    a tone (`dom.js`'s TONES) the node is marked in
+ *
+ * A type without them is drawn as every other step is. A `size` that is not
+ * positive numbers, an `accent` that is not a tone, a `render` or `update`
+ * that is not a function: each is a line in `problems`, and that key is not
+ * used.
+ *
  * ══ DECLARED PORT ORDER IS MEANING ═════════════════════════════════════
  *
  * A lane reads an operation's first FLOW input as its own lane and the rest as
@@ -47,6 +61,21 @@ function cleanStem(stem) {
     return String(stem ?? '').replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 40) || 'step';
 }
 
+const positive = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null);
+
+/** A type's `size` as `{w, h}` (either null), or null — with the problem, if any. */
+function readSize(raw) {
+    if (raw === undefined || raw === null) return { size: null, problem: null };
+    const refused = { size: null, problem: 'size must be {w, h} in positive pixels; it is not used.' };
+    if (!isPlainObject(raw)) return refused;
+    const w = raw.w === undefined ? null : positive(raw.w);
+    const h = raw.h === undefined ? null : positive(raw.h);
+    if ((raw.w !== undefined && w === null) || (raw.h !== undefined && h === null) || (w === null && h === null)) {
+        return refused;
+    }
+    return { size: Object.freeze({ w, h }), problem: null };
+}
+
 function normalisePort(p) {
     return {
         ...p,
@@ -69,6 +98,8 @@ export function createStepCatalogue(types, { categories = [], idBase = defaultId
     const problems = [];
     const byId = new Map();
     const order = [];
+    const sizes = new Map();
+    const accents = new Map();
 
     for (const raw of Array.isArray(types) ? types : []) {
         if (!isPlainObject(raw)) {
@@ -108,6 +139,18 @@ export function createStepCatalogue(types, { categories = [], idBase = defaultId
         });
         byId.set(id, type);
         order.push(type);
+        const { size, problem } = readSize(raw.size);
+        if (problem) problems.push({ type_id: id, message: `"${id}"'s ${problem}` });
+        if (size) sizes.set(id, size);
+        if (raw.accent !== undefined && raw.accent !== null) {
+            if (TONES.includes(raw.accent)) accents.set(id, raw.accent);
+            else problems.push({ type_id: id, message: `"${id}"'s accent "${raw.accent}" is not a tone; it is not used.` });
+        }
+        for (const hook of ['render', 'update']) {
+            if (raw[hook] !== undefined && typeof raw[hook] !== 'function') {
+                problems.push({ type_id: id, message: `"${id}"'s ${hook} is not a function; it is not used.` });
+            }
+        }
     }
 
     const cats = (Array.isArray(categories) ? categories : []).filter(isPlainObject).map((c) => Object.freeze({
@@ -159,6 +202,16 @@ export function createStepCatalogue(types, { categories = [], idBase = defaultId
         tone: (typeId) => {
             const t = byId.get(typeId);
             return (t && allCats.find((c) => c.id === (t.category ?? ''))?.tone) || 'grey';
+        },
+        /** The type's own box, `{w, h}` (either null), or null when it has none. */
+        size: (typeId) => sizes.get(typeId) ?? null,
+        /** The type's accent tone, or null when it has none. */
+        accent: (typeId) => accents.get(typeId) ?? null,
+        /** The type's `{render, update}` (`update` may be null), or null when it has no `render`. */
+        body: (typeId) => {
+            const t = byId.get(typeId);
+            const render = typeof t?.render === 'function' ? t.render : null;
+            return render ? { render, update: typeof t.update === 'function' ? t.update : null } : null;
         },
         inputs: (typeId, { flow = false } = {}) => portsOf(typeId, 'input', flow),
         outputs: (typeId, { flow = false } = {}) => portsOf(typeId, 'output', flow),

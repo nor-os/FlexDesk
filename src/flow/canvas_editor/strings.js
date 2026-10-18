@@ -34,4 +34,18 @@ export const CANVAS_STRINGS = Object.freeze({
     removeConnection: 'Remove connection',
     portCount: (n) => `×${n}`,
     portNotTaken: 'not taken',
+    // `multiSelect`
+    alignLeft: 'Align left edges',
+    alignCenter: 'Align centres',
+    alignRight: 'Align right edges',
+    alignTop: 'Align top edges',
+    alignMiddle: 'Align middles',
+    alignBottom: 'Align bottom edges',
+    distributeHorizontal: 'Distribute horizontally',
+    distributeVertical: 'Distribute vertically',
+    alignNeedsTwo: 'Pick two steps or more to align them.',
+    distributeNeedsThree: 'Pick three steps or more to distribute them.',
+    stepsPicked: (n) => `${n} steps picked`,
+    stepsPickedLine: 'Drag one to move them all. The arrow keys nudge them.',
+    removeSteps: (n) => (n === 1 ? 'Remove 1 step' : `Remove ${n} steps`),
 });

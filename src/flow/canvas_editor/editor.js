@@ -714,8 +714,8 @@ export function createCanvasEditor(host, options = {}) {
     /** A line's colour and width are custom properties the stylesheet reads,
      *  so a picked or highlighted line still wins over the consumer's. */
     function applyLook(element, look) {
-        if (look.tone) element.style.setProperty('--twm-flow-edge-stroke', `var(--twm-flow-${look.tone}-fg)`);
-        if (look.width) element.style.setProperty('--twm-flow-edge-width', String(look.width));
+        if (look.tone) element.style.setProperty('--twm-canvas-edge-stroke', `var(--twm-flow-${look.tone}-fg)`);
+        if (look.width) element.style.setProperty('--twm-canvas-edge-width', String(look.width));
     }
 
     /** The arrowhead: its tip on the input port, its base where the line ends. */

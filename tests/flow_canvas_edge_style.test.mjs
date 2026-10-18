@@ -103,11 +103,11 @@ t.section('§2 dashed, tone, width');
          /stroke-dasharray:\s*\d/.test(ruleBody(sheet, '.twm-flow-graph__edge--dashed') || ''));
     t.ok('an undashed line has no dash', !second.classList.contains('twm-flow-graph__edge--dashed'));
     t.check('the tone is the custom property the line\'s stroke reads',
-            first.style.getPropertyValue('--twm-flow-edge-stroke'), 'var(--twm-flow-amber-fg)');
-    t.check('the width likewise', first.style.getPropertyValue('--twm-flow-edge-width'), '3');
+            first.style.getPropertyValue('--twm-canvas-edge-stroke'), 'var(--twm-flow-amber-fg)');
+    t.check('the width likewise', first.style.getPropertyValue('--twm-canvas-edge-width'), '3');
     t.ok('the sheet reads both, falling back to the old stroke and width',
-         /stroke:\s*var\(--twm-flow-edge-stroke,\s*#8fb4d8\)/.test(ruleBody(sheet, '.twm-flow-graph__edge'))
-         && /stroke-width:\s*var\(--twm-flow-edge-width,\s*1\.6\)/.test(ruleBody(sheet, '.twm-flow-graph__edge')));
+         /stroke:\s*var\(--twm-canvas-edge-stroke,\s*#8fb4d8\)/.test(ruleBody(sheet, '.twm-flow-graph__edge'))
+         && /stroke-width:\s*var\(--twm-canvas-edge-width,\s*1\.6\)/.test(ruleBody(sheet, '.twm-flow-graph__edge')));
     t.ok('an unknown tone and a width that is not positive are ignored', !second.hasAttribute('style'));
     const ctx = seen.find((x) => x.c.source === 'a').ctx;
     t.ok('the hook is handed the connection and both steps', ctx.source.id === 'a' && ctx.target.id === 'b'
@@ -136,7 +136,7 @@ t.section('§3 the marker');
     t.ok('a crow\'s-foot kind draws the kernel\'s foot', foot?.classList.contains('twm-edge__marker--zero-or-many')
          && foot.classList.contains('twm-flow-graph__edge-foot'));
     t.ok('…and the sheet tones the foot and fills the arrowhead',
-         /fill:\s*var\(--twm-flow-edge-stroke/.test(ruleBody(sheet, '.twm-flow-graph__edge-arrow') || '')
+         /fill:\s*var\(--twm-canvas-edge-stroke/.test(ruleBody(sheet, '.twm-flow-graph__edge-arrow') || '')
          && sheet.includes('.twm-flow-graph__edge-foot line'));
 }
 

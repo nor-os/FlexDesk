@@ -7929,14 +7929,40 @@ button.twm-about-dialog__btn--close:focus {
 .twm-flow-graph__port--untaken { opacity: 0.5; }
 
 /* ── a line ─────────────────────────────────────────────────────────── */
-.twm-flow-graph__edge { fill: none; stroke: #8fb4d8; stroke-width: 1.6; }
-.twm-flow-graph__edge--picked { stroke: var(--twm-flow-focus); stroke-width: 2.4; }
+/* A consumer's `edgeStyle` sets a line's tone and width as the two custom
+ * properties below (unset, the line is drawn as it always was); a picked or
+ * highlighted line still wins over them. */
+.twm-flow-graph__edge { fill: none; stroke: var(--twm-canvas-edge-stroke, #8fb4d8); stroke-width: var(--twm-canvas-edge-width, 1.6); }
+.twm-flow-graph__edge--picked { stroke: var(--twm-flow-focus); stroke-width: calc(var(--twm-canvas-edge-width, 1.6) + 0.8); }
 /* A loop's body handing back to the loop: DASHED, and routed under both steps
  * by the kernel's `returnEdge`, so it reads as "round again", not as one more
  * step forward. */
 .twm-flow-graph__edge--back { stroke-dasharray: 6 4; }
 .twm-flow-graph__edge--taken { stroke: var(--twm-flow-ok); }
 .twm-flow-graph__edge--untaken { opacity: 0.35; }
+/* `edgeStyle`'s dash, and the lines of a hovered step or line (`hoverHighlight`). */
+.twm-flow-graph__edge--dashed { stroke-dasharray: 6 4; }
+.twm-flow-graph__edge--highlighted { stroke: var(--twm-flow-focus); stroke-width: calc(var(--twm-canvas-edge-width, 1.6) + 0.8); }
+/* `edgeStyle`'s marker at the input end: an arrowhead, or the kernel's crow's
+ * foot in the line's own tone. */
+.twm-flow-graph__edge-arrow { fill: var(--twm-canvas-edge-stroke, #8fb4d8); stroke: none; }
+.twm-flow-graph__edge-foot line, .twm-flow-graph__edge-foot circle { stroke: var(--twm-canvas-edge-stroke, #8fb4d8); }
+/* `edgeStyle`'s label, centred on the line's midpoint. Its layer sits in the
+ * node layer and is stacked ABOVE every node, so a step never hides it. */
+.twm-flow-graph__edge-labels { position: absolute; left: 0; top: 0; z-index: 1; }
+.twm-flow-graph__edge-label {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    padding: 1px 6px;
+    border: 1px solid var(--twm-canvas-edge-stroke, #8fb4d8);
+    border-radius: 8px;
+    background: var(--surface-2);
+    color: var(--text-body);
+    font-size: var(--font-size-xs);
+    line-height: 1.4;
+    white-space: nowrap;
+    cursor: pointer;
+}
 /* The 14px target a 1.6px line cannot be. It opts back into the pointer the
  * edge layer turns off. */
 .twm-flow-graph__edge-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }

@@ -281,10 +281,6 @@ function attachListeners() {
         if (!(target instanceof Element)) return;
         const tooltipTarget = target.closest('.has-latex-tooltip, .twm-has-tooltip');
         if (!tooltipTarget) return;
-        // Skip template nodes in fixed-200 panel - handled elsewhere
-        if (tooltipTarget.closest('.panel.twm-fixed-200 .node.template')) {
-            return;
-        }
         showTooltip(tooltipTarget);
     }, true);
 
@@ -293,10 +289,6 @@ function attachListeners() {
         if (!(target instanceof Element)) return;
         const tooltipTarget = target.closest('.has-latex-tooltip, .twm-has-tooltip');
         if (!tooltipTarget) return;
-        // Skip template nodes in fixed-200 panel
-        if (tooltipTarget.closest('.panel.twm-fixed-200 .node.template')) {
-            return;
-        }
         hideTooltip();
     }, true);
 

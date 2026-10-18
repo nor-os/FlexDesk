@@ -201,26 +201,18 @@ const DEFAULT_ALLOWED_DATASET_KEYS = Object.freeze([
     'helpTopic',
 ]);
 
-const DEFAULT_OVERRIDES = Object.freeze([
-    {
-        // Panel controller writes dataset hooks for field identification/focus.
-        pattern: /js_new\/ui\/controllers\/panel_controller\.js/,
-        datasetKeys: ['field', 'descriptor-key', 'descriptorKey'],
-        attributes: ['data-field', 'data-descriptor-key'],
-        attributePrefixes: [],
-    },
-]);
-
-const DEFAULT_MODE = typeof window !== 'undefined' && Boolean(window.__ECOSIM_DEBUG__)
-    ? 'strict'
-    : 'warn';
-
 export const DEFAULT_STATE_GUARD_CONFIG = Object.freeze({
-    mode: DEFAULT_MODE,
+    mode: 'warn',
     allowedAttributes: DEFAULT_ALLOWED_ATTRIBUTES,
     allowedAttributePrefixes: DEFAULT_ALLOWED_ATTRIBUTE_PREFIXES,
     allowedDatasetKeys: DEFAULT_ALLOWED_DATASET_KEYS,
-    moduleOverrides: DEFAULT_OVERRIDES,
+    // FlexDesk ships no module overrides: which of YOUR modules may write which
+    // keys is yours to say, through `moduleOverrides` or `allow()`.
+    moduleOverrides: Object.freeze([]),
+    // null: a write is attributed to the frame that made it. A RegExp (or a
+    // literal string) picks the first frame from there up whose location
+    // matches instead; its first capture group, if any, names the module.
+    moduleFramePattern: null,
 });
 
 export function normalizeStateGuardConfig(config = {}) {
@@ -241,6 +233,9 @@ export function normalizeStateGuardConfig(config = {}) {
         moduleOverrides: normalizeOverrides(
             config.moduleOverrides ?? DEFAULT_STATE_GUARD_CONFIG.moduleOverrides,
         ),
+        moduleFramePattern: config.moduleFramePattern == null || config.moduleFramePattern === ''
+            ? DEFAULT_STATE_GUARD_CONFIG.moduleFramePattern
+            : patternToRegExp(config.moduleFramePattern),
     };
 }
 

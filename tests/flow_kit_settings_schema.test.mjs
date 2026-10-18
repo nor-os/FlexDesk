@@ -14,15 +14,17 @@
  *       values — the stored value, else the sibling's default — and a
  *       malformed hint never hides a field
  *   §5  Python's quoting, for the names a refusal quotes
+ *   §6  `UI_HINTS` is every `x-ui-` hint the kit and the editors read, and
+ *       every hint the README's hint table documents (BUG-0020)
  *
  * Pure: no jsdom.   node tests/flow_kit_settings_schema.test.mjs
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { assertions } from './flow_env.mjs';
 import {
     checkSettingsSchema, fieldsFromSchema, fieldVisible, visibleFields, whenKeys, titleOf, pyRepr,
-    SETTINGS_SCHEMA_KEYWORDS, SETTINGS_SCHEMA_ANNOTATIONS, SETTINGS_SCHEMA_TYPES,
+    SETTINGS_SCHEMA_KEYWORDS, SETTINGS_SCHEMA_ANNOTATIONS, SETTINGS_SCHEMA_TYPES, UI_HINTS,
 } from '../src/flow/kit/settings_schema.js';
 
 const t = assertions('flow kit — settings schema');
@@ -97,5 +99,24 @@ t.check('an apostrophe', pyRepr("it's"), '"it\'s"');
 t.check('both quotes', pyRepr('a\'b"c'), "'a\\'b\"c'");
 t.check('a backslash and a newline', pyRepr('a\\b\nc'), "'a\\\\b\\nc'");
 t.check('booleans and null', [pyRepr(true), pyRepr(false), pyRepr(null)], ['True', 'False', 'None']);
+
+t.section('§6 UI_HINTS is the hints read and the hints documented');
+{
+    const hintsIn = (text) => [...new Set(text.match(/x-ui-[a-z]+(?:-[a-z]+)*/g) ?? [])].sort();
+    // Every module under src/, so a hint a new widget starts reading cannot be missed.
+    const sources = readdirSync(resolvePath(t.root, 'src'), { recursive: true }).filter((p) => p.endsWith('.js'));
+    const read = hintsIn(sources.map((p) => t.read(`src/${p}`)).join('\n'));
+    const readme = t.read('README.md');
+    const table = /\| Schema hint \| Meaning \|\n\|[-|]+\|\n((?:\|.*\|\n)+)/.exec(readme);
+    const documented = table ? hintsIn(table[1]) : [];
+    const exported = [...UI_HINTS].sort();
+    for (const hint of ['x-ui-add-label', 'x-ui-enum-descriptions', 'x-ui-formula-references']) {
+        t.ok(`UI_HINTS.includes('${hint}')`, UI_HINTS.includes(hint));
+    }
+    t.ok('the README has a hint table', documented.length > 0);
+    t.check('UI_HINTS is every hint the source reads', exported, read);
+    t.check('UI_HINTS is every hint the README documents', exported, documented);
+    t.ok('UI_HINTS is frozen', Object.isFrozen(UI_HINTS));
+}
 
 t.done();

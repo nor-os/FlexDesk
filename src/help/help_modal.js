@@ -2,7 +2,9 @@
  * HelpModal - Modal dialog for displaying help content
  *
  * Features:
- * - Markdown rendering with syntax highlighting
+ * - Topics as trusted HTML (`topic.html`) or as markdown (`topic.markdown`),
+ *   rendered safe by `renderMarkdown` with the provider's `markdownOptions`
+ *   (a highlighter, math, extension rules)
  * - Table of contents navigation
  * - Topic search
  * - Category browsing
@@ -10,6 +12,7 @@
  */
 
 import { helpProvider, helpCategories, helpCopy } from './help_registry.js';
+import { renderMarkdown } from '../ui/utils/markdown.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HelpModal Class
@@ -33,14 +36,21 @@ export class HelpModal {
         this._modal = null;
         this._currentTopic = null;
         this._searchQuery = '';
+        this._fallback = null;
         this._boundKeyHandler = this._handleKeyDown.bind(this);
     }
 
     /**
      * Open the help modal.
      * @param {string} [topicId] - Initial topic to display
+     * @param {Object} [options]
+     * @param {{title: string, html: string}} [options.fallback] - Shown for
+     *   `topicId` when the provider has no such topic (its `loadTopic` answers
+     *   null). A library-owned topic, such as the palette's keyboard shortcuts,
+     *   uses it so that an application's own topic of that id still wins.
      */
-    async open(topicId = null) {
+    async open(topicId = null, { fallback = null } = {}) {
+        this._fallback = topicId && fallback ? { id: topicId, topic: fallback } : null;
         // Close any existing modal
         if (_activeModal && _activeModal !== this) {
             _activeModal.close();
@@ -165,15 +175,15 @@ export class HelpModal {
             const icon = this._categories[category]?.icon || 'folder';
 
             return `
-                <div class="help-category" data-category="${category}">
+                <div class="help-category" data-category="${escapeHtml(category)}">
                     <div class="help-category__header">
-                        <span class="material-symbols-outlined">${icon}</span>
-                        <span>${label}</span>
+                        <span class="material-symbols-outlined">${escapeHtml(icon)}</span>
+                        <span>${escapeHtml(label)}</span>
                     </div>
                     <ul class="help-category__topics">
                         ${topics.map(topic => `
-                            <li class="help-topic-item" data-topic="${topic.id}">
-                                ${topic.title}
+                            <li class="help-topic-item" data-topic="${escapeHtml(topic.id)}">
+                                ${escapeHtml(topic.title)}
                             </li>
                         `).join('')}
                     </ul>
@@ -222,15 +232,15 @@ export class HelpModal {
                         const icon = this._categories[category]?.icon || 'folder';
 
                         return `
-                            <div class="help-index__category" data-category="${category}">
+                            <div class="help-index__category" data-category="${escapeHtml(category)}">
                                 <div class="help-index__category-header">
-                                    <span class="material-symbols-outlined">${icon}</span>
-                                    <span>${label}</span>
+                                    <span class="material-symbols-outlined">${escapeHtml(icon)}</span>
+                                    <span>${escapeHtml(label)}</span>
                                 </div>
                                 <ul class="help-index__topics">
                                     ${topics.slice(0, 3).map(topic => `
-                                        <li class="help-index__topic" data-topic="${topic.id}">
-                                            ${topic.title}
+                                        <li class="help-index__topic" data-topic="${escapeHtml(topic.id)}">
+                                            ${escapeHtml(topic.title)}
                                         </li>
                                     `).join('')}
                                     ${topics.length > 3 ? `<li class="help-index__more">+${topics.length - 3} more</li>` : ''}
@@ -265,8 +275,20 @@ export class HelpModal {
         });
 
         try {
-            const topic = await this._service.loadTopic(topicId);
+            const topic = (await this._service.loadTopic(topicId))
+                ?? (this._fallback?.id === topicId ? this._fallback.topic : null);
             this._currentTopic = topicId;
+
+            if (!topic) {
+                // An id nobody provides is not a load failure: say so plainly.
+                content.innerHTML = `
+                    <div class="help-content__error help-content__error--not-found">
+                        <span class="material-symbols-outlined">search_off</span>
+                        <p>Help topic not found.</p>
+                    </div>
+                `;
+                return;
+            }
 
             content.innerHTML = `
                 <div class="help-content__article">
@@ -275,10 +297,10 @@ export class HelpModal {
                             <span class="material-symbols-outlined">home</span>
                         </a>
                         <span class="help-breadcrumb__separator">/</span>
-                        <span class="help-breadcrumb__title">${topic.title}</span>
+                        <span class="help-breadcrumb__title">${escapeHtml(topic.title)}</span>
                     </div>
                     <article class="help-article">
-                        ${topic.html}
+                        ${this._articleHtml(topic)}
                     </article>
                 </div>
             `;
@@ -296,6 +318,18 @@ export class HelpModal {
                 </div>
             `;
         }
+    }
+
+    /**
+     * The article body: a markdown topic rendered safe, else the provider's
+     * own HTML, which is trusted by contract.
+     * @private
+     */
+    _articleHtml(topic) {
+        if (typeof topic.markdown === 'string') {
+            return renderMarkdown(topic.markdown, this._service.markdownOptions ?? {});
+        }
+        return topic.html ?? '';
     }
 
     /**
@@ -318,7 +352,7 @@ export class HelpModal {
             content.innerHTML = `
                 <div class="help-search-results">
                     <h2>Search Results</h2>
-                    <p class="help-search-empty">No results found for "${query}"</p>
+                    <p class="help-search-empty">No results found for "${escapeHtml(query)}"</p>
                 </div>
             `;
             return;
@@ -327,12 +361,12 @@ export class HelpModal {
         content.innerHTML = `
             <div class="help-search-results">
                 <h2>Search Results</h2>
-                <p class="help-search-count">${results.length} result${results.length !== 1 ? 's' : ''} for "${query}"</p>
+                <p class="help-search-count">${results.length} result${results.length !== 1 ? 's' : ''} for "${escapeHtml(query)}"</p>
                 <ul class="help-search-list">
                     ${results.map(topic => `
-                        <li class="help-search-item" data-topic="${topic.id}">
-                            <span class="help-search-item__title">${topic.title}</span>
-                            <span class="help-search-item__category">${this._categories[topic.category]?.label || topic.category}</span>
+                        <li class="help-search-item" data-topic="${escapeHtml(topic.id)}">
+                            <span class="help-search-item__title">${escapeHtml(topic.title)}</span>
+                            <span class="help-search-item__category">${escapeHtml(this._categories[topic.category]?.label || topic.category)}</span>
                         </li>
                     `).join('')}
                 </ul>
@@ -361,12 +395,26 @@ export class HelpModal {
     /**
      * Static method to open help modal.
      * @param {string} [topicId] - Initial topic
+     * @param {Object} [options] - As for the instance `open`.
      * @returns {HelpModal}
      */
-    static open(topicId = null) {
+    static open(topicId = null, options = {}) {
         const modal = new HelpModal();
-        modal.open(topicId);
+        modal.open(topicId, options);
         return modal;
+    }
+
+    /**
+     * Close the open help modal, or open the index when none is open — what
+     * the `?` shortcut does.
+     * @returns {HelpModal|null} the modal opened, or null when one was closed
+     */
+    static toggle() {
+        if (_activeModal) {
+            _activeModal.close();
+            return null;
+        }
+        return HelpModal.open();
     }
 
     /**
@@ -379,31 +427,55 @@ export class HelpModal {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Global Help Shortcut
+// Helpers
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Open help modal with the `?` key. (F1 is reserved for top-nav Home.)
+ * Text for an innerHTML template. Everything the modal interpolates — the
+ * search query the user typed, and the topic ids, titles and categories the
+ * provider hands back — is TEXT; only `topic.html` is markup, by contract
+ * (and `topic.markdown` becomes markup through `renderMarkdown`).
+ * Quotes are escaped too, because ids and categories land in attributes.
  */
-function setupGlobalHelpShortcut() {
-    document.addEventListener('keydown', (event) => {
-        if (event.key !== '?') return;
-        // Don't hijack `?` typed into a field (search boxes, editors).
-        const t = event.target;
-        if (t?.closest?.(
-            'input, textarea, select, [contenteditable="true"]')) return;
-        event.preventDefault();
-        if (_activeModal) {
-            _activeModal.close();
-        } else {
-            HelpModal.open();
-        }
-    });
+function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
-// Initialize global shortcut
-if (typeof document !== 'undefined') {
-    setupGlobalHelpShortcut();
+// ═══════════════════════════════════════════════════════════════════════════
+// The `?` shortcut — installed, never imported
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Bind `?` (outside editable fields) to `HelpModal.toggle()` on `target`, and
+ * return the disposer that takes it off again.
+ *
+ * Importing this module binds nothing. It used to add a `document` listener as
+ * a side effect of the import, which nobody could remove: a second shell in the
+ * same page, or an application with its own `?`, got two handlers. A
+ * `createShell()` shell binds `?` through its keymap (`installKeymap`), and
+ * `shell.dispose()` takes it off; this is for a page that uses the help modal
+ * without the shell.
+ *
+ * @param {object} [opts]
+ * @param {EventTarget} [opts.target=document]
+ * @returns {() => void}
+ */
+export function installHelpShortcut({ target = document } = {}) {
+    const onKeyDown = (event) => {
+        if (event.defaultPrevented || event.key !== '?') return;
+        // Don't hijack `?` typed into a field (search boxes, editors).
+        if (event.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+        event.preventDefault();
+        HelpModal.toggle();
+    };
+    target.addEventListener('keydown', onKeyDown);
+    return () => target.removeEventListener('keydown', onKeyDown);
 }
 
 export default HelpModal;

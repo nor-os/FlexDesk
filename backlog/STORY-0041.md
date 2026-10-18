@@ -2,10 +2,10 @@
 id: 41
 type: story
 title: "openForm selects take dependent, disabled and grouped options; multi-select and radio fields exist"
-status: refined
+status: in-progress
 parent: 40
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 5
@@ -13,7 +13,7 @@ subsystem: widgets
 labels: [widgets, forms]
 links: []
 created: 2026-10-17
-updated: 2026-10-17T07:55Z
+updated: 2026-10-18T01:57Z
 ---
 
 ## Description
@@ -37,9 +37,22 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
+- 2026-10-17 · norman_agent · status: refined -> in-progress
+- 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
 
 ## Comments
 
 ### 2026-10-17T07:55Z · norman_agent (status: draft -> refined)
 
 Refined: 7 acceptance criteria, 5 points, parented to EPIC-0040. Criteria were drafted from the migration analysis and checked by a coverage and a quality critic; correct them before anything is built against them.
+
+### 2026-10-18T01:57Z · norman_agent
+
+Built on story-0041 @ 32f992e, but an independent review still finds problems after two fix rounds, so it has not landed. (The full test run took more than 20 minutes because many other story worktrees were running their suites at the same time.) Still open:
+
+1. **Branch does not merge into current main.** `git merge-tree --write-tree origin/main HEAD` reports CONFLICT (content) in src/ui/components/modal.js and README.md. main is 20 commits ahead, and STORY-0043 (ToggleField, `type: 'toggle'`) changed the same header doc type list, the `api.set` and submit loops, `_estimateHeight` and `_renderField`, and added its own `data-toggle-slot` mount. Done looks like: rebase story-0041 onto origin/main. The merged modal.js lists 'checkbox' | 'toggle' | 'picker' | 'checklist' | 'radio' in the header doc and keeps the toggle branch in api.set and in the submit read. Ideally one slot-mount pattern serves both toggle and choice fields, rather than two parallel `data-*-slot` mechanisms side by side. The README intro field list includes toggle, and `node tests/run.mjs` is re-run green on the rebased branch.
+2. **README overstates what happens to a disabled option in a combobox.** README.md (new section 'Options: typed, unavailable, grouped, and changed while open', the 'A disabled option' bullet) says '`api.set` to it clears the field'. That is false for a combobox (`select` with `create`). Probe in jsdom: options ['ann', {value:'bob', disabled:true}], then `api.set('who','bob')`. The input still holds 'bob' and `api.get('who')` returns 'bob'. The submit refuses it, so the 'never submitted' criterion still holds, but the doc overstates what happens. Done looks like one of two fixes. Either make the combobox branch of `api.set` in modal.js clear (or refuse) a disabled option's text, as the select and radio branches do, with a test in tests/open_form_choices.test.mjs §2. Or narrow the README sentence and the modal.js header doc to select and radio.
+3. **AC 'Grouped options render under their headings' is only met for `select`.** `checklist` and `radio` accept `{ group, options }` but drop the heading (choice_controls.js `flatChoices`, used by `toggleChips` and `choiceList`). A probe with groups G1 and G2 in a checklist renders the row text ' C ab ', with no G1 or G2 heading. Done looks like one of two fixes. Either draw a heading per group in toggleChips and choiceList (for example a `.twm-choice__group` label before each group's chips or rows), with a test. Or treat groups as select-only and say so in this record and the docs, instead of accepting them and silently discarding the heading.
+4. **Minor style and dead-export points.** src/flow/kit/widgets.js:42 `export { shownValue };` is a pass-through re-export that exists only so src/flow/kit/index.js keeps importing shownValue from './widgets.js'. index.js should import it from '../../ui/components/choice_controls.js' directly. src/ui/components/choice_controls.js exports `sameChoice`, `choiceOption` and `choiceIndex`, but nothing outside the module or the tests uses them. Make them module-private, or justify keeping them public. The new README section heading lacks the version tag that sibling sections carry (e.g. '(0.17.0)'), even though it documents a behaviour change every form sees (typed select values). Add the target version to match the convention.
+
+No criteria ticked yet. Status and assignee are unchanged.

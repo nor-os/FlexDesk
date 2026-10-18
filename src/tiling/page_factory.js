@@ -111,20 +111,20 @@ export function createPageFactories({ eventBus = null, events = {}, refreshOn = 
             console.error('[page] mount failed', err);
             hideLoading();
         }
-        const listeners = {};
+        // Keep the handles on() returned.
+        const subscriptions = [];
         if (typeof tab?.refresh === 'function' && eventBus?.on) {
             for (const [busEvent, reason] of Object.entries(refreshOn || {})) {
                 const fn = () => {
                     try { tab.refresh(reason); }
                     catch (err) { console.warn('[page] refresh failed', busEvent, err); }
                 };
-                listeners[busEvent] = fn;
-                eventBus.on(busEvent, fn);
+                subscriptions.push(eventBus.on(busEvent, fn));
             }
         }
         return () => {
-            for (const [n, fn] of Object.entries(listeners)) {
-                try { eventBus?.off?.(n, fn); } catch {}
+            for (const handle of subscriptions) {
+                try { handle?.dispose?.(); } catch {}
             }
             try { tab?.dispose?.(); tab?.unmount?.(); } catch {}
         };

@@ -5,7 +5,8 @@
  * Handles:
  *   - Creating full editors (multi-line, for CodeCells)
  *   - Creating single-line inline editors (for ParameterCell values, expression fields)
- *   - Theme registration (ecosim-dark, ecosim-light)
+ *   - Theme registration (built-in dark and light themes, names set by
+ *     setEditorThemeNames(); default flexdesk-dark, flexdesk-light)
  *   - Shared editor options
  *   - Instance lifecycle (dispose on cell removal)
  */
@@ -28,7 +29,7 @@ function safeDispose(editor) {
 
 // ─── Theme definitions ─────────────────────────────────────────────────────────
 
-const ECOSIM_DARK_THEME = {
+const DARK_THEME = {
     base: 'vs-dark',
     inherit: true,
     rules: [
@@ -74,7 +75,7 @@ const ECOSIM_DARK_THEME = {
     },
 };
 
-const ECOSIM_LIGHT_THEME = {
+const LIGHT_THEME = {
     base: 'vs',
     inherit: true,
     rules: [
@@ -108,13 +109,47 @@ const ECOSIM_LIGHT_THEME = {
     },
 };
 
-let _themesRegistered = false;
+/** The names the built-in themes are registered under when the embedder
+ *  names none. */
+export const DEFAULT_EDITOR_THEME_NAMES = Object.freeze({
+    dark: 'flexdesk-dark',
+    light: 'flexdesk-light',
+});
+
+let _themeNames = DEFAULT_EDITOR_THEME_NAMES;
+
+/**
+ * Name the built-in dark and light Monaco themes. Call before the first
+ * factory is created: a factory starts on the dark name, and init() registers
+ * the built-in themes under the names current at that moment. An embedder with
+ * its own theme defines it with `monaco.editor.defineTheme(name, …)` and passes
+ * that name to `factory.setTheme(name)` instead.
+ *
+ * @param {{ dark?: string, light?: string }} [names]
+ */
+export function setEditorThemeNames({ dark, light } = {}) {
+    _themeNames = Object.freeze({
+        dark: (typeof dark === 'string' && dark) ? dark : DEFAULT_EDITOR_THEME_NAMES.dark,
+        light: (typeof light === 'string' && light) ? light : DEFAULT_EDITOR_THEME_NAMES.light,
+    });
+}
+
+/** @returns {{ dark: string, light: string }} The built-in themes' names. */
+export function getEditorThemeNames() {
+    return _themeNames;
+}
+
+/** Monaco instance -> names already defined on it, so each name is defined once. */
+const _definedThemes = new WeakMap();
 
 function ensureThemes(monaco) {
-    if (_themesRegistered) return;
-    _themesRegistered = true;
-    monaco.editor.defineTheme('ecosim-dark',  ECOSIM_DARK_THEME);
-    monaco.editor.defineTheme('ecosim-light', ECOSIM_LIGHT_THEME);
+    let defined = _definedThemes.get(monaco);
+    if (!defined) { defined = new Set(); _definedThemes.set(monaco, defined); }
+    for (const [name, theme] of [[_themeNames.dark, DARK_THEME], [_themeNames.light, LIGHT_THEME]]) {
+        if (defined.has(name)) continue;
+        defined.add(name);
+        monaco.editor.defineTheme(name, theme);
+    }
 }
 
 // ─── Shared editor options ─────────────────────────────────────────────────────
@@ -122,7 +157,7 @@ function ensureThemes(monaco) {
 function baseOptions(overrides = {}) {
     return {
         language: _defaultLanguage,
-        theme: 'ecosim-dark',
+        theme: _themeNames.dark,
         fontFamily: 'Consolas, "Courier New", monospace',
         fontSize: 13,
         lineHeight: 19.5,
@@ -185,7 +220,7 @@ function singleLineOptions(overrides = {}) {
 
 export class MonacoEditorFactory {
     #monaco = null;
-    #currentTheme = 'ecosim-dark';
+    #currentTheme = _themeNames.dark;
 
     constructor() {}
 
@@ -199,7 +234,8 @@ export class MonacoEditorFactory {
 
     /**
      * Set global theme for all editors.
-     * @param {'ecosim-dark'|'ecosim-light'} theme
+     * @param {string} theme  A theme name Monaco knows: one of
+     *   getEditorThemeNames(), or one the embedder defined itself.
      */
     setTheme(theme) {
         this.#currentTheme = theme;
@@ -391,8 +427,12 @@ export class MonacoEditorFactory {
         const monaco = this.#monaco;
         const language = options.language || 'plaintext';
 
-        const originalModel = monaco.editor.createModel(originalContent, language);
-        const modifiedModel = monaco.editor.createModel(modifiedContent, language);
+        // The pair currently attached to the diff editor. setModels() replaces it, and
+        // dispose() frees whichever pair is attached at that moment — not the first one.
+        let models = {
+            original: monaco.editor.createModel(originalContent, language),
+            modified: monaco.editor.createModel(modifiedContent, language),
+        };
 
         const diffEditor = monaco.editor.createDiffEditor(container, {
             theme: this.#currentTheme,
@@ -408,28 +448,37 @@ export class MonacoEditorFactory {
             enableSplitViewResizing: true,
         });
 
-        diffEditor.setModel({ original: originalModel, modified: modifiedModel });
+        diffEditor.setModel(models);
 
         return {
             editor: diffEditor,
             setModels(original, modified, lang) {
-                originalModel.dispose();
-                modifiedModel.dispose();
-                const newOrig = monaco.editor.createModel(original, lang || language);
-                const newMod = monaco.editor.createModel(modified, lang || language);
-                diffEditor.setModel({ original: newOrig, modified: newMod });
+                const previous = models;
+                models = {
+                    original: monaco.editor.createModel(original, lang || language),
+                    modified: monaco.editor.createModel(modified, lang || language),
+                };
+                // Attach the new pair first: a model must not be disposed while the
+                // diff editor still holds it.
+                diffEditor.setModel(models);
+                safeDispose(previous.original);
+                safeDispose(previous.modified);
             },
             dispose() {
                 safeDispose(diffEditor);
-                safeDispose(originalModel);
-                safeDispose(modifiedModel);
+                safeDispose(models.original);
+                safeDispose(models.modified);
             },
         };
     }
 }
 
-/** Singleton instance, initialized lazily. */
-let _factoryInstance = null;
+/**
+ * The singleton, as a promise: concurrent callers share one load, and a FAILED
+ * load clears it so the next call can retry.
+ * @type {Promise<MonacoEditorFactory> | null}
+ */
+let _factoryPromise = null;
 
 // Where the app keeps Monaco. Set once, at boot.
 let _monacoBasePath = null;
@@ -439,11 +488,26 @@ export function setMonacoBasePath(basePath) {
     if (typeof basePath === 'string' && basePath) _monacoBasePath = basePath;
 }
 
-export async function getEditorFactory() {
-    if (!_factoryInstance) {
-        // Ensure Monaco is initialized — initMonaco is idempotent, safe to call from any entry point
-        initMonaco(_monacoBasePath);
-        _factoryInstance = await new MonacoEditorFactory().init();
+/**
+ * The shared editor factory, once Monaco has loaded.
+ *
+ * Uses a load already started by initMonaco(path), so a consumer that calls
+ * initMonaco() itself needs no setMonacoBasePath(). Otherwise it starts one
+ * from setMonacoBasePath()'s path.
+ *
+ * Rejects — rather than pending forever (BUG-0023) — with initMonaco()'s error
+ * when no path was set and no load was started, or when Monaco cannot be
+ * loaded. A later call asks initMonaco() again: after a loader.js failure that
+ * is a fresh attempt (fix the path first); after an AMD-level failure it is
+ * the same rejection, because that one is final for the page.
+ *
+ * @returns {Promise<MonacoEditorFactory>}
+ */
+export function getEditorFactory() {
+    if (!_factoryPromise) {
+        _factoryPromise = initMonaco(_monacoBasePath)
+            .then(() => new MonacoEditorFactory().init())
+            .catch((err) => { _factoryPromise = null; throw err; });
     }
-    return _factoryInstance;
+    return _factoryPromise;
 }

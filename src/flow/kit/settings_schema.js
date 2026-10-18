@@ -49,7 +49,8 @@ export const SETTINGS_SCHEMA_TYPES = Object.freeze(['object', 'array', 'string',
 
 /** The `x-ui-` hints the kit reads (36 §3.2); the server ignores every `x-` key. */
 export const UI_HINTS = Object.freeze(['x-ui-widget', 'x-ui-references', 'x-ui-when', 'x-ui-placeholder',
-                                       'x-ui-enum-labels', 'x-ui-multiline', 'x-ui-fold']);
+                                       'x-ui-enum-labels', 'x-ui-enum-descriptions', 'x-ui-multiline',
+                                       'x-ui-fold', 'x-ui-add-label', 'x-ui-formula-references']);
 
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 

@@ -13,7 +13,8 @@
  *         onChange: (key, value, config) => tile.update(undefined, config),
  *         renderers: { variable: (ctx) => myPicker(ctx) },
  *     });
- *     form.getValues();  form.setValues(next);  form.dispose();
+ *     form.getValues();  form.setValues(next);  form.isValid();
+ *     form.flush();      form.dispose();
  *
  * ══ A FIELD ═════════════════════════════════════════════════════════════
  *
@@ -30,7 +31,9 @@
  *
  * A field with no `key` throws: a form that wrote every edit to
  * `config['undefined']` was BUG-0021, and a loud mount is the cheaper failure.
- * So does a `type` with neither a built-in control nor a renderer.
+ * So does a `type` with neither a built-in control nor a renderer. `label` is
+ * optional: without one the field is called by its `key`, on its label and in
+ * every message (`count must be at least 1`).
  *
  * ══ AN EDIT ═════════════════════════════════════════════════════════════
  *
@@ -38,7 +41,15 @@
  * `onChange(key, value, config)` with a copy of the whole config. An invalid one
  * shows its error under the field and is NOT applied: the config keeps the last
  * valid value until the field is corrected (or `setValues` replaces it).
- * `setValues` does not call `onChange`.
+ * `setValues` does not call `onChange`. `isValid()` answers false while a
+ * shown row has an error.
+ *
+ * `commitOn: 'input'` (the default) checks text, number, range and colour
+ * controls on every keystroke. `commitOn: 'change'` checks them when the edit is
+ * finished (the control's `change`: blur, Enter, a released slider), for a
+ * consumer whose `onChange` is expensive — a save, a reload. A range still shows
+ * its value as it moves. `flush()` commits an edit typed but not yet finished,
+ * for a consumer about to take the form away; it is a no-op under `'input'`.
  *
  * ══ A CONSUMER'S CONTROL ════════════════════════════════════════════════
  *
@@ -53,8 +64,11 @@
  *
  * `TileGrid` emits `grid:config-modal-show` and nothing listens by default.
  * `openTileConfig(eventBus, opts)` is the opt-in listener: it shows the form in
- * a `SlideOutPanel` over `opts.host` (every valid edit is saved at once) or in a
- * modal (saved on Save). A request that arrives while a modal is open is
+ * a `SlideOutPanel` over `opts.host` (every finished, valid edit is saved — the
+ * form runs `commitOn: 'change'`, so a typed title is one save, not one per
+ * keystroke; closing the panel saves an edit still being typed) or in a modal
+ * (saved on Save, which is refused while a field shows an error: the modal
+ * stays open and the first invalid field gets the focus). A request that arrives while a modal is open is
  * ignored: the open modal is the one being answered. It answers a function that
  * unsubscribes; it also closes the slide-out, but leaves an open modal alone —
  * that modal stays working (its Save still saves) until the user dismisses it.
@@ -178,23 +192,34 @@ function coerce(field, raw) {
 
 /**
  * Draw `schema.fields` into `host`.
- * @returns {{getValues(): Object, setValues(config: Object): void, dispose(): void}}
+ * @param {'input'|'change'} [opts.commitOn='input']  When a text, number, range
+ *   or colour control is checked and committed: on every keystroke, or once the
+ *   edit is finished.
+ * @returns {{getValues(): Object, setValues(config: Object): void,
+ *   isValid(): boolean, flush(): void, dispose(): void}}
  */
-export function mountTileConfigForm(host, { schema, config = {}, data = null, onChange = null, renderers = {} } = {}) {
+export function mountTileConfigForm(host, {
+    schema, config = {}, data = null, onChange = null, renderers = {}, commitOn = 'input',
+} = {}) {
     if (!host) throw new TypeError('mountTileConfigForm: a host element is required');
-    const fields = Array.isArray(schema?.fields) ? schema.fields : [];
-    for (const f of fields) {
-        if (typeof f?.key !== 'string' || !f.key) {
-            throw new TypeError(`mountTileConfigForm: the field "${f?.label ?? f?.name ?? '?'}" has no key`);
-        }
+    if (commitOn !== 'input' && commitOn !== 'change') {
+        throw new TypeError(`mountTileConfigForm: unknown commitOn "${commitOn}"`);
     }
+    const fields = Array.isArray(schema?.fields) ? schema.fields : [];
+    fields.forEach((f, i) => {
+        if (typeof f?.key !== 'string' || !f.key) {
+            const called = typeof f?.label === 'string' && f.label ? ` "${f.label}"` : '';
+            throw new TypeError(`mountTileConfigForm: field #${i + 1}${called} has no key`);
+        }
+    });
 
     let values = mergeWithDefaults(config || {}, schema);
     const unlisten = [];   // listeners removed by dispose
     const root = el('div', 'fd-tile-config');
-    const rows = [];   // {field, row, error, control}
+    const rows = [];   // {field, named, row, error, control, invalid, pending}
 
     const showError = (r, message) => {
+        r.invalid = !!message;
         r.error.textContent = message || '';
         r.error.hidden = !message;
         r.row.classList.toggle('fd-tile-config__row--invalid', !!message);
@@ -205,8 +230,8 @@ export function mountTileConfigForm(host, { schema, config = {}, data = null, on
     };
 
     const commit = (r, raw) => {
-        if (r.field.readonly) return { valid: false, error: `${r.field.label ?? r.field.key} is read-only` };
-        const result = validateField(raw, r.field);
+        if (r.field.readonly) return { valid: false, error: `${r.named.label} is read-only` };
+        const result = validateField(raw, r.named);
         if (!result.valid) {
             showError(r, result.error);
             return { valid: false, error: result.error };
@@ -223,11 +248,13 @@ export function mountTileConfigForm(host, { schema, config = {}, data = null, on
         const id = `fd-tile-config-${++_seq}`;
         const row = el('div', `fd-tile-config__row fd-tile-config__row--${field.type}`);
         row.setAttribute('data-field', field.key);
-        const label = el('label', 'fd-tile-config__label', field.label ?? field.key);
+        // What validateField and the messages read: the label, or the key.
+        const named = { ...field, label: field.label ?? field.key };
+        const label = el('label', 'fd-tile-config__label', named.label);
         label.htmlFor = id;
         const error = el('div', 'fd-tile-config__error');
         error.hidden = true;
-        const r = { field, row, error, control: null };
+        const r = { field, named, row, error, control: null, invalid: false, pending: null };
 
         const custom = renderers?.[field.type];
         if (typeof custom === 'function') {
@@ -256,14 +283,25 @@ export function mountTileConfigForm(host, { schema, config = {}, data = null, on
             if (field.readonly) {
                 input.disabled = true;
             } else {
+                const listen = (type, fn) => {
+                    input.addEventListener(type, fn);
+                    unlisten.push(() => input.removeEventListener(type, fn));
+                };
                 const onEdit = () => {
+                    r.pending = null;
                     const raw = c.read();
                     c.shown?.(raw);
                     commit(r, raw);
                 };
-                for (const type of c.events) {
-                    input.addEventListener(type, onEdit);
-                    unlisten.push(() => input.removeEventListener(type, onEdit));
+                if (commitOn === 'change') {
+                    // Checked once the edit is finished; until then it is
+                    // pending, so flush() can still commit it.
+                    listen('change', onEdit);
+                    if (c.events.includes('input')) {
+                        listen('input', () => { r.pending = onEdit; c.shown?.(c.read()); });
+                    }
+                } else {
+                    for (const type of c.events) listen(type, onEdit);
                 }
             }
             r.control = c;
@@ -285,10 +323,15 @@ export function mountTileConfigForm(host, { schema, config = {}, data = null, on
         setValues(next) {
             values = mergeWithDefaults(next || {}, schema);
             for (const r of rows) {
+                r.pending = null;
                 r.control.write(values[r.field.key]);
                 showError(r, null);
             }
             applyVisibility();
+        },
+        isValid: () => rows.every((r) => r.row.hidden || !r.invalid),
+        flush() {
+            for (const r of rows) r.pending?.();
         },
         dispose() {
             unlisten.splice(0).forEach((off) => off());
@@ -307,8 +350,9 @@ export function mountTileConfigForm(host, { schema, config = {}, data = null, on
  * @param {{on(name: string, handler: Function): {dispose(): void}}} eventBus
  *   The `EventBus` the `TileGrid` emits on.
  * @param {object}   [opts]
- * @param {'modal'|'slide-out'} [opts.mode='modal']  A modal saves on Save; a
- *   slide-out saves every valid edit as it is made.
+ * @param {'modal'|'slide-out'} [opts.mode='modal']  A modal saves on Save, and
+ *   refuses Save while a field shows an error; a slide-out saves every
+ *   finished, valid edit (`commitOn: 'change'`).
  * @param {HTMLElement} [opts.host]  The slide-out's host (required for it).
  * @param {number}   [opts.width]    The slide-out's or the modal's width.
  * @param {Object}   [opts.renderers] Passed to `mountTileConfigForm`.
@@ -326,7 +370,8 @@ export function openTileConfig(eventBus, { mode = 'modal', host = null, width, r
     let form = null;    // the slide-out's form
     let panel = null;
     let modalOpen = false;
-    const drop = () => { form?.dispose(); form = null; };
+    // An edit still being typed when the panel goes is saved, not lost.
+    const drop = () => { form?.flush(); form?.dispose(); form = null; };
 
     const show = (detail = {}) => {
         if (modalOpen) return;
@@ -340,7 +385,9 @@ export function openTileConfig(eventBus, { mode = 'modal', host = null, width, r
                 panel.mount(host);
             }
             const body = panel.open(heading, 'tune');
-            form = mountTileConfigForm(body, { ...base, onChange: (_k, _v, cfg) => detail.onSave?.(cfg) });
+            form = mountTileConfigForm(body, {
+                ...base, commitOn: 'change', onChange: (_k, _v, cfg) => detail.onSave?.(cfg),
+            });
             return;
         }
 
@@ -352,7 +399,16 @@ export function openTileConfig(eventBus, { mode = 'modal', host = null, width, r
         modalOpen = true;
         openModal({
             title: heading, icon: 'tune', content, ...(width ? { width } : {}),
-            actions: [{ label: 'Cancel', value: null }, { label: 'Save', value: 'save', primary: true }],
+            actions: [
+                { label: 'Cancel', value: null },
+                // Refused while a field shows an error: its last valid value is
+                // not what the user is looking at, so saving it would be a lie.
+                { label: 'Save', value: 'save', primary: true, keepOpen: true, onClick: (close) => {
+                    if (mine.isValid()) { close('save'); return; }
+                    content.querySelector('.fd-tile-config__row--invalid:not([hidden]) input, '
+                        + '.fd-tile-config__row--invalid:not([hidden]) select')?.focus();
+                } },
+            ],
         }).then((v) => {
             modalOpen = false;
             if (v === 'save') detail.onSave?.(mine.getValues());

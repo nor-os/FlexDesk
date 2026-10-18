@@ -2163,6 +2163,51 @@ const nc = new NotificationCenter({ eventBus, maxVisible: 3, overflow: 'collapse
 nc.mount(document.body);
 ```
 
+*New in 0.17.0:* **the toast helpers read no global.** `toastInfo` / `toastWarn` /
+`toastError` / `toastSuccess` emit on the bus of the `NotificationCenter` mounted
+last; its `dispose()` hands them back. `setToastBus(bus)` points them at another
+bus (and returns the one it replaced), `setToastBus(null)` back at the console,
+and `getToastBus()` says which is current. With no bus — before any centre is
+mounted — a helper logs to the console and throws nothing. Until 0.17.0 they
+looked for one application's bus on a window global.
+
+### Progress toasts (0.17.0)
+
+A toast can track a job. `show({ progress })` takes a 0..1 fraction,
+`{ value, total }`, or `null` for indeterminate, and draws a `ProgressBar` in
+the toast; `status` is a line under the message and `counts` a label beside the
+bar. A progress toast is persistent, has a collapse toggle (or `collapsed: true`),
+and is not closed by a click on its body or on one of its actions while it runs.
+
+`update(id, patch)` changes only that toast's nodes: `progress`, `status`,
+`counts`, `collapsed`, `message`, `title`, `description`, `severity`. No other
+toast is redrawn, by an update or by toasts arriving and leaving, so a bar, a
+collapsed state and a hover survive (a toast whose title or description appears
+or goes is rebuilt in its place). `update()` also reaches a toast held behind
+"+N more", and `progress` on a plain toast turns it into a running progress
+toast. The toast **runs until a patch gives it an outcome severity**: `success`
+ends the bar done, `error` / `fatal` error; any other severity only restyles it.
+Once finished the bar keeps that state, whatever severity comes later. A
+`durationMs` in a patch to a toast that is not running (re)starts its
+auto-dismiss, and `0` keeps it until closed.
+
+With `overflow: 'collapse'`, a running progress toast is never held behind
+"+N more" and never counted in it (a held toast that starts running through
+`update()` comes on screen at once). It counts toward `maxVisible`, so when the
+screen is full the newest other toast steps back into the queue (first in line
+to return). Once finished it folds like any other toast. With `'drop'`, the
+oldest toast that is not a running job leaves.
+
+```js
+const id = nc.show({ title: 'Batch', message: 'Running', progress: 0, counts: '0 / 200',
+                     actions: [{ label: 'Stop', handler: () => job.stop() }] });
+job.on('tick', (done) => nc.update(id, { progress: { value: done, total: 200 },
+                                         counts: `${done} / 200`, status: job.current }));
+job.on('end', () => nc.update(id, { progress: 1, severity: 'success', message: 'Done', durationMs: 3000 }));
+```
+
+`tests/notification_progress.test.mjs` holds it in jsdom.
+
 ### Alerts with history: a log, a pane, a tab host and a bell (0.14.0)
 
 A toast is the moment. The **alert log** keeps what came in until it is
@@ -2213,6 +2258,7 @@ createHost({
     dialogs: { saveFile, openFile? },      // optional — CSV export falls back to a Blob;
                                            // openFile (itself optional) to pickFile()
     window:  { minimize, maximize, ... },  // optional — no native chrome buttons without it
+    gallery: { list },                     // optional (0.17.0) — mountGalleryPicker's entries
 })
 ```
 
@@ -2525,6 +2571,38 @@ Hodrick-Prescott filter, and every default subplot carried `showHpTrend`,
 `showHpCycle` and `hpLambda`. Those keys are gone and are ignored in saved
 configs; without `seriesTransforms` no derived trace is drawn.
 `tests/series_transforms.test.mjs` pins all of it.
+
+## No application globals: the gallery picker and plot-window events (0.17.0)
+
+Nothing under `src/` outside `src/host` reads `window.pywebview` or an
+application's global; `tests/no_app_globals.test.mjs` pins it, with the toast
+helpers ([Notifications](#notifications-notificationcenter)) and these two:
+
+**`mountGalleryPicker(el, { entries | host, kind, ... })`** takes its entries from
+`entries`, or else from the host's optional `gallery` capability:
+`host.gallery.list(kind)` answers `[{id, kind, label, description?, fields?}]`
+(or a promise of them). Neither shipped adapter advertises it; add your own:
+
+```js
+const host = createHost({ ...createPywebviewHost({ bridgeRef }),
+                          gallery: { list: (kind) => myBackend.starters(kind) } });
+await mountGalleryPicker(el, { host, kind: 'report', onChange });
+```
+
+With neither `entries` nor the capability, the picker shows its `emptyLabel`
+and logs one warning; a `list` that throws does the same. Until 0.17.0 it
+called one application's bridge method.
+
+**`PlotPopoutWindow({ streamEvents })`** names the bus events a live data
+source emits, next to `refreshEvent`: `{ delta, complete }`, defaulting to
+`'streaming:delta'` and `'streaming:complete'`. The window redraws on each
+while live update is on; a name given as `null` is not listened for.
+
+```js
+openPlotPopoutWindow({ id, title, plotConfig, getResults, services,
+                       refreshEvent: 'run:finished',
+                       streamEvents: { delta: 'sim:delta', complete: 'sim:done' } });
+```
 
 ## A plot config in any container: `renderPlotGrid` (0.17.0)
 

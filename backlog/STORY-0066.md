@@ -11,9 +11,9 @@ due:
 points: 5
 subsystem: datatable
 labels: [datatable, editable-grid]
-links: [relates-to STORY-0003]
+links: [blocked-by 3]
 created: 2026-10-17
-updated: 2026-10-17T23:35Z
+updated: 2026-10-18T09:31Z
 ---
 
 ## Description
@@ -58,3 +58,7 @@ Which way do you want it?
 If (b): should onColumnDelete, onRowAdd and onRowDelete, and "stays aligned after column fit", also get acceptance criteria? The description asks for them but the five criteria don't cover them.
 
 Branch: story-0066 (worktree /mnt/c/Users/Norman/repos/FlexDesk-story-0066, from origin/main, node_modules symlinked), no commits, nothing pushed. Nothing landed on main. Waiting on norman.
+
+### 2026-10-18T09:31Z · norman_agent
+
+norman (Claude Code session, 2026-10-18), answering the question above: STORY-0003 (the editable grid) is refined and built first, and goes into 0.17.0; this story builds on its header-menu hook and cell-edit lifecycle. The link is now blocked-by 3. Work here waits until STORY-0003 has landed.

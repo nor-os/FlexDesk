@@ -40,7 +40,8 @@
  * `pinThreshold` px of its end it follows new content. A scroll UP past that
  * stops the following and shows *Jump to latest*; clicking it — or scrolling
  * back down to the end — follows again. Content growing below a pinned view
- * never unpins it: only the scroll position moving up does. `scrollTop` is
+ * never unpins it: only the scroll position moving up does, and a wheel over
+ * a nested scroller (a `<pre>` in a body, say) scrolls that, not the view. `scrollTop` is
  * readable and settable (`getScrollTop` / `setScrollTop`) so an embedder can
  * keep it across a remount.
  *
@@ -50,7 +51,8 @@
  * (native undo, `input` events). `setBusy(true)` turns Send into Cancel: Enter
  * then submits nothing, and Esc — wherever focus is inside the view — or a
  * click on Cancel calls `onCancel`, once per busy period, however often it is
- * pressed.
+ * pressed. That Esc stops there: it never reaches a window or panel around
+ * the view that would close on Escape.
  *
  * `destroy()` removes the view. Every listener sits on an element the view
  * created, so they go with it; none is on the host or the document.
@@ -162,8 +164,28 @@ export function mountConversationView(host, {
     };
 
     function onScroll() { if (noticeMove() && !pinned) setPinned(true); }
-    /** A wheel up stops following at once, before the scroll it causes is reported. */
-    function onWheel(e) { if (e.deltaY < 0 && pinned && log.scrollTop > 0) setPinned(false); }
+    /**
+     * Whether a wheel up over `target` scrolls something nested inside the
+     * transcript — a scrollable block in a body or an extra slot that is not
+     * at its own top — rather than the transcript itself.
+     */
+    function innerTakesWheelUp(target) {
+        const view = doc.defaultView;
+        for (let n = target; n && n !== log; n = n.parentElement) {
+            if (n.nodeType !== 1 || n.scrollTop <= 0 || n.scrollHeight <= n.clientHeight) continue;
+            const overflow = view?.getComputedStyle(n).overflowY;
+            if (overflow === 'auto' || overflow === 'scroll' || overflow === 'overlay') return true;
+        }
+        return false;
+    }
+    /**
+     * A wheel up that will move the transcript stops following at once, before
+     * the scroll it causes is reported. One that a nested scroller takes
+     * leaves the transcript where it is, so it changes nothing.
+     */
+    function onWheel(e) {
+        if (e.deltaY < 0 && pinned && log.scrollTop > 0 && !innerTakesWheelUp(e.target)) setPinned(false);
+    }
     function onJump() { setPinned(true); toBottom(); }
     log.addEventListener('scroll', onScroll);
     log.addEventListener('wheel', onWheel, { passive: true });
@@ -254,11 +276,15 @@ export function mountConversationView(host, {
     function clear() { replaceAll([]); }
 
     // ── streaming ────────────────────────────────────────────────────────
-    /** Refused (a throw, nothing changed, an open stream left open) on an id already present. */
-    function beginStream(message = {}) {
-        if (message.id != null && entries.has(message.id)) throw duplicate(message.id);
+    /**
+     * Refused (a throw, nothing changed, an open stream left open) on an id
+     * already present. No message (undefined or null) streams an empty
+     * assistant message, as `append` treats them.
+     */
+    function beginStream(message) {
+        if (message?.id != null && entries.has(message.id)) throw duplicate(message.id);
         if (streamId !== null) endStream();
-        const entry = build({ role: 'assistant', text: '', ...message }, { streaming: true });
+        const entry = build({ role: 'assistant', text: '', ...(message ?? {}) }, { streaming: true });
         streamId = entry.message.id;
         log.append(entry.row);
         settle();
@@ -320,10 +346,16 @@ export function mountConversationView(host, {
         e.preventDefault();
         submit();
     }
-    /** Esc while busy cancels wherever focus is inside the view. */
+    /**
+     * Esc while busy cancels wherever focus is inside the view, and it is the
+     * view's alone: it goes no further, so a window or panel holding the view
+     * that closes on Escape stays open — on the cancelling Esc and on any
+     * repeat in the same busy period.
+     */
     function onRootKey(e) {
         if (e.isComposing || e.key !== 'Escape' || !busy) return;
         e.preventDefault();
+        e.stopPropagation();
         cancel();
     }
     input.addEventListener('keydown', onInputKey);

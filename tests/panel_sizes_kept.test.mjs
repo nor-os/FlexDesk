@@ -231,7 +231,7 @@ function makeWm(panelDefaults = null) {
     const renderer = { tree: null, render() {} };
     Object.assign(wm, {
         taxonomy: taxonomy(), renderer, _rootLeaf: seed, panelDefaults,
-        _persist() {}, _notifyChange() {},
+        _persist() {}, _notifyChange() {}, _windowToLeaf: new Map(),
         desktops: new DesktopManager({ seed, panelDefaults }),
     });
     for (const d of wm.desktops.desktops) wm._canonicalize(d.tree, d);

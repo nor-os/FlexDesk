@@ -182,6 +182,15 @@ export function createPhotinoHost(opts = {}) {
                 catch (e) { warn('dialogs', 'saveFile', e); }
                 return r && typeof r === 'object' ? r : null;
             },
+            // `{ok: true, name, path?, text | data}` | `{ok: false, cancelled: true}` |
+            // `{ok: false, error}`, or null when the host refused: pickFile() then
+            // opens the browser's chooser. No timeout, for the same reason as saveFile.
+            async openFile({ accept = [], kind = null, encoding = 'text' } = {}) {
+                let r = null;
+                try { r = await request('dialogs', 'openFile', [{ accept, kind, encoding }], { wait: 0 }); }
+                catch (e) { warn('dialogs', 'openFile', e); }
+                return r && typeof r === 'object' ? r : null;
+            },
         },
         shell: {
             // True when the native side opened it in the system browser; false

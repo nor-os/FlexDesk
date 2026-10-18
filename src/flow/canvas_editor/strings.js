@@ -48,4 +48,5 @@ export const CANVAS_STRINGS = Object.freeze({
     stepsPicked: (n) => `${n} steps picked`,
     stepsPickedLine: 'Drag one to move them all. The arrow keys nudge them.',
     removeSteps: (n) => (n === 1 ? 'Remove 1 step' : `Remove ${n} steps`),
+    routingFallback: (n) => `More than ${n} steps: the lines are drawn as plain curves, not routed round the steps.`,
 });

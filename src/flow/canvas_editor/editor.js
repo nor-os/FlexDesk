@@ -70,8 +70,8 @@
  */
 
 import { CanvasAdapter } from '../../canvas/canvas_adapter.js';
-import { returnEdge, routeEdge } from '../../canvas/edge_router.js';
-import { button, el, icon, toneClass, closeFlowPopovers } from '../kit/dom.js';
+import { OBSTACLE_ROUTING_NODE_LIMIT, crowsFoot, footAnchor, returnEdge, routeEdge } from '../../canvas/edge_router.js';
+import { TONES, button, el, icon, toneClass, closeFlowPopovers } from '../kit/dom.js';
 import { createStrings, say } from '../kit/strings.js';
 import { createStepCatalogue } from '../kit/catalogue.js';
 import { createWidgetRegistry } from '../kit/widgets.js';
@@ -84,7 +84,7 @@ import { FlowHistory } from '../kit/history.js';
 import { bindFlowKeys } from '../kit/keys.js';
 import { addNode, connect, disconnect, emptyGraph, normalise, removeNode, sameEdge, serialise } from '../kit/logic_graph.js';
 import { CANVAS_STRINGS } from './strings.js';
-import { CANVAS_NODE, isReturnEdge, layoutGraph, nodeBottom, portAnchor } from './layout.js';
+import { CANVAS_NODE, isReturnEdge, layoutGraph, nodeBottom, pathMidpoint, portAnchor } from './layout.js';
 
 /** Every edit the canvas editor records (36 §5.4). Anything else is a programming error. */
 export const CANVAS_ACTIONS = Object.freeze([
@@ -125,6 +125,13 @@ const READABLE = 0.8;
 const DRAG_PX = 4;
 /** How far below the lower of its two ends a loop's return line runs. */
 const RETURN_DROP = 40;
+/** How far clear of a step a routed line is kept (`routing: 'obstacles'`):
+ *  each step is handed to the kernel this much larger on every side, so a
+ *  line bent round one passes beside its border, not along it. */
+const CLEARANCE = 16;
+/** An arrowhead's depth along the line and its half-width across it. */
+const ARROW = Object.freeze({ length: 9, half: 4.5 });
+const ROUTINGS = Object.freeze(['simple', 'obstacles']);
 const SVG = 'http://www.w3.org/2000/svg';
 
 const DEFAULT_REFERENCES = Object.freeze({
@@ -154,8 +161,13 @@ export function createCanvasEditor(host, options = {}) {
         history: historyOptions = {}, loop = {}, node: nodeOptions = {}, dataPortRead = null,
         removable = null, paletteTypes = null, label = null, gridSize = 16, waitsForAll = undefined,
         multiSelect = false,
+        edgeStyle = null, routing = 'simple', hoverHighlight = false,
     } = options;
     const multi = Boolean(multiSelect);
+    if (!ROUTINGS.includes(routing)) {
+        throw new Error(`createCanvasEditor: routing is ${ROUTINGS.map((r) => `'${r}'`).join(' or ')}, not '${routing}'.`);
+    }
+    const styled = typeof edgeStyle === 'function';
     const catalogue = Array.isArray(options.catalogue) ? createStepCatalogue(options.catalogue)
         : options.catalogue;
     if (!catalogue?.get || !catalogue?.byCategory) {
@@ -226,12 +238,23 @@ export function createCanvasEditor(host, options = {}) {
     let fitFrame = null;
     let travelling = null;
     let lastSelect = '';
+    /** What the pointer is over, with `hoverHighlight`: {kind: 'node', id} | {kind: 'edge', edge} | null. */
+    let hovered = null;
+    /** Every drawn line and the connection it draws, from the last paint. */
+    let edgeEls = [];
+    /** Whether `routing: 'obstacles'` is drawing plain curves, the graph being over the kernel's limit. */
+    let routingFallback = false;
     const nodeEls = new Map();
     const consumerState = new Map();
 
     const canvas = new CanvasAdapter({ container: canvasHost, gridSize });
     canvas.root.setAttribute('role', 'application');
     canvas.root.setAttribute('aria-label', label || say(S, 'canvasLabel'));
+    // A line's label lives in the NODE layer, above every node (the stylesheet
+    // stacks it), so a label is never hidden behind a step; a press on it is
+    // the editor's, never a pan.
+    const labelLayer = styled ? el('div', 'twm-flow-graph__edge-labels') : null;
+    if (labelLayer) canvas.nodeLayer.appendChild(labelLayer);
     // A press on the empty surface lets go of the pick (and of a connection
     // being drawn); with nothing but the flow picked it repaints nothing.
     canvas.onSelectionChange = () => {
@@ -621,6 +644,12 @@ export function createCanvasEditor(host, options = {}) {
             if (multi && (pressed?.id === nodeRow.id || isPicked(nodeRow.id))) return;
             if (!(selected?.kind === 'node' && selected.id === nodeRow.id)) select({ kind: 'node', id: nodeRow.id });
         });
+        if (hoverHighlight) {
+            n.addEventListener('pointerenter', () => hover({ kind: 'node', id: nodeRow.id }));
+            n.addEventListener('pointerleave', () => {
+                if (hovered?.kind === 'node' && hovered.id === nodeRow.id) hover(null);
+            });
+        }
         return n;
     }
 
@@ -770,10 +799,79 @@ export function createCanvasEditor(host, options = {}) {
         paintEdges();
     }
 
+    /** The consumer's `edgeStyle` for one line, read into what the editor draws. */
+    function edgeLook(c, source, target, back) {
+        const look = edgeStyle({ ...c }, { source, target, back });
+        if (!look || typeof look !== 'object') return null;
+        const width = Number(look.width);
+        return {
+            tone: TONES.includes(look.tone) ? look.tone : null,
+            dashed: Boolean(look.dashed),
+            width: Number.isFinite(width) && width > 0 ? width : null,
+            marker: typeof look.marker === 'string' && look.marker ? look.marker : null,
+            label: look.label === undefined || look.label === null || look.label === '' ? null : String(look.label),
+        };
+    }
+
+    /** A line's colour and width are custom properties the stylesheet reads,
+     *  so a picked or highlighted line still wins over the consumer's. */
+    function applyLook(element, look) {
+        if (look.tone) element.style.setProperty('--twm-flow-edge-stroke', `var(--twm-flow-${look.tone}-fg)`);
+        if (look.width) element.style.setProperty('--twm-flow-edge-width', String(look.width));
+    }
+
+    /** The arrowhead: its tip on the input port, its base where the line ends. */
+    function arrowHead(tip, side) {
+        const out = side === 'right' ? 1 : -1;
+        const baseX = tip.x + out * ARROW.length;
+        const head = document.createElementNS(SVG, 'path');
+        head.setAttribute('class', 'twm-flow-graph__edge-arrow');
+        head.setAttribute('d', `M ${tip.x} ${tip.y} L ${baseX} ${tip.y - ARROW.half} L ${baseX} ${tip.y + ARROW.half} Z`);
+        return head;
+    }
+
+    /** Where a line into `to` stops: behind its marker, which ends it. */
+    function lineEnd(to, marker) {
+        if (marker === 'arrow') return { ...to, x: to.x + (to.side === 'right' ? 1 : -1) * ARROW.length };
+        return marker ? footAnchor(to, to.side, marker) : to;
+    }
+
+    /** Does the line drawing `c` touch what the pointer is over? */
+    const touches = (c) => (hovered?.kind === 'node' ? c.source === hovered.id || c.target === hovered.id
+        : hovered?.kind === 'edge' ? sameEdge(c, hovered.edge) : false);
+
+    /** The highlight follows the pointer IN PLACE: a line rebuilt under the
+     *  pointer would be entered again, and repaint again, on every move. */
+    function hover(next) {
+        hovered = next;
+        for (const { c, line } of edgeEls) line.classList.toggle('twm-flow-graph__edge--highlighted', touches(c));
+    }
+
+    /** The consumer's findings, and — while `routing: 'obstacles'` is over the
+     *  kernel's limit — the editor's own sentence saying the lines are plain. */
+    function paintStrip() {
+        strip.set(routingFallback ? [...findings, { code: 'canvas-routing-simple', severity: 'warning',
+                                                     message: say(S, 'routingFallback', OBSTACLE_ROUTING_NODE_LIMIT) }]
+            : findings);
+    }
+
     function paintEdges() {
         if (destroyed) return;
+        const fallback = routing === 'obstacles' && graph.nodes.length > OBSTACLE_ROUTING_NODE_LIMIT;
+        if (fallback !== routingFallback) {
+            routingFallback = fallback;
+            paintStrip();
+        }
+        const routed = routing === 'obstacles' && !fallback;
         const byId = new Map(graph.nodes.map((x) => [x.id, x]));
+        const copies = styled ? new Map(normalise(graph).nodes.map((x) => [x.id, x])) : null;
+        const boxes = routed ? graph.nodes.map((x) => ({
+            id: x.id, x: x.position.x - CLEARANCE, y: x.position.y - CLEARANCE,
+            width: BOX.width + 2 * CLEARANCE, height: bottomOf(x) - x.position.y + 2 * CLEARANCE,
+        })) : null;
         const paths = [];
+        const labels = [];
+        edgeEls = [];
         graph.connections.forEach((c) => {
             const a = byId.get(c.source);
             const b = byId.get(c.target);
@@ -781,19 +879,25 @@ export function createCanvasEditor(host, options = {}) {
             const from = anchor(a, c.sourcePort, 'output');
             const to = anchor(b, c.targetPort, 'input');
             const back = isReturn(c, b);
+            const look = styled ? edgeLook(c, copies.get(c.source), copies.get(c.target), back) : null;
+            const end = look?.marker ? lineEnd(to, look.marker) : to;
             // A loop's return runs UNDER both steps: drawn as a forward curve it
             // doubles back across them and reads as one more step.
-            const d = back ? returnEdge(from, to, { floor: Math.max(bottomOf(a), bottomOf(b)) + RETURN_DROP })
-                : routeEdge(from, to, { simple: true });
+            const d = back ? returnEdge(from, end, { floor: Math.max(bottomOf(a), bottomOf(b)) + RETURN_DROP })
+                : routed ? routeEdge(from, end, { obstacles: boxes.filter((x) => x.id !== a.id && x.id !== b.id) })
+                    : routeEdge(from, end, { simple: true });
             const picked = selected?.kind === 'edge' && sameEdge(selected.edge, c);
             const mark = overlay?.ports?.[c.source]?.[c.sourcePort];
             const line = document.createElementNS(SVG, 'path');
             line.setAttribute('class', ['twm-flow-graph__edge', back ? 'twm-flow-graph__edge--back' : '',
+                                        look?.dashed ? 'twm-flow-graph__edge--dashed' : '',
                                         picked ? 'twm-flow-graph__edge--picked' : '',
                                         mark?.taken ? 'twm-flow-graph__edge--taken' : '',
-                                        mark && !mark.taken ? 'twm-flow-graph__edge--untaken' : '']
+                                        mark && !mark.taken ? 'twm-flow-graph__edge--untaken' : '',
+                                        hovered && touches(c) ? 'twm-flow-graph__edge--highlighted' : '']
                 .filter(Boolean).join(' '));
             line.setAttribute('d', d);
+            if (look) applyLook(line, look);
             const hit = document.createElementNS(SVG, 'path');
             hit.setAttribute('class', 'twm-flow-graph__edge-hit');
             hit.setAttribute('d', d);
@@ -802,13 +906,38 @@ export function createCanvasEditor(host, options = {}) {
                 title.textContent = say(S, 'returnLine');
                 hit.appendChild(title);
             }
-            hit.addEventListener('pointerdown', (ev) => {
+            const pick = (ev) => {
                 ev.stopPropagation();
                 select({ kind: 'edge', edge: { ...c } });
-            });
-            paths.push(line, hit);
+            };
+            hit.addEventListener('pointerdown', pick);
+            if (hoverHighlight) {
+                hit.addEventListener('pointerenter', () => hover({ kind: 'edge', edge: { ...c } }));
+                hit.addEventListener('pointerleave', () => {
+                    if (hovered?.kind === 'edge' && sameEdge(hovered.edge, c)) hover(null);
+                });
+            }
+            paths.push(line);
+            if (look?.marker) {
+                const head = look.marker === 'arrow' ? arrowHead(to, to.side) : crowsFoot(to, to.side, look.marker);
+                if (look.marker !== 'arrow') head.classList.add('twm-flow-graph__edge-foot');
+                applyLook(head, look);
+                paths.push(head);
+            }
+            paths.push(hit);
+            if (look?.label !== null && look?.label !== undefined) {
+                const at = pathMidpoint(d);
+                const tag = el('div', 'twm-flow-graph__edge-label', look.label);
+                tag.style.left = `${at.x}px`;
+                tag.style.top = `${at.y}px`;
+                applyLook(tag, look);
+                tag.addEventListener('pointerdown', pick);
+                labels.push(tag);
+            }
+            edgeEls.push({ c, line });
         });
         canvas.edgeLayer.replaceChildren(...paths);
+        labelLayer?.replaceChildren(...labels);
     }
 
     /** Frame the graph. Never above NATURAL: a short flow is not blown up until
@@ -1281,7 +1410,7 @@ export function createCanvasEditor(host, options = {}) {
         setFindings(list) {
             findings = findingsList(list);
             findingsBy = groupFindings(findings, { graph });
-            strip.set(findings);
+            paintStrip();
             paintNodes();
             panel.setFindings(findings);
         },

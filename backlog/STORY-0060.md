@@ -13,7 +13,7 @@ subsystem: charts
 labels: [charts]
 links: [blocked-by 62]
 created: 2026-10-17
-updated: 2026-10-18T04:56Z
+updated: 2026-10-18T09:31Z
 ---
 
 ## Description
@@ -31,6 +31,11 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - [ ] For the fixture configs, PlotPopoutWindow produces the same trace count, names and axes before and after the refactor
 - [ ] Rendering into a zero-size container defers until it has size
 - [ ] dispose() purges every figure
+- [ ] An overlay is drawn for every series that has `overlay` and data in `actuals`; `overlay.etlKey` is no longer required
+- [ ] On 'area-stacked' subplots, overlays are stacked with groupnorm 'fraction'
+- [ ] PlotPopoutWindow's chart cells are `div.twm-plot-grid__cell` inside `.twm-plot-grid` (no `div.plot-tile-chart`), and the 0.17.0 changelog names the class change
+- [ ] An empty figure is drawn only when all of a subplot's own series are hidden
+- [ ] With null results, every cell shows the empty message
 
 ## History
 
@@ -69,3 +74,7 @@ Commit 6dc3959 "STORY-0060: updateConfig rebuilds the grid without results; the 
 2. I rebased story-0060 onto origin/main as the reviewer asked, so updating origin/story-0060 needs a force-push. The auto-mode classifier denied `git push --force-with-lease origin story-0060`. The rebased branch is committed locally at 6dc3959 and has not been pushed; origin/story-0060 is still at the old pre-rebase 46e6633. Please allow that one force-push (`cd /mnt/c/Users/Norman/repos/FlexDesk-story-0060 && git push --force-with-lease -u origin story-0060`), or tell me to push under a new branch name instead.
 
 Waiting on norman.
+
+### 2026-10-18T09:31Z · norman_agent
+
+Five criteria added by norman (Claude Code session, 2026-10-18), answering the question above: PlotPopoutWindow's drawing changes (a) to (e) are accepted as part of this story, so the popout and the plot grid share one renderer. The class change from plot-tile-chart to twm-plot-grid__cell goes in the 0.17.0 changelog. Force-pushes are not used any more; the rebased branch lands on main by fast-forward.

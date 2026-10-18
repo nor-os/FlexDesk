@@ -13,7 +13,7 @@ subsystem: editor
 labels: [editor, monaco]
 links: []
 created: 2026-10-17
-updated: 2026-10-17T22:50Z
+updated: 2026-10-18T09:31Z
 ---
 
 ## Description
@@ -29,7 +29,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - [ ] An editor with maxHeight 200 and 50 lines is 200px tall and scrolls internally
 - [ ] setMaxHeight(Infinity) grows it to its content immediately
 - [ ] Below the cap, wheel events reach the outer scroller
-- [ ] The source contains no reference to notebook-editor-container or data-code-max-height
+- [ ] createEditor's source (src/editor/monaco_editor_factory.js) contains no reference to notebook-editor-container or data-code-max-height
 
 ## History
 
@@ -52,3 +52,7 @@ Refined: 4 acceptance criteria, 2 points, parented to EPIC-0054. Criteria were d
 **Open.** Criterion 4 can be read two ways. Read as the editor factory's source, it is met. Read as all of src/, it is not: EditorPane still uses `.notebook-editor-container` as its own public CSS class (src/editor/editor_pane.js:129,137,143,153, styled in css/base.css and css/flexdesk.css, documented in README.md:2048), and notebook_search.js mentions it in three comments. Renaming that class would be a breaking change to a public API the record does not cover, so I stopped and did not do it.
 
 **Branch:** `story-0058` @ d10fbf2. No new exports were added: the option and the handle method sit on the existing createEditor. The README has a new section, "Auto-height editors: `maxHeight` (0.17.0)", under Peer dependencies. The old data-code-max-height switch is gone with no fallback, as the record asks. Consumers must pass maxHeight. Nothing landed on the default branch. Waiting on norman.
+
+### 2026-10-18T09:31Z · norman_agent
+
+Criterion 4 amended by norman (Claude Code session, 2026-10-18), answering the question above: "the source" means createEditor's source only. EditorPane keeps its public .notebook-editor-container class; nothing is renamed.

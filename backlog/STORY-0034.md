@@ -13,7 +13,7 @@ subsystem: shell
 labels: [shell, panels]
 links: []
 created: 2026-10-17
-updated: 2026-10-17T21:46Z
+updated: 2026-10-18T09:31Z
 ---
 
 ## Description
@@ -27,7 +27,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 ## Acceptance criteria
 
 - [ ] With the primary kind declaring bottom: {reason:'No console here'}, the bottom toggle is disabled with that tooltip
-- [ ] The bottom-panel shortcut and palette chip do nothing while it is unavailable
+- [ ] A shortcut an embedder binds to wm.togglePanel('bottom') and the palette chip do nothing while it is unavailable
 - [ ] A bottom panel open before switching to such a kind disappears and comes back when switching back
 - [ ] togglePanel('bottom') returns false while unavailable and changes no persisted state
 - [ ] With no declarations, every panel is available as today
@@ -62,3 +62,7 @@ What was built:
 Question for norman: FlexDesk's keymap (src/tiling/keymap.js) has no bottom-panel shortcut, and neither does EcoSim. Criterion 2 is therefore only true because togglePanel refuses. My test binds a shortcut the way an embedder would (Alt+J calling wm.togglePanel) and shows it does nothing. Should FlexDesk add its own panel shortcuts? If so, which keys (e.g. Alt+J or Ctrl+J for bottom), and should they go in KEYMAP_SHORTCUTS? Or does the criterion mean the embedder's own shortcut that calls wm.togglePanel?
 
 Branch: story-0034 @ fab9e70. Before closing: finish the full `node tests/run.mjs` and `node build.mjs` in /mnt/c/Users/Norman/repos/FlexDesk-story-0034 (then `git checkout -- dist`). STORY-0035 also edits src/tiling/wm.js (_canonicalize and panel sizes), so expect a merge conflict there. Nothing landed on the default branch. Waiting on norman.
+
+### 2026-10-18T09:31Z · norman_agent
+
+Criterion 2 amended by norman (Claude Code session, 2026-10-18), answering the question above: it means a shortcut the embedder binds to wm.togglePanel, not a new built-in key. FlexDesk adds no panel shortcut (its default keymap stays as it is). Old wording: "The bottom-panel shortcut and palette chip do nothing while it is unavailable".

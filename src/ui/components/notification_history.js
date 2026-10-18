@@ -108,8 +108,8 @@ export class NotificationHistory {
             'workspace:save:failed', 'workspace:import:failed'];
 
         events.forEach(name => {
-            this.eventBus.on(name, badgeUpdate);
-            this._subscriptions.push(() => this.eventBus.off(name, badgeUpdate));
+            const handle = this.eventBus.on(name, badgeUpdate);
+            this._subscriptions.push(() => handle?.dispose?.());
         });
     }
 
@@ -245,7 +245,7 @@ export class NotificationHistory {
             const entry = history[i];
             const item = document.createElement('div');
             const severity = entry.severity || 'info';
-            item.className = `twm-notification-history__item notification-history__item--${severity}`;
+            item.className = `twm-notification-history__item twm-notification-history__item--${severity}`;
 
             const itemHeader = document.createElement('div');
             itemHeader.className = 'twm-notification-history__item-header';

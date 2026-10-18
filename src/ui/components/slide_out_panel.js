@@ -20,6 +20,7 @@ export class SlideOutPanel extends ComponentBase {
     /** @type {number} */       #width;
     /** @type {Function|null} */#onClose;
     /** @type {boolean} */      #open = false;
+    /** @type {ResizeObserver|null} */ #hostObserver = null;
 
     /**
      * @param {object}   opts
@@ -131,6 +132,7 @@ export class SlideOutPanel extends ComponentBase {
             this.#trackGeometry();
             window.addEventListener('scroll', this.#trackGeometry, true);
             window.addEventListener('resize', this.#trackGeometry);
+            this.#observeHost();
         }
 
         return this.#body;
@@ -146,6 +148,8 @@ export class SlideOutPanel extends ComponentBase {
         document.removeEventListener('keydown', this.#handleEsc);
         window.removeEventListener('scroll', this.#trackGeometry, true);
         window.removeEventListener('resize', this.#trackGeometry);
+        this.#hostObserver?.disconnect();
+        this.#hostObserver = null;
         // Leave the inline position:fixed geometry in place. The panel
         // slides off-screen via the transform animation (translateX
         // 100%); the next open() re-runs #trackGeometry which will
@@ -168,18 +172,51 @@ export class SlideOutPanel extends ComponentBase {
         }
     };
 
+    /** The host moves or resizes without any window event when a tile
+     *  splitter is dragged or a dock panel toggles, and the fixed geometry
+     *  would then stay at the old coordinates. Observe the host AND each
+     *  ancestor: a host can move without changing size of its own (a dock
+     *  panel toggling beside a fixed-width tile shrinks the content area,
+     *  an ancestor, and the tile only shifts). The callback runs
+     *  synchronously, after layout and before paint, so the panel follows
+     *  a drag without a frame of lag; it only writes the panel's own
+     *  `position: fixed` geometry, which is out of flow and resizes
+     *  nothing observed, so it cannot loop. */
+    #observeHost() {
+        this.#hostObserver = new ResizeObserver(this.#trackGeometry);
+        for (let el = this.#container; el; el = el.parentElement) {
+            this.#hostObserver.observe(el);
+        }
+    }
+
     /** Pin the panel to the right edge of its host's *visible* frame
-     *  using `position: fixed`. Re-run on every scroll/resize so the
-     *  panel always overlays the host correctly even when the host
-     *  itself sits inside a scrolled ancestor. */
+     *  using `position: fixed`. Re-run on every window scroll/resize and
+     *  every host resize (#observeHost) so the panel always overlays the
+     *  host correctly even when the host itself sits inside a scrolled
+     *  ancestor.
+     *
+     *  UNDER A CSS `zoom` (the shell's content zoom scales a tile body),
+     *  `getBoundingClientRect()` answers in screen pixels, which already
+     *  carry the zoom, while the panel's own `top`/`left`/`height` are
+     *  CSS pixels that the same zoom multiplies again. Copied across
+     *  unchanged, every length was scaled twice: at 150% the panel landed
+     *  right of and below its host, at 50% it was half the host's height.
+     *  So the rect is divided by the panel's effective zoom
+     *  (`currentCSSZoom`: 1 when nothing above it zooms, `undefined` in an
+     *  engine that predates it), and the width subtracted is the panel's
+     *  laid-out one, which `min-width` may hold above the requested
+     *  width. Rounding happens in screen pixels, so at 100% the output is
+     *  exactly what it always was. */
     #trackGeometry = () => {
         if (!this.#open || !this.#panel || !this.#container) return;
         const r = this.#container.getBoundingClientRect();
+        const zoom = this.#panel.currentCSSZoom || 1;
+        const width = this.#panel.offsetWidth || this.#width;
         const s = this.#panel.style;
         s.position = 'fixed';
-        s.top      = `${Math.round(r.top)}px`;
-        s.left     = `${Math.round(r.right - this.#width)}px`;
+        s.top      = `${Math.round(r.top) / zoom}px`;
+        s.left     = `${Math.round(r.right - width * zoom) / zoom}px`;
         s.right    = 'auto';
-        s.height   = `${Math.round(r.height)}px`;
+        s.height   = `${Math.round(r.height) / zoom}px`;
     };
 }

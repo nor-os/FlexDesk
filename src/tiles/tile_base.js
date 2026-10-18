@@ -61,7 +61,7 @@ export class TileBase {
         // without one behaves exactly as it did before this line existed, and the
         // broadcast path is untouched.
         this.dataSource = dataSource;
-        // `window.__ECOSIM_JS_NEW__?.stateGuard` — an application's global, reached for
+        // This used to be read off an application's window global — reached for
         // by a tile. The StateGuard is a FRAMEWORK service (@flexdesk/core); the INSTANCE is
         // the application's, and it is handed down through the grid. No guard => the
         // dataset writes happen directly, which is what the optional chain already did.
@@ -87,7 +87,18 @@ export class TileBase {
         this._loadSeq = 0;
         /** @type {Map<string, {name: string, analytics: Object, color: string}>|null} */
         this.comparisonData = null;
+        /** The board's scope (`TileGrid.setScope`), or null. Set before mount. */
+        this.scope = null;
     }
+
+    /**
+     * Called when the board's scope changes (`TileGrid.setScope`), after
+     * `this.scope` is set. A no-op here: a tile whose rows the grid's data
+     * source loads is reloaded by the grid, and one fed through `setData` is
+     * fed again by whoever owns its data.
+     * @param {*} _scope
+     */
+    onScopeChange(_scope) {}
 
     /**
      * Set comparison data for overlay rendering.

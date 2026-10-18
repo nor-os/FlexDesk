@@ -15,6 +15,10 @@ import {
   ActionDropdown
 } from "./chunk-O5OHMWBB.js";
 import {
+  showContextMenu
+} from "./chunk-B5Q53LAJ.js";
+import "./chunk-NNFTETK3.js";
+import {
   buildHistogramTrace,
   buildLegendLayout,
   buildOverlayShapes,
@@ -234,6 +238,16 @@ var TileBase = class {
     this._lastLoadedAt = null;
     this._loadSeq = 0;
     this.comparisonData = null;
+    this.scope = null;
+  }
+  /**
+   * Called when the board's scope changes (`TileGrid.setScope`), after
+   * `this.scope` is set. A no-op here: a tile whose rows the grid's data
+   * source loads is reloaded by the grid, and one fed through `setData` is
+   * fed again by whoever owns its data.
+   * @param {*} _scope
+   */
+  onScopeChange(_scope) {
   }
   /**
    * Set comparison data for overlay rendering.
@@ -696,7 +710,7 @@ var TileBase = class {
    * @private
    */
   _onConfigClick() {
-    this.element?.closest(".tile-grid")?.querySelectorAll(".tile.tile--selected").forEach((el) => el.classList.remove("tile--selected"));
+    this.element?.closest(".tile-grid")?.querySelectorAll(".tile.tile--selected").forEach((el2) => el2.classList.remove("tile--selected"));
     this.element?.classList.add("tile--selected");
     this.eventBus?.emit?.("tile:config-request", {
       tileId: this.id,
@@ -1133,10 +1147,10 @@ var ChartTile = class extends TileBase {
    *  not awaited: a rejected purge (Plotly absent, already purged) must not
    *  surface as an unhandled rejection. */
   _releasePlot() {
-    const el = this._plotEl;
+    const el2 = this._plotEl;
     this._plotEl = null;
     this._drawn = false;
-    if (el) purge(el).catch(() => {
+    if (el2) purge(el2).catch(() => {
     });
   }
   // ── the draw ────────────────────────────────────────────────────────
@@ -1487,11 +1501,11 @@ var KpiTile = class extends TileBase {
     if (delta) box.append(delta);
     const foot = [this.config.foot, d.note].filter(Boolean).join(" \xB7 ");
     if (foot) {
-      const el = document.createElement("div");
-      el.className = "fd-kpi__foot";
-      el.textContent = foot;
-      el.title = foot;
-      box.append(el);
+      const el2 = document.createElement("div");
+      el2.className = "fd-kpi__foot";
+      el2.textContent = foot;
+      el2.title = foot;
+      box.append(el2);
     }
     content.append(box);
   }
@@ -1503,19 +1517,19 @@ var KpiTile = class extends TileBase {
     const reference = Number(rawReference);
     if (!Number.isFinite(value) || !Number.isFinite(reference)) return null;
     const change = value - reference;
-    const el = document.createElement("div");
-    el.className = "fd-kpi__delta";
-    if (change > 0) el.classList.add(this.config.invert_delta ? "fd-kpi__delta--down" : "fd-kpi__delta--up");
-    else if (change < 0) el.classList.add(this.config.invert_delta ? "fd-kpi__delta--up" : "fd-kpi__delta--down");
+    const el2 = document.createElement("div");
+    el2.className = "fd-kpi__delta";
+    if (change > 0) el2.classList.add(this.config.invert_delta ? "fd-kpi__delta--down" : "fd-kpi__delta--up");
+    else if (change < 0) el2.classList.add(this.config.invert_delta ? "fd-kpi__delta--up" : "fd-kpi__delta--down");
     const arrow = change > 0 ? "\u25B2" : change < 0 ? "\u25BC" : "\u2013";
     const magnitude = this.config.delta_relative ? reference === 0 ? null : formatValue(Math.abs(change / reference), {
       format: "percent",
       decimals: this.config.decimals ?? 1
     }) : this._format(Math.abs(change), false);
     const sign = change > 0 ? "+" : change < 0 ? "-" : "";
-    el.textContent = magnitude === null ? `${arrow} \u2014` : `${arrow} ${sign}${magnitude}`;
-    el.title = `Compared with ${this._format(reference, false)}`;
-    return el;
+    el2.textContent = magnitude === null ? `${arrow} \u2014` : `${arrow} ${sign}${magnitude}`;
+    el2.title = `Compared with ${this._format(reference, false)}`;
+    return el2;
   }
   _format(value, withAffixes) {
     const format = this.config.format || "number";
@@ -2139,6 +2153,399 @@ function getLayoutPersistence() {
   return instance;
 }
 
+// src/tiles/list_tiles.js
+init_tile_registry();
+var TONES = /* @__PURE__ */ new Set(["danger", "warning", "ok", "muted"]);
+function normalize(data, key) {
+  if (data == null) return null;
+  const d = Array.isArray(data) ? { [key]: data } : data;
+  if (typeof d !== "object" || !Array.isArray(d[key])) return null;
+  const items = d[key].filter((r) => r && typeof r === "object" && r.key != null);
+  const total = Number.isFinite(Number(d.total)) && d.total !== null && d.total !== "" ? Number(d.total) : items.length;
+  return {
+    items,
+    total: Math.max(total, items.length),
+    note: typeof d.note === "string" ? d.note : "",
+    empty: typeof d.empty === "string" ? d.empty : "",
+    action: d.action && typeof d.action === "object" && d.action.label ? d.action : null
+  };
+}
+var normalizeListData = (data) => normalize(data, "rows");
+var normalizePeopleData = (data) => normalize(data, "people");
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = String(text);
+  return e;
+}
+function glyph(name, cls = "") {
+  const g = el("span", `material-symbols-outlined${cls ? ` ${cls}` : ""}`, name);
+  g.setAttribute("aria-hidden", "true");
+  return g;
+}
+var toneClass = (base, tone) => TONES.has(tone) ? ` ${base}--${tone}` : "";
+var RowsTile = class extends TileBase {
+  static _KEY = "rows";
+  constructor(options = {}) {
+    super(options);
+    this.onRowActivate = typeof options.onRowActivate === "function" ? options.onRowActivate : null;
+    this.rowMenu = typeof options.rowMenu === "function" ? options.rowMenu : null;
+    this.onRowMenuAction = typeof options.onRowMenuAction === "function" ? options.onRowMenuAction : null;
+    this.onAction = typeof options.onAction === "function" ? options.onAction : null;
+    this.rowsDraggable = options.rowsDraggable === true;
+    this._items = /* @__PURE__ */ new Map();
+    this._onClick = (e) => this._click(e);
+    this._onKey = (e) => this._key(e);
+    this._onMenu = (e) => this._menu(e);
+  }
+  /** Pure and static-only — it runs inside `TileBase`'s constructor. */
+  getDefaultConfig() {
+    return { title: "", empty_text: "", max_rows: 0 };
+  }
+  getConfigSchema() {
+    return {
+      fields: [
+        { name: "title", type: "text", label: "Tile title" },
+        {
+          name: "empty_text",
+          type: "text",
+          label: "When there is nothing",
+          help: 'What the tile says when the list is empty, e.g. "Nothing is late."'
+        },
+        {
+          name: "max_rows",
+          type: "number",
+          label: "Rows at most",
+          min: 0,
+          help: "0 shows them all; the tile scrolls."
+        }
+      ]
+    };
+  }
+  mount(container) {
+    super.mount(container);
+    applyTitle2(this);
+    const c = this.contentElement;
+    if (!c) return;
+    c.addEventListener("click", this._onClick);
+    c.addEventListener("keydown", this._onKey);
+    c.addEventListener("contextmenu", this._onMenu);
+  }
+  /** `null` is "the grid has no data" — see `ChartTile.update`. */
+  update(data, config) {
+    if (this._disposed) return;
+    super.update(data === null ? void 0 : data, config);
+    if (config) applyTitle2(this);
+  }
+  /** Hand this tile its rows; null is the empty state. */
+  setData(data) {
+    if (this._disposed) return;
+    this.data = data ?? null;
+    if (this.contentElement) this.render(this.data);
+  }
+  /** The item drawn under `key`, or null. */
+  itemFor(key) {
+    return this._items.get(String(key)) ?? null;
+  }
+  /** The element of the item drawn under `key`, or null. */
+  rowElement(key) {
+    const want = String(key);
+    return [...this.contentElement?.querySelectorAll("[data-row-key]") || []].find((r) => r.dataset.rowKey === want) || null;
+  }
+  render(data) {
+    const content = this.contentElement;
+    if (!content) return;
+    const norm = normalize(data, this.constructor._KEY);
+    this._items.clear();
+    if (!norm) {
+      this.showEmpty("Nothing to show.");
+      return;
+    }
+    const max = Math.max(0, Math.floor(Number(this.config.max_rows) || 0));
+    const shown = max ? norm.items.slice(0, max) : norm.items;
+    const box = el("div", `fd-list-tile fd-list-tile--${this.constructor._KEY}`);
+    const bar = el("div", "fd-list-tile__bar");
+    const count = el(
+      "span",
+      "fd-list-tile__count",
+      shown.length < norm.total ? `${shown.length} of ${norm.total}` : String(norm.total)
+    );
+    count.title = `${norm.total} in all`;
+    bar.append(count, el("span", "fd-list-tile__spacer"));
+    if (norm.action) {
+      const b = el("button", "fd-list-tile__action");
+      b.type = "button";
+      b.dataset.listAction = "action";
+      if (norm.action.icon) b.append(glyph(norm.action.icon));
+      b.append(el("span", null, norm.action.label));
+      bar.append(b);
+    }
+    box.append(bar);
+    const list = el("div", "fd-list-tile__rows");
+    list.setAttribute("role", "list");
+    if (!shown.length) {
+      list.append(el("div", "fd-list-tile__empty", norm.empty || this.config.empty_text || "Nothing here."));
+    }
+    for (const item of shown) {
+      const key = String(item.key);
+      if (this._items.has(key)) continue;
+      this._items.set(key, item);
+      const row = this._renderItem(item);
+      row.classList.add("fd-list-tile__row");
+      row.dataset.rowKey = key;
+      row.setAttribute("role", "button");
+      row.tabIndex = 0;
+      if (this.rowsDraggable) row.draggable = true;
+      const wrap = el("div", "fd-list-tile__item");
+      wrap.setAttribute("role", "listitem");
+      wrap.append(row);
+      list.append(wrap);
+    }
+    box.append(list);
+    if (norm.note) {
+      const note = el("div", "fd-list-tile__note", norm.note);
+      note.setAttribute("role", "note");
+      note.title = norm.note;
+      box.append(note);
+    }
+    content.replaceChildren(box);
+  }
+  /** One item's row element. @abstract */
+  _renderItem(_item) {
+    return el("div");
+  }
+  // ── input ───────────────────────────────────────────────────────────
+  _rowOf(target) {
+    const row = target?.closest?.("[data-row-key]");
+    return row && this.contentElement?.contains(row) ? row : null;
+  }
+  _click(e) {
+    if (e.target?.closest?.("[data-list-action]")) {
+      this._call(this.onAction, { tile: this, event: e });
+      return;
+    }
+    const row = this._rowOf(e.target);
+    if (row) this._activate(row, e);
+  }
+  _activate(rowEl, event) {
+    const row = this.itemFor(rowEl.dataset.rowKey);
+    if (row) this._call(this.onRowActivate, { row, event, tile: this });
+  }
+  _key(e) {
+    const rowEl = this._rowOf(e.target);
+    if (!rowEl) return;
+    if (e.key === "ContextMenu" || e.key === "F10" && e.shiftKey) {
+      const r = rowEl.getBoundingClientRect();
+      if (this._openMenu(rowEl, e, r.left + 16, r.bottom)) e.preventDefault();
+      return;
+    }
+    if ((e.key === "Enter" || e.key === " ") && !e.altKey) {
+      e.preventDefault();
+      this._activate(rowEl, e);
+      return;
+    }
+    const rows = [...this.contentElement.querySelectorAll("[data-row-key]")];
+    const i = rows.indexOf(rowEl);
+    const to = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: rows.length - 1 }[e.key];
+    if (to === void 0 || !rows[to]) return;
+    e.preventDefault();
+    rows[to].focus();
+  }
+  _menu(e) {
+    const rowEl = this._rowOf(e.target);
+    if (rowEl && this._openMenu(rowEl, e, e.clientX, e.clientY)) e.preventDefault();
+  }
+  /** Show the row's menu, if it has one. → whether it did. */
+  _openMenu(rowEl, event, x, y) {
+    const row = this.itemFor(rowEl.dataset.rowKey);
+    if (!row || typeof this.rowMenu !== "function") return false;
+    let items = null;
+    try {
+      items = this.rowMenu({ row, event, tile: this });
+    } catch (err) {
+      console.error(`[${this.constructor.name}] rowMenu threw:`, err);
+      return false;
+    }
+    if (!Array.isArray(items) || !items.length) return false;
+    showContextMenu(x, y, items, (action) => this._call(this.onRowMenuAction, { action, row, tile: this }));
+    return true;
+  }
+  /** A hook, called so that one that throws is reported and the tile goes on. */
+  _call(fn, arg) {
+    if (typeof fn !== "function") return;
+    try {
+      fn(arg);
+    } catch (err) {
+      console.error(`[${this.constructor.name}] a callback threw:`, err);
+    }
+  }
+  dispose() {
+    const c = this.contentElement;
+    if (c) {
+      c.removeEventListener("click", this._onClick);
+      c.removeEventListener("keydown", this._onKey);
+      c.removeEventListener("contextmenu", this._onMenu);
+    }
+    this._items.clear();
+    super.dispose();
+  }
+};
+var ListTile = class extends RowsTile {
+  static TYPE = "flexdesk.list";
+  static TITLE = "List";
+  static ICON = "list";
+  static DESCRIPTION = "Rows you supply, with a count, a click and a right-click menu per row.";
+  static DEFAULT_SIZE = { w: 6, h: 4 };
+  static SIZE_CONSTRAINTS = { minW: 3, minH: 2, maxW: 12, maxH: 12 };
+  static _KEY = "rows";
+  _renderItem(r) {
+    const row = el("div", r.className ? String(r.className) : null);
+    if (r.icon) {
+      const g = glyph(r.icon, "fd-list-tile__icon");
+      if (r.iconTitle) {
+        g.title = r.iconTitle;
+        g.removeAttribute("aria-hidden");
+      }
+      row.append(g);
+    }
+    if (r.lead != null && r.lead !== "") row.append(el("span", "fd-list-tile__lead", r.lead));
+    const title = el("span", "fd-list-tile__title", r.title ?? "");
+    title.title = r.tip || String(r.title ?? "");
+    row.append(title);
+    for (const c of Array.isArray(r.cells) ? r.cells : []) {
+      if (!c) continue;
+      const cell = el("span", `fd-list-tile__cell${toneClass("fd-list-tile__cell", c.tone)}${c.className ? ` ${c.className}` : ""}`);
+      if (c.icon) cell.append(glyph(c.icon));
+      if (c.text != null && c.text !== "") cell.append(document.createTextNode(String(c.text)));
+      if (c.title) cell.title = c.title;
+      row.append(cell);
+    }
+    return row;
+  }
+};
+var PeopleTile = class extends RowsTile {
+  static TYPE = "flexdesk.people";
+  static TITLE = "People";
+  static ICON = "groups";
+  static DESCRIPTION = "One row per person, with how much is on them.";
+  static DEFAULT_SIZE = { w: 6, h: 4 };
+  static SIZE_CONSTRAINTS = { minW: 3, minH: 2, maxW: 12, maxH: 12 };
+  static _KEY = "people";
+  getDefaultConfig() {
+    return { ...super.getDefaultConfig(), count_label: "open" };
+  }
+  getConfigSchema() {
+    const { fields } = super.getConfigSchema();
+    return { fields: [...fields, {
+      name: "count_label",
+      type: "text",
+      label: "Count reads",
+      help: `After each person's number, e.g. "open" for "3 open".`
+    }] };
+  }
+  _renderItem(p) {
+    const row = el("div", "fd-people-tile__row");
+    row.append(glyph(p.icon || (p.muted ? "person_off" : "person"), "fd-list-tile__icon"));
+    row.append(el("span", `fd-people-tile__name${p.muted ? " fd-people-tile__name--muted" : ""}`, p.name ?? p.key));
+    const pills = el("span", "fd-people-tile__pills");
+    for (const pill of Array.isArray(p.pills) ? p.pills : []) {
+      if (!pill?.text) continue;
+      const s = el("span", `fd-people-tile__pill${toneClass("fd-people-tile__pill", pill.tone)}`, pill.text);
+      if (pill.title) s.title = pill.title;
+      pills.append(s);
+    }
+    row.append(pills);
+    const label = p.countLabel ?? this.config.count_label ?? "";
+    row.append(el("span", "fd-people-tile__count", `${Number(p.count) || 0}${label ? ` ${label}` : ""}`));
+    if (p.title) row.title = p.title;
+    return row;
+  }
+};
+function groupByPerson(items, personOf) {
+  const by = /* @__PURE__ */ new Map();
+  for (const item of Array.isArray(items) ? items : []) {
+    const who = String(personOf(item) || "");
+    if (!by.has(who)) by.set(who, { key: who, items: [] });
+    by.get(who).items.push(item);
+  }
+  return [...by.values()].sort((a, b) => b.items.length - a.items.length || (a.key === "") - (b.key === "") || a.key.localeCompare(b.key));
+}
+function registerListTiles() {
+  for (const Tile of [ListTile, PeopleTile]) {
+    if (getWidget(Tile.TYPE) !== Tile) registerWidget(Tile);
+  }
+}
+function applyTitle2(tile) {
+  tile.setTitle(tile.config.title || tile.constructor.TITLE);
+}
+
+// src/tiles/scope_picker.js
+function createScopePicker({ options = [], value, label = "Scope", onChange } = {}) {
+  const opts = options.filter((o) => o && o.value != null).map((o) => ({ ...o, value: String(o.value) }));
+  const known = (v) => opts.some((o) => o.value === String(v));
+  let current = known(value) ? String(value) : opts[0]?.value ?? "";
+  const element = document.createElement("span");
+  element.className = "fd-scope-picker";
+  element.setAttribute("role", "group");
+  element.setAttribute("aria-label", label);
+  const buttons = opts.map((o) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "fd-scope-picker__btn";
+    b.dataset.scope = o.value;
+    b.textContent = o.label ?? o.value;
+    if (o.hint) b.title = o.hint;
+    element.append(b);
+    return b;
+  });
+  const paint = () => {
+    for (const b of buttons) {
+      const on = b.dataset.scope === current;
+      b.classList.toggle("fd-scope-picker__btn--on", on);
+      b.setAttribute("aria-pressed", String(on));
+    }
+  };
+  paint();
+  const onClick = (e) => {
+    const b = e.target?.closest?.("[data-scope]");
+    if (!b || !element.contains(b) || b.dataset.scope === current) return;
+    current = b.dataset.scope;
+    paint();
+    try {
+      onChange?.(current);
+    } catch (err) {
+      console.error("[ScopePicker] onChange threw:", err);
+    }
+  };
+  const onKey = (e) => {
+    const i = buttons.indexOf(e.target);
+    if (i < 0) return;
+    const to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: buttons.length - 1 }[e.key];
+    if (to === void 0 || !buttons[to]) return;
+    e.preventDefault();
+    buttons[to].focus();
+  };
+  element.addEventListener("click", onClick);
+  element.addEventListener("keydown", onKey);
+  return {
+    element,
+    get value() {
+      return current;
+    },
+    /** Press `v` without calling `onChange` (a value restored from elsewhere). */
+    setValue(v) {
+      if (!known(v)) return;
+      current = String(v);
+      paint();
+    },
+    dispose() {
+      element.removeEventListener("click", onClick);
+      element.removeEventListener("keydown", onKey);
+      element.remove();
+    }
+  };
+}
+
 // src/tiles/tile_grid.js
 init_tile_registry();
 var TileGrid = class {
@@ -2157,6 +2564,9 @@ var TileGrid = class {
    * @param {{resolve: Function}} [options.dataSource] - Per-tile data provider,
    *        handed to every tile. With none, the grid is the broadcast-only grid
    *        it has always been and no tile is ever asked to load anything.
+   * @param {*} [options.scope=null] - The board's scope, a filter every tile
+   *        follows (0.16.1); see `setScope`.
+   * @param {Function} [options.onScopeChange] - `(scope)` after `setScope` changed it.
    */
   constructor({
     container,
@@ -2179,9 +2589,13 @@ var TileGrid = class {
     stateGuard = null,
     // Injected, never constructed here: the grid does not know what
     // a binding is, only that a tile may have somewhere to ask.
-    dataSource = null
+    dataSource = null,
+    scope = null,
+    onScopeChange = null
   }) {
     this.host = host;
+    this.scope = scope;
+    this._onScopeChangeCallback = onScopeChange;
     this.stateGuard = stateGuard;
     this.dataSource = dataSource;
     this.container = container;
@@ -2304,6 +2718,7 @@ var TileGrid = class {
       dataSource: this.dataSource
     });
     if (!tile) return null;
+    tile.scope = this.scope;
     const layoutEntry = {
       id: tileId,
       type,
@@ -2373,6 +2788,39 @@ var TileGrid = class {
       if (wanted && !wanted.has(tileId)) return;
       tile.loadData?.({ force: true });
     });
+  }
+  /**
+   * THE BOARD'S SCOPE: one filter every tile follows ("Everyone", "Assigned
+   * by me", …), set from a `createScopePicker` or from anything else.
+   *
+   * The grid only carries the value; what it means is the embedder's. Every
+   * tile gets it as `tile.scope` and through `tile.onScopeChange(scope)`, the
+   * grid's `onScopeChange(scope)` is called, and a grid with a data source
+   * reloads its tiles, since their rows depend on it. The scope is not part
+   * of the layout: it is how the board is being looked at, not what is on it.
+   *
+   * @param {*} scope - Compared by JSON: setting the same scope again does nothing.
+   * @returns {boolean} whether it changed
+   */
+  setScope(scope) {
+    if (JSON.stringify(scope ?? null) === JSON.stringify(this.scope ?? null)) return false;
+    this.scope = scope ?? null;
+    this.tiles.forEach((tile) => {
+      tile.scope = this.scope;
+      try {
+        tile.onScopeChange?.(this.scope);
+      } catch (err) {
+        console.error("[TileGrid] a tile's onScopeChange threw:", err);
+      }
+    });
+    try {
+      this._onScopeChangeCallback?.(this.scope);
+    } catch (err) {
+      console.error("[TileGrid] onScopeChange threw:", err);
+    }
+    this.eventBus?.emit?.("grid:scope-changed", { scope: this.scope });
+    if (this.dataSource) this.reloadAll();
+    return true;
   }
   /**
    * Get current layout.
@@ -2898,10 +3346,13 @@ export {
   FieldTypes,
   KpiTile,
   LayoutPersistence,
+  ListTile,
+  PeopleTile,
   TileBase,
   TileGrid,
   TileRegistry,
   configureLayoutPersistence,
+  createScopePicker,
   createWidget,
   formatVariableLabel,
   getAllWidgetTypes,
@@ -2912,10 +3363,14 @@ export {
   getWidget,
   getWidgetCatalog,
   getWidgetMetadata,
+  groupByPerson,
   hasWidget,
   mergeWithDefaults,
   normalizeChartData,
+  normalizeListData,
+  normalizePeopleData,
   registerChartTiles,
+  registerListTiles,
   registerWidget,
   setTileLogger,
   validateConfig,

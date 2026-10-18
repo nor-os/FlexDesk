@@ -107,8 +107,8 @@ const host = createHost({
 
 const note = (hostEl, title, body) => {
     const el = document.createElement('div');
-    el.style.cssText = 'padding:14px 16px; color:var(--text-2); max-width:60ch; line-height:1.5;';
-    el.innerHTML = `<div style="font-weight:600; color:var(--text-1); margin-bottom:6px;">${title}</div>`
+    el.style.cssText = 'padding:14px 16px; color:var(--text-secondary); max-width:60ch; line-height:1.5;';
+    el.innerHTML = `<div style="font-weight:600; color:var(--text-primary); margin-bottom:6px;">${title}</div>`
                  + `<div style="font-size:12px;">${body}</div>`;
     hostEl.appendChild(el);
 };

@@ -60,7 +60,9 @@ export const FLOW_STRINGS = Object.freeze({
     value: 'Value',
     formula: 'Formula',
     textOrValue: 'Text, or insert a value',
-    noColumns: 'There are no columns to choose from yet: connect a step before this one.',
+    noColumns: 'Columns not known yet: type the name.',
+    columnName: 'Column name',
+    columnNames: 'Column name, then Enter',
     noColumnsChosen: 'None chosen',
     fieldFinding: 'Fix this before publishing',
 

@@ -6,10 +6,15 @@ import {
   helpCategories,
   helpCopy,
   helpProvider,
+  setHelpProvider
+} from "./chunk-W6FBJLPW.js";
+import {
+  ActionDropdown
+} from "./chunk-O5OHMWBB.js";
+import {
   hideContextMenu,
-  setHelpProvider,
   showContextMenu
-} from "./chunk-CWPMLX67.js";
+} from "./chunk-B5Q53LAJ.js";
 import {
   modalHost,
   openConfirm,
@@ -17,9 +22,6 @@ import {
   openModal,
   setModalHost
 } from "./chunk-NNFTETK3.js";
-import {
-  ActionDropdown
-} from "./chunk-O5OHMWBB.js";
 import {
   DataTable,
   ISO_DATE,
@@ -835,6 +837,10 @@ function mountAlertsPane(host, {
 }
 
 // src/ui/components/sortable_list.js
+var ROW_CLASS = "twm-sortable-list__row";
+var ROW_SELECTOR = `.${ROW_CLASS}`;
+var HANDLE_CLASS = "twm-sortable-list__handle";
+var HANDLE_SELECTOR = `.${HANDLE_CLASS}`;
 var SortableList = class {
   /**
    * Create a sortable list.
@@ -875,6 +881,7 @@ var SortableList = class {
     this.root = null;
     this.listEl = null;
     this._dragReorder = null;
+    this._pressedHandle = false;
   }
   /**
    * Render the sortable list.
@@ -988,13 +995,20 @@ var SortableList = class {
     });
     if (this.allowReorder) {
       if (!this._dragReorder) {
+        this.listEl.addEventListener("mousedown", (e) => {
+          this._pressedHandle = !!e.target.closest?.(HANDLE_SELECTOR);
+        });
         this._dragReorder = new DragReorder({
           container: this.listEl,
-          itemSelector: ".sortable-list__row",
+          itemSelector: ROW_SELECTOR,
           keyAttr: "index",
           axis: "y",
           indicatorClass: "twm-sortable-list__drop",
-          draggableGuard: (e) => !!e.target.closest(".twm-sortable-list__handle"),
+          draggableGuard: () => {
+            const fromHandle = this._pressedHandle;
+            this._pressedHandle = false;
+            return fromHandle;
+          },
           onReorder: (order) => this.#applyReorder(order)
         });
       }
@@ -1013,11 +1027,11 @@ var SortableList = class {
   }
   #createRow(item, index) {
     const row = document.createElement("div");
-    row.className = "twm-sortable-list__row";
+    row.className = ROW_CLASS;
     row.dataset.index = index;
     if (this.allowReorder) {
       const handle = document.createElement("div");
-      handle.className = "twm-sortable-list__handle";
+      handle.className = HANDLE_CLASS;
       handle.innerHTML = '<span class="material-symbols-outlined">drag_indicator</span>';
       row.appendChild(handle);
     }

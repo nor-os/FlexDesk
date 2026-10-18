@@ -35,26 +35,29 @@
     <link href="../dist/flexdesk.css" rel="stylesheet" />
 
     <style>
-        /* The demo's own layout. Everything else is the library's. */
+        /* The demo's own layout. Everything else is the library's. It reads only
+           tokens tokens.css DEFINES, with no fallback: a consumer copies these
+           names, so a misspelt one must look broken here, not silently default
+           (tests/demo_tokens.test.mjs holds every demo page to that). */
         html, body { height: 100%; margin: 0; overflow: hidden; }
         body {
             background: var(--surface-0);
-            color: var(--text-1);
-            font-family: var(--font-ui, system-ui, sans-serif);
-            font-size: var(--font-size-md, 13px);
+            color: var(--text-primary);
+            font-family: var(--font-family-sans);
+            font-size: var(--font-size-md);
             display: flex; flex-direction: column;
         }
         #demo-root { flex: 1 1 0; min-height: 0; position: relative; }
         .twm-global-top-bar, .twm-global-bottom-bar {
             display: flex; align-items: center; justify-content: space-between;
-            gap: var(--space-3, 8px); padding: 0 var(--space-3, 8px);
-            background: var(--surface-1); border-bottom: 1px solid var(--border-1);
+            gap: var(--space-md); padding: 0 var(--space-md);
+            background: var(--surface-1); border-bottom: 1px solid var(--border-default);
             flex: 0 0 auto; height: 36px;
         }
-        .twm-global-bottom-bar { border-bottom: 0; border-top: 1px solid var(--border-1); height: 28px; }
+        .twm-global-bottom-bar { border-bottom: 0; border-top: 1px solid var(--border-default); height: 28px; }
         .twm-bar-left, .twm-bar-center, .twm-bar-right { display: flex; align-items: center; gap: 6px; }
-        .twm-brand { font-weight: 600; letter-spacing: .04em; color: var(--text-2); }
-        .twm-status { color: var(--text-3); font-size: var(--font-size-sm, 11px); }
+        .twm-brand { font-weight: 600; letter-spacing: .04em; color: var(--text-secondary); }
+        .twm-status { color: var(--text-muted); font-size: var(--font-size-sm); }
     </style>
 </head>
 <body class="twm-body">

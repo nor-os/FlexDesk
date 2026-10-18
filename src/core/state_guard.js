@@ -19,8 +19,12 @@ const HOOK_REGISTRY = {
     datasetProxyCache: new WeakMap(),
 };
 
-const STACK_CACHE = new Map();
+const STACK_CACHE_LIMIT = 500;
+/** `url:line:col` at the end of a frame, in V8 (`at fn (url:1:2)`) and in Firefox/WebKit (`fn@url:1:2`). */
+const FRAME_LOCATION = /(?:\(|@|\bat\s+)([^()\s@][^()\s]*?):\d+(?::\d+)?\)?\s*$/;
 const DATA_ATTRIBUTE_PREFIX = 'data-';
+/** Set by the DOM hooks below: one hook frame sits between the writer and handle*Mutation. */
+const VIA_DOM_HOOK = Symbol('state-guard:via-dom-hook');
 const EVENT_CHANNELS = Object.freeze({
     READY: 'state-guard:ready',
     VIOLATION: 'state-guard:violation',
@@ -48,6 +52,8 @@ export class StateGuardService {
             datasetKeys: new Set(entry.datasetKeys.map((key) => key.toLowerCase())),
             attributePrefixes: entry.attributePrefixes.map((prefix) => prefix.toLowerCase()),
         }));
+        this.moduleFramePattern = this.config.moduleFramePattern;
+        this.stackCache = new Map();
         this.#installHooks();
     }
 
@@ -121,7 +127,11 @@ export class StateGuardService {
         }
     }
 
-    handleAttributeMutation(element, action, attribute, value) {
+    /**
+     * Check one attribute write. The write is attributed to the caller of this
+     * method, or to the caller of the patched DOM API when it came through one.
+     */
+    handleAttributeMutation(element, action, attribute, value, options = {}) {
         const attrName = this.#normalizeAttribute(attribute);
         if (!this.#shouldGuard(attrName)) {
             return;
@@ -132,15 +142,19 @@ export class StateGuardService {
             element,
             value,
             source: 'attribute',
+            stack: new Error().stack,
+            writerFrame: options?.[VIA_DOM_HOOK] ? 2 : 1,
         });
     }
 
-    handleDatasetMutation(element, key, value, { deleting = false } = {}) {
+    handleDatasetMutation(element, key, value, { deleting = false, [VIA_DOM_HOOK]: viaHook = false } = {}) {
         const attrName = this.#datasetKeyToAttribute(key);
         if (!this.#shouldGuard(attrName)) {
             return;
         }
         this.#evaluateMutation({
+            stack: new Error().stack,
+            writerFrame: viaHook ? 2 : 1,
             action: deleting ? 'dataset:delete' : 'dataset:set',
             attribute: attrName,
             element,
@@ -190,8 +204,8 @@ export class StateGuardService {
         return true;
     }
 
-    #evaluateMutation({ action, attribute, element, value, source }) {
-        const moduleKey = this.#resolveModuleFromStack();
+    #evaluateMutation({ action, attribute, element, value, source, stack, writerFrame }) {
+        const moduleKey = this.#resolveModuleFromStack(stack, writerFrame);
         if (this.#isAllowedForModule(moduleKey, attribute)) {
             return;
         }
@@ -263,27 +277,47 @@ export class StateGuardService {
         return `${DATA_ATTRIBUTE_PREFIX}${normalized}`;
     }
 
-    #resolveModuleFromStack() {
-        const stack = new Error().stack;
+    /**
+     * The module a write is attributed to. `stack` was captured in a
+     * handle*Mutation method (frame 0); `writerFrame` is the index of the frame
+     * that made the write (1 for a direct call, 2 through a DOM hook). Without a
+     * `moduleFramePattern` that writer's location (its URL or path, line and
+     * column dropped) is the module. With one, the first frame from the writer
+     * up whose location matches is used, and the module is the pattern's first
+     * capture group, or that frame's whole location when it has none.
+     */
+    #resolveModuleFromStack(stack, writerFrame) {
         if (!stack) {
             return null;
         }
-        if (STACK_CACHE.has(stack)) {
-            return STACK_CACHE.get(stack);
+        const cacheKey = `${writerFrame}\n${stack}`;
+        if (this.stackCache.has(cacheKey)) {
+            return this.stackCache.get(cacheKey);
         }
-        const lines = stack.split('\n');
-        let modulePath = null;
-        for (const line of lines) {
-            const match = line.match(/(js_new\/[^)\s]+)/);
+        const locations = [];
+        for (const line of String(stack).split('\n')) {
+            const match = line.match(FRAME_LOCATION);
             if (match) {
-                modulePath = match[1];
-                break;
+                locations.push(match[1]);
             }
         }
-        if (STACK_CACHE.size > 500) {
-            STACK_CACHE.clear();
+        const callers = locations.slice(writerFrame);
+        let modulePath = null;
+        if (!this.moduleFramePattern) {
+            modulePath = callers[0] ?? null;
+        } else {
+            for (const location of callers) {
+                const match = location.match(this.moduleFramePattern);
+                if (match) {
+                    modulePath = match[1] ?? location;
+                    break;
+                }
+            }
         }
-        STACK_CACHE.set(stack, modulePath);
+        if (this.stackCache.size > STACK_CACHE_LIMIT) {
+            this.stackCache.clear();
+        }
+        this.stackCache.set(cacheKey, modulePath);
         return modulePath;
     }
 
@@ -316,21 +350,13 @@ function installDomHooks(service) {
 
     Element.prototype.setAttribute = function patchedSetAttribute(name, value) {
         const guard = HOOK_REGISTRY.service;
-        try {
-            guard?.handleAttributeMutation(this, 'setAttribute', name, value);
-        } catch (error) {
-            throw error;
-        }
+        guard?.handleAttributeMutation(this, 'setAttribute', name, value, { [VIA_DOM_HOOK]: true });
         return nativeSetAttribute.call(this, name, value);
     };
 
     Element.prototype.removeAttribute = function patchedRemoveAttribute(name) {
         const guard = HOOK_REGISTRY.service;
-        try {
-            guard?.handleAttributeMutation(this, 'removeAttribute', name, undefined);
-        } catch (error) {
-            throw error;
-        }
+        guard?.handleAttributeMutation(this, 'removeAttribute', name, undefined, { [VIA_DOM_HOOK]: true });
         return nativeRemoveAttribute.call(this, name);
     };
 
@@ -362,7 +388,7 @@ function wrapDataset(service) {
                     const guard = HOOK_REGISTRY.service;
                     const key = typeof prop === 'string' ? prop : null;
                     if (guard && key) {
-                        guard.handleDatasetMutation(proxyState.element, key, value);
+                        guard.handleDatasetMutation(proxyState.element, key, value, { [VIA_DOM_HOOK]: true });
                     }
                     return Reflect.set(target, prop, value);
                 },
@@ -370,7 +396,10 @@ function wrapDataset(service) {
                     const guard = HOOK_REGISTRY.service;
                     const key = typeof prop === 'string' ? prop : null;
                     if (guard && key) {
-                        guard.handleDatasetMutation(proxyState.element, key, undefined, { deleting: true });
+                        guard.handleDatasetMutation(proxyState.element, key, undefined, {
+                            deleting: true,
+                            [VIA_DOM_HOOK]: true,
+                        });
                     }
                     return Reflect.deleteProperty(target, prop);
                 },

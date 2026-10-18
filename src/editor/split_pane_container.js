@@ -114,17 +114,20 @@ export class SplitPaneContainer {
 
         if (!this.#pane1) return;
 
+        // ADD the class, never assign it: a pane is the caller's element
+        // (an EditorPane root is `.editor-pane`), and its own classes are
+        // what its stylesheet reaches it by.
         if (!this.#isSplit) {
             // Single pane: fills container
-            this.#pane1.className = 'split-pane';
+            this.#pane1.classList.add('split-pane');
             this.#pane1.style.flex = '1 1 0';
             this.#pane1.style.minWidth = '0';
             this.#container.appendChild(this.#pane1);
             this.#container.classList.remove('split-pane-container--split');
         } else {
             // Split view
-            this.#pane1.className = 'split-pane';
-            this.#pane2.className = 'split-pane';
+            this.#pane1.classList.add('split-pane');
+            this.#pane2.classList.add('split-pane');
             this.#pane1.style.minWidth = '0';
             this.#pane2.style.minWidth = '0';
 

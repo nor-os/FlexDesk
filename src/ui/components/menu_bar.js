@@ -144,6 +144,10 @@ export class MenuBar {
             docKeydown: (e) => this._onDocKeyDown(e),
             docKeyup: (e) => this._onDocKeyUp(e),
             docMousedown: (e) => this._onDocMouseDown(e),
+            // Alt+Tab, Alt+F4, Alt+Space: the second key goes to the OS, so no
+            // keydown reaches the page to disarm Alt. The window losing focus
+            // does, or the Alt keyup on return would take focus to the bar.
+            winBlur: () => { this._altArmed = false; },
         };
         for (const k of ['mousedown', 'click', 'mouseover', 'keydown', 'keyup', 'focusin', 'focusout']) {
             el.addEventListener(k, this._h[k]);
@@ -151,6 +155,7 @@ export class MenuBar {
         this._doc.addEventListener('keydown', this._h.docKeydown, true);
         this._doc.addEventListener('keyup', this._h.docKeyup, true);
         this._doc.addEventListener('mousedown', this._h.docMousedown, true);
+        this._doc.defaultView?.addEventListener('blur', this._h.winBlur);
     }
 
     // ── public ────────────────────────────────────────────────────────
@@ -232,6 +237,7 @@ export class MenuBar {
         this._doc.removeEventListener('keydown', this._h.docKeydown, true);
         this._doc.removeEventListener('keyup', this._h.docKeyup, true);
         this._doc.removeEventListener('mousedown', this._h.docMousedown, true);
+        this._doc.defaultView?.removeEventListener('blur', this._h.winBlur);
         this.el.innerHTML = '';
         this.el.classList.remove('twm-menubar');
         this.el.removeAttribute('role');
@@ -326,8 +332,7 @@ export class MenuBar {
     _enter(from = this._doc.activeElement) {
         if (this._active) return;
         this._active = true;
-        const a = from;
-        this._returnTo = a && a !== this._doc.body && !this.el.contains(a) ? a : null;
+        this._returnTo = from && from !== this._doc.body && !this.el.contains(from) ? from : null;
     }
 
     /** Leave the bar and give focus back. */

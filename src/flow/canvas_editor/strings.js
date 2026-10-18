@@ -34,4 +34,5 @@ export const CANVAS_STRINGS = Object.freeze({
     removeConnection: 'Remove connection',
     portCount: (n) => `×${n}`,
     portNotTaken: 'not taken',
+    routingFallback: (n) => `More than ${n} steps: the lines are drawn as plain curves, not routed round the steps.`,
 });

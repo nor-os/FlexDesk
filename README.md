@@ -1389,6 +1389,9 @@ editor.setRunOverlay({ steps, ports, banner });
 | `loop`, `waitsForAll` | The loop's port names (`{entry: 'in', next, body, done}`): a line into a loop-role step on any input but `entry` is its body going back round, drawn dashed under both steps. `waitsForAll(join)` goes to `alwaysBefore` |
 | `removable(node, type)` | Whether a step may be removed. By default every step except a start step |
 | `node` | `{width: 208, header: 34, row: 22}` (`CANVAS_NODE`). Lines are anchored by arithmetic over these numbers, and the stylesheet is held to them |
+| `edgeStyle(connection, {source, target, back})` | How a line is drawn, asked for each line on every paint with copies of its two steps (`back`: it is a loop's line back). Returns `null` or `{tone, dashed, width, marker, label}`: `tone` is one of `TONES`, `width` a stroke width, `marker` `'arrow'` or a crow's-foot kind (`'many'`, `'one'`, `'zero-or-many'`, `'one-or-many'`, `'zero-or-one'`, `'exactly-one'`) drawn at the input end, and `label` text drawn at the line's midpoint, above the steps (a press on it picks the line). A picked or highlighted line still shows as one. Unset, the lines are drawn exactly as before |
+| `routing` | `'simple'` (the default: direct curves) or `'obstacles'`: each line is bent round the steps between its ends by the kernel's `routeEdge`, up to `OBSTACLE_ROUTING_NODE_LIMIT` steps. Above that the lines are direct curves and the findings strip says so (code `canvas-routing-simple`) |
+| `hoverHighlight` | `true`: the pointer over a step gives its lines `twm-flow-graph__edge--highlighted`, and over a line that line; leaving takes it away |
 | `history`, `gridSize`, `label` | `{limit, mergeMs}`, the snap grid, and the canvas's accessible name |
 
 | Method | Does |
@@ -1450,6 +1453,19 @@ as text. In headless Edge, `demo/flow_canvas_probe.mjs` drives
 - A header drag moved its node, and a real Ctrl+Z put it back. Backspace removed
   nothing, Delete removed the step, and the focus stayed on the canvas.
 - At 700px the canvas took the editor's whole width.
+
+`tests/flow_canvas_edge_style.test.mjs` checks `edgeStyle`, `routing` and
+`hoverHighlight` in the DOM, and `demo/flow_canvas_edges_probe.mjs` in headless
+Edge:
+- A dashed line had a computed dash pattern, and an unstyled line kept its old
+  stroke and width.
+- An arrowhead's tip sat on the input port's centre line, and the line ended at
+  its base.
+- A label sat on its line's midpoint over a step, and `elementFromPoint` there
+  returned the label.
+- With `routing: 'obstacles'`, no point of a line lay inside the drawn box of
+  the step between its ends. Above the node limit the strip said so.
+- A real pointer over a step highlighted its lines, and moving off cleared them.
 
 ### The outline editor
 

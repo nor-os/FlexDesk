@@ -640,7 +640,7 @@ export function createCanvasEditor(host, options = {}) {
 
     /** A legal-once-something-else-changes line: its sentence, Accept and Not now. */
     function showOffer(offer, build, action, after = null) {
-        const words = String(offer?.message ?? offer?.text ?? '');
+        const words = String(offer?.message ?? '');
         pendingOffer = { at: snapshot(), offer, build, action, after };
         const accept = button({ label: offer?.accept ? String(offer.accept) : say(S, 'offerAccept'), primary: true,
                                 className: 'twm-flow-graph__offer-accept', onClick: () => acceptOffer() });

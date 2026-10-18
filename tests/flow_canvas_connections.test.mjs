@@ -19,7 +19,9 @@
  *       swallowed; Escape cancels; no setPointerCapture
  *   §6  a drag released on the empty canvas: the picker offers only the types
  *       with a compatible input; picking adds the step AND the line as one undo
- *       entry; cancelling adds nothing
+ *       entry; cancelling adds nothing; a type whose input gets an offer adds
+ *       nothing until Accept, which adds the step, the line and the offer's
+ *       change as one undo entry with the new step picked
  *   §7  read only: no drag starts
  *
  *     node tests/flow_canvas_connections.test.mjs
@@ -288,6 +290,42 @@ t.section('§6 dropped on the empty canvas');
          && message(only).textContent === 'No step has an input this output can connect to.');
     t.ok('(a second editor is independent)', lone.changes.length === 0);
     closeFlowPopovers();
+    await t.tick();
+
+    const offering = (ctx) => (ctx.toNode.type === 'gate'
+        ? { ok: true, offer: { message: 'A new gate is off. Turn it on as well?', accept: 'Turn on',
+                               apply: (draft) => { draft.nodes.find((n) => n.id === ctx.connection.target).config.on = true; } } }
+        : null);
+    const o = mount({ connections: { dataPorts: 'connect', policy: offering } });
+    const o0 = o.editor.getGraph().nodes.length;
+    const dropGate = async () => {
+        dragFrom(o, 'src', 'value');
+        releaseOn(o.el.querySelector('.twm-canvas'));
+        t.press(openFlowPopover().querySelector('[data-entry="gate"]'));
+        await t.tick();
+    };
+    await dropGate();
+    const ob = offerBox(o);
+    t.ok('picking a type whose input gets an offer shows the offer', ob && !ob.hidden
+         && ob.querySelector('.twm-flow-graph__offer-text').textContent === 'A new gate is off. Turn it on as well?');
+    t.ok('and adds nothing before Accept', o.editor.getGraph().nodes.length === o0 && lines(o).length === 0
+         && o.changes.length === 0);
+    ob.querySelector('[data-action="dismiss-offer"]').click();
+    t.ok('Not now adds nothing', offerBox(o).hidden && o.editor.getGraph().nodes.length === o0
+         && lines(o).length === 0 && o.changes.length === 0);
+    await dropGate();
+    offerBox(o).querySelector('[data-action="accept-offer"]').click();
+    const og = o.editor.getGraph();
+    const gate = og.nodes.find((n) => n.type === 'gate' && n.id !== 'g');
+    t.ok('Accept adds the step', og.nodes.length === o0 + 1 && Boolean(gate));
+    t.check('and the line to it', lines(o), [`src.value>${gate?.id}.level`]);
+    t.ok('and the offer\'s change', gate?.config.on === true);
+    t.check('as one edit', o.changes.map((c) => c.action), ['flow:node:add']);
+    t.ok('the new step is picked', nodeEl(o, gate.id).classList.contains('twm-flow-graph__node--picked'));
+    t.ok('the offer is gone', offerBox(o).hidden);
+    undo(o);
+    t.ok('one undo takes back the step, the line and the change', o.editor.getGraph().nodes.length === o0
+         && lines(o).length === 0 && !o.editor.getGraph().nodes.some((n) => n.config?.on === true));
     await t.tick();
 }
 

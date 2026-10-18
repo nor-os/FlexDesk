@@ -13,7 +13,7 @@ subsystem: charts
 labels: [charts]
 links: [blocked-by 62]
 created: 2026-10-17
-updated: 2026-10-18T09:31Z
+updated: 2026-10-18T10:40Z
 ---
 
 ## Description
@@ -78,3 +78,19 @@ Waiting on norman.
 ### 2026-10-18T09:31Z · norman_agent
 
 Five criteria added by norman (Claude Code session, 2026-10-18), answering the question above: PlotPopoutWindow's drawing changes (a) to (e) are accepted as part of this story, so the popout and the plot grid share one renderer. The class change from plot-tile-chart to twm-plot-grid__cell goes in the 0.17.0 changelog. Force-pushes are not used any more; the rebased branch lands on main by fast-forward.
+
+### 2026-10-18T10:40Z · norman_agent
+
+Status: blocked. Nothing new is committed or pushed.
+
+Where it stands: the worktree FlexDesk-story-0060 is on branch story-0060 at 6dc3959 (the rebased branch). origin/story-0060 is still at the pre-rebase commit 46e6633, so the two have diverged. `git merge-tree --write-tree origin/main HEAD` merges cleanly (tree f69002a); origin/main is 16 commits ahead of the branch.
+
+What was refused: to make the branch push as a fast-forward without a force-push, I ran `git merge --no-edit origin/main` followed by `git merge -s ours --no-edit origin/story-0060` in one call. The auto mode classifier denied it ("[Auto-Mode Bypass]"), so neither merge ran. A read-only `git log --oneline -2 && git status --short` in the same worktree was then denied for the same reason, and I stopped.
+
+Changelog criterion: FlexDesk has no CHANGELOG file on any branch (BUG-0020 also says "the repo has no changelog"), so "the 0.17.0 changelog names the class change" cannot be met as written. The README section "A plot config in any container: renderPlotGrid (0.17.0)" already names the change.
+
+Open questions for norman:
+- **The branch.** How should story-0060 reach origin with no force-push? (a) Allow merging origin/story-0060 into the rebased branch with `-s ours`, then push as a fast-forward; (b) push the rebased branch under a new name such as story-0060-r2; or (c) reset the local branch to origin/story-0060 and redo the reviewer fixes by merging origin/main instead of rebasing.
+- **The changelog.** Should I create CHANGELOG.md with an "0.17.0 (unreleased)" section listing the class change and drawing changes (a) to (e), or does the README's 0.17.0 section count as the changelog?
+
+Branch: story-0060 @ 6dc3959 (local only). Nothing landed. Waiting on norman.

@@ -14,8 +14,12 @@
  * serialized with it) and given back when it is wrapped. Only a panel that has
  * never had a share on its desktop takes the default. A share is only ever
  * measured from a canonical tree (§6: the structural paths that spawn a
- * content leaf around the whole root measure nothing), and every share is
- * clamped to the range a splitter drag allows (§7).
+ * content leaf around the whole root measure nothing) and is recorded as
+ * measured; the range a splitter drag allows is applied where a split is
+ * built, to the slot of that split (§7). So a canonical layout a drag made
+ * comes back at exactly the same sizes however often it is rebuilt, even with
+ * the right panel dragged so wide that the Navigator's share of the WM area is
+ * below the drag minimum (§8).
  *
  * §1 drives the REAL path through a real `createShell` in jsdom: a mouse drag
  * on the splitter, the WM's own debounced save, and a cold start on the same
@@ -231,7 +235,7 @@ function makeWm(panelDefaults = null) {
     const renderer = { tree: null, render() {} };
     Object.assign(wm, {
         taxonomy: taxonomy(), renderer, _rootLeaf: seed, panelDefaults,
-        _persist() {}, _notifyChange() {}, _windowToLeaf: new Map(),
+        _persist() {}, _notifyChange() {}, _windowToLeaf: new Map(), _panelOverrides: {},
         desktops: new DesktopManager({ seed, panelDefaults }),
     });
     for (const d of wm.desktops.desktops) wm._canonicalize(d.tree, d);
@@ -240,8 +244,10 @@ function makeWm(panelDefaults = null) {
 }
 
 /** Set the panel's own parent split so the panel takes `target` of the area,
- *  keeping the split's total — what a splitter drag writes to the tree. */
-function drag(tree, side, target) {
+ *  keeping the split's total — what a splitter drag writes to the tree — and
+ *  end the drag the way the renderer ends one: `_onSplitResized(splitId)`. */
+function drag(wm, side, target) {
+    const tree = wm._tree();
     const leaf = panelLeaf(tree, side);
     const parent = tree.get(leaf.parentId);
     const idx = parent.children.indexOf(leaf.id);
@@ -253,6 +259,7 @@ function drag(tree, side, target) {
     sizes[1 - idx] = (1 - own) * total;
     tree.setSplitSizes(parent.id, sizes);
     near(`(setup) ${side} dragged to ${target * 100}%`, areaShare(tree, side), target);
+    wm._onSplitResized(parent.id);
 }
 
 // ── §2 A panel opened for the first time uses the default ratio ─────────
@@ -277,7 +284,7 @@ function drag(tree, side, target) {
 // ── §3 A Console dragged to 50% height is 50% after switching desktop and back ──
 {
     const wm = makeWm();
-    drag(wm._tree(), 'bottom', 0.5);
+    drag(wm, 'bottom', 0.5);
     wm.switchDesktop(1);
     check('(setup) on desktop 2', wm.desktops.activeIdx, 1);
     near('desktop 2 gets its own default Console', areaShare(wm._tree(), 'bottom'), 0.2);
@@ -291,9 +298,9 @@ function drag(tree, side, target) {
 {
     const wm = makeWm();
     const tree = wm._tree();
-    drag(tree, 'right', 0.25);
-    drag(tree, 'left', 0.4);
-    drag(tree, 'bottom', 0.5);
+    drag(wm, 'right', 0.25);
+    drag(wm, 'left', 0.4);
+    drag(wm, 'bottom', 0.5);
     wm.togglePanel('right');
     check('(setup) right panel closed', panelLeaf(tree, 'right'), undefined);
     near('closing the right panel keeps the Navigator at 40% width', areaShare(tree, 'left'), 0.4);
@@ -309,9 +316,9 @@ function drag(tree, side, target) {
 {
     const wm = makeWm();
     const tree = wm._tree();
-    drag(tree, 'left', 0.4);
+    drag(wm, 'left', 0.4);
     wm.togglePanel('left');                     // left closed at 40%
-    drag(tree, 'right', 0.7);                   // right dragged wide meanwhile
+    drag(wm, 'right', 0.7);                   // right dragged wide meanwhile
     wm.togglePanel('left');
     const inner = tree.get(panelLeaf(tree, 'left').parentId);
     const total = inner.sizes.reduce((a, b) => a + b, 0);
@@ -350,16 +357,14 @@ function samePanels(label, wm, before, savedBefore = before.saved) {
 const contentLeaf = (tree) => tree.leaves().find((l) => !String(l.content?.kind || '').startsWith('panel:'));
 const DEFAULTS = { left: 0.16, right: 0.2, bottom: 0.2 };
 const DRAGGED = { left: 0.4, right: 0.25, bottom: 0.5 };
-/** A WM at the default sizes, or with the panels dragged to DRAGGED (each
- *  drag ending the way the renderer ends one: `_onSplitResized`), and the
+/** A WM at the default sizes, or with the panels dragged to DRAGGED, and the
  *  panel sizes it starts from. */
 function wmAt(sizes) {
     const wm = makeWm();
     if (sizes === DRAGGED) {
         const tree = wm._tree();
         for (const side of ['right', 'left', 'bottom']) {
-            drag(tree, side, DRAGGED[side]);
-            wm._onSplitResized();
+            drag(wm, side, DRAGGED[side]);
         }
     }
     const before = panelSizes(wm);
@@ -406,22 +411,120 @@ for (const [name, sizes] of [['default', DEFAULTS], ['dragged', DRAGGED]]) {
     }
 }
 
-// ── §7 Every share is held to the range a splitter drag allows ──────────
+// ── §7 The drag range holds the splits that are built ──────────────────
+//    A stored share is kept as it is (only a value that is not a share at all
+//    is dropped); what the range holds is the slot of the split built from it,
+//    which is what is on screen.
 {
     const min = TileRenderer.MIN_SLOT_FRACTION;
     // Stored values reach the WM only through a desktop whose panels are
-    // closed (an open panel is re-measured from its tree).
+    // closed (a stored share is what a closed panel reopens at).
     const closed = makeWm({ left: false, right: false, bottom: false });
     const cd = closed.desktops.active();
-    cd.panelShares = { left: 'wide', right: 0.008, bottom: 5 };
+    cd.panelShares = { left: 5, right: 0.008, bottom: 0.97 };
     closed._canonicalize(closed._tree(), cd);
-    check('a share that is not a number is dropped', cd.panelShares.left, undefined);
-    near('a stored share below the drag minimum is saved at the minimum', cd.panelShares.right, min);
-    near('a stored share above 1 - the minimum is saved at 1 - the minimum', cd.panelShares.bottom, 1 - min);
-    closed.togglePanel('right'); closed.togglePanel('bottom');
+    check('a stored value that is not a share (5) is dropped', cd.panelShares.left, undefined);
+    check('a stored share is kept as stored', [cd.panelShares.right, cd.panelShares.bottom], [0.008, 0.97]);
+    cd.panels = { left: true, right: true, bottom: true };
+    closed._canonicalize(closed._tree(), cd);
     const ct = closed._tree();
-    near('...and opens at the minimum on screen', areaShare(ct, 'right'), min);
-    near('...and the too-tall one at 1 - the minimum', areaShare(ct, 'bottom'), 1 - min);
+    const slot = (side) => {
+        const leaf = panelLeaf(ct, side);
+        const p = ct.get(leaf.parentId);
+        return p.sizes[p.children.indexOf(leaf.id)] / p.sizes.reduce((a, b) => a + b, 0);
+    };
+    near('a share below the drag minimum opens at the minimum on screen', areaShare(ct, 'right'), min);
+    near('a share above 1 - the minimum opens at 1 - the minimum on screen', areaShare(ct, 'bottom'), 1 - min);
+    near('...and the dropped one at the default 1:4 of its split', slot('left'), 0.2);
+
+    const wordy = makeWm({ left: false });
+    const wd = wordy.desktops.active();
+    wd.panelShares = { left: 'wide' };
+    wordy.togglePanel('left');
+    check('a stored share that is not a number is dropped', wd.panelShares.left, undefined);
+    const wt = wordy._tree();
+    const nav = panelLeaf(wt, 'left');
+    check('...so that panel opens at the default 1:4', wt.get(nav.parentId).sizes, [1, 4]);
+}
+
+// ── §8 A canonical layout a drag made is rebuilt at exactly its sizes ───
+//    The right panel dragged to 80% or 95%, the Navigator at its default 1:4
+//    of the inner split: the Navigator's share of the WM area (4%, 1.25%) is
+//    below the drag minimum, but its slot in its own split is not, so nothing
+//    may move it.
+/** Every panel's area share and its slot share in its own split; the content
+ *  row's share of the width. */
+function layoutOf(tree) {
+    const out = {};
+    for (const side of SIDES) {
+        const leaf = panelLeaf(tree, side);
+        if (!leaf) continue;
+        const p = tree.get(leaf.parentId);
+        out[side] = { area: areaShare(tree, side),
+                      slot: p.sizes[p.children.indexOf(leaf.id)] / p.sizes.reduce((a, b) => a + b, 0) };
+    }
+    return out;
+}
+function sameLayout(label, now, before) {
+    for (const side of SIDES) {
+        if (!before[side]) { check(`${label}: no ${side} panel`, now[side], undefined); continue; }
+        near(`${label}: ${side} panel's share of the WM area`, now[side]?.area, before[side].area, 1e-12);
+        near(`${label}: ${side} panel's slot in its split`, now[side]?.slot, before[side].slot, 1e-12);
+    }
+}
+const sizesOfTree = (tree) => SIDES.map((s) => {
+    const leaf = panelLeaf(tree, s);
+    return leaf ? tree.get(leaf.parentId).sizes.slice() : null;
+});
+for (const wide of [0.8, 0.95]) {
+    const pct = `${Math.round(wide * 100)}%`;
+    const navArea = 0.2 * (1 - wide);
+    // The bare WM: a drag of the right panel's split, ended as the renderer ends one.
+    {
+        const wm = makeWm();
+        let tree = wm._tree();
+        drag(wm, 'right', wide);
+        const before = layoutOf(tree);
+        near(`(setup) right at ${pct}: the Navigator takes ${navArea * 100}% of the area`, before.left.area, navArea);
+        near(`(setup) right at ${pct}: ...and its default 1:4 of the inner split`, before.left.slot, 0.2);
+        near(`(setup) right at ${pct}: the drag recorded the Navigator as measured`,
+             wm.desktops.active().panelShares.left, navArea);
+
+        wm.switchDesktop(1);
+        wm.switchDesktop(0);
+        tree = wm._tree();
+        sameLayout(`right at ${pct}, after a desktop switch and back`, layoutOf(tree), before);
+
+        wm._canonicalize(tree, wm.desktops.active());
+        const once = sizesOfTree(tree);
+        for (let i = 0; i < 20; i++) wm._canonicalize(tree, wm.desktops.active());
+        sameLayout(`right at ${pct}, re-canonicalizing an already canonical tree changes nothing`, layoutOf(tree), before);
+        check(`right at ${pct}: ...not even in the last bit, over 20 rounds`, sizesOfTree(tree), once);
+
+        wm.togglePanel('right');
+        near(`right at ${pct}, right panel closed: the Navigator is held at the drag minimum on screen`,
+             areaShare(tree, 'left'), TileRenderer.MIN_SLOT_FRACTION);
+        wm.togglePanel('right');
+        sameLayout(`right at ${pct}, after toggling the right panel closed and open`, layoutOf(tree), before);
+    }
+    // The real shell: a mouse drag, the debounced save, a cold start.
+    {
+        const store = new Map();
+        const s1 = await mountShell(store);
+        await sleep(SETTLE_MS);
+        mouseDrag(s1, 'right', 1004, -Math.round((wide - 0.2) * 1000));
+        const before = layoutOf(s1.wm._tree());
+        near(`(setup) shell: right panel dragged to ${pct}`, before.right.area, wide);
+        near(`(setup) shell: ...the Navigator at ${navArea * 100}% of the area`, before.left.area, navArea);
+        await sleep(SETTLE_MS);
+        s1.shell.dispose();
+        const s2 = await mountShell(store);
+        const tree = s2.wm._tree();
+        sameLayout(`right at ${pct}, after a reload`, layoutOf(tree), before);
+        s2.wm._canonicalize(tree, s2.wm.desktops.active());
+        sameLayout(`right at ${pct}, after a reload and a re-canonicalization`, layoutOf(tree), before);
+        s2.shell.dispose();
+    }
 }
 
 console.log(failures ? `\n${failures} assertion(s) FAILED` : '\nall assertions passed');

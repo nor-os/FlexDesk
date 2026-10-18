@@ -23,6 +23,7 @@ const GAP = 8;
  *     trigger: buttonElement,
  *     options: [
  *         { type: 'option1', label: 'Option 1', icon: 'icon_name', description: 'Description' },
+ *         { separator: true },
  *         { type: 'option2', label: 'Option 2', icon: 'icon_name', description: 'Description' }
  *     ],
  *     onSelect: (option) => console.log('Selected:', option.type),
@@ -34,12 +35,22 @@ const GAP = 8;
  * dropdown.toggle();
  * dropdown.destroy();
  * ```
+ *
+ * ── Separators ────────────────────────────────────────────────────────
+ * An entry `{ separator: true }` draws a divider instead of a button: a
+ * `<div role="separator" class="twm-action-dropdown-separator">`, which takes
+ * no focus, is never reached by the arrow keys (they move between the option
+ * buttons only) and never reaches `onSelect` (it has no click handler). A
+ * separator only separates: one at the start or the end of the list, or one
+ * right after another, is dropped, so a list assembled from groups that may
+ * come out empty never draws a stray or doubled rule.
  */
 export class ActionDropdown {
     /**
      * @param {Object} config
      * @param {HTMLElement} config.trigger - Button element that triggers the dropdown
-     * @param {Array} config.options - Array of option objects with { type, label, icon, description? }
+     * @param {Array} config.options - Array of option objects with { type, label, icon, description? },
+     *     or `{ separator: true }` for a divider between them
      * @param {Function} config.onSelect - Callback when an option is selected
      * @param {string} [config.className=''] - Additional CSS class for the dropdown
      * @param {string} [config.menuId] - Optional ID for the menu element
@@ -98,13 +109,30 @@ export class ActionDropdown {
     }
 
     /**
-     * Render option buttons into a container element.
+     * Render option buttons, and dividers for separator entries, into a
+     * container element. `data-index` stays the entry's index in `options`.
      * @param {HTMLElement} container
      * @private
      */
     _renderOptions(container) {
         container.innerHTML = '';
+        let pendingSeparator = false;
         this.options.forEach((opt, index) => {
+            if (opt?.separator) {
+                // Drawn only once an option follows it, and only if an option
+                // came before it: leading, trailing and doubled separators
+                // collapse.
+                pendingSeparator = container.childElementCount > 0;
+                return;
+            }
+            if (pendingSeparator) {
+                const sep = document.createElement('div');
+                sep.className = 'twm-action-dropdown-separator';
+                sep.setAttribute('role', 'separator');
+                container.appendChild(sep);
+                pendingSeparator = false;
+            }
+
             const optionBtn = document.createElement('button');
             optionBtn.type = 'button';
             optionBtn.className = 'twm-action-dropdown-option';

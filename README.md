@@ -43,8 +43,8 @@ manager, and neither of them should drag in a plotting engine or a code editor.
 | `@flexdesk/core` | 30 kB | Event bus, settings store, logging, state machine, state guard |
 | `@flexdesk/host` | 5 kB | The host port (below) |
 | `@flexdesk/wm` | 166 kB | Tiling window manager: tabs, splits, desktops, command palette, taxonomy, `createShell()` |
-| `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus |
-| `@flexdesk/charts` | 26 kB | Plotly wrapper, chart types, subplot layouts, downsampling, plot windows |
+| `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus, a document outline, progress |
+| `@flexdesk/charts` | 26 kB | Plotly wrapper, chart types, subplot layouts, downsampling, plot windows, injected series transforms |
 | `@flexdesk/tiles` | 67 kB | Draggable/resizable widget grid, tile base class, widget registry, layout persistence, chart and KPI tiles |
 | `@flexdesk/editor` | 62 kB | Monaco loader + factory, multi-file tab bar, search, split panes, undo manager |
 | `@flexdesk/canvas` | 14 kB | The canvas kernel: a pannable, zoomable surface, the edge router, a generic graph layer ([Flow editors](#flow-editors)) |
@@ -130,6 +130,45 @@ await createShell({
 });
 ```
 
+### A kind that exists once: `single` (0.17.0)
+
+Some content holds heavy app-wide state and must not be mounted twice. Mark its
+kind `single` in the taxonomy:
+
+```js
+createTaxonomy({
+    root: 'cosmos',
+    kinds: {
+        cosmos:      { label: 'Cosmos', isTopNav: true },
+        observatory: { label: 'Observatory', isTopNav: true, single: true },  // one, ever
+        planet:      { label: 'Planet', single: 'id' },                       // one per props.id
+    },
+});
+```
+
+- **Every open path reveals the instance that exists** — `navigate`, the top
+  nav, `openInPrimary`, `openInTab*`, `splitLeafWith`, Back. It switches to the
+  desktop it is on, activates its tab (bringing back a top-nav page the tile
+  had switched away from) and focuses its tile, or raises its window. Nothing
+  is mounted twice, and a reveal is one `onChange` / `wm:changed`
+  (`'single-reveal'`), however many steps it took.
+- **A page restore never brings back a copy.** A tile's archived top-nav page
+  can still list an instance that has since moved to another tile or a window;
+  switching back to that page (top nav, `openInPrimary`, Back) leaves it out.
+- **The copy verbs refuse.** Alt+T, Alt+N, Alt+Shift+H/V do nothing; the tile
+  menu's *Open in new tab* and *Open a copy in a window* are greyed with the
+  reason as their tooltip (`taxonomy.singleReason(kind)`); the palette draws its
+  split and window hints greyed, and Ctrl/Shift+Enter on such a row does nothing.
+- **The move verbs still work**: float, dock, drag a tab, move to a desktop.
+- **A restored layout keeps the first** of any duplicates (desktop order, then
+  tile order): the other leaf shows its next tab, or closes if it held nothing
+  else.
+
+The root kind cannot be `single` — every new pane, tab and desktop is seeded
+with it. The taxonomy answers `isSingle(kind)`, `instanceKey(kind, props)` and
+`singleReason(kind)`; the window manager answers `isSingleKind(kind)`,
+`findInstance(kind, props)` and `revealInstance(kind, props)`.
+
 ### A pane that names what it shows: `ctx.setTitle` (0.12.1)
 
 A content factory receives `(hostEl, props, ctx)`, and `ctx` carries, per pane,
@@ -151,6 +190,35 @@ content: {
 `setTitle(null)` or `''` gives the title back to the tree. It changes what the
 chrome shows only — the tree, the tab labels and the saved layout are left
 alone — and a call from content whose pane has since been rebuilt does nothing.
+
+### A navigation panel you drive yourself: `mountNavPanel` (0.17.0)
+
+`mountNavPanel(hostEl, { modes })` (from `@flexdesk/wm`) builds a mode strip, a
+shared filter box and one lazily-mounted pane per mode. A strip click is no
+longer the only way to switch: the handle's `select(modeId)` takes the same
+path — it mounts the mode on first use, runs its `activate()`, restores that
+mode's filter text — and its promise resolves once `activate()` has run. An
+unknown id is ignored. `active()` names the mode shown.
+
+```js
+const nav = mountNavPanel(hostEl, {
+    modes: [
+        { id: 'files',  icon: 'folder',   label: 'Files',  mount: mountFiles },
+        { id: 'runs',   icon: 'history',  label: 'Runs',   mount: mountRuns,
+          filter: false },                // a pane with controls of its own
+    ],
+    showModeStrip: false,   // no strip: the app switches with select()
+    initialMode: 'runs',    // the mode shown at mount (default: the first)
+});
+await nav.select('files');  // mounted and activated
+nav.active();               // 'files'
+```
+
+A mode with `filter: false` hides the filter box while it is active, and its
+pane is never handed a query; the next mode with a filter shows its own saved
+text again. `showFilter: false` renders no filter box at all. All three options
+default to the old behaviour, so a panel built without them renders exactly as
+before.
 
 ### Your desktops beside the app's (0.10.0)
 
@@ -223,6 +291,72 @@ manager's own bindings, `KEYMAP_SHORTCUTS` from `@flexdesk/wm`, as a table
 topic.* The fallback comes from `HelpModal.open(id, { fallback })`
 (`@flexdesk/widgets`), and you can pass one yourself. A topic id that nobody
 provides now shows *Help topic not found.* where it used to raise a load error.
+
+### Your keys, not the window manager's: `keymap` (0.17.0)
+
+The window manager binds F1..F12, Backspace, Ctrl+K, Ctrl+Tab, Ctrl/Shift+Arrows,
+the Alt chords, `?` and Esc, and swallows any other bare Alt+letter. Each of
+those chords can be taken back or rebound:
+
+```js
+await createShell({
+    // …everything above…
+    keymap: {
+        bindings: {
+            'F1': false,               // F1 is the page's: not prevented, nothing clicked
+            'F2': 'nav:0',             // F2 opens the first top-nav kind
+            'Backspace': false,        // Backspace never calls navigateBack
+            'Alt+W': (e, { wm }) => { /* yours; return false to leave e unprevented */ },
+        },
+    },
+});
+```
+
+A value is `false`, an action name, or a function. The actions are `palette`,
+`palette:close`, `help`, `back`, `nav:N`, `desktop:N`, `toDesktop:N` (all
+counted from 0), `desktop:next|prev`, `tab:next|prev`, `panelTab:next|prev`,
+`split:h|v`, `splitWith:h|v`, `openInTab`, `openInWindow`, `close`, `float`,
+`focus:left|right|up|down`, `move:left|right|up|down` and `suppress`. The chord
+ids are the defaults in `src/tiling/keymap.js`: `Ctrl+K`, `Meta+K`, `?`,
+`Escape`, `F1`..`F12`, `Backspace`, `Alt+H`, `Alt+Shift+H`, `Alt+ArrowLeft`,
+`Alt+Shift+1`, `Ctrl+Tab`, `Shift+ArrowRight` and so on, with `Alt+Letter` for
+the Alt+letter suppression. Modifiers may come in any order and case. A chord id
+or action the keymap does not know is warned about once, through `logger` (else
+`console`), when the shell is built, and is then ignored. Only the window
+manager's own chords can be rebound. To add a new key, put your own listener on
+the page. `keymap` itself must be an object whose only key is `bindings`:
+anything else (a string, a typo such as `{ binding: … }`) makes `createShell`
+throw a `TypeError`, so a binding you meant to change never stays in force
+unnoticed.
+
+**A key press is read as loosely as before.** With no bindings every key does
+what it did in 0.16, and a binding takes over every key press its chord was
+read as. Backspace ignores Shift and Alt, so `{ Backspace: false }` also hands
+Shift+Backspace and Alt+Backspace to the page. Alt+T/N/W/F ignore Shift. With
+Alt held, Ctrl and Meta are ignored, so Alt+Ctrl+H is `Alt+H`. Ctrl+K and
+Ctrl+Tab also match with Meta held, and Ctrl wins when both are held:
+Ctrl+Meta+K is `Ctrl+K`, and Meta+K is `Meta+K` only without Ctrl. Esc and `?`
+ignore every modifier. F1..F12, Shift+Left/Right and Ctrl+Left/Right match only
+with exactly those modifiers.
+
+**A key a component handled is the component's.** The keymap skips every
+keydown that is already `defaultPrevented`. A list that deletes a row on
+Backspace calls `preventDefault()`, and the window manager does not navigate
+back as well.
+
+**`?` is installed by the shell.** Importing `HelpModal` no longer adds a
+`document` listener as a side effect. A shell binds `?` as one of its chords,
+and `shell.dispose()` removes it with the rest. A page that uses the help modal
+without a shell calls `installHelpShortcut()` from `@flexdesk/widgets`, which
+returns its disposer. `HelpModal.toggle()` is what `?` does.
+
+**The *Keyboard shortcuts* command shows the bindings in effect.** It lists
+`keymapShortcuts(bindings)` from `@flexdesk/wm`. That is `KEYMAP_SHORTCUTS`
+with each changed row replaced by one line per chord still bound, and no line
+for a chord you disabled. `createCommandPalette({ shortcuts })` takes that table.
+The command's hint names the keys that open help in it: `?` by default, `F9`
+after `{ '?': false, F9: 'help' }`, and none when no key opens help (for
+example after `{ '?': 'palette' }`).
 
 **`chrome.zoom`** paints a − / track / + / readout control into the element you
 pass, restores the saved zoom through the host's `state` capability, and scales
@@ -982,6 +1116,39 @@ later. It watches `root` only and returns a disconnect. (It used to take no
 argument and look for a `#twm-fixed-200` that nothing created, so visible
 sections got no bar until a class changed — BUG-0006.)
 
+### SliderField: a number box, a readout, a default and an enable toggle (0.17.0)
+
+`new SliderField({ fieldId, field, onChange })` (from `@flexdesk/widgets`)
+draws a range input. Its companions are opt-in through `field`; with none of
+them the DOM is the range and the helper line, as it always was.
+
+```js
+import { SliderField } from '@flexdesk/widgets';
+
+const slider = new SliderField({
+    fieldId: 'rate',
+    field: {
+        min: 0, max: 1, step: 0.01, value: 0.25,
+        numberInput: true,                         // an editable box, kept in sync both ways
+        readout: (v) => `${Math.round(v * 100)}%`, // or true for the plain value
+        defaultValue: 0.25,                        // --modified state and a reset button
+        toggleable: true, disabledValue: null,     // an enable checkbox before the slider
+    },
+    onChange: (value, { immediate }) => save(value),
+});
+host.appendChild(slider.render());
+```
+
+| Field / method | What it does |
+| --- | --- |
+| `numberInput` | A text box beside the slider. Dragging updates it on every frame; Enter (or leaving the box) commits what was typed, clamped to `[min, max]` and snapped to `step`. Text that is not a finite number (`abc`, empty, `Infinity`) changes nothing and the box shows the value again; Escape does the same |
+| `readout` | A span after the slider: `true` shows the value, a function `(value: number) => string` formats it. It follows the drag live |
+| `defaultValue` | While the value differs from it the root carries `twm-slider-field--modified` and the reset button shows; reset restores it and reports it through `onChange`, like a release |
+| `toggleable`, `enabled`, `disabledValue` | A checkbox before the slider (`enabled: false` starts it off). While off, the inputs are disabled, the root carries `twm-slider-field--off`, and `onChange`/`getValue()` report `disabledValue` (default `null`) |
+| `onChange(value, { immediate })` | Called once per commit: a drag release, a typed Enter, a reset, a toggle. The value is the slider's value as a string, as before. With `emitOnInput` it is also called on every drag frame with `immediate: true` |
+| `setValue(x, { silent })`, `setRange({ min, max, step }, { silent })`, `setEnabled(on, { silent })`, `reset({ silent })` | Change the field from code. Each reports at most once, nothing with `silent: true`, and nothing when the reported value did not move, so a caller that writes back from its own `onChange` does not loop. `setValue` refuses a non-finite value (returns `false`); `setRange` refits the value and the default |
+| `getValue()`, `isEnabled()`, `isModified()` | What `onChange` would report now, the toggle state, and whether the value differs from `defaultValue` |
+
 ## Flow editors
 
 *New in 0.6.0.* Both entries first ship in FlexDesk 0.6.0.
@@ -1085,7 +1252,7 @@ character width and paints a viewport of no lines, and nothing repaints it.
 | `string-list` | Short strings |
 | `enum-chips` | A multi-select of `items.enum`, as chips, in the enum's order |
 | `choice-cards` | One of N as radio rows, each with its words |
-| `upstream-column`, `upstream-columns` | One or several columns of the step's input, by name, from the panel's `columns` |
+| `upstream-column`, `upstream-columns` | One or several columns of the step's input, by name, from the panel's `columns`. While `columns` answers `null` (the columns are not known yet) the name is typed instead — a text box, or a chip list that takes a name on Enter or a comma — under the hint *Columns not known yet*; once columns arrive the same setting is a select (or toggle chips) with the stored name chosen, and a name the columns lack is kept and marked *(not found)* (0.17.0) |
 
 | Schema hint | Meaning |
 |---|---|
@@ -1513,8 +1680,14 @@ input (`lanes_two_inputs`), a cycle (`lanes_cycle`) or two steps with one id
 read only with the sentence, is drawn as well as it can be, and is never
 repaired. The sizes are `LANE_GEOMETRY`: `regular` is 200 × 62 (the editor),
 `small` is 160 × 50 (two lines a card, for a narrower host) and `strip` is
-92 × 26 (`compact`). The pure edits — splice, add a source, remove, set an
-input, the input candidates, parameters — are `lanePipeline`.
+92 × 26 (`compact`). The pure edits — splice, add a source, remove, duplicate,
+set an input, the input candidates, parameters — are `lanePipeline`.
+`lanePipeline.duplicateStep(pipeline, catalogue, id)` (0.17.0) puts a copy right
+after the step: a fresh id, a label derived from its title (`Title (copy)`, then
+`(copy 2)`, …, words in `LANE_PIPELINE_STRINGS`), a deep copy of its config and
+the same lines in, none out. It answers `{ok: true, node}`, or `{ok: false,
+reason}` and changes nothing when there is no such step or its type is
+`unavailable`.
 
 | Option | Meaning |
 |---|---|
@@ -1536,6 +1709,7 @@ input, the input candidates, parameters — are `lanePipeline`.
 | `parameterTypes` | The parameter types a parameter may be: `text`, `number`, `integer`, `boolean`, `date` by default |
 | `select` | The step chosen on load (the first step, left to right, by default) |
 | `history` | `{limit, mergeMs}` |
+| `menuItems(step)` | Your own items on a card's menu, after the built-in ones: `[{id, label, icon?, danger?, disabled?, reason?, run}]`. `run({step, pipeline, editor})` gets a DRAFT of the flow to change in place (it may answer later, with a promise); what it changed is one undoable edit, `flow:step:menu`. Answering `false` takes nothing, and neither does a draft that answers after another edit. `disabled` greys the item with its `reason`; a read-only flow greys every one with the read-only reason (0.17.0) |
 | `onChange`, `onSelect({kind, id})`, `onStepsShow(mode)` | Callbacks |
 
 | Method | Does |
@@ -1548,11 +1722,15 @@ input, the input candidates, parameters — are `lanePipeline`.
 | `setReadOnly(false \| {reason})`, `readOnly` | — |
 | `setActionState(id, {disabled, reason, busy})`, `setStatus(text)` | A refused verb shows its reason beside it |
 | `select(id \| 'flow' \| null)`, `selected`, `focus()` | — |
-| `undo()`, `redo()`, `history` | Over whole snapshots. The actions are `LANE_ACTIONS` (`flow:step:add`, `:remove`, `:label`, `:config`, `flow:join:set`, `flow:source:add`, `flow:parameter:add`, `:change`, `:remove`, `flow:settings`) |
+| `undo()`, `redo()`, `history` | Over whole snapshots. The actions are `LANE_ACTIONS` (`flow:step:add`, `:remove`, `:label`, `:config`, `:duplicate`, `:menu`, `flow:join:set`, `flow:source:add`, `flow:parameter:add`, `:change`, `:remove`, `flow:settings`) |
 | `refreshPreview()` | Asks the providers now, without the debounce |
 | `inputColumns(stepId, port?)` | The columns of the frame a step reads, from the last description, else the last preview. The `upstream-column(s)` widgets read the same |
 | `layout`, `placed` | The current layout and its coordinates |
 | `destroy()` | Removes every listener, popover and table, and aborts the preview in flight |
+
+**Columns that arrive while you are in the settings** are drawn when the focus
+leaves them, so a column typed by name before the columns were known becomes a
+choice then, and nothing is rebuilt under the reader's caret.
 
 **The preview** is one request for the whole flow to each provider. It is sent
 800 ms after the last edit and once after a load. A rename does not send one,
@@ -1566,10 +1744,14 @@ business; the editor knows only what it is handed.
 
 **Keys.** These are the kit's, on the editor's root. ← → ↑ ↓ move between cards
 and between the step tabs. Enter opens a step's settings on their first field,
-and Escape goes back to the card. Delete removes the step and F2 renames it.
+and Escape goes back to the card. Delete removes the step, Ctrl/⌘+D duplicates
+it (the copy is chosen and focused) and F2 renames it.
 Ctrl/⌘+Z and Ctrl/⌘+Y undo and redo, and are stopped at the editor even inside
 a field. The context-menu key or a right press opens a card's menu: *Open its
-settings*, *Add a step after it*, *Remove step*. Backspace is never the
+settings*, *Add a step after it*, *Duplicate*, *Remove step*, then your
+`menuItems`. An item that cannot be chosen — *Duplicate* on a read-only flow, or
+on a step whose type is not available — is greyed with its reason in its own
+line, and a refused Ctrl/⌘+D says the reason beside the status. Backspace is never the
 editor's. The cards are one Tab stop, the chosen one, and its "+" comes next in
 the Tab order. The "+" shows on hover, on focus and on the chosen card, never
 on hover alone.
@@ -1609,8 +1791,8 @@ keystrokes ask the preview once.
 `openForm({ title, fields, defaults, submitLabel })` (in `@flexdesk/widgets`)
 opens a modal form and resolves with `{ [name]: value }`, or `null` when it is
 cancelled. Fields are `text`, `number`, `password`, `select`, `textarea`,
-`checkbox` and `picker`; `{ section: 'Label' }` entries are headings. Each of
-the four additions below is opt-in, and a form that uses none of them renders
+`checkbox`, `toggle` and `picker`; `{ section: 'Label' }` entries are headings.
+Each of the additions below is opt-in, and a form that uses none of them renders
 and submits exactly as in 0.9.1.
 
 ### A form that adapts: `onFieldChange`
@@ -1682,6 +1864,87 @@ submit with "onCreate is not a function".
 `tests/open_form.test.mjs` mounts the real `openForm` in jsdom and covers all
 four, plus a plain form submitting as before.
 
+### A switch: `ToggleField` and `type: 'toggle'` (0.17.0)
+
+```js
+import { ToggleField } from '@flexdesk/widgets';
+
+const autosave = new ToggleField({
+    label: 'Autosave', onText: 'On', offText: 'Off',   // all optional
+    checked: true, compact: false, disabled: false,
+    onChange: (on) => settings.set('autosave', on),
+});
+host.appendChild(autosave.render());
+autosave.get();              // true
+autosave.set(false);         // does not call onChange
+autosave.setDisabled(true);
+autosave.dispose();
+```
+
+A track and a knob drawn over a real checkbox with `role="switch"` and an
+`aria-checked` that follows it. Space and Enter toggle the focused switch, a
+click on the track, the state text or the label toggles it, the focused input
+draws a ring on the track, and a disabled switch ignores clicks and keys alike.
+`ariaLabel` names a switch with no visible label. The markup is
+`label.twm-toggle` (`--compact`, `--disabled`) > `.twm-toggle__control` >
+`input.twm-toggle__input` + `.twm-toggle__track` > `.twm-toggle__knob`, then
+`.twm-toggle__state` and `.twm-toggle__label`; `flexdesk.css` styles it from
+tokens alone, with no colour literal.
+
+In a form, `{ name, label, type: 'toggle', onText?, offText?, disabled?,
+compact? }` mounts one and submits a boolean, like a checkbox; `api.get` reads
+it as a boolean and `api.set` moves it. `tests/toggle_field.test.mjs` covers
+both.
+
+## A step wizard: `Wizard` (0.17.0)
+
+`new Wizard({ steps, data, onFinish, onCancel, labels })` (in `@flexdesk/widgets`)
+draws a multi-step flow: a step indicator, a body slot and a footer with Cancel,
+Back and Next (Finish on the last step). Mount it inline with `mount(el)`, or in a
+modal `ManagedWindow` with `openInWindow({ id, title, ... })`.
+
+```js
+const wizard = new Wizard({
+    data: { file: null },
+    steps: [
+        { id: 'source', label: 'Source', icon: 'upload_file',
+          render(bodyEl, ctx) {            // once per visit; may return a cleanup function
+              const input = picker(bodyEl);
+              input.onchange = () => { ctx.data.file = input.files[0]; ctx.revalidate(); };
+          },
+          canAdvance: (ctx) => ctx.data.file
+              ? { ok: true } : { ok: false, hint: 'Choose a file first' } },
+        { id: 'review', label: 'Review', render: (bodyEl, ctx) => review(bodyEl, ctx.data) },
+    ],
+    onFinish: async (ctx) => api.import(ctx.data),   // a rejection marks the step as error
+    onCancel: () => {},
+});
+wizard.openInWindow({ id: 'import', title: 'Import' });
+```
+
+- **Gating.** While the current step's `canAdvance(ctx)` answers `{ok: false, hint}`,
+  Next is disabled and the hint is shown in the footer. `revalidate()` (also
+  `ctx.revalidate()`) asks again and redraws the indicator and the footer; it never
+  re-renders the body, so an input keeps its focus and its value.
+- **Steps** are drawn done / current / upcoming / error, joined by a connector. A
+  done step is a button that jumps back to it; an upcoming step is inert, so the
+  only way forward is Next.
+- **Moves.** `next()`, `back()` and `goTo(idOrIndex)` (back to any earlier step, or
+  forward one step through the gate) resolve `true` when they moved.
+  `setStepState(id, 'error' | null, message)` marks or clears a step.
+- **Finish.** On the last step Next reads Finish and calls `onFinish(ctx)`. Until
+  it settles every button is disabled and moves, cancels and closes are refused,
+  not queued. Resolved, the wizard closes; rejected, the step is marked as error
+  and the rejection's message is shown, and Finish can be pressed again.
+- **Cancel** (the button, `cancel()`, or the window's close button and Escape)
+  closes the wizard and calls `onCancel(ctx)` exactly once. `dispose()` tears it
+  down without calling either callback.
+
+Every transition goes through a core `StateMachine` (`step`, `finishing`,
+`finished`, `cancelled`; pass `eventBus` to see its `fsm:*` events). `ctx` is
+`{data, step, index, revalidate, next, back, goTo, setStepState}`, with `data`
+the object you passed.
+
 ## Confirms show text, not markup (0.17.0)
 
 `openConfirm({ title, message, confirmLabel, cancelLabel, danger, icon })`
@@ -1700,6 +1963,184 @@ the caller's own DOM.
 
 `tests/confirm_escaping.test.mjs` opens each of them in jsdom with hostile
 names and labels.
+
+## Markdown: `renderMarkdown` (0.17.0)
+
+`renderMarkdown(source, options)` (`@flexdesk/widgets`) returns an HTML
+string. It covers a CommonMark-ish subset — ATX headings, paragraphs,
+emphasis, strong, `~~strike~~`, code spans, fenced code, block quotes, nested
+ordered and unordered lists, GFM pipe tables, rules, links, images, autolinks,
+hard breaks and `$…$` / `$$…$$` math — and is **safe by default**:
+
+- raw HTML is escaped: `<img src=x onerror=alert(1)>` shows as that text.
+  `allowHtml: ['kbd', 'br']` lets named tags through, the tag only and never
+  its attributes; a tag that runs or embeds anything (`script`, `iframe`,
+  `svg`, `img`, …) throws. An allowed tag left open is closed at the end of its
+  paragraph.
+- a link goes out only to `http(s):`, `mailto:` or a `#anchor`, always with
+  `rel="noopener noreferrer"`; a `javascript:` link (or any other) renders its
+  text and no anchor. An image loads from `http(s):` or a relative path, or
+  shows its alt text.
+
+```js
+import { renderMarkdown } from '@flexdesk/widgets';
+
+el.innerHTML = renderMarkdown(source, {
+    highlight: (code, lang) => myHighlighter(code, lang),   // null: escaped
+    math: undefined,      // default: window.katex when present, else the escaped source
+                          // false: `$` is text; or (tex, { display }) => html | null
+    inlineRules: [{ pattern: /\[\[ref:([\w-]+)\]\]/, render: (m, ctx) => `<a href="#${ctx.escape(m[1])}">…</a>` }],
+    blockRules:  [{ start: /^:::(\w+)/, end: /^:::$/, render: ({ lines, match, closed }, ctx) => '…' }],
+    inline: false,        // true: inline markup only, no blocks, no <p>
+});
+```
+
+What the caller returns — the highlighter's, the math hook's and the rules'
+HTML — is trusted and goes in as it is; a rule answering `null` declines.
+`ctx` gives a rule `escape(text)` and `inline(text)`. Not in the subset:
+setext headings, indented code blocks, reference links, raw HTML blocks.
+
+**Streaming.** Every element it opens it closes, so each prefix of a document
+arriving token by token renders to balanced HTML: an open fence is closed at
+the end of the input, and an emphasis or link whose closer has not arrived is
+still text. `tests/markdown.test.mjs` renders every prefix of a document using
+every construct and checks the tags balance; `tests/help_modal_markdown.test.mjs`
+checks jsdom has nothing to repair.
+
+**Help topics in markdown.** A `HelpProvider`'s `loadTopic` may now answer
+`{ title, markdown }`; the modal renders it with `renderMarkdown` and the
+provider's optional `markdownOptions`. `{ title, html }` is unchanged:
+pre-rendered, **trusted** HTML, inserted as it is.
+
+## A document outline: `createDocumentOutline` (0.17.0)
+
+A long document's sections, listed and numbered, the one in view marked while
+the document scrolls, and a click that goes to one (in `@flexdesk/widgets`):
+
+```js
+const outline = createDocumentOutline(sidebarEl, {
+    entries: [{ id: 'intro', level: 1, label: 'Introduction' },
+              { id: 'scope', level: 2, label: 'Scope' }],
+    numbering: true,                 // 1, 1.1, 1.2, 2 …
+    maxDepth: 3,                     // deeper entries are drawn at depth 3
+    scrollContainer: articleEl,      // the element that scrolls; the spy's root
+    resolveTarget: (entry, container) => container.querySelector(`[data-section="${entry.id}"]`),
+    rootMargin: '0px 0px -70% 0px',  // the default: the top 30% is "in view"
+    onSelect: (id, entry) => { /* … */ },
+    emptyState: 'No headings',
+});
+outline.setEntries(next);            // the document has other sections now
+outline.refresh();                   // the same sections, re-rendered: resolve again
+outline.setActive('scope');  outline.getActive();
+const off = outline.onActiveChange((id, entry) => { /* … */ });
+outline.dispose();
+```
+
+Where the entries come from is yours: the outline is told `{id, level, label}`
+and, through `resolveTarget` (by default the element in the container whose
+`id` is the entry's), which element each one stands for. Labels are text.
+Numbers are hierarchical, and a skipped level is one step deeper, not two:
+levels 1, 3, 3, 2 are 1, 1.1, 1.2, 1.3.
+
+Of the targets an IntersectionObserver rooted at `scrollContainer` reports in
+view, the one listed first is active; with none in view the last one stays. An
+entry whose target does not resolve is listed, but never watched and never
+active, and `setActive` refuses it (`false`). A click marks its entry at once,
+scrolls its target into view (`scrollOnSelect: false` leaves that to
+`onSelect`) and suppresses the spy while the scroll passes the sections in
+between, until the container's `scrollend` or, without one, `scrollEndTimeout`
+(1000 ms). `dispose()` disconnects the observer and clears that timer. The
+indent per level is `--twm-doc-outline-indent` (12px).
+
+`tests/document_outline.test.mjs` drives it in jsdom with a hand-fired
+observer.
+
+## Action dropdowns: separators (0.17.0)
+
+`new ActionDropdown({ trigger, options, onSelect })` draws one button per
+option. An entry `{ separator: true }` in `options` draws a divider instead: a
+`<div role="separator" class="twm-action-dropdown-separator">` that takes no
+focus, that ArrowUp/ArrowDown pass over, and that never reaches `onSelect`.
+A separator only separates: one at the start or end of the list, or right
+after another, is dropped, so groups that come out empty leave no stray or
+doubled rule. `setOptions` follows the same rules, and an option's
+`data-index` stays its index in `options`.
+
+`tests/action_dropdown_separators.test.mjs` drives it in jsdom.
+
+## A list of tags: `createTagInput` (0.17.0)
+
+`createTagInput(host, { value, placeholder, readOnly, allowDuplicates, onChange })`
+(in `@flexdesk/widgets`) draws a list of short strings as removable chips
+followed by a text box, and appends it to `host`.
+
+```js
+const tags = createTagInput(host, {
+    value: ['baseline'],
+    placeholder: 'Add a tag…',
+    onChange: (list) => save(list),   // a fresh copy after each change the reader makes
+});
+tags.getValue();            // ['baseline']
+tags.setValue(['a', 'b']);  // redraws; does not call onChange
+tags.dispose();
+```
+
+- **Enter**, a **comma** and **blur** commit what was typed: it is split at
+  commas and each piece trimmed, so `a, b` then Enter adds two chips and
+  `onChange` receives `['a', 'b']`.
+- Empty pieces are ignored, and so is a piece already in the list unless
+  `allowDuplicates` is set. A commit that adds nothing calls no `onChange`.
+- **Backspace** in an empty box removes the last chip.
+- A **paste** that carries a comma is split into chips at once; a paste
+  without one is ordinary text in the box.
+- Each chip's remove button has an `aria-label`, "Remove <tag>" by default;
+  `removeLabel(tag)` words it (for another language). `label` names the text
+  box and the group.
+- `readOnly` draws the chips alone: no remove buttons and no text box.
+
+The handle is `{ element, input, getValue, setValue, focus, dispose }`
+(`input` is `null` when read-only). The styles are the `twm-tag-input` block in
+`flexdesk.css`. `tests/tag_input.test.mjs` covers each of the above in jsdom.
+
+## Progress: bars, lists and phases (0.17.0)
+
+Three classes in `widgets`, each building its own element (`.element`, appended
+to `host` when one is given) and changing it **in place**: an update twenty
+times a second gets the same nodes back every time, so hover, tooltips and the
+fill's transition survive. Names and labels are text.
+
+| Class | Does |
+|---|---|
+| `new ProgressBar(host, { value, max, indeterminate, label, showPercent, showCount, showElapsed, onCancel })` | `update(0.42)` (a fraction) or `update(21)` with `max` (a count, read "42% · 21 / 50"); `update({ value, max, label, indeterminate })`; `setState('done' \| 'error' \| 'cancelled')` ends it and stops the elapsed clock, `setState('running')` resumes it; `fraction`, `state`, `elapsed` |
+| `new ProgressList(host, { items, stats, pulse, emptyText })` | Keyed rows `{ key, name, completed, total?, state, detail? }`, `state` one of `pending`, `running`, `done`, `failed`. `setItems` reconciles by key: a known key keeps its row. A row without `total` is drawn against the largest item. `stats: true` writes a summary line, a function `(items) => string` writes yours, `false` none. Running rows pulse |
+| `new StepProgress(host, { steps })` | Ordered phases (`{ key, label }` or a label). `setStep(keyOrIndex, { pass, passes })` makes one active, those before it done and those after pending, and reads "pass 2 of 5"; `fail()` marks the active one error; `complete()` |
+
+```js
+const list = new ProgressList(panel, { items: [] });
+job.on('tick', (workers) => list.setItems(workers.map((w) => ({
+    key: w.id, name: w.label, completed: w.done, total: w.total, state: w.state }))));
+```
+
+`showRunProgressDialog` and `showComputingWindow` take `progress` (`true`, or
+ProgressBar options) and `steps`, fixed when the dialog opens. Their handles
+gain `setProgress(next)` and `setStep(which, opts)`, which throw when the dialog
+was opened without `progress` or `steps` respectively, and **`result`**, a
+Promise that settles once with
+`{ status, message }`: `complete({ ok })` gives `done` or `error` (the bar and
+the phases show it), `cancelled()` gives `cancelled`, and so does **closing the
+dialog while it runs** (by its ×, Escape, `close()`, or for `showComputingWindow`
+opening another). Closing never calls `onCancel`; only the Stop / Cancel button
+does, as before. `showComputingWindow` also gains `complete` and `cancelled`,
+after which it shows a Close button.
+
+```js
+const dlg = showRunProgressDialog({ title: 'Export', steps: ['Prepare', 'Render', 'Write'],
+                                    progress: { showElapsed: true }, onCancel: () => job.stop() });
+dlg.setStep(1); dlg.setProgress(0.4);
+const { status } = await dlg.result;   // 'done' | 'error' | 'cancelled'
+```
+
+`tests/progress.test.mjs` holds all of it in jsdom.
 
 ## Notifications: `NotificationCenter`
 
@@ -1721,6 +2162,51 @@ const nc = new NotificationCenter({ eventBus, maxVisible: 3, overflow: 'collapse
                                     summaryAction: () => history.open() });
 nc.mount(document.body);
 ```
+
+*New in 0.17.0:* **the toast helpers read no global.** `toastInfo` / `toastWarn` /
+`toastError` / `toastSuccess` emit on the bus of the `NotificationCenter` mounted
+last; its `dispose()` hands them back. `setToastBus(bus)` points them at another
+bus (and returns the one it replaced), `setToastBus(null)` back at the console,
+and `getToastBus()` says which is current. With no bus — before any centre is
+mounted — a helper logs to the console and throws nothing. Until 0.17.0 they
+looked for one application's bus on a window global.
+
+### Progress toasts (0.17.0)
+
+A toast can track a job. `show({ progress })` takes a 0..1 fraction,
+`{ value, total }`, or `null` for indeterminate, and draws a `ProgressBar` in
+the toast; `status` is a line under the message and `counts` a label beside the
+bar. A progress toast is persistent, has a collapse toggle (or `collapsed: true`),
+and is not closed by a click on its body or on one of its actions while it runs.
+
+`update(id, patch)` changes only that toast's nodes: `progress`, `status`,
+`counts`, `collapsed`, `message`, `title`, `description`, `severity`. No other
+toast is redrawn, by an update or by toasts arriving and leaving, so a bar, a
+collapsed state and a hover survive (a toast whose title or description appears
+or goes is rebuilt in its place). `update()` also reaches a toast held behind
+"+N more", and `progress` on a plain toast turns it into a running progress
+toast. The toast **runs until a patch gives it an outcome severity**: `success`
+ends the bar done, `error` / `fatal` error; any other severity only restyles it.
+Once finished the bar keeps that state, whatever severity comes later. A
+`durationMs` in a patch to a toast that is not running (re)starts its
+auto-dismiss, and `0` keeps it until closed.
+
+With `overflow: 'collapse'`, a running progress toast is never held behind
+"+N more" and never counted in it (a held toast that starts running through
+`update()` comes on screen at once). It counts toward `maxVisible`, so when the
+screen is full the newest other toast steps back into the queue (first in line
+to return). Once finished it folds like any other toast. With `'drop'`, the
+oldest toast that is not a running job leaves.
+
+```js
+const id = nc.show({ title: 'Batch', message: 'Running', progress: 0, counts: '0 / 200',
+                     actions: [{ label: 'Stop', handler: () => job.stop() }] });
+job.on('tick', (done) => nc.update(id, { progress: { value: done, total: 200 },
+                                         counts: `${done} / 200`, status: job.current }));
+job.on('end', () => nc.update(id, { progress: 1, severity: 'success', message: 'Done', durationMs: 3000 }));
+```
+
+`tests/notification_progress.test.mjs` holds it in jsdom.
 
 ### Alerts with history: a log, a pane, a tab host and a bell (0.14.0)
 
@@ -1769,8 +2255,10 @@ library degrades rather than throwing.
 ```js
 createHost({
     state:   { read, write },              // layout persistence
-    dialogs: { saveFile },                 // optional — CSV export falls back to a Blob
+    dialogs: { saveFile, openFile? },      // optional — CSV export falls back to a Blob;
+                                           // openFile (itself optional) to pickFile()
     window:  { minimize, maximize, ... },  // optional — no native chrome buttons without it
+    gallery: { list },                     // optional (0.17.0) — mountGalleryPicker's entries
 })
 ```
 
@@ -1791,6 +2279,47 @@ const host = createPhotinoHost({ state: myServerState, onEvent: (name, value) =>
 `dialogs.saveFile` falls back to a Blob download when the window refuses, and
 the messages the C# side has to answer are in
 [`src/host/photino_host.md`](src/host/photino_host.md).
+
+**The dialogs a pywebview bridge answers.** `createPywebviewHost()` calls these
+methods on `window.pywebview.api`, positionally. Each is optional: a missing
+one makes its capability answer `null`, and FlexDesk degrades.
+
+| Bridge method | Arguments | Reply | Behind |
+|---|---|---|---|
+| `save_file_dialog` | `(data, filename, kind)`: the file's text (`csv`) or base64 bytes (`png`), the suggested name, the type | `{ok: true, path}` \| `{ok: false, cancelled: true}` \| `{ok: false, error}` | `dialogs.saveFile` |
+| `read_file_dialog` (0.17.0) | `(accept, kind, encoding)`: a list of extensions or MIME types to filter by (`['.json']`, may be empty), a label for the filter or `null`, and `'text'` or `'base64'` | `{ok: true, name, path, text}` (`'text'`, read as UTF-8) or `{ok: true, name, path, data}` (`'base64'`, the bytes) \| `{ok: false, cancelled: true}` \| `{ok: false, error}` | `dialogs.openFile` |
+
+### Opening a file: `pickFile` (0.17.0)
+
+```js
+import { pickFile } from '@flexdesk/host';
+
+const r = await pickFile(host, { accept: ['.json'], kind: 'json' });   // encoding: 'text' (default) or 'base64'
+if (r.ok) load(JSON.parse(r.text));
+else if (r.error) toast(r.error);                                     // r.cancelled: say nothing
+```
+
+`pickFile(host, {accept, kind, encoding})` takes `accept` as a list or as a
+comma-separated string (`'.json,.csv'`); the host always receives the list
+(`['.json', '.csv']`). It asks the host's
+`dialogs.openFile` first, a new optional member of `dialogs`: a host whose
+`dialogs` has only `saveFile` is still complete. Without it, or when it
+answers `null` (no dialog behind it), a transient hidden
+`<input type="file">` opens the browser's chooser, so the same call works in a
+browser tab, under `NULL_HOST`. Either way it resolves one of
+
+```
+{ok: true, name, path?, text}      encoding 'text'
+{ok: true, name, path?, data}      encoding 'base64': the file's bytes
+{ok: false, cancelled: true}       the user closed the chooser
+{ok: false, error}                 show it
+```
+
+`path` comes only from a native host. The pywebview adapter maps `openFile` to
+`read_file_dialog(accept, kind, encoding)` (the table above); the Photino
+adapter sends `dialogs.openFile`, documented in
+[`photino_host.md`](src/host/photino_host.md). The browser chooser reports a
+cancel through the input's `cancel` event, which every current engine fires.
 
 ### A window with its own chrome (0.15.0)
 
@@ -1937,6 +2466,160 @@ A non-positive or non-number cap throws a `RangeError`. With `noAutoHeight`
 the container's own layout decides the size and `setMaxHeight` has no effect.
 Before 0.17.0 the cap was a fixed 400px, switched on by `data-code-max-height="true"`
 on a `.notebook-editor-container` ancestor; that attribute is no longer read.
+
+## Storage keys and names are yours (0.17.0)
+
+Every localStorage key FlexDesk writes is an option, and so is each name in the
+table below that it registers where other code can see it, except the last row:
+the tile tab MIME is fixed. The defaults are FlexDesk's own; pass yours at boot,
+before the first read:
+
+| What | Default | Set it with |
+|---|---|---|
+| Settings (the `getSetting`/`setSetting` binding) | `'flexdesk.settings.v1'` | `configureSettings({ storageKey })` from `@flexdesk/core` |
+| ManagedWindow geometry | `'flexdesk.managedWindows.v1'` | `ManagedWindow.configure({ storageKey })` from `@flexdesk/widgets` |
+| Saved tile layouts | `'twm.tiles.layouts'` | `configureLayoutPersistence({ layoutsKey })` from `@flexdesk/tiles` |
+| Saved tile configurations | `'twm.tiles.configs'` | `configureLayoutPersistence({ configsKey })` from `@flexdesk/tiles` |
+| Panel open/size state | none: you must pass one | `new PanelStateMachine({ persistenceKey })` from `@flexdesk/widgets` |
+| Built-in Monaco themes | `'flexdesk-dark'`, `'flexdesk-light'` | `setEditorThemeNames({ dark, light })` from `@flexdesk/editor` |
+| MIME type of a dragged editor tab | `'application/x-flexdesk-tab'` | `setTabDragMime(mime)` from `@flexdesk/editor` |
+| Chart PNG export file name | `'chart'` (saved as `chart.png`) | `setChartExportFilename(name)` from `@flexdesk/charts` |
+| `LoggingService` service name on each entry | `'flexdesk'` | `new LoggingService({ name })` from `@flexdesk/core` |
+| MIME type of a dragged tile tab | `'application/x-twm-tile-tab'` | fixed: not an option; read it as `TILE_TAB_MIME` (or `TileRenderer.TAB_MIME`) from `@flexdesk/wm` |
+
+```js
+import { configureSettings } from '@flexdesk/core';
+import { ManagedWindow } from '@flexdesk/widgets';
+import { setEditorThemeNames, setTabDragMime } from '@flexdesk/editor';
+import { setChartExportFilename } from '@flexdesk/charts';
+
+configureSettings({ storageKey: 'myapp.settings.v1' });
+ManagedWindow.configure({ storageKey: 'myapp.windows.v1' });
+setEditorThemeNames({ dark: 'myapp-dark', light: 'myapp-light' });
+setTabDragMime('application/x-myapp-tab');
+setChartExportFilename('myapp_chart');
+```
+
+Each default is exported beside its setter (`DEFAULT_SETTINGS_STORAGE_KEY`,
+`DEFAULT_WINDOW_STORAGE_KEY`, `DEFAULT_EDITOR_THEME_NAMES`,
+`DEFAULT_TAB_DRAG_MIME`, `DEFAULT_CHART_EXPORT_FILENAME`), and each setter has a
+getter (`getSettingsStorageKey()`, `ManagedWindow.storageKey`,
+`getEditorThemeNames()`, `getTabDragMime()`, `getChartExportFilename()`). An
+embedder that passes nothing gets the defaults silently: nothing is logged.
+
+- **Settings** are read lazily: importing `@flexdesk/core` touches no storage,
+  and the binding reads its key on the first `getSetting`/`setSetting`/reset.
+  `registerSettings()` and `registerSettingsEventBus()` may come before or after
+  `configureSettings()`. Configured after the binding was in use, it moves: values
+  return to their defaults, are reloaded from the new key, and one
+  `settings:changed` (`path: null`) is emitted. The old key is not touched. A
+  private store from `createSettingsStore()` moves the same way with
+  `store.setStorageKey(key)` (and answers `store.getStorageKey()`).
+- **ManagedWindow** reads geometry when a window is first shown; configure it
+  before the first `show()`.
+- **Editor themes**: a factory starts on the dark name current when it is
+  created, and `init()` defines the built-in themes under the names current
+  then. An app with a theme of its own defines it with `monaco.editor.defineTheme`
+  and passes its name to `factory.setTheme(name)`.
+- **The tab MIME** is read at drag time by every `NotebookTabBar` and
+  `EditorPane`, so the two always agree.
+
+**Upgrading from 0.16.** The old defaults were one application's names:
+`'ecosim.settings.v1'`, `'ecosim.managedWindows.v1'`, `'ecosim-dark'` /
+`'ecosim-light'`, `'application/x-ecosim-tab'`, `'ecosim_chart'` and the log
+service name `'ecosim'`. If your users have settings or window geometry saved
+under the old keys, pass those keys explicitly and nothing is lost:
+
+```js
+configureSettings({ storageKey: 'ecosim.settings.v1' });
+ManagedWindow.configure({ storageKey: 'ecosim.managedWindows.v1' });
+```
+
+Code that called `factory.setTheme('ecosim-light')` now calls
+`factory.setTheme(getEditorThemeNames().light)` (or names the themes back with
+`setEditorThemeNames`), and code that read `'application/x-ecosim-tab'` off a drag
+reads `getTabDragMime()`.
+
+## Derived series: `seriesTransforms` (0.17.0)
+
+A plot can draw series worked out from its own: a trend, a moving average, a
+decomposition. `@flexdesk/charts` ships none; you pass them to
+`PlotPopoutWindow` (or `openPlotPopoutWindow`) as `seriesTransforms`:
+
+```js
+import { openPlotPopoutWindow, renderSeriesTransformControls } from '@flexdesk/charts';
+
+const seriesTransforms = {
+    hp: {
+        label: 'HP filter',
+        params: { lambda: { label: 'Lambda', default: 1600, min: 1, step: 100 } },
+        outputs: {
+            trend: { label: 'Trend', suffix: ' (HP Trend)', lineStyle: 'dashed' },
+            cycle: { label: 'Cycle', suffix: ' (HP Cycle)', lineStyle: 'dotted', lineWidth: 1 },
+        },
+        run: (y, { lambda }) => myBackend.hpFilter(y, lambda),   // -> { trend: [...], cycle: [...] }
+    },
+};
+
+openPlotPopoutWindow({ id, title, plotConfig, getResults, services, seriesTransforms,
+    configRenderer: (el) => renderSeriesTransformControls(el, plotConfig.subplots[0],
+                                                           seriesTransforms, { onChange: redraw }) });
+```
+
+What a subplot switches on is in the subplot:
+`subplot.transforms = { hp: { outputs: { trend: true }, params: { lambda: 100 } } }`.
+For every transform with an output switched on, `run(y, params)` is called
+once per line or scatter trace of the subplot (params: the declared defaults
+under the subplot's own), and each switched-on output it returns is drawn as
+an extra trace in the source trace's colour, on its axis, named
+`<source name><suffix>`, with the output's `lineStyle` and `lineWidth`
+(default 2). A transform that throws or rejects is skipped for that trace,
+reported to `services.logger.warn`, and the figure is drawn without it.
+`deriveSeriesTraces(traces, subplot, seriesTransforms, { onError })` is that
+step on its own, for a renderer of your own.
+
+`renderSeriesTransformControls(container, subplot, seriesTransforms, { onChange })`
+renders, per transform, a toggle for each output and a number field for each
+parameter (disabled while no output is on); it edits `subplot.transforms` in
+place and returns `{ dispose }`. With no transforms it renders nothing.
+
+Until 0.17.0 the plot window called one application's backend for a
+Hodrick-Prescott filter, and every default subplot carried `showHpTrend`,
+`showHpCycle` and `hpLambda`. Those keys are gone and are ignored in saved
+configs; without `seriesTransforms` no derived trace is drawn.
+`tests/series_transforms.test.mjs` pins all of it.
+
+## No application globals: the gallery picker and plot-window events (0.17.0)
+
+Nothing under `src/` outside `src/host` reads `window.pywebview` or an
+application's global; `tests/no_app_globals.test.mjs` pins it, with the toast
+helpers ([Notifications](#notifications-notificationcenter)) and these two:
+
+**`mountGalleryPicker(el, { entries | host, kind, ... })`** takes its entries from
+`entries`, or else from the host's optional `gallery` capability:
+`host.gallery.list(kind)` answers `[{id, kind, label, description?, fields?}]`
+(or a promise of them). Neither shipped adapter advertises it; add your own:
+
+```js
+const host = createHost({ ...createPywebviewHost({ bridgeRef }),
+                          gallery: { list: (kind) => myBackend.starters(kind) } });
+await mountGalleryPicker(el, { host, kind: 'report', onChange });
+```
+
+With neither `entries` nor the capability, the picker shows its `emptyLabel`
+and logs one warning; a `list` that throws does the same. Until 0.17.0 it
+called one application's bridge method.
+
+**`PlotPopoutWindow({ streamEvents })`** names the bus events a live data
+source emits, next to `refreshEvent`: `{ delta, complete }`, defaulting to
+`'streaming:delta'` and `'streaming:complete'`. The window redraws on each
+while live update is on; a name given as `null` is not listened for.
+
+```js
+openPlotPopoutWindow({ id, title, plotConfig, getResults, services,
+                       refreshEvent: 'run:finished',
+                       streamEvents: { delta: 'sim:delta', complete: 'sim:done' } });
+```
 
 ## Layouts are keyed by whatever you key them by
 

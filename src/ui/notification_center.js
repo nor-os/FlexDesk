@@ -20,8 +20,8 @@
  * fraction, `{ value, total }`, or `null` for indeterminate; `status` is a line
  * under the message and `counts` a label beside the bar. Such a toast is
  * persistent and collapsible, and it RUNS until `update()` gives it an outcome
- * severity (success, warn, error or fatal), which ends its bar (done, cancelled,
- * error) and lets a `durationMs` in the same patch dismiss it. Every toast is
+ * severity (success, error or fatal), which ends its bar (done or error) for
+ * good and lets a `durationMs` in the same patch dismiss it. Every toast is
  * drawn once and then patched: `update()` touches only its own nodes, and a
  * toast arriving or leaving moves no other toast's element, so a bar, a
  * collapsed state and a hovered button survive. A running progress toast is
@@ -36,7 +36,7 @@ import { ProgressBar } from './components/progress.js';
 const SEVERITIES = ['info', 'success', 'warn', 'error', 'fatal'];
 
 /** The severity a progress toast finishes with, and the state its bar ends in. */
-const OUTCOME_BAR_STATE = Object.freeze({ success: 'done', warn: 'cancelled', error: 'error', fatal: 'error' });
+const OUTCOME_BAR_STATE = Object.freeze({ success: 'done', error: 'error', fatal: 'error' });
 const LOG_SEVERITY_MAP = {
     trace: 'info',
     debug: 'info',
@@ -227,10 +227,12 @@ export class NotificationCenter extends ComponentBase {
      *
      * Fields: `message`, `title`, `description`, `severity`, `meta`, and for
      * progress toasts `progress` (fraction, `{ value, total }`, or `null` for
-     * indeterminate), `status`, `counts` and `collapsed`. Giving a progress
-     * toast an outcome severity (success, warn, error, fatal) finishes it; a
-     * `durationMs` on a toast that is not running (re)starts its auto-dismiss
-     * (0 keeps it until closed).
+     * indeterminate), `status`, `counts` and `collapsed`; `progress` on a
+     * plain toast turns it into a running progress toast (on screen, as with
+     * show()). Giving a running progress toast an outcome severity (success,
+     * error, fatal) finishes it, and its bar keeps the state it ended in: a
+     * later severity only restyles the toast. A `durationMs` on a toast that
+     * is not running (re)starts its auto-dismiss (0 keeps it until closed).
      *
      * @param {string} notificationId - The ID of the notification to update
      * @param {Object} updates - The fields to change
@@ -245,6 +247,7 @@ export class NotificationCenter extends ComponentBase {
         const hadTitle = Boolean(notification.title);
         const hadDescription = Boolean(notification.description);
         const wasProgress = notification.progress !== undefined;
+        const wasRunning = NotificationCenter.#isRunning(notification);
 
         if (updates.message !== undefined) notification.message = updates.message;
         if (updates.title !== undefined) notification.title = updates.title;
@@ -254,17 +257,22 @@ export class NotificationCenter extends ComponentBase {
         if (updates.counts !== undefined) notification.counts = updates.counts ?? '';
         if (updates.collapsed !== undefined) notification.collapsed = Boolean(updates.collapsed);
         if (updates.progress !== undefined) {
-            notification.progress = NotificationCenter.#normalizeProgress(updates.progress);
-            if (!wasProgress) { notification.persistent = true; this.#stopTimer(notification.id); }
-        }
-        let finished = false;
-        if (updates.severity !== undefined) {
-            notification.severity = this.#normalizeSeverity(updates.severity);
-            if (NotificationCenter.#isRunning(notification) && OUTCOME_BAR_STATE[notification.severity]) {
-                notification.finished = true;
-                finished = true;
+            if (wasProgress) {
+                notification.progress = NotificationCenter.#normalizeProgress(updates.progress);
+            } else {
+                // A plain toast becomes a running progress toast, set up as show() would.
+                Object.assign(notification, NotificationCenter.#progressFields({ ...notification, ...updates }));
+                notification.persistent = true;
+                this.#stopTimer(notification.id);
             }
         }
+        if (updates.severity !== undefined) {
+            notification.severity = this.#normalizeSeverity(updates.severity);
+            const outcome = OUTCOME_BAR_STATE[notification.severity];
+            if (NotificationCenter.#isRunning(notification) && outcome) notification.outcome = outcome;
+        }
+        const running = NotificationCenter.#isRunning(notification);
+        const finished = wasRunning && !running;
         if (updates.durationMs !== undefined && !NotificationCenter.#isRunning(notification)) {
             notification.durationMs = this.#coerceDuration(updates.durationMs);
             notification.persistent = notification.durationMs === 0;
@@ -289,11 +297,10 @@ export class NotificationCenter extends ComponentBase {
                 this.#patchItem(entry, notification);
             }
         }
-        if (finished) {
-            this.#announce(notification);
-            // Finished, it folds like any other toast.
-            if (this.overflow === 'collapse') this.#rebalance();
-        }
+        if (finished) this.#announce(notification);
+        // Started, it comes on screen whatever is held; finished, it folds
+        // like any other toast.
+        if (running !== wasRunning) this.#rebalance();
         this.#render();
         return true;
     }
@@ -346,16 +353,9 @@ export class NotificationCenter extends ComponentBase {
         }
         const id = notification.id ?? `notification-${++this.sequence}`;
         const severity = this.#normalizeSeverity(notification.severity ?? 'info');
-        const isProgress = 'progress' in notification && notification.progress !== undefined;
-        const progressFields = isProgress ? {
-            progress: NotificationCenter.#normalizeProgress(notification.progress),
-            status: notification.status ?? '',
-            counts: notification.counts ?? '',
-            collapsed: Boolean(notification.collapsed),
-            finished: false,
-        } : {};
+        const isProgress = notification.progress !== undefined;
         return {
-            ...progressFields,
+            ...(isProgress ? NotificationCenter.#progressFields(notification) : {}),
             id,
             title: notification.title ?? null,
             message: notification.message ?? '',
@@ -485,7 +485,22 @@ export class NotificationCenter extends ComponentBase {
 
     /** A progress toast that has not been given an outcome yet. */
     static #isRunning(notification) {
-        return notification.progress !== undefined && !notification.finished;
+        return notification.progress !== undefined && !notification.outcome;
+    }
+
+    /**
+     * The fields a progress toast carries, from a show() payload or an
+     * update() that turns a plain toast into one. `outcome` is null while it
+     * runs, then the state its bar ended in (done or error).
+     */
+    static #progressFields(source) {
+        return {
+            progress: NotificationCenter.#normalizeProgress(source.progress),
+            status: source.status ?? '',
+            counts: source.counts ?? '',
+            collapsed: Boolean(source.collapsed),
+            outcome: null,
+        };
     }
 
     /** `null` (indeterminate), a 0..1 fraction, or `{ value, total }` -> ProgressBar input. */
@@ -508,12 +523,17 @@ export class NotificationCenter extends ComponentBase {
 
     /**
      * 'collapse' only: keep at most `maxVisible` on screen, counting running
-     * progress toasts, which never leave. Past the limit the newest other
-     * toast steps back to the front of the held queue (its timer restarts when
-     * it returns); under it the oldest held toast comes in.
+     * progress toasts, which never leave and are never held (one that started
+     * running while held comes on screen first). Past the limit the newest
+     * other toast steps back to the front of the held queue (its timer
+     * restarts when it returns); under it the oldest held toast comes in.
      */
     #rebalance() {
         if (this.overflow !== 'collapse') return;
+        for (let i = 0; i < this.held.length;) {
+            if (NotificationCenter.#isRunning(this.held[i])) this.notifications.push(...this.held.splice(i, 1));
+            else i++;
+        }
         while (this.notifications.length > this.maxVisible) {
             let idx = -1;
             for (let i = this.notifications.length - 1; i >= 0; i--) {
@@ -719,7 +739,7 @@ export class NotificationCenter extends ComponentBase {
         if (!entry.bar) return;
 
         item.classList.add('twm-notification--progress');
-        item.classList.toggle('twm-notification--collapsed', notification.collapsed);
+        item.classList.toggle('twm-notification--collapsed', Boolean(notification.collapsed));
         const expanded = String(!notification.collapsed);
         if (entry.collapseBtn.getAttribute('aria-expanded') !== expanded) {
             entry.collapseBtn.setAttribute('aria-expanded', expanded);
@@ -728,7 +748,7 @@ export class NotificationCenter extends ComponentBase {
         NotificationCenter.#setText(entry.statusEl, notification.status);
         entry.statusEl.hidden = !notification.status;
         entry.bar.update({ ...notification.progress, label: notification.counts });
-        const end = notification.finished ? OUTCOME_BAR_STATE[notification.severity] : 'running';
+        const end = notification.outcome ?? 'running';
         if (entry.bar.state !== end) entry.bar.setState(end);
     }
 

@@ -3,20 +3,27 @@
  * NEVER REDRAWN, AND NEVER HIDDEN WHILE IT RUNS.
  *
  *   §1  show({ progress, status, counts }) draws a ProgressBar in the toast;
- *       a fraction, { value, total } and null (indeterminate) all read
+ *       a fraction, { value, total } and null (indeterminate) all read;
+ *       update(id, { progress }) turns a plain toast into one, expanded
  *   §2  update(id, { progress: 0.5 }) moves that bar — same nodes — and no
  *       other toast sees a single DOM mutation
  *   §3  collapse and expand; a new info toast arriving (and one leaving)
  *       leaves the progress toast's element, collapsed state and bar alone
  *   §4  a running progress toast is persistent; update(id, { progress: 1,
  *       severity: 'success', durationMs: 3000 }) shows success, fills the bar,
- *       and dismisses it after exactly 3 s; error without a duration stays
+ *       and dismisses it after exactly 3 s; error without a duration stays;
+ *       warn does not finish it; a finished bar keeps its end state whatever
+ *       severity comes later
  *   §5  overflow 'collapse', four info toasts: the running progress toast is
  *       on screen whichever came first, and "+N more" counts only the others;
- *       finished, it folds like any other; 'drop' never drops a running one
+ *       finished, it folds like any other; a held toast that starts running
+ *       through update() comes on screen; 'drop' never drops a running one
  *   §6  an action button on a progress toast calls its handler and leaves a
  *       running toast up; a click on the toast's body does not dismiss it
  *   §7  the stylesheets carry the progress-toast rules
+ *   §8  update() on plain toasts: it reaches held toasts, durationMs restarts
+ *       or clears auto-dismiss, description and severity patch the DOM, and
+ *       a title or description appearing or going rebuilds that toast alone
  *
  *     node tests/notification_progress.test.mjs
  */
@@ -78,6 +85,24 @@ section('§1 a progress toast draws a bar');
     check('the status line', toastEl(a).querySelector('.twm-notification__status')?.textContent, 'starting');
     ok('it is marked a progress toast', toastEl(a).classList.contains('twm-notification--progress'));
     ok('a plain toast has no bar', !toastEl(nc.show({ message: 'plain' }))?.querySelector('.twm-progress'));
+    nc.dispose();
+}
+{
+    const nc = fresh();
+    const a = nc.show({ message: 'plain', persistent: true });
+    check('update turns a plain toast into a progress toast', nc.update(a, { progress: 0.5 }), true);
+    check('…with a bar', fill(a)?.style.width, '50%');
+    ok('…marked a progress toast', toastEl(a).classList.contains('twm-notification--progress'));
+    ok('…and expanded, not collapsed', !toastEl(a).classList.contains('twm-notification--collapsed'));
+    check('…which its toggle agrees with', toastEl(a).querySelector('.twm-notification__collapse')?.getAttribute('aria-expanded'), 'true');
+    const n = nc.notifications.find((x) => x.id === a);
+    check('its fields are those show() gives', [n.status, n.counts, n.collapsed, n.outcome, n.persistent], ['', '', false, null, true]);
+    const u = nc.show({ message: 'plain 2', persistent: true });
+    nc.update(u, { progress: null, status: 'warming up', counts: '0 / 9', collapsed: true });
+    ok('an upgrade can carry status, counts and collapsed', toastEl(u).classList.contains('twm-notification--collapsed')
+        && toastEl(u).querySelector('.twm-notification__status')?.textContent === 'warming up'
+        && toastEl(u).querySelector('.twm-progress__label')?.textContent === '0 / 9'
+        && toastEl(u).querySelector('.twm-progress--indeterminate'));
     nc.dispose();
 }
 
@@ -155,8 +180,29 @@ section('§4 persistent while running; finishing into success dismisses after 3 
     clock.advance(60_000);
     ok('an error without a duration stays until dismissed', toastEl(e)?.querySelector('.twm-progress--error'));
     const w = nc.show(job());
-    nc.update(w, { severity: 'warn', message: 'Stopped' });
-    ok('warn ends the bar cancelled', toastEl(w)?.querySelector('.twm-progress--cancelled'));
+    nc.update(w, { severity: 'warn', message: 'Slow' });
+    ok('warn restyles a running toast', toastEl(w)?.classList.contains('notification--warn'));
+    ok('…but does not finish it', toastEl(w)?.querySelector('.twm-progress--running')
+        && !toastEl(w).querySelector('.twm-progress--cancelled'));
+    nc.dispose();
+}
+{
+    const nc = fresh();
+    const b = nc.show({ message: 'job', progress: 0 });
+    nc.update(b, { severity: 'success' });
+    let threw = null;
+    try { check('a finished toast takes a non-outcome severity', nc.update(b, { severity: 'info', message: 'later' }), true); }
+    catch (err) { threw = err; }
+    ok('…without throwing', !threw);
+    ok('…restyles the toast', toastEl(b)?.classList.contains('notification--info') && !toastEl(b).classList.contains('notification--success'));
+    check('…and patches the rest of it', toastEl(b)?.querySelector('.twm-notification__body')?.textContent, 'later');
+    ok('…while the bar keeps its end state', toastEl(b)?.querySelector('.twm-progress--done'));
+    nc.update(b, { severity: 'error' });
+    ok('another outcome later does not change the bar either', toastEl(b)?.querySelector('.twm-progress--done')
+        && !toastEl(b).querySelector('.twm-progress--error'));
+    nc.update(b, { durationMs: 1000 });
+    clock.advance(1000);
+    ok('finished, it still dismisses on a duration', !toastEl(b));
     nc.dispose();
 }
 
@@ -194,6 +240,19 @@ section("§5 overflow 'collapse': a running progress toast is never folded");
     check('…at the front of the queue', nc.held[0]?.id, r1);
     nc.dispose();
 
+    nc = fresh({ overflow: 'collapse', maxVisible: 2 });
+    const h = ['a', 'b', 'c'].map((m) => nc.show({ message: m, persistent: true }));
+    check('the third waits behind "+N more"', nc.held.map((x) => x.id), [h[2]]);
+    nc.update(h[2], { progress: 0 });
+    ok('started running through update(), it comes on screen', shownIds().includes(h[2]) && toastEl(h[2])?.querySelector('.twm-progress'));
+    ok('…and is no longer held', !nc.held.some((x) => x.id === h[2]));
+    check('the newest other toast stepped back for it', shownIds(), [h[0], h[2]]);
+    check('"+N more" counts only that one', summary()?.textContent, '+1 more');
+    nc.update(h[2], { severity: 'success' });
+    nc.dismiss(h[0], 'manual');
+    check('finished, it folds like any other again', shownIds(), [h[2], h[1]]);
+    nc.dispose();
+
     nc = fresh();
     const d = nc.show(job());
     ['a', 'b', 'c'].forEach((m) => nc.show({ message: m, persistent: true }));
@@ -226,6 +285,67 @@ for (const sheet of ['base.css', 'flexdesk.css']) {
     ok(`${sheet}: the collapse toggle`, text.includes('.twm-notification__collapse {'));
     ok(`${sheet}: the status line`, text.includes('.twm-notification__status {'));
     ok(`${sheet}: collapsed hides the details`, /\.twm-notification--collapsed \.twm-notification__body/.test(text));
+}
+
+section('§8 update() on plain toasts');
+{
+    const nc = fresh({ overflow: 'collapse', maxVisible: 1, defaultDurationMs: 1000 });
+    const a = nc.show({ message: 'shown', persistent: true });
+    const b = nc.show({ message: 'held', persistent: true });
+    check('update finds a held toast', nc.update(b, { message: 'held, changed', severity: 'warn' }), true);
+    ok('…which is still not drawn', !toastEl(b));
+    nc.dismiss(a, 'manual');
+    check('…and shows the change when it comes on screen', toastEl(b)?.querySelector('.twm-notification__body')?.textContent, 'held, changed');
+    ok('…with its new severity', toastEl(b)?.classList.contains('notification--warn'));
+    nc.dispose();
+}
+{
+    const nc = fresh({ defaultDurationMs: 1000 });
+    const a = nc.show({ message: 'timed' });
+    clock.advance(800);
+    nc.update(a, { durationMs: 2000 });
+    clock.advance(1999);
+    ok('durationMs restarts auto-dismiss from the update', toastEl(a));
+    clock.advance(1);
+    ok('…and dismisses after the new duration', !toastEl(a));
+    check('…by timeout', nc.history.at(-1)?.reason, 'timeout');
+
+    const k = nc.show({ message: 'keep me' });
+    clock.advance(500);
+    nc.update(k, { durationMs: 0 });
+    clock.advance(60_000);
+    ok('durationMs 0 clears auto-dismiss', toastEl(k));
+    nc.update(k, { durationMs: 300 });
+    clock.advance(300);
+    ok('a persistent toast given a duration dismisses after it', !toastEl(k));
+    nc.dispose();
+}
+{
+    const nc = fresh({ maxVisible: 5 });
+    const a = nc.show({ title: 'T', message: 'm', description: 'first', severity: 'info', persistent: true });
+    const other = nc.show({ message: 'other', persistent: true });
+    const el = toastEl(a), otherEl = toastEl(other);
+    nc.update(a, { description: 'second' });
+    check('description is patchable', toastEl(a).querySelector('.twm-notification__description')?.textContent, 'second');
+    ok('…in the same element', toastEl(a) === el);
+    nc.update(a, { severity: 'error' });
+    ok('a severity change swaps the class', el.classList.contains('notification--error') && !el.classList.contains('notification--info'));
+    check('…and the data', nc.notifications.find((x) => x.id === a).severity, 'error');
+
+    nc.update(a, { description: '' });
+    const rebuilt = toastEl(a);
+    ok('a description going rebuilds the toast', rebuilt && rebuilt !== el && !rebuilt.querySelector('.twm-notification__description'));
+    check('…in its place', shownIds(), [a, other]);
+    ok('…keeping its other parts', rebuilt.querySelector('.twm-notification__title')?.textContent === 'T'
+        && rebuilt.classList.contains('notification--error'));
+    nc.update(a, { title: '' });
+    ok('a title going rebuilds it without one', toastEl(a) !== rebuilt && !toastEl(a).querySelector('.twm-notification__title'));
+    nc.update(a, { title: 'Back', description: 'again' });
+    ok('a title and description appearing rebuild it with both',
+        toastEl(a).querySelector('.twm-notification__title')?.textContent === 'Back'
+        && toastEl(a).querySelector('.twm-notification__description')?.textContent === 'again');
+    ok('no other toast is rebuilt', toastEl(other) === otherEl);
+    nc.dispose();
 }
 
 T.done();

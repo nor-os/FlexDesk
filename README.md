@@ -2182,13 +2182,18 @@ and is not closed by a click on its body or on one of its actions while it runs.
 `update(id, patch)` changes only that toast's nodes: `progress`, `status`,
 `counts`, `collapsed`, `message`, `title`, `description`, `severity`. No other
 toast is redrawn, by an update or by toasts arriving and leaving, so a bar, a
-collapsed state and a hover survive. The toast **runs until a patch gives it an
-outcome severity**: `success` ends the bar done, `error` / `fatal` error, `warn`
-cancelled. A `durationMs` in that patch dismisses it after that long; without
-one it stays until closed.
+collapsed state and a hover survive (a toast whose title or description appears
+or goes is rebuilt in its place). `update()` also reaches a toast held behind
+"+N more", and `progress` on a plain toast turns it into a running progress
+toast. The toast **runs until a patch gives it an outcome severity**: `success`
+ends the bar done, `error` / `fatal` error; any other severity only restyles it.
+Once finished the bar keeps that state, whatever severity comes later. A
+`durationMs` in a patch to a toast that is not running (re)starts its
+auto-dismiss, and `0` keeps it until closed.
 
 With `overflow: 'collapse'`, a running progress toast is never held behind
-"+N more" and never counted in it. It counts toward `maxVisible`, so when the
+"+N more" and never counted in it (a held toast that starts running through
+`update()` comes on screen at once). It counts toward `maxVisible`, so when the
 screen is full the newest other toast steps back into the queue (first in line
 to return). Once finished it folds like any other toast. With `'drop'`, the
 oldest toast that is not a running job leaves.

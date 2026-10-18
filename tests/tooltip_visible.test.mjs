@@ -1,7 +1,7 @@
 /**
  * A TOOLTIP ON A `twm-has-tooltip` ELEMENT SHOWS (BUG-0001). The service builds
  * `.twm-latex-tooltip` at `opacity: 0` and adds `visible` once it is
- * positioned; until 0.16.0 no stylesheet said what `visible` does, so every
+ * positioned. Through 0.16.1 no stylesheet said what `visible` does, so every
  * tooltip was positioned and invisible.
  *
  *   §1  hovering a `twm-has-tooltip` element builds the tooltip, with its text,

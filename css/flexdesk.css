@@ -3493,10 +3493,12 @@ body.twm-window-maximized .twm-resize-handle {
     font-size: 32px;
 }
 
-/* ── the chart and KPI tiles (0.13.0, src/tiles/chart_tiles.js) ──────── */
-/* The figure flexes into what `.tile-content`'s column leaves; the note takes
-   its own line BELOW it, so the height chain above is untouched. */
-.fd-chart-tile {
+/* ── the figure, chart and KPI tiles (0.13.0, src/tiles/chart_tiles.js;
+      0.17.0, src/tiles/figure_tile.js) ─────────────────────────────── */
+/* A figure tile's plot (a chart tile's too: it is one) flexes into what
+   `.tile-content`'s column leaves; a chart's note takes its own line BELOW it,
+   so the height chain above is untouched. */
+.fd-figure-tile {
     display: flex;
     flex-direction: column;
     flex: 1 1 auto;
@@ -3508,7 +3510,7 @@ body.twm-window-maximized .twm-resize-handle {
 /* Plotly puts `.js-plotly-plot` on the figure itself, and the rule above makes
    that `height: 100% !important` — which, beside a note, pushes the note out of
    the tile. Here the flex column sizes the figure instead. */
-.tile-content .fd-chart-tile.js-plotly-plot {
+.tile-content .fd-figure-tile.js-plotly-plot {
     height: auto !important;
 }
 

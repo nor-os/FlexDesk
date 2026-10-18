@@ -1,25 +1,42 @@
 /**
- * toast.js — thin wrapper around the global NotificationCenter for
+ * toast.js — thin wrapper around the mounted NotificationCenter for
  * callers that don't already hold an eventBus reference.
  *
  * The NotificationCenter (../notification_center.js) subscribes to
- * `toast:show` on the global event bus; we re-export tiny helpers
- * that emit the same payload shape.
+ * `toast:show` on its event bus; these helpers emit the same payload shape
+ * on the bus they were given. They read no global: `NotificationCenter.mount()`
+ * hands its bus to `setToastBus()`, and `dispose()` takes it back. An embedder
+ * that wants toasts on some other bus calls `setToastBus(bus)` itself, and
+ * `setToastBus(null)` to stop.
  *
  * Usage:
  *   import { toastError, toastSuccess, toastWarn, toastInfo } from './toast.js';
- *   toastError('Save failed', 'sector_update refused: …');
+ *   toastError('Save failed', 'the server refused the change');
  *
  * The 1-arg form treats the string as the message (no title); the
- * 2-arg form is title + message.
+ * 2-arg form is title + message. With no bus (no NotificationCenter mounted
+ * yet, isolated test pages) the message goes to the console and nothing throws.
  */
 
-function _bus() {
-    return window.__ecoagent?.eventBus ?? null;
+let toastBus = null;
+
+/**
+ * Route the toast helpers to `bus` (anything with `emit(name, payload)`), or
+ * to the console with `null`. Returns the bus that was set before.
+ */
+export function setToastBus(bus) {
+    const prev = toastBus;
+    toastBus = bus && typeof bus.emit === 'function' ? bus : null;
+    return prev;
+}
+
+/** The bus the toast helpers currently emit on, or null. */
+export function getToastBus() {
+    return toastBus;
 }
 
 function _emit(severity, persistent, titleOrMsg, msg) {
-    const bus = _bus();
+    const bus = toastBus;
     const title = (msg !== undefined) ? titleOrMsg : null;
     const message = (msg !== undefined) ? msg : titleOrMsg;
     if (!bus) {

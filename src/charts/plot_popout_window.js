@@ -41,6 +41,9 @@ import {
 } from './plot_config.js';
 import { deriveSeriesTraces } from './series_transforms.js';
 
+/** The bus events a live data source emits, unless `streamEvents` names others. */
+const DEFAULT_STREAM_EVENTS = Object.freeze({ delta: 'streaming:delta', complete: 'streaming:complete' });
+
 export class PlotPopoutWindow {
     /**
      * @param {Object} options
@@ -56,6 +59,13 @@ export class PlotPopoutWindow {
      * @param {Function} [options.configRenderer] - (container) => void — renders config panel
      * @param {Object} [options.seriesTransforms] - `{ [id]: transform }` (series_transforms.js);
      *        absent => no derived series are drawn
+     * @param {string} [options.refreshEvent='data:changed'] - Bus event after which the
+     *        window re-reads `getResults()` and redraws.
+     * @param {{delta?: string|null, complete?: string|null}} [options.streamEvents] - Bus
+     *        events a live data source emits while it runs (`delta`) and when it ends
+     *        (`complete`); the window redraws on each while live update is on.
+     *        Defaults `{delta: 'streaming:delta', complete: 'streaming:complete'}`;
+     *        a name given as null is not listened for.
      */
     constructor({ id, title, plotConfig, getResults, services, host, onClose, actuals,
                   configRenderer, seriesTransforms,
@@ -63,6 +73,7 @@ export class PlotPopoutWindow {
                   // the user to "run simulation first". A chart window does not know
                   // that its data comes from a simulation; the app that opens it does.
                   refreshEvent = 'data:changed',
+                  streamEvents = {},
                   emptyMessage = 'No data yet.',
                   tableEmptyMessage = 'No data yet.' }) {
         this._id = id;
@@ -76,6 +87,7 @@ export class PlotPopoutWindow {
         this._configRenderer = configRenderer ?? null;
         this._seriesTransforms = seriesTransforms ?? null;
         this.refreshEvent = refreshEvent;
+        this.streamEvents = Object.freeze({ ...DEFAULT_STREAM_EVENTS, ...(streamEvents || {}) });
         // TWO messages, not one. The chart says "No data — run simulation first."
         // and the data table underneath says "Run simulation to see data". Folding
         // them into a single option would have quietly rewritten one of them, which
@@ -653,17 +665,16 @@ export class PlotPopoutWindow {
         const { eventBus } = this._services;
         if (!eventBus) return;
 
-        this._eventDisposers.push(
-            eventBus.on('streaming:delta', () => {
-                if (this._liveUpdate) this.#scheduleRender();
-            })
-        );
-        this._eventDisposers.push(
-            eventBus.on('streaming:complete', () => {
-                if (this._liveUpdate) this.#scheduleRender();
-            })
-        );
-        // Final analytics arrive asynchronously after streaming:complete
+        const { delta, complete } = this.streamEvents;
+        for (const name of new Set([delta, complete])) {
+            if (!name) continue;
+            this._eventDisposers.push(
+                eventBus.on(name, () => {
+                    if (this._liveUpdate) this.#scheduleRender();
+                })
+            );
+        }
+        // Final analytics arrive asynchronously after the stream's complete event
         // (backend fetch + transform). Without this, the popout window may
         // render stale data from a previous run when the dashboard tab
         // didn't receive streaming deltas (e.g. user was on another tab).

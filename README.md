@@ -2163,6 +2163,14 @@ const nc = new NotificationCenter({ eventBus, maxVisible: 3, overflow: 'collapse
 nc.mount(document.body);
 ```
 
+*New in 0.17.0:* **the toast helpers read no global.** `toastInfo` / `toastWarn` /
+`toastError` / `toastSuccess` emit on the bus of the `NotificationCenter` mounted
+last; its `dispose()` hands them back. `setToastBus(bus)` points them at another
+bus (and returns the one it replaced), `setToastBus(null)` back at the console,
+and `getToastBus()` says which is current. With no bus — before any centre is
+mounted — a helper logs to the console and throws nothing. Until 0.17.0 they
+looked for one application's bus on a window global.
+
 ### Alerts with history: a log, a pane, a tab host and a bell (0.14.0)
 
 A toast is the moment. The **alert log** keeps what came in until it is
@@ -2213,6 +2221,7 @@ createHost({
     dialogs: { saveFile, openFile? },      // optional — CSV export falls back to a Blob;
                                            // openFile (itself optional) to pickFile()
     window:  { minimize, maximize, ... },  // optional — no native chrome buttons without it
+    gallery: { list },                     // optional (0.17.0) — mountGalleryPicker's entries
 })
 ```
 
@@ -2525,6 +2534,38 @@ Hodrick-Prescott filter, and every default subplot carried `showHpTrend`,
 `showHpCycle` and `hpLambda`. Those keys are gone and are ignored in saved
 configs; without `seriesTransforms` no derived trace is drawn.
 `tests/series_transforms.test.mjs` pins all of it.
+
+## No application globals: the gallery picker and plot-window events (0.17.0)
+
+Nothing under `src/` outside `src/host` reads `window.pywebview` or an
+application's global; `tests/no_app_globals.test.mjs` pins it, with the toast
+helpers ([Notifications](#notifications-notificationcenter)) and these two:
+
+**`mountGalleryPicker(el, { entries | host, kind, ... })`** takes its entries from
+`entries`, or else from the host's optional `gallery` capability:
+`host.gallery.list(kind)` answers `[{id, kind, label, description?, fields?}]`
+(or a promise of them). Neither shipped adapter advertises it; add your own:
+
+```js
+const host = createHost({ ...createPywebviewHost({ bridgeRef }),
+                          gallery: { list: (kind) => myBackend.starters(kind) } });
+await mountGalleryPicker(el, { host, kind: 'report', onChange });
+```
+
+With neither `entries` nor the capability, the picker shows its `emptyLabel`
+and logs one warning; a `list` that throws does the same. Until 0.17.0 it
+called one application's bridge method.
+
+**`PlotPopoutWindow({ streamEvents })`** names the bus events a live data
+source emits, next to `refreshEvent`: `{ delta, complete }`, defaulting to
+`'streaming:delta'` and `'streaming:complete'`. The window redraws on each
+while live update is on; a name given as `null` is not listened for.
+
+```js
+openPlotPopoutWindow({ id, title, plotConfig, getResults, services,
+                       refreshEvent: 'run:finished',
+                       streamEvents: { delta: 'sim:delta', complete: 'sim:done' } });
+```
 
 ## Layouts are keyed by whatever you key them by
 

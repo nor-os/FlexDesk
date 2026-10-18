@@ -16,6 +16,7 @@
  */
 import { ComponentBase } from './base/component_base.js';
 import { getSetting } from '../core/settings.js';
+import { setToastBus, getToastBus } from './components/toast.js';
 
 const SEVERITIES = ['info', 'success', 'warn', 'error', 'fatal'];
 const LOG_SEVERITY_MAP = {
@@ -83,6 +84,7 @@ export class NotificationCenter extends ComponentBase {
             this.liveRegionEl = existingContainer.querySelector('.notification-center__live-region');
             this._mounted = true;
             this.#subscribeEvents();
+            this.#claimToastBus();
             return this;
         }
 
@@ -114,6 +116,7 @@ export class NotificationCenter extends ComponentBase {
 
         this._mounted = true;
         this.#subscribeEvents();
+        this.#claimToastBus();
 
         if (Array.isArray(props.initialNotifications)) {
             props.initialNotifications.forEach((notification) => this.show(notification));
@@ -124,6 +127,9 @@ export class NotificationCenter extends ComponentBase {
     dispose() {
         this.#clearTimers();
         this.#unsubscribeEvents();
+        // Give the toast helpers back to the console — unless someone has
+        // pointed them at another bus since this centre mounted.
+        if (this.eventBus && getToastBus() === this.eventBus) setToastBus(null);
         if (this.rootEl?.parentNode) {
             this.rootEl.parentNode.removeChild(this.rootEl);
         }
@@ -598,6 +604,11 @@ export class NotificationCenter extends ComponentBase {
                 }
             }),
         );
+    }
+
+    /** The toast helpers (toast.js) emit on the bus of the centre mounted last. */
+    #claimToastBus() {
+        if (this.eventBus) setToastBus(this.eventBus);
     }
 
     #unsubscribeEvents() {

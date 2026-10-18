@@ -2171,6 +2171,38 @@ and `getToastBus()` says which is current. With no bus — before any centre is
 mounted — a helper logs to the console and throws nothing. Until 0.17.0 they
 looked for one application's bus on a window global.
 
+### Progress toasts (0.17.0)
+
+A toast can track a job. `show({ progress })` takes a 0..1 fraction,
+`{ value, total }`, or `null` for indeterminate, and draws a `ProgressBar` in
+the toast; `status` is a line under the message and `counts` a label beside the
+bar. A progress toast is persistent, has a collapse toggle (or `collapsed: true`),
+and is not closed by a click on its body or on one of its actions while it runs.
+
+`update(id, patch)` changes only that toast's nodes: `progress`, `status`,
+`counts`, `collapsed`, `message`, `title`, `description`, `severity`. No other
+toast is redrawn, by an update or by toasts arriving and leaving, so a bar, a
+collapsed state and a hover survive. The toast **runs until a patch gives it an
+outcome severity**: `success` ends the bar done, `error` / `fatal` error, `warn`
+cancelled. A `durationMs` in that patch dismisses it after that long; without
+one it stays until closed.
+
+With `overflow: 'collapse'`, a running progress toast is never held behind
+"+N more" and never counted in it. It counts toward `maxVisible`, so when the
+screen is full the newest other toast steps back into the queue (first in line
+to return). Once finished it folds like any other toast. With `'drop'`, the
+oldest toast that is not a running job leaves.
+
+```js
+const id = nc.show({ title: 'Batch', message: 'Running', progress: 0, counts: '0 / 200',
+                     actions: [{ label: 'Stop', handler: () => job.stop() }] });
+job.on('tick', (done) => nc.update(id, { progress: { value: done, total: 200 },
+                                         counts: `${done} / 200`, status: job.current }));
+job.on('end', () => nc.update(id, { progress: 1, severity: 'success', message: 'Done', durationMs: 3000 }));
+```
+
+`tests/notification_progress.test.mjs` holds it in jsdom.
+
 ### Alerts with history: a log, a pane, a tab host and a bell (0.14.0)
 
 A toast is the moment. The **alert log** keeps what came in until it is

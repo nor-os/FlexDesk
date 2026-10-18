@@ -42,7 +42,7 @@
 import { WindowManager } from './wm.js';
 import { createContentRegistry } from './content_registry.js';
 import { createCommandPalette } from './command_palette.js';
-import { installKeymap } from './keymap.js';
+import { installKeymap, keymapShortcuts } from './keymap.js';
 import { openTileTabSwitcher } from './tile_tab_menu.js';
 import { mountZoomControl } from './zoom.js';
 import { showContextMenu } from '../ui/components/context_menu.js';
@@ -132,6 +132,19 @@ import { openForm } from '../ui/components/modal.js';
  *                                      zoom control is painted into — see
  *                                      zoom.js. Absent, there is no control and
  *                                      nothing is ever scaled.
+ * @param {object}     [cfg.keymap]     `{ bindings?: { [chord]: action | false | fn } }`
+ *                                      — the window manager's chords, changed:
+ *                                      `false` hands a chord back to the page
+ *                                      (unprevented), an action name such as
+ *                                      `'nav:0'` rebinds it, a function runs
+ *                                      instead. Chord ids and action names are
+ *                                      listed in keymap.js; an unknown one is
+ *                                      warned about once and ignored. The
+ *                                      palette's *Keyboard shortcuts* lists the
+ *                                      bindings in effect. Omitted, the default
+ *                                      keymap, `?` for help included. Anything
+ *                                      but an object whose only key is
+ *                                      `bindings` is a TypeError.
  * @returns {Promise<object>} the frozen shell
  */
 export async function createShell({
@@ -160,6 +173,7 @@ export async function createShell({
     // rail, say — passes the selector its own buttons match, and F1..F8 keep
     // working. Omitted, the default top-bar selector applies.
     navSelector = null,
+    keymap = null,
 } = {}) {
     // A bad shell is a BOOT error, not a runtime surprise. Same doctrine as
     // createHost / createTaxonomy.
@@ -168,6 +182,19 @@ export async function createShell({
     }
     if (!taxonomy) throw new Error('createShell: a taxonomy is required');
     if (!entities) throw new Error('createShell: an entity catalog is required');
+    // `keymap` is checked here, not left to the keymap: a typo such as
+    // `{ binding: … }` would otherwise be dropped without a word, and the chord
+    // the embedder meant to take back would stay bound.
+    if (keymap != null) {
+        if (typeof keymap !== 'object' || Array.isArray(keymap)) {
+            throw new TypeError('createShell: `keymap` must be an object of { bindings }');
+        }
+        const extra = Object.keys(keymap).filter((k) => k !== 'bindings');
+        if (extra.length) {
+            throw new TypeError(`createShell: unknown \`keymap\` key(s) ${extra.map((k) => `"${k}"`).join(', ')}`
+                + ' — the only key is `bindings`');
+        }
+    }
 
     const log = logger ?? { info(){}, warn(){}, error(){}, debug(){} };
     const registry = createContentRegistry(content);   // throws on a non-function
@@ -213,13 +240,18 @@ export async function createShell({
         onChange: () => syncChrome(),
     });
 
+    const bindings = keymap?.bindings ?? null;
     const palette = createCommandPalette({
-        wm, api, taxonomy, catalog: entities, ...paletteCfg,
+        wm, api, taxonomy, catalog: entities,
+        // What *Keyboard shortcuts* lists is what the keys do in THIS shell.
+        shortcuts: keymapShortcuts(bindings),
+        ...paletteCfg,
     });
     // `navSelector` lets an embedder that moved its sections out of the top
     // bar keep F1..F8 working. Omitted, the default top-bar selector applies —
-    // the behaviour every existing embedder has today.
-    const disposeKeymap = installKeymap({ wm, palette, navSelector });
+    // the behaviour every existing embedder has today. The keymap also binds
+    // `?` to help, so `dispose()` takes the help shortcut off with it.
+    const disposeKeymap = installKeymap({ wm, palette, navSelector, bindings, logger });
 
     // Chrome — painted into the ELEMENTS the embedder handed over. An absent
     // key means absent chrome, not a crash.
@@ -595,13 +627,18 @@ function _tileContextMenu(wm, leafId, x, y) {
     const isPanel = String(leaf.content?.kind || '').startsWith('panel:');
     tree.focus(leafId);
     wm.renderer._updateFocusClasses();
+    // A SINGLE KIND HAS NO COPIES. The two copy verbs are greyed, and say why;
+    // the move verbs below (float, move to desktop) carry the one instance.
+    const single = !!leaf.content && wm.isSingleKind(leaf.content.kind);
+    const singleTitle = single ? wm.taxonomy.singleReason(leaf.content.kind) : undefined;
 
     const items = [
         { label: 'Split horizontally', icon: 'splitscreen_vertical_add', action: 'split-h' },
         { label: 'Split vertically',   icon: 'splitscreen_add',          action: 'split-v' },
         { separator: true },
         { label: 'Open in new tab',    icon: 'tab',
-          action: 'open-tab',    disabled: isPanel || !leaf.content },
+          action: 'open-tab',    disabled: isPanel || !leaf.content || single,
+          title: singleTitle },
         // TWO DIFFERENT GLYPHS FOR TWO DIFFERENT DESTINATIONS. `web_asset` is a
         // window INSIDE the application — the same glyph `ManagedWindow` uses
         // for itself — and an embedder that can also send content to a real
@@ -610,7 +647,8 @@ function _tileContextMenu(wm, leafId, x, y) {
         // two commands are the same command, and then loses a window looking
         // for it on the other screen.
         { label: 'Open a copy in a window', icon: 'web_asset',
-          action: 'open-window', disabled: isPanel || !leaf.content },
+          action: 'open-window', disabled: isPanel || !leaf.content || single,
+          title: singleTitle },
         // C20, THE OTHER HALF — and it was missing while the `close` half
         // below carried a paragraph explaining why it could not be.
         //

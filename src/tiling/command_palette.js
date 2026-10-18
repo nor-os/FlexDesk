@@ -65,7 +65,10 @@
  *   groupLabel the group's header, when the group is not a taxonomy kind
  *   kindLabel  the word drawn on the right, when the taxonomy's is wrong
  *   boost      added to the match score (an embedder's "recently opened")
- *   modes      which of 'split' / 'window' the row offers (key hints)
+ *   modes      which of 'split' / 'window' the row offers (key hints). For
+ *              a row whose kind is single (KindDef `single`) both are copy
+ *              verbs: the hints are drawn greyed with the taxonomy's reason,
+ *              and Ctrl/Shift+Enter on the row does nothing.
  *   drillLabel the Tab hint ("search rows"); Tab is offered only with it
  *   shortcut   a key binding drawn on the right
  *   verb       the Enter hint ('open' by default, 'run' for a command)
@@ -79,20 +82,33 @@
  */
 
 import { HelpModal } from '../help/help_modal.js';
-import { KEYBOARD_SHORTCUTS_TOPIC_ID, keyboardShortcutsTopic } from './keymap.js';
+import { KEYBOARD_SHORTCUTS_TOPIC_ID, KEYMAP_SHORTCUTS, keyboardShortcutsTopic } from './keymap.js';
 
 const ROOT_ID = 'twm-cmdpal';
 
-// Non-entity commands surfaced in the palette's search results. They
-// carry an `action` so `commit()` runs them instead of opening a tile.
-const STATIC_COMMANDS = [
-    { kind: 'command', id: 'shortcuts', label: 'Keyboard shortcuts',
-      hint: 'Show all key bindings (?)', icon: 'keyboard', shortcut: '?', verb: 'run',
-      // The application's help may define the topic; when it does not, the
-      // window manager's own bindings are shown rather than an error.
-      action: () => HelpModal.open(KEYBOARD_SHORTCUTS_TOPIC_ID,
-                                   { fallback: keyboardShortcutsTopic() }) },
-];
+/** The words a shortcuts table uses for the help action — the default `?` row's. */
+const HELP_ACTION = KEYMAP_SHORTCUTS.find((r) => r.keys === '?').action;
+
+/**
+ * Non-entity commands surfaced in the palette's search results. They carry an
+ * `action` so `commit()` runs them instead of opening a tile. `shortcuts` is
+ * the table the *Keyboard shortcuts* command shows — the shell passes the one
+ * its keymap's bindings produced (`keymapShortcuts`). The command's hint names
+ * the keys that open help in that table: `?` by default, `F9` when an embedder
+ * moved help there, none when no key opens it.
+ */
+function _staticCommands(shortcuts) {
+    const helpKeys = shortcuts.filter((r) => r.action === HELP_ACTION).map((r) => r.keys).join(' / ');
+    return [
+        { kind: 'command', id: 'shortcuts', label: 'Keyboard shortcuts',
+          hint: helpKeys ? `Show all key bindings (${helpKeys})` : 'Show all key bindings',
+          icon: 'keyboard', ...(helpKeys ? { shortcut: helpKeys } : {}), verb: 'run',
+          // The application's help may define the topic; when it does not, the
+          // window manager's own bindings are shown rather than an error.
+          action: () => HelpModal.open(KEYBOARD_SHORTCUTS_TOPIC_ID,
+                                       { fallback: keyboardShortcutsTopic(shortcuts) }) },
+    ];
+}
 
 const DEFAULT_GROUP_CAP = 4;
 const DEFAULT_COMMAND_MIN_CHARS = 2;
@@ -108,7 +124,9 @@ const MAX_ROWS = 200;
  *                     gesture. See `commit` for what it is for; omitted, the
  *                     palette behaves as it always has.
  *  @param chrome, layout, groupCap, empty, emptyLabel, commands,
- *         commandMinChars, drill, cache, tips, footerNote — C39, above. */
+ *         commandMinChars, drill, cache, tips, footerNote — C39, above.
+ *  @param shortcuts   the rows the built-in *Keyboard shortcuts* command lists
+ *                     (`{keys, action}`); `KEYMAP_SHORTCUTS` when omitted. */
 export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder = 'Search…',
                                        onPick = null,
                                        chrome = {}, layout = 'flat',
@@ -117,7 +135,8 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
                                        commands = null,
                                        commandMinChars = DEFAULT_COMMAND_MIN_CHARS,
                                        drill = null, cache = false,
-                                       tips = null, footerNote = '' }) {
+                                       tips = null, footerNote = '',
+                                       shortcuts = KEYMAP_SHORTCUTS }) {
     if (!taxonomy) throw new Error('createCommandPalette: a taxonomy is required');
     if (!catalog)  throw new Error('createCommandPalette: an entity catalog is required');
     const grouped = layout === 'grouped';
@@ -125,6 +144,9 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
     let entities = [];
     let cached = null;            // C39 `cache`: the last loaded catalogue
     let onClose = null;
+
+    /** A row whose kind exists once (KindDef `single`): no split, no window. */
+    const isSingle = (row) => !!row && taxonomy.isSingle(row.kind);
 
     const isOpen = () => !!overlay;
     const close = () => {
@@ -136,6 +158,7 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
     };
     const toggle = () => { isOpen() ? close() : open(); };
     const invalidate = () => { cached = null; };
+    const staticCommands = _staticCommands(shortcuts);
 
     const open = async () => {
         if (overlay) return;
@@ -310,8 +333,13 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
             const modes = Array.isArray(r.modes) ? r.modes : [];
             const acts = [`<span><kbd>Enter</kbd> ${_esc(verb)}</span>`];
             if (r.drillLabel && drill) acts.push(`<span><kbd>Tab</kbd> ${_esc(r.drillLabel)}</span>`);
-            if (modes.includes('split'))  acts.push('<span><kbd>Ctrl Enter</kbd> split</span>');
-            if (modes.includes('window')) acts.push('<span><kbd>Shift Enter</kbd> window</span>');
+            // A single kind has no copies: its split and window hints are
+            // drawn refused, with the reason, rather than offered.
+            const refused = isSingle(r)
+                ? ` class="twm-cmdpal__act--disabled" aria-disabled="true" title="${_esc(taxonomy.singleReason(r.kind))}"`
+                : '';
+            if (modes.includes('split'))  acts.push(`<span${refused}><kbd>Ctrl Enter</kbd> split</span>`);
+            if (modes.includes('window')) acts.push(`<span${refused}><kbd>Shift Enter</kbd> window</span>`);
             const side = r.shortcut
                 ? `<kbd class="twm-cmdpal__shortcut">${_esc(r.shortcut)}</kbd>`
                 : `<span class="twm-cmdpal__kind">${_esc(kindLabel(r))}</span>`;
@@ -425,6 +453,9 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
             const picked = filtered[i];
             if (!picked) return;
             if (picked.more) { showAll(picked.more); return; }
+            // Split and window open a COPY; a single kind refuses both, and the
+            // palette stays open on the row whose hints say why.
+            if (mode !== 'open' && isSingle(picked)) return;
             const pick = _public(picked);
             const how = { mode, scope: scope?.id ?? null };
             close();
@@ -682,7 +713,7 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
                 try { extra = (commands() || []).map((c) => ({ kind: 'command', ...c })); }
                 catch (err) { console.warn('[cmdpal] commands() threw', err); }
             }
-            return [...STATIC_COMMANDS, ...extra];
+            return [...staticCommands, ...extra];
         };
         // Objects before commands in the grouped layout, so that a tie that
         // survives every rule goes to the object (first seen wins).

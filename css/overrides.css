@@ -1651,6 +1651,8 @@ body.twm-dragging * { user-select: none; }
 }
 .twm-cmdpal__acts { display: none; gap: 10px; }
 .twm-cmdpal__item--active .twm-cmdpal__acts { display: flex; }
+/* A copy verb a single kind refuses: drawn, greyed, with the reason as its title. */
+.twm-cmdpal__act--disabled { opacity: 0.45; }
 .twm-cmdpal__item--active .twm-cmdpal__kind,
 .twm-cmdpal__item--active .twm-cmdpal__shortcut { display: none; }
 .twm-cmdpal__item--more { color: var(--text-muted); font-size: var(--font-size-sm); }

@@ -52,6 +52,16 @@
  *               covers every entity opened under it. Withheld panels are
  *               not inserted and their toggles are disabled, showing
  *               `reason`.
+ *
+ *   single?     `true`, or the name of a prop. The kind exists ONCE: content
+ *               that holds heavy app-wide state and must not be mounted
+ *               twice. With `true` there is one instance of the kind; with a
+ *               prop name there is one per value of that prop (`'id'`: one
+ *               tile per record). The window manager makes every open path
+ *               reveal the instance that exists, refuses the copy verbs with
+ *               a reason, and keeps the first of any duplicates a restored
+ *               layout holds. The root kind cannot be single: every new
+ *               pane, tab and desktop is seeded with it.
  */
 
 import { PANEL_OFFERED, PANEL_SIDES, readPanelOffer } from './panel_availability.js';
@@ -89,6 +99,16 @@ export function createTaxonomy({ kinds, root } = {}) {
                 readPanelOffer(offer, `createTaxonomy: '${kind}'.panels.${side}`);
             }
         }
+        if (def.single != null && def.single !== false && def.single !== true
+            && !(typeof def.single === 'string' && def.single)) {
+            throw new TypeError(
+                `createTaxonomy: '${kind}'.single must be true or a prop name`);
+        }
+    }
+    if (kinds[root].single) {
+        throw new Error(
+            `createTaxonomy: the root kind '${root}' cannot be single — `
+            + 'every new pane, tab and desktop is seeded with it');
     }
     const _kinds = Object.freeze({ ...kinds });
 
@@ -189,6 +209,28 @@ export function createTaxonomy({ kinds, root } = {}) {
                 icon:      m.icon,
             }));
 
+    /** Whether `kind` exists once (KindDef `single`). */
+    const isSingle = (kind) => {
+        const s = _kinds[kind]?.single;
+        return s === true || (typeof s === 'string' && s !== '');
+    };
+
+    /** The identity of one instance of a single kind: two tab specs with the
+     *  same key are the same instance. `null` for a kind that is not single,
+     *  which is how callers ask both questions at once. Keyed by the kind and,
+     *  for `single: '<prop>'`, that prop's value as a string. */
+    const instanceKey = (kind, props) => {
+        if (!isSingle(kind)) return null;
+        const by = _kinds[kind].single;
+        if (by === true) return String(kind);
+        const v = props?.[by];
+        return `${kind}\u0000${v == null ? '' : String(v)}`;
+    };
+
+    /** The sentence a refused copy verb shows for a single kind. */
+    const singleReason = (kind) =>
+        `${_kinds[kind]?.label || kind} is open once: use the one that is open`;
+
     return Object.freeze({
         root,
         kinds: _kinds,
@@ -201,5 +243,8 @@ export function createTaxonomy({ kinds, root } = {}) {
         sourcesFor,
         panelOffer,
         topNavEntries,
+        isSingle,
+        instanceKey,
+        singleReason,
     });
 }

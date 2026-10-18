@@ -19,8 +19,10 @@
  *       the catalogue's `problems`, never a throw
  *   §5  a type registered after `load` (`setCatalogue`) appears in the
  *       palette and its nodes draw without reloading the graph; the graph and
- *       the history are untouched, and nodes whose type did not change are
- *       not rebuilt
+ *       the history are untouched; a node whose type's definition did not
+ *       change is not rebuilt, even from a NEW catalogue of equal types (a
+ *       body being typed into keeps its focus and value), and one whose
+ *       definition did change (label, ports, render) is
  *   §6  a `render` that throws leaves that node drawn with the default body
  *       and says so through the editor's findings — on the node and in the
  *       strip, beside the consumer's — without breaking any other node
@@ -245,10 +247,44 @@ t.section('§5 a type registered after load');
     t.ok('the same types again rebuild no node and render no body again',
          nodeEl(m, 'start') === before[0] && nodeEl(m, 'dial') === before[1] && bodyOf(m, 'dial') === before[2]
          && calls.render === 0);
+    // A NEW catalogue of the same types plus one more: the README's own
+    // registration call. Nothing is rebuilt, and the input being typed into
+    // keeps its focus and its value.
+    const input = bodyOf(m, 'dial').querySelector('.dial-value');
+    input.focus();
+    input.value = '42';
     const added = { type_id: 'extra', label: 'Extra', category: 'control', ports: [] };
     editor.setCatalogue(createStepCatalogue([...PLAIN, DIAL, added], { categories: CATEGORIES }));
-    t.ok('a new catalogue rebuilds each node onto its new definition', nodeEl(m, 'start') !== before[0]
-         && calls.render === 1 && bodyOf(m, 'dial') !== null);
+    t.ok('a new catalogue of the same types plus one keeps every node and body (===) and renders no body again',
+         nodeEl(m, 'start') === before[0] && nodeEl(m, 'dial') === before[1] && bodyOf(m, 'dial') === before[2]
+         && nodeEl(m, 'step') !== null && calls.render === 0);
+    t.ok('…the typed-into input keeps its focus and its value',
+         document.activeElement === input && input.value === '42');
+    t.ok('…and the new type is in the palette', paletteItem(m, 'extra')?.textContent.includes('Extra'));
+    // Equal copies of the types (new objects, same functions) are the same build too.
+    editor.setCatalogue(createStepCatalogue([...PLAIN, DIAL, added].map((x) => ({ ...x, ports: x.ports.map((p) => ({ ...p })) })),
+                                            { categories: CATEGORIES }));
+    t.ok('equal copies of the definitions rebuild nothing', nodeEl(m, 'dial') === before[1] && calls.render === 0);
+    // A new size or accent is applied in place.
+    editor.setCatalogue(createStepCatalogue([...PLAIN, { ...DIAL, size: { w: 300, h: 160 }, accent: 'amber' }],
+                                            { categories: CATEGORIES }));
+    t.ok('a new size and accent are applied without a rebuild', nodeEl(m, 'dial') === before[1] && calls.render === 0
+         && nodeEl(m, 'dial').style.width === '300px' && nodeEl(m, 'dial').style.height === '160px'
+         && nodeEl(m, 'dial').dataset.accent === 'amber');
+    // A definition that did change rebuilds that node, and only that one.
+    editor.setCatalogue(createStepCatalogue([...PLAIN.map((x) => (x.type_id === 'step' ? { ...x, label: 'Renamed' } : x)), DIAL],
+                                            { categories: CATEGORIES }));
+    t.ok('a changed label rebuilds that node only', nodeEl(m, 'step').textContent.includes('Renamed')
+         && nodeEl(m, 'start') === before[0] && nodeEl(m, 'dial') === before[1]);
+    const stepBefore = nodeEl(m, 'step');
+    editor.setCatalogue(createStepCatalogue([...PLAIN.map((x) => (x.type_id === 'step'
+        ? { ...x, label: 'Renamed', ports: [...x.ports, F('extra', 'output')] } : x)), DIAL], { categories: CATEGORIES }));
+    t.ok('a changed port list rebuilds that node', nodeEl(m, 'step') !== stepBefore
+         && nodeEl(m, 'step').querySelectorAll('.twm-flow-graph__port').length === 3 && nodeEl(m, 'dial') === before[1]);
+    editor.setCatalogue(createStepCatalogue([...PLAIN, { ...DIAL, render(body, node, ctx) { DIAL.render(body, node, ctx); } }],
+                                            { categories: CATEGORIES }));
+    t.ok('a new render function rebuilds that node and renders its body again',
+         nodeEl(m, 'dial') !== before[1] && bodyOf(m, 'dial') !== before[2] && calls.render === 1);
 }
 
 t.section('§6 a render that throws');

@@ -16,6 +16,7 @@
  *   §6  a join's other lane is a SETTING: "Joined with" rewires it, the
  *       line is redrawn for you; undo and redo
  *   §7  remove: Delete on a card, the panel's button, the card's menu
+ *       (Duplicate and a host's items: flow_lanes_duplicate)
  *   §8  settings and names: written into the step, the card redrawn in
  *       place, keyed commits merge, a rename asks for no preview
  *   §9  keys: arrows between cards and tabs, Enter, Escape, F2, Ctrl+Z,
@@ -275,7 +276,8 @@ t.section('§7 remove');
     const card = buttonOf(root, 'intake');
     card.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
     const menu = kit.openFlowPopover();
-    t.check('a card\'s menu', $$(menu, '[role="menuitem"]').map((m) => m.textContent), ['tuneOpen its settings', 'addAdd a step after it', 'deleteRemove step']);
+    t.check('a card\'s menu', $$(menu, '[role="menuitem"]').map((m) => m.textContent), ['tuneOpen its settings', 'addAdd a step after it',
+            'content_copyDuplicate', 'deleteRemove step']);
     t.press($$(menu, '[role="menuitem"]').at(-1));
     t.check('…whose Remove step removes it', [editor.getGraph().nodes.some((n) => n.id === 'intake'), kit.openFlowPopover()], [false, null]);
     t.check('a removed source leaves its lane NOT CONNECTED, flagged', (() => {

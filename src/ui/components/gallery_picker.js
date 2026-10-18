@@ -6,7 +6,8 @@
  * called a "template"). The picker is mounted into a host element
  * and fires `onChange(entry)` whenever the selection changes.
  *
- * Each entry is the raw gallery dict from `pywebview.api.gallery_list`:
+ * The entries come from `opts.entries`, or else from the host's optional
+ * `gallery` capability (`host.gallery.list(kind)`, see host.js). Each entry is
  *
  *     { id, kind, label, description, fields }
  *
@@ -17,6 +18,7 @@
  * Usage:
  *
  *     const picker = await mountGalleryPicker(hostEl, {
+ *         host,                 // or entries: [...]
  *         kind: 'agent',
  *         selectedId: 'blank',
  *         onChange: (entry) => { … },
@@ -45,8 +47,11 @@ function esc(s) {
  *                                            first entry wins.
  * @param {function}    [opts.onChange]    — `(entry) => void` fired on selection
  *                                            change AND on initial mount.
- * @param {object[]}    [opts.entries]     — explicit entries (skips bridge fetch).
- *                                            Useful for tests + offline previews.
+ * @param {object[]}    [opts.entries]     — explicit entries (the host is not asked).
+ * @param {object}      [opts.host]        — a Host; its `gallery.list(kind)` supplies
+ *                                            the entries when `entries` is absent.
+ *                                            With neither, the picker shows
+ *                                            `emptyLabel` and warns once.
  * @param {string}      [opts.emptyLabel]  — copy shown when the catalog is empty
  *                                            for that kind.
  * @returns {Promise<{getSelected, setSelectedById, dispose}>}
@@ -57,18 +62,24 @@ export async function mountGalleryPicker(hostEl, opts = {}) {
         selectedId   = null,
         onChange     = () => {},
         entries      = null,
+        host         = null,
         emptyLabel   = 'No starters available for this kind.',
     } = opts;
     if (!hostEl) throw new Error('mountGalleryPicker: hostEl is required');
 
     let catalog = entries;
     if (!catalog) {
-        const api = window.pywebview?.api;
-        try {
-            catalog = (await api?.gallery_list?.(kind)) || [];
-        } catch (err) {
-            console.warn('[gallery-picker] gallery_list failed', err);
+        const list = host?.gallery?.list;
+        if (typeof list !== 'function') {
+            console.warn('[gallery-picker] no entries and no host gallery capability; showing the empty label');
             catalog = [];
+        } else {
+            try {
+                catalog = (await list(kind)) || [];
+            } catch (err) {
+                console.warn('[gallery-picker] host.gallery.list failed', err);
+                catalog = [];
+            }
         }
     }
     catalog = Array.isArray(catalog) ? catalog : [];

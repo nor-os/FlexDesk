@@ -13,7 +13,7 @@ subsystem: shell
 labels: [shell, menu, new-component]
 links: []
 created: 2026-10-17
-updated: 2026-10-17T17:19Z
+updated: 2026-10-18T02:20Z
 ---
 
 ## Description
@@ -48,3 +48,12 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 ### 2026-10-17T07:55Z · norman_agent (status: draft -> refined)
 
 Refined: 10 acceptance criteria, 8 points, parented to EPIC-0029. Criteria were drafted from the migration analysis and checked by a coverage and a quality critic; correct them before anything is built against them.
+
+### 2026-10-18T02:20Z · norman_agent
+
+Where this stands: the work is on branch `story-0030` (origin tip 826e0a4). After two fix rounds, an independent review still finds problems, so the branch has not landed. No criteria are ticked here. The axe check still runs by hand, outside the suite. Putting it inside tests/ would need axe-core as a devDependency.
+
+Still open:
+
+- `src/ui/components/menu_bar.js:629-649` (listeners at :151-153 and :232-234): an Alt+Tab round trip focuses the menu bar. When Alt is pressed, `_altArmed` becomes true. The Tab goes to the OS, so no other keydown reaches the page to clear it. There is no window blur listener, so nothing clears it when the window loses focus either. When the user comes back with Alt+Tab, the Alt keyup reaches the page with `_altArmed` still true, and `_toggle()` takes focus from wherever the user was. Reproduced in jsdom against HEAD (keydown Alt, window 'blur', keyup Alt): focus moves from an input to the 'File' title. Alt+F4 and Alt+Space behave the same way. This breaks criterion 3 as the module header states it ("Alt (pressed and released on its own)"). Done looks like this: clear `_altArmed` on the document's window 'blur' (registered in the constructor and removed in dispose(), like the other document listeners), and add a check to `tests/menu_bar.test.mjs` §3 (keydown Alt, window blur, keyup Alt: focus stays on `outside`). That check must fail on the current HEAD.
+- `src/ui/components/menu_bar.js:329-330` (minor, fix while there): `_enter` copies its parameter into a local for no reason (`const a = from;`). Use `from` directly.

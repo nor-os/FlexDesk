@@ -7,8 +7,8 @@
  * These helpers cap the points actually drawn while preserving the visual
  * shape.
  *
- * Two strategies, mirroring EcoSim (App/downsampler.py = LTTB,
- * streaming/server.py = stride decimation):
+ * Two strategies, the usual pair on the server side as well (LTTB for one
+ * line, stride decimation for a stream):
  *
  *   • strideDownsampleShared — one set of indices applied to the shared x
  *     axis and EVERY series. Cheap, gap-safe (nulls keep their slot), and

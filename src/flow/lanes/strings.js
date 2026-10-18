@@ -24,6 +24,7 @@ export const LANE_STRINGS = Object.freeze({
     stepMenu: (title) => `${title}: what to do`,
     openSettings: 'Open its settings',
     addStepAfter: 'Add a step after it',
+    unavailable: 'Not available here.',
 
     // ── the toolbar ────────────────────────────────────────────────────
     toolbar: 'Flow',

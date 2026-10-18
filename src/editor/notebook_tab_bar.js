@@ -25,8 +25,27 @@
 import { DragReorder } from '../ui/components/drag_reorder.js';
 import { revealInStrip, wheelStripSideways } from '../ui/utils/strip_scroll.js';
 
-/** Custom MIME type so tab bars recognise cross-pane drags. */
-const TAB_MIME = 'application/x-ecosim-tab';
+/** The MIME type a dragged editor tab carries when the embedder names none. */
+export const DEFAULT_TAB_DRAG_MIME = 'application/x-flexdesk-tab';
+
+/** Custom MIME type so tab bars and editor panes recognise cross-pane drags. */
+let _tabMime = DEFAULT_TAB_DRAG_MIME;
+
+/**
+ * Name the MIME type editor tabs carry while dragged. Every NotebookTabBar and
+ * EditorPane in the document reads it at drag time, so they always agree.
+ * Call at boot, before the first drag.
+ *
+ * @param {string} [mime=DEFAULT_TAB_DRAG_MIME]
+ */
+export function setTabDragMime(mime = DEFAULT_TAB_DRAG_MIME) {
+    _tabMime = (typeof mime === 'string' && mime) ? mime : DEFAULT_TAB_DRAG_MIME;
+}
+
+/** @returns {string} The MIME type editor tabs carry while dragged. */
+export function getTabDragMime() {
+    return _tabMime;
+}
 
 export class NotebookTabBar {
     /** @type {HTMLElement} */
@@ -76,7 +95,7 @@ export class NotebookTabBar {
             },
             onDragStart: (e, key, item) => {
                 // Carry the cross-pane MIME so other panes accept this tab.
-                try { e.dataTransfer.setData(TAB_MIME, key); } catch (_) {}
+                try { e.dataTransfer.setData(_tabMime, key); } catch (_) {}
                 // C33. …AND LET THE HOST ADD ITS OWN, which is the whole of
                 // what a second consumer of this strip needs from it.
                 //
@@ -88,7 +107,7 @@ export class NotebookTabBar {
                 // tabs — a different question from "is this an editor tab",
                 // asked of the same gesture.
                 //
-                // ADDITIVE BY CONSTRUCTION: `TAB_MIME` is set first and
+                // ADDITIVE BY CONSTRUCTION: the tab MIME is set first and
                 // unchanged, so `EditorPane`'s existing cross-pane drop cannot
                 // notice that anyone else is listening.
                 try { this.#callbacks.onDragStart?.(e, key, item); }
@@ -302,7 +321,7 @@ export class NotebookTabBar {
      *
      *  C33. A HOST MAY NAME A SECOND MIME, at mount, as
      *  `callbacks.externalTabMimes` — the tile renderer's tabs are not editor
-     *  tabs and do not carry `application/x-ecosim-tab`, so without this the
+     *  tabs and do not carry the editor tab MIME (getTabDragMime()), so without this the
      *  strip in tile B would refuse a tab dragged out of tile A's strip. Empty
      *  by default, so every existing consumer keeps exactly today's admission
      *  test.
@@ -320,7 +339,7 @@ export class NotebookTabBar {
             ? this.#callbacks.externalTabMimes : [];
         try {
             const types = e.dataTransfer.types;
-            return types.includes(TAB_MIME) || extra.some((m) => types.includes(m));
+            return types.includes(_tabMime) || extra.some((m) => types.includes(m));
         } catch { return false; }
     }
 
@@ -341,7 +360,7 @@ export class NotebookTabBar {
         if (this.#isExternalTabDrag(e)) {
             e.preventDefault();
             this.#container.classList.remove('notebook-tabs--drop-target');
-            const filePath = e.dataTransfer.getData(TAB_MIME) || e.dataTransfer.getData('text/plain');
+            const filePath = e.dataTransfer.getData(_tabMime) || e.dataTransfer.getData('text/plain');
             if (filePath) {
                 this.#callbacks.onDropFromOtherPane?.(filePath);
             }

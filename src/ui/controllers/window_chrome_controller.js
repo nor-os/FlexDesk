@@ -99,7 +99,7 @@ export class WindowChromeController {
 
     /**
      * Draw minimise, maximise/restore and close, unless the page has its own
-     * `#win-*` buttons (EcoSim's markup), which are then wired instead.
+     * `#win-*` buttons (an embedder's own markup), which are then wired instead.
      */
     #createWindowControls() {
         if (document.getElementById('win-minimize') || document.getElementById('win-close')) return;
@@ -403,7 +403,7 @@ export class WindowChromeController {
 
         // What never starts a drag: anything you can click or type into. An
         // embedder adds its own with `noDrag`. (`.window-controls` and
-        // `.panel-toggles` are kept for EcoSim-shaped markup.)
+        // `.panel-toggles` are kept for embedders' own markup of that shape.)
         const NO_DRAG_SELECTOR = [
             '.no-drag', 'button', 'a', 'input', 'select', 'textarea', 'label',
             '[role="button"]', '[role="menuitem"]', '[role="tab"]', '[contenteditable="true"]',

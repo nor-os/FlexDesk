@@ -21,7 +21,7 @@
  *   └──────────────────────────────┘
  */
 
-import { NotebookTabBar } from './notebook_tab_bar.js';
+import { NotebookTabBar, getTabDragMime } from './notebook_tab_bar.js';
 
 export class EditorPane {
     /** @type {string} */
@@ -141,7 +141,7 @@ export class EditorPane {
             if (this.#isExternalTabDrag(e)) {
                 e.preventDefault();
                 this.#editorContainer.classList.remove('notebook-editor-container--drop-target');
-                const filePath = e.dataTransfer.getData('application/x-ecosim-tab')
+                const filePath = e.dataTransfer.getData(getTabDragMime())
                     || e.dataTransfer.getData('text/plain');
                 if (filePath) {
                     this.#callbacks.onDropFromOtherPane?.(this.#id, filePath);
@@ -248,7 +248,7 @@ export class EditorPane {
 
     /** Check if a drag event is carrying a tab from another pane. */
     #isExternalTabDrag(e) {
-        try { return e.dataTransfer.types.includes('application/x-ecosim-tab'); } catch { return false; }
+        try { return e.dataTransfer.types.includes(getTabDragMime()); } catch { return false; }
     }
 
     dispose() {

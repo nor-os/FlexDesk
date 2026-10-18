@@ -3193,7 +3193,8 @@ const form = mountTileConfigForm(host, {
     onChange: (key, value, config) => tile.update(undefined, config),
     renderers: { variable: ({ field, value, data, readonly, commit }) => myPicker(...) },
 });
-form.getValues(); form.setValues(next); form.isValid(); form.flush(); form.dispose();
+form.getValues(); form.setValues(next); form.isValid(); form.focusFirstInvalid();
+form.flush(); form.dispose();
 ```
 
 - A field is `{key, type, label?, description?, default?, required?, readonly?,
@@ -3204,7 +3205,9 @@ form.getValues(); form.setValues(next); form.isValid(); form.flush(); form.dispo
   `{element, setValue?, dispose?}` and calls `commit(value)` on an edit.
 - An edit is checked by `validateField`. An invalid one shows its error under the
   field and is **not applied**; a valid one calls `onChange` with the field's key.
-  `isValid()` is false while a shown row has an error.
+  `isValid()` is false while a shown row has an error; `focusFirstInvalid()`
+  focuses the first such row's control (a renderer's element, or the first
+  focusable element inside it) and answers whether there was one.
 - `commitOn: 'input'` (the default) checks text, number, range and colour
   controls on every keystroke; `commitOn: 'change'` checks them once the edit is
   finished (blur, Enter, a released slider), for an `onChange` that is expensive.

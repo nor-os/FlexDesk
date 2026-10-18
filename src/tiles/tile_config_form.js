@@ -14,7 +14,7 @@
  *         renderers: { variable: (ctx) => myPicker(ctx) },
  *     });
  *     form.getValues();  form.setValues(next);  form.isValid();
- *     form.flush();      form.dispose();
+ *     form.focusFirstInvalid();  form.flush();  form.dispose();
  *
  * ══ A FIELD ═════════════════════════════════════════════════════════════
  *
@@ -42,7 +42,9 @@
  * shows its error under the field and is NOT applied: the config keeps the last
  * valid value until the field is corrected (or `setValues` replaces it).
  * `setValues` does not call `onChange`. `isValid()` answers false while a
- * shown row has an error.
+ * shown row has an error; `focusFirstInvalid()` focuses the first such row's
+ * control (a renderer's element, or the first focusable element inside it) and
+ * answers whether there was one.
  *
  * `commitOn: 'input'` (the default) checks text, number, range and colour
  * controls on every keystroke. `commitOn: 'change'` checks them when the edit is
@@ -81,6 +83,9 @@ import { SlideOutPanel } from '../ui/components/slide_out_panel.js';
 import { openModal } from '../ui/components/modal.js';
 
 let _seq = 0;
+// What focusFirstInvalid may focus inside a renderer's element.
+const FOCUSABLE = 'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), '
+    + 'button:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
 
 function el(tag, className, text) {
     const n = document.createElement(tag);
@@ -251,7 +256,6 @@ export function mountTileConfigForm(host, {
         // What validateField and the messages read: the label, or the key.
         const named = { ...field, label: field.label ?? field.key };
         const label = el('label', 'fd-tile-config__label', named.label);
-        label.htmlFor = id;
         const error = el('div', 'fd-tile-config__error');
         error.hidden = true;
         const r = { field, named, row, error, control: null, invalid: false, pending: null };
@@ -267,6 +271,8 @@ export function mountTileConfigForm(host, {
                 throw new TypeError(`mountTileConfigForm: the renderer for "${field.type}" returned no element`);
             }
             element.id ||= id;
+            // The id the control carries: a renderer may have set its own.
+            label.htmlFor = element.id;
             r.control = {
                 element,
                 write: made instanceof HTMLElement ? () => {} : (v) => made.setValue?.(v),
@@ -278,6 +284,7 @@ export function mountTileConfigForm(host, {
                 throw new TypeError(`mountTileConfigForm: no control for type "${field.type}" (field "${field.key}"); pass a renderer`);
             }
             const c = build(field, id, data);
+            label.htmlFor = id;
             c.write(values[field.key]);
             const input = c.element.matches('input, select') ? c.element : c.element.querySelector('input, select');
             if (field.readonly) {
@@ -330,6 +337,14 @@ export function mountTileConfigForm(host, {
             applyVisibility();
         },
         isValid: () => rows.every((r) => r.row.hidden || !r.invalid),
+        focusFirstInvalid() {
+            const r = rows.find((x) => !x.row.hidden && x.invalid);
+            if (!r) return false;
+            const { element } = r.control;
+            const target = element.matches(FOCUSABLE) ? element : element.querySelector(FOCUSABLE);
+            (target || element).focus();
+            return true;
+        },
         flush() {
             for (const r of rows) r.pending?.();
         },
@@ -405,8 +420,7 @@ export function openTileConfig(eventBus, { mode = 'modal', host = null, width, r
                 // not what the user is looking at, so saving it would be a lie.
                 { label: 'Save', value: 'save', primary: true, keepOpen: true, onClick: (close) => {
                     if (mine.isValid()) { close('save'); return; }
-                    content.querySelector('.fd-tile-config__row--invalid:not([hidden]) input, '
-                        + '.fd-tile-config__row--invalid:not([hidden]) select')?.focus();
+                    mine.focusFirstInvalid();
                 } },
             ],
         }).then((v) => {

@@ -2,10 +2,10 @@
 id: 39
 type: story
 title: "Toast helpers, the gallery picker and the plot window read nothing from window globals"
-status: refined
+status: in-progress
 parent: 29
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 3
@@ -13,7 +13,7 @@ subsystem: widgets
 labels: [injection]
 links: [blocked-by 62, relates-to BUG-0022]
 created: 2026-10-17
-updated: 2026-10-17T07:55Z
+updated: 2026-10-18T03:28Z
 ---
 
 ## Description
@@ -35,6 +35,8 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
+- 2026-10-18 · norman_agent · status: refined -> in-progress
+- 2026-10-18 · norman_agent · assignee: (unset) -> norman_agent
 
 ## Comments
 

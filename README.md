@@ -2012,6 +2012,16 @@ checks jsdom has nothing to repair.
 provider's optional `markdownOptions`. `{ title, html }` is unchanged:
 pre-rendered, **trusted** HTML, inserted as it is.
 
+**A table of contents for a help topic.** A topic with two or more headings,
+markdown or html, gets its contents between the breadcrumb and the article: a
+`createDocumentOutline` (below) of its `h1`–`h6`, numbered, the one in view
+marked as the content pane scrolls, a click that scrolls to its heading. The
+outline points at the heading elements themselves, so your markup needs no
+ids and the modal adds none; a topic with one heading or none shows no
+contents (the empty `.help-content__toc` is `hidden`). Until now the modal's
+documentation promised this and drew nothing. `tests/help_modal_toc.test.mjs`
+drives it in jsdom (BUG-0010).
+
 ## A document outline: `createDocumentOutline` (0.17.0)
 
 A long document's sections, listed and numbered, the one in view marked while

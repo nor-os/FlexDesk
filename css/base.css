@@ -6273,6 +6273,15 @@ button.twm-about-dialog__btn--close:focus {
     color: var(--text-secondary);
     font-size: var(--font-size-md);
 }
+/* A topic's table of contents (a `createDocumentOutline`), between the
+ * breadcrumb and the article; drawn only for two headings or more. */
+.help-content__toc {
+    margin-bottom: var(--space-xl);
+    padding: var(--space-md) 0;
+    border-left: 2px solid var(--surface-3);
+    font-size: var(--font-size-md);
+}
+.help-content__toc[hidden] { display: none; }
 .help-index h1 {
     margin: 0 0 var(--space-md);
     color: var(--text-primary);

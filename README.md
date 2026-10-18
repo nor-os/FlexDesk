@@ -2556,7 +2556,11 @@ slot with no subplot shows `noSubplotMessage` (`No subplot configured.`); null
 results empty every subplot. A cell that is detached or has no size is not
 drawn: the grid's own ResizeObserver draws it once it has one. `dispose()`
 purges every figure and removes the grid; `grid.charts` is the cells, for
-Plotly calls of your own (relayout, toImage).
+Plotly calls of your own (relayout, toImage), and `grid.plotted` is the cells
+that show a figure right now, however it got there (an `update()`, or a
+deferred draw on a resize). `update()` resolves whether it drew anything, but a
+cell it deferred is drawn later, so ask `grid.plotted`, not that value, before
+acting on a figure.
 
 The other options:
 
@@ -2564,7 +2568,7 @@ The other options:
 |---|---|
 | `resolveSeries(series, results, subplot)` | Returns `{ y, x? }` or null. Default `resolveSeriesData`: `series[_resultKey ?? variable]`, then `variable`, then the name after its first `.`; `x` is `_resultTime`. Also resolves the x variable. |
 | `derivedTraces(traces, subplot, { results, index })` | Extra Plotly traces (or a promise of them) appended to a subplot's figure. |
-| `onTransformError`, `onError` | A transform that failed (`{ transformId, traceName, error }`); a subplot that failed to draw (`{ index, error }`), which then shows the empty message. |
+| `onTransformError`, `onError` | A transform that failed (`{ transformId, traceName, error }`); a subplot that failed to draw (`{ index, error }`), on an `update()` or on the resize that draws a deferred one, which then shows the empty message. |
 | `theme` | Overrides for `PLOT_GRID_THEME`: `fontFamily`, `fontColor`, `fontSize`, `paperBackground`, `plotBackground`, `gridColor`, `lineColor`, `tickColor`, `zeroLineColor`, `hoverBackground`, `hoverBorder`. |
 | `alwaysShowLegend` | Draws a subplot whose legend is `'hidden'` with one at the top. |
 | `layout` | Plotly layout fields merged over every figure's (`hovermode`, `margin`, ...). |
@@ -2573,7 +2577,22 @@ The other options:
 table. Its chart cells were `div.plot-tile-chart` and are now
 `div.twm-plot-grid__cell` inside a `.twm-plot-grid`. An overlay is drawn for
 any series with an `overlay` and data under its id in `actuals`; it used to
-need `overlay.etlKey` as well. `tests/plot_grid.test.mjs` pins all of it,
+need `overlay.etlKey` as well. Two more changes to what the window draws, for
+configs outside the fixtures:
+
+- On an `'area-stacked'` subplot, overlays are stacked too, in a group of their
+  own per y-axis (`stackgroup: 'overlay-<y ref>'`, `groupnorm: 'fraction'`,
+  `mode: 'lines'`, no fill), so they read on the same 0..1 scale as the stack.
+  They used to be drawn unstacked, at their raw values.
+- A subplot with no traces draws an empty figure, not the empty message, only
+  when one of **its own** series or overlays is hidden. It used to do that for
+  every subplot as soon as any series anywhere in the window was hidden.
+
+Its zoom and pan buttons and Download PNG act on `grid.plotted`, so a figure the
+grid drew on a resize (the window opened while its plot area had no size) is
+zoomable and exportable; Download PNG exports the first subplot that shows a
+figure, where it used to try the first slot whatever it held.
+`tests/plot_grid.test.mjs` pins all of it,
 including that the window draws the same traces, names and axes for the
 fixture configs (`tests/fixtures/plot_grid_fixtures.mjs`) as it did before.
 

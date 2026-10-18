@@ -94,8 +94,10 @@ function resolveSeriesData(series, results) {
  * @param {string} [options.emptyMessage='No data yet.']
  * @param {string} [options.noSubplotMessage='No subplot configured.']
  * @param {Function} [options.onError] - `({ index, error })` when drawing a subplot
- *        throws; that subplot shows the empty message.
- * @returns {{ update: Function, resize: Function, dispose: Function, readonly charts: HTMLElement[] }}
+ *        throws — on an update or on a resize that draws a deferred one; that
+ *        subplot shows the empty message.
+ * @returns {{ update: Function, resize: Function, dispose: Function,
+ *             readonly charts: HTMLElement[], readonly plotted: HTMLElement[] }}
  */
 function renderPlotGrid(container, plotConfig, results, options = {}) {
     const opts = {
@@ -132,8 +134,11 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
 
     /** Cells Plotly has been asked to draw into: every one of them is purged. */
     const plotted = new Set();
+    /** Cells whose latest Plotly draw finished: they show a figure. */
+    const drawn = new Set();
     const hasPlot = (cell) => plotted.has(cell);
     const purgeCell = (cell) => {
+        drawn.delete(cell);
         if (!plotted.delete(cell)) return;
         try { globalThis.Plotly?.purge(cell); } catch (_) { /* already gone */ }
     };
@@ -327,23 +332,40 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
         plotted.add(cell);
         try {
             await Plotly.react(cell, figure.traces, figure.layout, { responsive: true, displayModeBar: false });
+            if (plotted.has(cell)) drawn.add(cell);
             return true;
         } catch (_) {
             // Plotly throws when the cell is removed mid-draw.
+            drawn.delete(cell);
             return false;
         }
+    }
+
+    /**
+     * Draw cell `index` and handle a failure: a resolver, transform or
+     * derivedTraces that throws costs its own subplot only — it shows the empty
+     * message and is reported to onError. Every draw goes through here.
+     */
+    function drawCellOrFail(index) {
+        const cell = cells[index];
+        const pending = drawCell(index);
+        const token = tokens[index];
+        return pending.catch((error) => {
+            if (disposed) return false;
+            if (cells[index] === cell && tokens[index] === token) {
+                deferred.delete(index);
+                showMessage(cell, opts.emptyMessage);
+            }
+            opts.onError?.({ index, error });
+            return false;
+        });
     }
 
     async function drawAll() {
         if (disposed) return false;
         if (cellsLayout !== config?.layout || !cells.length) buildCells();
-        const drawn = await Promise.all(cells.map((_, i) => drawCell(i).catch((error) => {
-            // A resolver or derivedTraces that throws costs its own subplot only.
-            if (!disposed && cells[i]) showMessage(cells[i], opts.emptyMessage);
-            opts.onError?.({ index: i, error });
-            return false;
-        })));
-        return drawn.some(Boolean);
+        const results = await Promise.all(cells.map((_, i) => drawCellOrFail(i)));
+        return results.some(Boolean);
     }
 
     /**
@@ -371,7 +393,7 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
         if (disposed) return;
         for (const index of [...deferred]) {
             if (!hasSize(cells[index])) continue;
-            drawCell(index).catch((error) => opts.onError?.({ index, error }));
+            drawCellOrFail(index);
         }
         const Plotly = globalThis.Plotly;
         if (!Plotly?.Plots?.resize) return;
@@ -401,6 +423,11 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
         dispose,
         /** The cells, one per grid slot, in layout order. */
         get charts() { return [...cells]; },
+        /**
+         * The cells that show a figure now, in layout order — however it got
+         * there: an update, or a deferred draw on a resize.
+         */
+        get plotted() { return cells.filter((cell) => drawn.has(cell)); },
     };
 }
 

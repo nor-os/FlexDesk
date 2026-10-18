@@ -11,7 +11,9 @@
  *       shows its own; null results empty every subplot
  *   §3  for the fixture configs, PlotPopoutWindow draws the same trace count,
  *       names and axes as before the refactor (tests/fixtures/plot_grid_baseline.json)
- *   §4  a zero-size or detached container defers drawing until it has a size
+ *   §4  a zero-size or detached container defers drawing until it has a size;
+ *       a deferred draw that fails shows the empty message; PlotPopoutWindow's
+ *       toolbar and PNG export see a figure the grid drew on a resize
  *   §5  dispose() purges every figure
  *   §6  the options: resolveSeries, overlays, seriesTransforms, derivedTraces,
  *       hiddenSeries, theme, x variable, x-range clip, NaN handling, stacks,
@@ -312,6 +314,101 @@ console.log('\ncharts: renderPlotGrid\n');
           [9, 9, 9, 9]);
     grid3.dispose();
     hidden.remove();
+
+    // A deferred draw that throws, on the resize that draws it, fails like any
+    // other draw: the empty message, and onError.
+    for (const [what, options] of [
+        ['resolveSeries', { resolveSeries: () => { throw new Error('boom'); } }],
+        ['derivedTraces', { derivedTraces: () => { throw new Error('boom'); } }],
+    ]) {
+        resetPlotly();
+        const host4 = mountHost();
+        zeroSize.add(host4);
+        const errors = [];
+        let failing = false;
+        const wrapped = Object.fromEntries(Object.entries(options).map(([k, fn]) => [k, (...args) => {
+            if (failing) return fn(...args);
+            return k === 'resolveSeries' ? resolveSeriesData(...args) : [];
+        }]));
+        const grid4 = renderPlotGrid(host4, { layout: '1x1', subplots: [sp(['a'])] }, RESULTS, {
+            ...wrapped, onError: (e) => errors.push(e),
+        });
+        await settle();
+        failing = true;
+        zeroSize.delete(host4);
+        grid4.resize();
+        await settle();
+        const cell = grid4.charts[0];
+        check(`a deferred draw whose ${what} throws on resize() shows the empty message and is reported`,
+              [cell.querySelector('.twm-plot-no-data')?.textContent ?? null, Plotly.reacts.length,
+               errors.map((e) => [e.index, e.error.message]), grid4.plotted.length],
+              ['No data yet.', 0, [[0, 'boom']], 0]);
+        grid4.dispose();
+        host4.remove();
+    }
+
+    // The same failure over a figure already on screen replaces it.
+    resetPlotly();
+    const host5 = mountHost();
+    let fail5 = false;
+    const errors5 = [];
+    const grid5 = renderPlotGrid(host5, { layout: '1x1', subplots: [sp(['a'])] }, RESULTS, {
+        derivedTraces: () => { if (fail5) throw new Error('later'); return []; },
+        onError: (e) => errors5.push(e),
+    });
+    await settle();
+    ok('plotted lists a drawn cell', grid5.plotted.length === 1 && grid5.plotted[0] === grid5.charts[0]);
+    zeroSize.add(host5);
+    fail5 = true;
+    await grid5.update({ results: { ...RESULTS } });
+    zeroSize.delete(host5);
+    grid5.resize();
+    await settle();
+    check('  ...a deferred redraw that throws purges the old figure for the empty message',
+          [grid5.charts[0].querySelector('.twm-plot-no-data')?.textContent ?? null,
+           Plotly.purged.includes(grid5.charts[0]), grid5.plotted.length, errors5.length],
+          ['No data yet.', true, 0, 1]);
+    grid5.dispose();
+    host5.remove();
+
+    // PlotPopoutWindow opened while its plot area has no size: the grid's own
+    // ResizeObserver draws it later, and the toolbar and PNG export see that.
+    resetPlotly();
+    zeroSize.add(document.body);
+    const toasts = [];
+    const saved = [];
+    const relayouts = [];
+    const images = [];
+    Plotly.relayout = (gd, upd) => { relayouts.push([gd, upd]); return Promise.resolve(); };
+    Plotly.toImage = async (gd) => { images.push(gd); return 'data:image/png;base64,AAAA'; };
+    const win = new PlotPopoutWindow({
+        id: 'deferred-popout', title: 'Deferred',
+        plotConfig: { layout: '1x1', subplots: [sp(['a'])] },
+        getResults: () => RESULTS,
+        services: { eventBus: { on: () => ({ dispose() {} }), emit: (name, payload) => { if (name === 'toast:show') toasts.push(payload); } } },
+        host: { dialogs: { saveFile: async (req) => { saved.push(req); return { ok: true, path: '/x.png' }; } } },
+    });
+    await win.show();
+    await settle();
+    check('a popout shown at zero size draws nothing yet', Plotly.reacts.length, 0);
+    zeroSize.delete(document.body);
+    fireResize();
+    await settle();
+    check('  ...its grid draws the figure once it has a size', Plotly.reacts.length, 1);
+    const btn = (tip) => document.querySelector(`.twm-plot-window-toolbar [data-tooltip="${tip}"]`)
+        ?? [...document.querySelectorAll('button[data-tooltip]')].find((b) => b.dataset.tooltip === tip);
+    btn('Pan').click();
+    await settle();
+    check('  ...the Pan button sets the drag mode on that figure',
+          relayouts.map(([gd, upd]) => [gd === Plotly.reacts[0].gd, upd.dragmode]), [[true, 'pan']]);
+    btn('Download plot as PNG').click();
+    await settle();
+    check('  ...Download PNG exports that figure, not "Plot not ready"',
+          [images.length, images[0] === Plotly.reacts[0].gd, saved.length, toasts.map((t) => t.message)],
+          [1, true, 1, ['Plot saved to /x.png']]);
+    win.close();
+    delete Plotly.toImage;
+    Plotly.relayout = () => Promise.resolve();
 }
 
 // ════════════════════════════════════════════════════════════════════════

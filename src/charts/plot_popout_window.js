@@ -86,7 +86,6 @@ export class PlotPopoutWindow {
         this._gridEl = null;
         this._activeTab = 'plot';
         this._eventDisposers = [];
-        this._chartCreated = false;
         this._lastResults = null;
 
         // Data table
@@ -347,9 +346,11 @@ export class PlotPopoutWindow {
     // ── Plotly toolbar actions ───────────────────────────────────────────
 
     get #charts() { return this._grid?.charts ?? []; }
+    /** The subplots that show a figure — the grid knows, however it drew them. */
+    get #plottedCharts() { return this._grid?.plotted ?? []; }
 
     #setDragMode(mode) {
-        if (!this._chartCreated) return;
+        if (!this.#plottedCharts.length) return;
         for (const div of this.#charts) {
             if (div._fullLayout) {
                 window.Plotly.relayout(div, { dragmode: mode }).catch(() => {});
@@ -665,14 +666,13 @@ export class PlotPopoutWindow {
         this.#collectSeriesInfo();
 
         // Render all subplot charts
-        const drawn = await this._grid.update({
+        await this._grid.update({
             plotConfig: this._plotConfig,
             results,
             overlays: this._actuals,
             hiddenSeries: this._hiddenSeries,
         });
         if (!this._window) return;
-        this._chartCreated = this._chartCreated || drawn;
 
         // Update table data
         this.#updateTableData(results);
@@ -868,10 +868,9 @@ export class PlotPopoutWindow {
     }
 
     async #downloadPNG() {
-        // For multi-subplot, capture the grid container as a whole
-        // Fall back to first chart div if only one subplot
-        const targetDiv = this.#charts[0];
-        if (!targetDiv || !window.Plotly || !this._chartCreated) {
+        // The first subplot that shows a figure.
+        const targetDiv = this.#plottedCharts[0];
+        if (!targetDiv || !window.Plotly) {
             this.#notify('Download', 'Plot not ready', 'warn');
             return;
         }
@@ -955,7 +954,6 @@ export class PlotPopoutWindow {
         this._hiddenSeries = null;
         this._allSeriesInfo = null;
         this._allSeriesLabels = null;
-        this._chartCreated = false;
         this._lastResults = null;
     }
 }

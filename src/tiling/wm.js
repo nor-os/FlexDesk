@@ -3563,9 +3563,9 @@ export class WindowManager {
         // 2. Measure each panel BEFORE anything is detached. Detaching
         //    collapses the panel's split, so this is the last moment a size
         //    the tree still holds can be read (a stored blob that predates
-        //    `panelShares`, a split resized without a drag). A tree a
-        //    structural change has just left non-canonical measures nothing
-        //    and the share recorded before it stands; see _recordPanelShares.
+        //    `panelShares`). A tree a structural change has just left
+        //    non-canonical measures nothing and the share recorded before it
+        //    stands; see _recordPanelShares.
         this._recordPanelShares(tree, desktop);
         const share = desktop.panelShares;
 
@@ -4351,11 +4351,6 @@ export class WindowManager {
 }
 
 
-/** Derive a tab's display title from the content it carries — entity
- *  label first, then id, then the bare kind. Used everywhere a tab is
- *  created, so the bar names what the user opened rather than the kind
- *  of thing it is. The rename-bus listener in the WM keeps these in
- *  sync when the underlying entity is renamed. */
 /** The panel leaves of `tree`, by side. */
 function _panelLeaves(tree) {
     const panel = {};
@@ -4377,6 +4372,11 @@ function _clampPanelShare(v) {
     return Math.min(Math.max(v, min), 1 - min);
 }
 
+/** Derive a tab's display title from the content it carries — entity
+ *  label first, then id, then the bare kind. Used everywhere a tab is
+ *  created, so the bar names what the user opened rather than the kind
+ *  of thing it is. The rename-bus listener in the WM keeps these in
+ *  sync when the underlying entity is renamed. */
 function _tabTitle(kind, props) {
     if (props && typeof props.label === 'string' && props.label) return props.label;
     if (props && (typeof props.id === 'string' || typeof props.id === 'number')

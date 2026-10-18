@@ -51,7 +51,8 @@ export class ColorListField {
         name = null, onChange = null,
     } = {}) {
         this.presets = Array.isArray(presets) ? presets : [];
-        this.newColor = newColor;
+        // Converted once, as #toItems does, so an added row is what it shows.
+        this.newColor = normalizeHex(String(newColor ?? '')) ?? String(newColor ?? '');
         this.addLabel = addLabel;
         this.name = name;
         this.onChange = typeof onChange === 'function' ? onChange : null;

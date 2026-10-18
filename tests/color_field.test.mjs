@@ -351,6 +351,18 @@ const moveBtn = (root, i, label) => rowsOf(root)[i]
           f.value(), { palette: ['#0000aa', '#aa0000', '#00aa00'] });
 }
 {
+    // An rgb() newColor is converted once, so an added row is what it shows.
+    const list = new ColorListField({ value: [], newColor: 'rgb(1, 2, 3)' });
+    const root = list.render();
+    document.body.appendChild(root);
+    root.querySelector('.twm-sortable-list__add').click();
+    check('an rgb() newColor: the added row shows its hex', hexes(root), ['#010203']);
+    check('… getValue is that hex', list.getValue(), ['#010203']);
+    check('… and the row is not invalid', list.invalidIndexes(), []);
+    list.dispose();
+    root.remove();
+}
+{
     // A reorder by drag lands in the same place: the SortableList's drop order.
     const list = new ColorListField({ value: ['#111111', '#222222', '#333333'] });
     const root = list.render();

@@ -1598,6 +1598,7 @@ editor.setRunOverlay({ steps, ports, banner });
 | `slots` | `toolbarEnd(el)`, `flowPanel(el, editor)` and `stepPanel(el, node, editor)`, drawn by you; `setRunOverlay` redraws the panel slots and nothing else |
 | `onChange`, `onSelect` | After every committed edit. An undo or a redo is a change too (`action: null`, `via: 'undo' \| 'redo'`), because you autosave what is undone. `onSelect({kind, id})`: `step`, `flow`, `connection` (with `connection`) or `null`; with `multiSelect`, two or more picked steps are `{kind: 'many', ids}` |
 | `multiSelect` (0.17.0) | `true` makes the pick a set (below, *Many picked*). Without it none of it is bound or drawn |
+| `clipboard`, `prepareCopy(node, {from, via})` (0.17.0) | `true` keeps what Ctrl/⌘+C copies inside the editor while it is open; `{read(), write(text)}` hands it to you: `write` hears the copied JSON and `read` (text, or a promise of it) supplies what Ctrl/⌘+V pastes. `prepareCopy` may change a copy's `config` and `label` before it is added (`via`: `'paste'` or `'duplicate'`). Unset, Ctrl/⌘+C, X, V and D are not the editor's (below, *Copy and paste*) |
 | `loop`, `waitsForAll` | The loop's port names (`{entry: 'in', next, body, done}`): a line into a loop-role step on any input but `entry` is its body going back round, drawn dashed under both steps. `waitsForAll(join)` goes to `alwaysBefore` |
 | `removable(node, type)` | Whether a step may be removed. By default every step except a start step |
 | `node` | `{width: 208, header: 34, row: 22}` (`CANVAS_NODE`). Lines are anchored by arithmetic over these numbers, and the stylesheet is held to them |
@@ -1617,6 +1618,7 @@ editor.setRunOverlay({ steps, ports, banner });
 | `setFindings(list)`, `setRunOverlay(overlay \| null)`, `setReadOnly(false \| {reason})` | — |
 | `setActionState(id, {disabled, reason, busy})`, `setStatus(text)`, `setMessage(text, tone)` | A verb refused in place, with its reason printed beside the toolbar; the status line; the gesture line |
 | `align(kind)`, `distribute(axis)` (0.17.0) | With `multiSelect`: line the picked steps up (`'left'`, `'center'`, `'right'`, `'top'`, `'middle'`, `'bottom'`; two or more picked) or give them equal gaps (`'horizontal'`, `'vertical'`; three or more), one `flow:nodes:align` entry. `false` when refused (too few picked, read only, or no `multiSelect`); an unknown kind or axis throws |
+| `copy()`, `cut()`, `paste(text?)`, `duplicate()` (0.17.0) | With `clipboard`: the keys' verbs from code. Each answers `{ok: true, ids}` (the steps copied, cut or made) or `{ok: false, reason}`, the reason also on the message line; `paste()` answers a promise when your `read` is async, and `paste(text)` pastes that text. Without `clipboard`: `{ok: false, reason: null}` |
 | `select(id \| [id, …] \| 'flow' \| null)`, `repaintPanel()`, `focus()`, `undo()`, `redo()`, `arrange()`, `fit({whole})` | `select([id, …])` (0.17.0, `multiSelect`) picks several steps at once (unknown ids are left out; one left is one step picked, none lets go) |
 | `setCatalogue(catalogue \| types)` | Swaps the step types while the editor is open, for a type registered after `load`: the palette is redrawn and a node whose type's definition changed is rebuilt, so a node of a type that was unknown now draws. A definition is compared by what the node is drawn from (known or not, `icon`, `label`, tone, ports, `render` and `update`), not by object identity: a new catalogue of the same types plus one more rebuilds no node and calls no `render` again. The graph and the history are untouched (0.17.0) |
 | `history`, `canvas` | The editor's `FlowHistory` (`keep()`, `adopt(kept, editor.snapshot())`, `baseline(editor.snapshot())` for your publish) and its `CanvasAdapter` |
@@ -1627,7 +1629,9 @@ Its edits are the closed list `CANVAS_ACTIONS`: `flow:node:add`,
 `flow:edge:disconnect`, `flow:node:label`, `flow:node:config`,
 `flow:settings`, `flow:arrange` (one entry for the whole layout), and with
 `multiSelect` `flow:nodes:move`, `flow:nodes:remove` and `flow:nodes:align`
-(0.17.0; one entry per gesture on several steps). Typing a name
+(0.17.0; one entry per gesture on several steps), and with `clipboard`
+`flow:paste` and `flow:node:duplicate` (0.17.0; one entry per paste or
+duplicate, however many steps it makes). Typing a name
 or a setting is one entry. The geometry under it is exported as well, all of it
 pure: `CANVAS_NODE`, `arrangeCanvasGraph(graph, catalogue, {loopEntry})` (where
 Arrange puts each step: a Map of id → `{x, y}` from the origin),
@@ -1714,6 +1718,24 @@ Tab is the browser's again, so the keyboard can leave the canvas. Every one of
 these is a single undo entry. In read-only mode a marquee still picks, and no
 gesture writes.
 
+**Copy and paste** (`clipboard`, 0.17.0). Ctrl/⌘+C copies the picked steps
+and the lines among them; a line to a step left out of the pick is not copied,
+nor is a step whose type the palette does not offer (a start step) or that is
+`unavailable`. What is copied is the graph's own text, `{nodes, connections}`
+as `serialise()` writes it, so a graph from elsewhere pastes too. Ctrl/⌘+V
+gives every pasted step a fresh id (as a new step gets one), keeps the lines
+between them, sets the copy off two grid steps right and down (each further
+paste of the same text one more), picks it, and is one `flow:paste` entry. A
+paste right after Ctrl/⌘+X puts the steps back where they were; a cut is one
+remove entry. A step whose title the flow already has gets a derived label,
+`Title (copy)`, then `Title (copy 2)`, …, as the lanes editor's duplicate does.
+Ctrl/⌘+D does the same beside the pick without touching the clipboard, as one
+`flow:node:duplicate`. With nothing picked Ctrl/⌘+C, X and D are not the
+editor's. What is not steps, or names a type the flow does not have, is refused
+with its sentence on the message line. In read-only mode copying still works,
+and Paste, Cut and Duplicate are refused with the read-only reason and change
+nothing.
+
 **Keys** (bound on the editor's root): Ctrl/⌘+Z and Ctrl/⌘+Y or Ctrl/⌘+Shift+Z,
 stopped at the root even inside a text field; Delete; F2 renames the picked
 step; Enter on a focused node opens its settings; Escape. Backspace is never
@@ -1727,7 +1749,7 @@ part of the baseline and the first Ctrl+Z does not take it away.
 
 **Where each claim was checked.** `tests/canvas_adapter.test.mjs`,
 `canvas_edge_router`, `canvas_graph`, `flow_canvas_layout`, `flow_canvas_editor`,
-`flow_canvas_multiselect`, `flow_canvas_node_body` and `flow_canvas_css` check the DOM, the events, the
+`flow_canvas_multiselect`, `flow_canvas_clipboard`, `flow_canvas_node_body` and `flow_canvas_css` check the DOM, the events, the
 geometry and the stylesheet as text. In headless Edge, `demo/flow_canvas_probe.mjs` drives
 `demo/flow_canvas.html` with real input:
 - `elementFromPoint` at the centre of Undo, Arrange, Fit, a consumer verb, a

@@ -191,6 +191,49 @@ content: {
 chrome shows only — the tree, the tab labels and the saved layout are left
 alone — and a call from content whose pane has since been rebuilt does nothing.
 
+### Panels a page does not offer (0.17.0)
+
+A kind says which panels it offers while it is the primary tile. Each side is
+`true`, `false` or `{ reason }`; a side it does not name is offered, and a kind
+that does not name a side takes it from its top-nav kind, so one declaration on
+a page covers every record opened under it:
+
+```js
+kinds: {
+    paper: { label: 'Paper', isTopNav: true, panels: { bottom: { reason: 'No console here' } } },
+    sheet: { label: 'Sheet', topNav: 'paper' },                        // withholds it too
+    slide: { label: 'Slide', topNav: 'paper', panels: { bottom: true } }, // offers it
+},
+```
+
+While a panel is withheld it is not in the layout, `wm.togglePanel(side)`
+answers `false` and changes nothing (nor what is saved), `wm.isPanelOpen(side)`
+is `false`, and the shell's toggle button and the palette chip carry
+`aria-disabled="true"` with the reason as their tooltip (`data-tooltip` on a
+`twm-has-tooltip` button, `title` otherwise; the button's own comes back after).
+The desktop still remembers the panel was open, and it comes back open when the
+user returns to a page that offers it. With no declarations every panel is
+offered, exactly as before.
+
+Content overrides its kind at runtime, until it clears the override with `null`:
+
+```js
+ctx.wm.setPanelAvailability('bottom', { reason: 'Run the model first' });
+ctx.wm.setPanelAvailability('bottom', null);           // e.g. in destroy()
+```
+
+`wm.isPanelAvailable(side)` and `wm.getPanelAvailability(side)` (`{ available,
+reason }`) read it, and a change is announced once — whatever caused it and
+however many sides it moved — to `wm.onPanelAvailabilityChange(fn)` (which
+returns the unsubscribe) and on the bus as `wm:panels:availability`, both with
+`{ panels, changed }`. `togglePanel` now answers `true` when it flipped a panel.
+
+`PanelStateMachine`, `PANEL_STATES` and `PANEL_TRANSITIONS` are gone from
+`@flexdesk/widgets`: nothing in the library used them, and which panels a page
+offers is now said once, in the taxonomy.
+
+`tests/panel_availability.test.mjs` drives all of it against a real shell.
+
 ### A navigation panel you drive yourself: `mountNavPanel` (0.17.0)
 
 `mountNavPanel(hostEl, { modes })` (from `@flexdesk/wm`) builds a mode strip, a
@@ -1148,6 +1191,59 @@ host.appendChild(slider.render());
 | `onChange(value, { immediate })` | Called once per commit: a drag release, a typed Enter, a reset, a toggle. The value is the slider's value as a string, as before. With `emitOnInput` it is also called on every drag frame with `immediate: true` |
 | `setValue(x, { silent })`, `setRange({ min, max, step }, { silent })`, `setEnabled(on, { silent })`, `reset({ silent })` | Change the field from code. Each reports at most once, nothing with `silent: true`, and nothing when the reported value did not move, so a caller that writes back from its own `onChange` does not loop. `setValue` refuses a non-finite value (returns `false`); `setRange` refits the value and the default |
 | `getValue()`, `isEnabled()`, `isModified()` | What `onChange` would report now, the toggle state, and whether the value differs from `defaultValue` |
+
+### A stack of collapsible sections: `createSectionStack` (0.17.0)
+
+Inspector-style panel content: titled sections in a column, each opened and
+closed from its header. It is built from the tree's `.twm-collapsible-*`
+pieces plus `.twm-section-stack*` (`@flexdesk/widgets`).
+
+```js
+const stack = createSectionStack(panel, {
+    sections: [
+        { id: 'notes', title: 'Notes', icon: 'edit_note', content: notesEl },
+        { id: 'chat', title: 'Assistant', fill: true,
+          actions: [{ icon: 'delete', label: 'Clear', onClick: (id, event) => clear() }] },
+        { id: 'params', title: 'Parameters', defaultExpanded: false },
+    ],
+    key: 'inspector.sections',
+    stateStore: { read: (key) => saved[key], write: (key, map) => { saved[key] = map; } },
+});
+stack.body('params').appendChild(paramsEl);
+const off = stack.on('toggled', ({ id, expanded, source }) => { /* … */ });
+```
+
+- **The header toggles, its actions do not.** A click anywhere on a header
+  opens or closes the section and turns its arrow. A click on one of its
+  `actions` runs that action's `onClick(sectionId, event)` and nothing else.
+  The toggle is a `<button>`, so Enter and Space work.
+- **`defaultExpanded`** is `true` unless a section says `false`.
+- **One `fill` section** takes the height the others leave, and its body is
+  what scrolls (`min-height: 0`). A long conversation scrolls inside its
+  section and the panel stays the size of the window. The stack is
+  `height: 100%` of its container, so give the container a height. A closed
+  fill section is only its header.
+- **Remembering is injected.** `stateStore` is `{ read(key), write(key, map) }`.
+  `map` is `{ [sectionId]: expanded }`, and it is written on every open and
+  close under `key`. `read` may return a promise. Until it settles the
+  sections show their defaults; a section somebody toggled in the meantime
+  keeps that choice, and that toggle is written once the read has settled,
+  over the stored states of the sections nobody touched. `stack.ready` resolves once the read has been applied. A
+  store that throws, rejects or returns anything other than a map leaves every
+  section on its `defaultExpanded`. Without a store nothing is remembered.
+- **`setVisible(id, false)`** takes a section off the stack and keeps its
+  state, so `setVisible(id, true)` brings it back open or closed as it was.
+  `isVisible(id)` reads it.
+- `expand(id)`, `collapse(id)`, `toggle(id)` and `isExpanded(id)` work on
+  any section, hidden or not. An unknown id throws.
+- **`toggled`** fires on each change with `{ id, expanded, source }`, where
+  `source` is `'user'`, `'api'` or `'restore'` (a stored state that arrived
+  after mount). `on('toggled', fn)` returns the function that stops listening.
+- **`dispose()`** removes the stack's listener and every node it made, along
+  with any `content` you passed in.
+
+`tests/section_stack.test.mjs` covers each of these in jsdom. The fill
+layout was also measured in headless Edge.
 
 ## Flow editors
 
@@ -2473,7 +2569,6 @@ before the first read:
 | ManagedWindow geometry | `'flexdesk.managedWindows.v1'` | `ManagedWindow.configure({ storageKey })` from `@flexdesk/widgets` |
 | Saved tile layouts | `'twm.tiles.layouts'` | `configureLayoutPersistence({ layoutsKey })` from `@flexdesk/tiles` |
 | Saved tile configurations | `'twm.tiles.configs'` | `configureLayoutPersistence({ configsKey })` from `@flexdesk/tiles` |
-| Panel open/size state | none: you must pass one | `new PanelStateMachine({ persistenceKey })` from `@flexdesk/widgets` |
 | Built-in Monaco themes | `'flexdesk-dark'`, `'flexdesk-light'` | `setEditorThemeNames({ dark, light })` from `@flexdesk/editor` |
 | MIME type of a dragged editor tab | `'application/x-flexdesk-tab'` | `setTabDragMime(mime)` from `@flexdesk/editor` |
 | Chart PNG export file name | `'chart'` (saved as `chart.png`) | `setChartExportFilename(name)` from `@flexdesk/charts` |
@@ -2721,11 +2816,19 @@ is told. What a scope means is yours; it is not part of the layout.
 
 Three stylesheets, and that is the whole CSS contract:
 
-| | |
-|---|---|
-| `dist/tokens.css` | Every rule reads `var(--…)` from here. Swap this one file and the shell restyles. |
-| `dist/reset.css` | The reset. |
-| `dist/flexdesk.css` | The library. Every class is `twm-` prefixed (the original working name; the prefix is stable and not worth a breaking rename). |
+| | Specifier | Resolves to | |
+|---|---|---|---|
+| `dist/tokens.css` | `flexdesk/css/tokens` | `css/tokens.css` | Every rule reads `var(--…)` from here. Swap this one file and the shell restyles. |
+| `dist/reset.css` | `flexdesk/css/reset` | `dist/reset.css` | The reset. |
+| `dist/flexdesk.css` | `flexdesk/css` | `dist/flexdesk.css` | The library. Every class is `twm-` prefixed (the original working name; the prefix is stable and not worth a breaking rename). |
+
+A bundler, an import-map generator or `require.resolve` reaches each one by its
+specifier, through the package's `exports` map, which closes every other path
+into the package. The map sends `flexdesk/css/tokens` to the source
+`css/tokens.css`, not `dist/tokens.css`. The two are identical in a release,
+since `dist/` is rebuilt in the release commit, but can differ on a working
+checkout. `flexdesk/css/reset` is missing from 0.16.1 and earlier,
+where it fails with `ERR_PACKAGE_PATH_NOT_EXPORTED`.
 
 `createDetailHeader` follows the prefix too: a badge is a `.twm-detail-header__badge`
 pill (a badge's `className` is added beside it, to recolour it), and an action is a

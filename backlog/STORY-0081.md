@@ -2,10 +2,10 @@
 id: 81
 type: story
 title: "Canvas connections take host styles (tone, dash, width, arrow, label), optional obstacle routing and hover highlight"
-status: refined
+status: in-progress
 parent: 73
 phase: 
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 3
@@ -13,7 +13,7 @@ subsystem: canvas
 labels: [flexdesk, modeler]
 links: []
 created: 2026-10-17
-updated: 2026-10-17T21:20Z
+updated: 2026-10-18T09:42Z
 ---
 
 ## Description
@@ -31,6 +31,8 @@ Canvas lines are always simple curves (`routeEdge(..., {simple: true})`) with no
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
+- 2026-10-18 · norman_agent · status: refined -> in-progress
+- 2026-10-18 · norman_agent · assignee: (none) -> norman_agent
 
 ## Comments
 

@@ -49,7 +49,9 @@ function _makeDesktop(label, seed, panelDefaults = DEFAULT_PANEL_STATE) {
         // PANEL_TITLES.
         panels: { ...panelDefaults },
         // Each panel's last share of the WM area along its axis, recorded by
-        // wm._canonicalize. A side with none opens at the default ratio.
+        // the WM when a splitter drag ends (and, for a panel not yet
+        // measured, when it rebuilds the panels). A side with none opens at
+        // the default ratio.
         panelShares: {},
         // C40. Both unset is a desktop exactly as it always was.
         group: null,

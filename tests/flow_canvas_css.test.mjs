@@ -22,7 +22,9 @@
  *   §5  [hidden] wins inside the editor
  *
  * The harvest includes an editor with the opt-in parts on (`zoomControls`,
- * `minimap`), so their classes are held to the same two directions.
+ * `minimap`) and one editing on the node (`renameInPlace` with its title box
+ * open, a type's `inline` settings), so their classes are held to the same
+ * two directions.
  *
  *     node tests/flow_canvas_css.test.mjs
  */
@@ -127,6 +129,21 @@ const graph = {
         { left: 0, top: 0, width: 800, height: 600, right: 800, bottom: 600, x: 0, y: 0 });
     ed.load({ graph });
     ed.setViewport({ scale: 1, tx: 0, ty: 0 });
+    harvest(ed.el);
+    ed.destroy();
+}
+{
+    // the opt-in edits on the node: a title typed in place, and a type's inline settings
+    const schema = { type: 'object', properties: { count: { type: 'number' } } };
+    const cat = createStepCatalogue([...types, { type_id: 'counter', label: 'Counter', category: 'teal', inline: ['count'],
+                                                 config_schema: schema, ports: [F('in', 'input')] }], { categories });
+    const ed = createCanvasEditor(t.host(), { catalogue: cat, renameInPlace: true });
+    ed.load({ graph: { nodes: [{ id: 'c', type: 'counter', config: { count: 2 }, position: { x: 0, y: 0 } }, ...graph.nodes],
+                       connections: graph.connections } });
+    ed.el.querySelector('.twm-flow-graph__node[data-node-id="c"] .twm-flow-graph__node-title')
+        .dispatchEvent(new w.MouseEvent('dblclick', { bubbles: true }));
+    t.ok('the harvest saw the title box and the inline settings',
+         Boolean(ed.el.querySelector('.twm-flow-graph__node-title-input') && ed.el.querySelector('.twm-flow-graph__node-inline')));
     harvest(ed.el);
     ed.destroy();
 }

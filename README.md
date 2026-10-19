@@ -1394,7 +1394,7 @@ touches browser storage — and is shown to fail on a planted one.
 
 | Part | What it does |
 |---|---|
-| `createStepCatalogue(types, {categories, idBase})` | The step types the consumer passes in, read as they arrive (`type_id`, `label`, `category`, `role`, `description`, `icon`, `ports`, `config_schema`, `unavailable`; any other key is kept). `get`, `list`, `byCategory`, `role`, `tone`, `inputs(typeId, {flow})`, `outputs`, `port`, `idBase`, and `problems` — a broken type is listed there, never thrown. A type may also carry `render`, `update`, `size: {w, h}` and `accent` (a tone), which only the canvas editor reads ([Node bodies](#node-bodies-0170)); `size(typeId)`, `accent(typeId)` and `body(typeId)` answer them, `null` when a type has none, and a `size`, `accent` or hook of the wrong kind is a line in `problems` and is not used (0.17.0). **Ports keep their declared order**: a lane reads the first input as its own and an outline draws the other outputs as arms in order, so nothing sorts them |
+| `createStepCatalogue(types, {categories, idBase})` | The step types the consumer passes in, read as they arrive (`type_id`, `label`, `category`, `role`, `description`, `icon`, `ports`, `config_schema`, `unavailable`; any other key is kept). `get`, `list`, `byCategory`, `role`, `tone`, `inputs(typeId, {flow})`, `outputs`, `port`, `idBase`, and `problems` — a broken type is listed there, never thrown. A type may also carry `render`, `update`, `size: {w, h}` and `accent` (a tone), which only the canvas editor reads ([Node bodies](#node-bodies-0170)); `size(typeId)`, `accent(typeId)` and `body(typeId)` answer them, `null` when a type has none, and a `size`, `accent` or hook of the wrong kind is a line in `problems` and is not used (0.17.0). `inline: ['key', …]` names settings of its `config_schema` the canvas editor draws on the node ([Edited on the node](#edited-on-the-node-0170)); `inline(typeId)` answers the names the schema has, `[]` when none, and a name it lacks (or an `inline` that is not a list) is a line in `problems` and is not drawn (0.17.0). **Ports keep their declared order**: a lane reads the first input as its own and an outline draws the other outputs as arms in order, so nothing sorts them |
 | `checkSettingsSchema(schema)` | The JSON-Schema subset a step's settings may use: `type`, `enum`, `const`, `required`, `properties`, `additionalProperties` (a boolean), `items`, `minItems`/`maxItems`, `minimum`/`maximum`, `minLength`/`maxLength`, `format: "uuid"`, the annotations and any `x-` hint. Returns the first refusal as the server's own sentence, or `null`. `oneOf`, `anyOf`, `$ref` and `pattern` are refused. `tests/fixtures/flow_kit_settings_schema.json` holds 30 schemas and their verdicts. Tables' own `check_schema` gave the same 30 verdicts when the file was written, and is meant to read this file in a test of its own |
 | `createWidgetRegistry()` | The controls, by name. The ten generic widgets are registered already; `register(name, widget)` throws for a name that exists, and replacing one takes `{replace: true}`. A widget is `(spec, value, ctx) => {el, destroy?, focus?, caret?, restoreCaret?}` and reports with `ctx.set(value)`; `undefined` removes the setting |
 | `createSettingsPanel(options)` | One step's settings, or the flow's own, drawn from the schema (below) |
@@ -1607,6 +1607,7 @@ editor.setRunOverlay({ steps, ports, banner });
 | `history`, `gridSize`, `label` | `{limit, mergeMs}`, the snap grid, and the canvas's accessible name |
 | `viewport`, `onViewportChange(viewport)` | Where the reader looks, kept by you: the editor stores none of it. `viewport` (`{scale, tx, ty}`, as `getViewport()` gives it) is where the first `load` opens, instead of fitting. `onViewportChange` hears ONE report per finished gesture of the reader's (a pan's release, a run of wheel turns once the wheel has been still for 300 ms, Fit, Arrange, a zoom button, a minimap click, *Go to it*), never one per pointer move, never a gesture that ended where it began, and never what you set yourself (`load`, `setViewport`, `fit()`, `arrange()`). A wheel report still waiting is handed on by the next press and by `destroy` (0.17.0) |
 | `zoomControls` | `true` adds Zoom out, Zoom in and 100% after Fit. They step through 15%, 25%, 33%, 50%, 67%, 80%, 100%, 125%, 150%, 200%, 300% and 400%, about the centre of the view. At the kernel's limits the button is refused in place with its sentence. Off by default (0.17.0) |
+| `renameInPlace` | `true`: a double-click on a step's title edits its name on the node ([Edited on the node](#edited-on-the-node-0170)). Off by default, and then a double-click does nothing (0.17.0) |
 | `minimap` | `true` draws a small overview over the canvas's lower right corner, with the steps and the view's frame, redrawn when the canvas changes size as well as when the view moves. A click on it centres the view on that point, at the same scale. Off by default, and then there is no minimap in the DOM (0.17.0) |
 
 | Method | Does |
@@ -1618,7 +1619,7 @@ editor.setRunOverlay({ steps, ports, banner });
 | `setActionState(id, {disabled, reason, busy})`, `setStatus(text)`, `setMessage(text, tone)` | A verb refused in place, with its reason printed beside the toolbar; the status line; the gesture line |
 | `align(kind)`, `distribute(axis)` (0.17.0) | With `multiSelect`: line the picked steps up (`'left'`, `'center'`, `'right'`, `'top'`, `'middle'`, `'bottom'`; two or more picked) or give them equal gaps (`'horizontal'`, `'vertical'`; three or more), one `flow:nodes:align` entry. `false` when refused (too few picked, read only, or no `multiSelect`); an unknown kind or axis throws |
 | `select(id \| [id, …] \| 'flow' \| null)`, `repaintPanel()`, `focus()`, `undo()`, `redo()`, `arrange()`, `fit({whole})` | `select([id, …])` (0.17.0, `multiSelect`) picks several steps at once (unknown ids are left out; one left is one step picked, none lets go) |
-| `setCatalogue(catalogue \| types)` | Swaps the step types while the editor is open, for a type registered after `load`: the palette is redrawn and a node whose type's definition changed is rebuilt, so a node of a type that was unknown now draws. A definition is compared by what the node is drawn from (known or not, `icon`, `label`, tone, ports, `render` and `update`), not by object identity: a new catalogue of the same types plus one more rebuilds no node and calls no `render` again. The graph and the history are untouched (0.17.0) |
+| `setCatalogue(catalogue \| types)` | Swaps the step types while the editor is open, for a type registered after `load`: the palette is redrawn and a node whose type's definition changed is rebuilt, so a node of a type that was unknown now draws. A definition is compared by what the node is drawn from (known or not, `icon`, `label`, tone, ports, `render`, `update` and `inline`), not by object identity: a new catalogue of the same types plus one more rebuilds no node and calls no `render` again. The graph and the history are untouched (0.17.0) |
 | `history`, `canvas` | The editor's `FlowHistory` (`keep()`, `adopt(kept, editor.snapshot())`, `baseline(editor.snapshot())` for your publish) and its `CanvasAdapter` |
 | `destroy()` | Removes every listener, the ghost of a drag, the minimap and any picker it opened. It saves nothing, because the editor holds nothing; a viewport report still waiting for the wheel to settle is handed to `onViewportChange` first |
 
@@ -1684,6 +1685,33 @@ editor.setCatalogue(createStepCatalogue([...types, gauge], { categories }));   /
   the body and says so the same way until it succeeds. No other node is
   affected.
 - A type without these keys is drawn exactly as before, with the same markup,
+  and `serialise()` is unchanged.
+
+#### Edited on the node (0.17.0)
+
+```js
+const counter = { type_id: 'counter', label: 'Counter', ports, inline: ['count'],
+                  config_schema: { type: 'object', properties: { count: { type: 'number' } } } };
+const editor = createCanvasEditor(host, { catalogue: [counter], renameInPlace: true });
+```
+
+- **`renameInPlace: true`.** A double-click on a step's title puts a text box
+  in its place, the name selected. Enter, or leaving the box, is one
+  `flow:node:label` edit, and none when the name is unchanged. Escape puts the
+  name back and records nothing. An empty name is refused with a sentence on
+  the gesture line and the name stays: on Enter the box stays open
+  (`aria-invalid`), on leaving it the box closes. Read only, a double-click
+  opens nothing, and going read only closes an open box without writing. The
+  settings panel, if it is showing that step, shows the new name.
+- **A type's `inline` settings** are drawn under the node's ports, above its
+  own body, by the same widget registry as the panel (`widgets`), with the
+  same labels and controls. A change on the node is a `flow:node:config` edit,
+  and the panel shows it at once. A change in the panel, or an undo, redraws
+  the node's control. The control being typed in is never redrawn under the
+  reader. Typing on the node and then in the panel are two undo entries. Read
+  only disables the node's controls. A node with inline settings and no
+  `size.h` is as tall as it is drawn.
+- Without the option and the key nothing is bound or drawn: the same markup,
   and `serialise()` is unchanged.
 
 **Gestures.** A node's header moves it. A connection is made by clicking an

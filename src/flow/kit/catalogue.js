@@ -25,6 +25,11 @@
  * that is not a function: each is a line in `problems`, and that key is not
  * used.
  *
+ * A fifth, `inline: ['key', …]`, names settings of the type's `config_schema`
+ * the canvas editor draws ON the node too, by the same widget registry the
+ * settings panel uses. A name the schema does not have, or an `inline` that is
+ * not a list of names, is a line in `problems`, and that name is not drawn.
+ *
  * ══ DECLARED PORT ORDER IS MEANING ═════════════════════════════════════
  *
  * A lane reads an operation's first FLOW input as its own lane and the rest as
@@ -47,7 +52,7 @@
  * consumer's catalogue with one bad entry still opens an editor.
  */
 
-import { checkSettingsSchema } from './settings_schema.js';
+import { checkSettingsSchema, fieldsFromSchema } from './settings_schema.js';
 import { TONES } from './dom.js';
 
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -76,6 +81,26 @@ function readSize(raw) {
     return { size: Object.freeze({ w, h }), problem: null };
 }
 
+/** A type's `inline` names, those its schema has, in the order given — each
+ *  one it does not have a line in `problems`. */
+function readInline(raw, schema, id, problems) {
+    if (raw === undefined || raw === null) return Object.freeze([]);
+    if (!Array.isArray(raw)) {
+        problems.push({ type_id: id, message: `"${id}"'s inline must be a list of setting names; it is not used.` });
+        return Object.freeze([]);
+    }
+    const known = new Set(fieldsFromSchema(schema).map((f) => f.key));
+    const keys = [];
+    for (const key of raw) {
+        if (typeof key === 'string' && known.has(key)) {
+            if (!keys.includes(key)) keys.push(key);
+        } else {
+            problems.push({ type_id: id, message: `"${id}"'s inline names "${String(key)}", which its settings do not have; it is not drawn.` });
+        }
+    }
+    return Object.freeze(keys);
+}
+
 function normalisePort(p) {
     return {
         ...p,
@@ -100,6 +125,7 @@ export function createStepCatalogue(types, { categories = [], idBase = defaultId
     const order = [];
     const sizes = new Map();
     const accents = new Map();
+    const inlines = new Map();
 
     for (const raw of Array.isArray(types) ? types : []) {
         if (!isPlainObject(raw)) {
@@ -146,6 +172,8 @@ export function createStepCatalogue(types, { categories = [], idBase = defaultId
             if (TONES.includes(raw.accent)) accents.set(id, raw.accent);
             else problems.push({ type_id: id, message: `"${id}"'s accent "${raw.accent}" is not a tone; it is not used.` });
         }
+        const inline = readInline(raw.inline, schema, id, problems);
+        if (inline.length) inlines.set(id, inline);
         for (const hook of ['render', 'update']) {
             if (raw[hook] !== undefined && typeof raw[hook] !== 'function') {
                 problems.push({ type_id: id, message: `"${id}"'s ${hook} is not a function; it is not used.` });
@@ -207,6 +235,8 @@ export function createStepCatalogue(types, { categories = [], idBase = defaultId
         size: (typeId) => sizes.get(typeId) ?? null,
         /** The type's accent tone, or null when it has none. */
         accent: (typeId) => accents.get(typeId) ?? null,
+        /** The setting names the type draws on its node (`inline`), in order; `[]` when none. */
+        inline: (typeId) => inlines.get(typeId) ?? Object.freeze([]),
         /** The type's `{render, update}` (`update` may be null), or null when it has no `render`. */
         body: (typeId) => {
             const t = byId.get(typeId);

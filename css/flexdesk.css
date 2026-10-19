@@ -11682,6 +11682,27 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 .twm-flow-graph__node--sized > .twm-flow-graph__node-head,
 .twm-flow-graph__node--sized > .twm-flow-graph__node-row { flex: none; }
 .twm-flow-graph__node--sized > .twm-flow-graph__node-body { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+/* EDITED ON THE NODE (`renameInPlace`, a type's `inline`). The title's box
+ * takes the title's place in the header, as tall as the name was; the inline
+ * settings sit under the ports, above a type's own body, and add height there
+ * only, so the lines' arithmetic stands. */
+.twm-flow-graph__node-title-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    box-sizing: border-box;
+    height: 22px;
+    padding: 0 4px;
+    background: var(--surface-1);
+    border: 1px solid var(--twm-flow-focus);
+    border-radius: 2px;
+    color: var(--text-body);
+    font: inherit;
+    cursor: text;
+    user-select: text;
+}
+.twm-flow-graph__node-title-input[aria-invalid="true"] { border-color: var(--twm-flow-error); }
+.twm-flow-graph__node-inline { box-sizing: border-box; display: grid; gap: 4px; padding: 4px 8px 6px; min-width: 0; cursor: default; }
+.twm-flow-graph__node--sized > .twm-flow-graph__node-inline { flex: none; }
 .twm-flow-graph__node[data-accent]::before {
     content: "";
     position: absolute;

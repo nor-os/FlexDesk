@@ -83,10 +83,25 @@
  * `setCatalogue` swaps the types while the editor is open: the palette is
  * redrawn and only the nodes whose type's definition changed are rebuilt. A
  * definition is compared by what the node is built from — known or not, its
- * icon, label and tone, its ports and its `render` and `update` functions —
+ * icon, label and tone, its ports, its `render` and `update` functions and
+ * its `inline` settings —
  * never by object identity, so a new catalogue made from the same types plus
  * one more keeps every existing node, its body and what was typed into it.
  * A `size` or an `accent` is applied on every repaint and rebuilds nothing.
+ *
+ * ══ EDITED ON THE NODE, ONLY WHEN ASKED ═════════════════════════════════
+ *
+ * `renameInPlace: true`: a double-click on a node's title puts a text box in
+ * its place with the name selected. Enter or leaving it is ONE
+ * `flow:node:label` edit (none when the name is what it was); Escape puts the
+ * name back and records nothing; an empty name is refused with its sentence
+ * on the gesture line and the name it had stays. Read only, a double-click
+ * opens nothing. A type's `inline: ['key', …]` draws those settings on the
+ * node by the panel's own widget registry (`renderField`): a change there is
+ * the same `flow:node:config` edit as in the panel, the panel showing it at
+ * once, and a change in the panel redraws the node's control — unless the
+ * reader is typing in it, when it already holds what the graph does. Without
+ * the option and the key nothing is bound or drawn.
  *
  * ══ THE VIEWPORT IS THE CONSUMER'S TO KEEP ══════════════════════════════
  *
@@ -105,7 +120,7 @@ import { OBSTACLE_ROUTING_NODE_LIMIT, crowsFoot, footAnchor, returnEdge, routeEd
 import { TONES, button, el, icon, toneClass, closeFlowPopovers } from '../kit/dom.js';
 import { createStrings, say } from '../kit/strings.js';
 import { createStepCatalogue } from '../kit/catalogue.js';
-import { createWidgetRegistry } from '../kit/widgets.js';
+import { createWidgetRegistry, renderField } from '../kit/widgets.js';
 import { createSettingsPanel } from '../kit/settings_panel.js';
 import { fieldsFromSchema } from '../kit/settings_schema.js';
 import { FORMULA_REFERENCES, PARAMETER_REFERENCES, TEMPLATE_REFERENCES } from '../kit/references.js';
@@ -211,7 +226,7 @@ export function createCanvasEditor(host, options = {}) {
         removable = null, paletteTypes = null, label = null, gridSize = 16, waitsForAll = undefined,
         multiSelect = false,
         edgeStyle = null, routing = 'simple', hoverHighlight = false,
-        onViewportChange = null, zoomControls = false, minimap = false,
+        onViewportChange = null, zoomControls = false, minimap = false, renameInPlace = false,
     } = options;
     const multi = Boolean(multiSelect);
     if (!ROUTINGS.includes(routing)) {
@@ -295,6 +310,10 @@ export function createCanvasEditor(host, options = {}) {
     const builtFrom = new Map();
     /** A node's own body, by node id: {el, ctx, update} — built once with the node. */
     const bodies = new Map();
+    /** A type's `inline` settings drawn on the node, by node id: {readOnly, fields: [{key, shown, field}]}. */
+    const inlines = new Map();
+    /** The title being typed in place (`renameInPlace`): {id, input, title, finish}. */
+    let renaming = null;
     /** What a type's own `render` or `update` threw, by node id: the editor's own findings. */
     const bodyFindings = new Map();
     let painting = false;
@@ -789,9 +808,9 @@ export function createCanvasEditor(host, options = {}) {
     const anchor = (n, port, direction) => portAnchor(catalogue, n, port, direction, BOX);
     const widthOf = (n) => nodeWidth(catalogue, n, BOX);
     /** A node with its own body and no `size.h` is as tall as it is drawn,
-     *  measured; jsdom (and a node not yet laid out) answers 0, and then the
+     *  measured (so is one with `inline` settings); jsdom (and a node not yet laid out) answers 0, and then the
      *  arithmetic box stands. */
-    const measured = (n) => (bodies.has(n.id) && !catalogue.size?.(n.type)?.h
+    const measured = (n) => ((bodies.has(n.id) || inlines.has(n.id)) && !catalogue.size?.(n.type)?.h
         ? nodeEls.get(n.id)?.offsetHeight || 0 : 0);
     const bottomOf = (n) => Math.max(nodeBottom(catalogue, n, BOX), n.position.y + measured(n));
     const isReturn = (c, target) => isReturnEdge(c, target, catalogue, loopPorts.entry);
@@ -816,11 +835,21 @@ export function createCanvasEditor(host, options = {}) {
             ports: [...catalogue.inputs(nodeRow.type), ...catalogue.outputs(nodeRow.type)].map(portKey),
             render: own?.render ?? null,
             update: own?.update ?? null,
+            inline: def ? portKey(inlineFields(nodeRow)) : '',
         };
+    }
+
+    /** The settings a node's type draws on it (`inline`), as the panel's fields. */
+    function inlineFields(nodeRow) {
+        const keys = catalogue.inline?.(nodeRow.type) || [];
+        if (!keys.length) return [];
+        const all = fieldsFromSchema(typeOf(nodeRow)?.config_schema);
+        return keys.map((k) => all.find((f) => f.key === k)).filter(Boolean);
     }
 
     const sameBuild = (a, b) => Boolean(a && b) && a.known === b.known && a.icon === b.icon
         && a.label === b.label && a.tone === b.tone && a.render === b.render && a.update === b.update
+        && a.inline === b.inline
         && a.ports.length === b.ports.length && a.ports.every((p, i) => p === b.ports[i]);
 
     function buildNode(nodeRow, def) {
@@ -840,6 +869,7 @@ export function createCanvasEditor(host, options = {}) {
         n.setAttribute('aria-label', name);
         const title = el('span', 'twm-flow-graph__node-title', name);
         title.title = name;
+        if (renameInPlace) title.addEventListener('dblclick', () => startRename(nodeRow.id));
         const tag = el('span', 'twm-flow-graph__node-tag', nodeRow.id);
         tag.title = say(S, 'stepId', nodeRow.id);
         header.append(chip, title, tag);
@@ -854,6 +884,7 @@ export function createCanvasEditor(host, options = {}) {
                        outputs[i] ? port(nodeRow, outputs[i]) : el('span', 'twm-flow-graph__node-gap'));
             n.appendChild(row);
         }
+        if (def) mountInline(n, nodeRow);
         const own = def ? catalogue.body?.(nodeRow.type) : null;
         if (own) mountBody(n, nodeRow, own);
         if (!def) n.appendChild(el('p', 'twm-flow-graph__node-finding', say(S, 'unknownType', nodeRow.type)));
@@ -894,6 +925,139 @@ export function createCanvasEditor(host, options = {}) {
         return n;
     }
 
+    // ── edited on the node ──────────────────────────────────────────────
+
+    /** The type's `inline` settings under the node's ports, each drawn by the
+     *  panel's widget registry; their writes are the panel's `flow:node:config`. */
+    function mountInline(n, nodeRow) {
+        const list = inlineFields(nodeRow);
+        if (!list.length) return;
+        const box = el('div', 'twm-flow-graph__node-inline');
+        const drawn = { readOnly: isReadOnly(), box, fields: [] };
+        for (const f of list) {
+            const slot = { key: f.key, spec: f, shown: shownKey(nodeRow.config[f.key]), field: null };
+            slot.field = inlineField(nodeRow.id, slot, nodeRow.config[f.key]);
+            drawn.fields.push(slot);
+            box.appendChild(slot.field.el);
+        }
+        n.appendChild(box);
+        inlines.set(nodeRow.id, drawn);
+    }
+
+    const shownKey = (v) => (v === undefined ? '' : JSON.stringify(v));
+
+    function inlineField(id, slot, value) {
+        return renderField(slot.spec, value, {
+            widgets, referenceMap: references, strings: S, services, readOnly: isReadOnly(),
+            step: nodeOf(id), type: typeOf(nodeOf(id)), path: '',
+            set: (key, v) => {
+                const before = slot.shown;
+                slot.shown = shownKey(v);
+                // Its own merge key: typing on the node, then in the panel, is two gestures.
+                if (!setNodeConfig(id, { [key]: v }, 'inline')) slot.shown = before;
+            },
+        });
+    }
+
+    /** The node's inline controls brought in step with its config: a control
+     *  whose value changed elsewhere (the panel, an undo) is drawn again, and
+     *  every one is when read only changed. The one being typed in holds what
+     *  it wrote, so it is left alone. */
+    function paintInline(nodeRow) {
+        const drawn = inlines.get(nodeRow.id);
+        if (!drawn) return;
+        const roNow = isReadOnly();
+        const roChanged = drawn.readOnly !== roNow;
+        drawn.readOnly = roNow;
+        for (const slot of drawn.fields) {
+            const value = nodeRow.config[slot.key];
+            const shown = shownKey(value);
+            if (!roChanged && shown === slot.shown) continue;
+            const focused = slot.field.el.contains(document.activeElement);
+            if (focused && !roChanged) continue;
+            slot.field.destroy();
+            const fresh = inlineField(nodeRow.id, slot, value);
+            slot.field.el.replaceWith(fresh.el);
+            slot.field = fresh;
+            slot.shown = shown;
+            if (focused) fresh.focus();
+        }
+    }
+
+    function dropInline(id) {
+        inlines.get(id)?.fields.forEach((slot) => slot.field.destroy());
+        inlines.delete(id);
+    }
+
+    const shownName = (nodeRow) => nodeRow.label || typeOf(nodeRow)?.label || nodeRow.type;
+
+    /** The node's name as `text` (empty: back to its type's), in place: the
+     *  node's title and shape key, so the next paint does not rebuild a node
+     *  a press may be on. ONE `flow:node:label` edit. */
+    function renameNode(id, text) {
+        const nodeRow = nodeOf(id);
+        if (!nodeRow) return;
+        if (text) nodeRow.label = text; else delete nodeRow.label;
+        const n = nodeEls.get(nodeRow.id);
+        const name = shownName(nodeRow);
+        const title = n?.querySelector('.twm-flow-graph__node-title');
+        if (title) title.textContent = title.title = name;
+        if (n) {
+            n.dataset.shape = `${nodeRow.type}|${nodeRow.label || ''}`;
+            n.setAttribute('aria-label', name);
+        }
+        commit('flow:node:label', `label:${id}`);
+    }
+
+    /** `renameInPlace`: a text box over the node's title, the name selected. */
+    function startRename(id) {
+        if (!renameInPlace || isReadOnly() || destroyed) return false;
+        renaming?.finish(false);
+        const nodeRow = nodeOf(id);
+        const n = nodeEls.get(id);
+        const title = n?.querySelector('.twm-flow-graph__node-title');
+        if (!nodeRow || !title) return false;
+        const before = shownName(nodeRow);
+        const input = el('input', 'twm-flow-graph__node-title-input');
+        input.type = 'text';
+        input.value = before;
+        input.setAttribute('aria-label', say(S, 'rename'));
+        const edit = { id, input, title, done: false };
+        edit.finish = (keep, { enter = false } = {}) => {
+            if (edit.done) return;
+            const text = input.value.trim();
+            if (keep && !text) {
+                setMessage(say(S, 'nameEmpty'), 'warning');
+                input.setAttribute('aria-invalid', 'true');
+                if (enter && input.isConnected) return;          // still open, to be typed again
+            } else if (input.getAttribute('aria-invalid')) setMessage('');
+            edit.done = true;
+            if (renaming === edit) renaming = null;
+            const hadFocus = input === document.activeElement;
+            input.remove();
+            title.hidden = false;
+            if (keep && text && text !== before && nodeOf(id)) {
+                renameNode(id, text);
+                if (selected?.kind === 'node' && selected.id === id) paintPanel();
+            }
+            if (hadFocus && n.isConnected) n.focus({ preventScroll: true });
+        };
+        input.addEventListener('keydown', (ev) => {
+            if (ev.isComposing) return;
+            if (ev.key === 'Enter') { ev.preventDefault(); edit.finish(true, { enter: true }); }
+            else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); edit.finish(false); }
+        });
+        input.addEventListener('blur', () => edit.finish(true));
+        // The box's press is the box's: no move, no pan.
+        input.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+        title.hidden = true;
+        title.after(input);
+        renaming = edit;
+        input.focus({ preventScroll: true });
+        input.select();
+        return true;
+    }
+
     /** A copy of the node for a body to read: it writes through `ctx.setConfig` only. */
     const nodeCopy = (nodeRow) => normalise({ nodes: [nodeRow], connections: [] }).nodes[0];
 
@@ -930,7 +1094,7 @@ export function createCanvasEditor(host, options = {}) {
      *  value removes that key), as ONE `flow:node:config` edit. Refused while
      *  read only, from inside a `render` or `update`, and whole (nothing
      *  written) when a value in `patch` cannot be cloned. */
-    function setNodeConfig(id, patch) {
+    function setNodeConfig(id, patch, from = 'config') {
         if (destroyed || painting || isReadOnly()) return false;
         const nodeRow = nodeOf(id);
         if (!nodeRow || !patch || typeof patch !== 'object' || Array.isArray(patch)) return false;
@@ -945,7 +1109,7 @@ export function createCanvasEditor(host, options = {}) {
         }
         paintNodes();
         if (selected?.kind === 'node' && selected.id === id) paintPanel();
-        commit('flow:node:config', `config:${id}:${keys.join(',')}`);
+        commit('flow:node:config', `${from}:${id}:${keys.join(',')}`);
         return true;
     }
 
@@ -1053,6 +1217,8 @@ export function createCanvasEditor(host, options = {}) {
                     nodeEls.delete(id);
                     builtFrom.delete(id);
                     bodies.delete(id);
+                    dropInline(id);
+                    if (renaming?.id === id) renaming.finish(false);
                     bodyChanged = bodyFindings.delete(id) || bodyChanged;
                 }
             }
@@ -1134,7 +1300,9 @@ export function createCanvasEditor(host, options = {}) {
         const shape = `${nodeRow.type}|${nodeRow.label || ''}`;
         const key = buildKey(nodeRow);
         if (!n || n.dataset.shape !== shape || !sameBuild(builtFrom.get(nodeRow.id), key)) {
+            if (renaming?.id === nodeRow.id) renaming.finish(false);
             bodies.delete(nodeRow.id);
+            dropInline(nodeRow.id);
             bodyChanged = bodyFindings.delete(nodeRow.id);
             const fresh = buildNode(nodeRow, def);
             bodyChanged = bodyChanged || bodyFindings.has(nodeRow.id);
@@ -1145,7 +1313,7 @@ export function createCanvasEditor(host, options = {}) {
             builtFrom.set(nodeRow.id, key);
             n = fresh;
             if (focused) fresh.focus({ preventScroll: true });
-        }
+        } else paintInline(nodeRow);
         const own = bodies.get(nodeRow.id);
         if (typeof own?.update === 'function') {
             try {
@@ -1348,20 +1516,7 @@ export function createCanvasEditor(host, options = {}) {
         },
         onRename: (stepId, text) => {
             if (isReadOnly()) return;
-            const nodeRow = nodeOf(stepId);
-            if (!nodeRow) return;
-            if (text) nodeRow.label = text; else delete nodeRow.label;
-            // In place: the node's title and its shape key, so the next paint
-            // does not rebuild a node a press may be on.
-            const n = nodeEls.get(nodeRow.id);
-            const name = text || typeOf(nodeRow)?.label || nodeRow.type;
-            const title = n?.querySelector('.twm-flow-graph__node-title');
-            if (title) title.textContent = title.title = name;
-            if (n) {
-                n.dataset.shape = `${nodeRow.type}|${nodeRow.label || ''}`;
-                n.setAttribute('aria-label', name);
-            }
-            commit('flow:node:label', `label:${stepId}`);
+            renameNode(stepId, text);
         },
         onFocusLost: () => keepFocus(),
         values: typeof values === 'function' ? (q) => values({
@@ -1816,6 +1971,7 @@ export function createCanvasEditor(host, options = {}) {
         setReadOnly(next) {
             ro = next;
             if (ro && connecting) cancelConnect();
+            if (isReadOnly()) renaming?.finish(false);
             dragCleanup?.();
             paintReadOnly();
             paintPalette();
@@ -1856,6 +2012,8 @@ export function createCanvasEditor(host, options = {}) {
             pressEnd?.();
             dragCleanup?.();
             cancelFit();
+            renaming?.finish(false);
+            for (const id of [...inlines.keys()]) dropInline(id);
             miniSized?.disconnect();
             closeFlowPopovers();
             unbindKeys();

@@ -2002,9 +2002,10 @@ keystrokes ask the preview once.
 `openForm({ title, fields, defaults, submitLabel })` (in `@flexdesk/widgets`)
 opens a modal form and resolves with `{ [name]: value }`, or `null` when it is
 cancelled. Fields are `text`, `number`, `password`, `select`, `textarea`,
-`checkbox`, `toggle`, `picker`, `checklist` and `radio`; `{ section: 'Label' }`
-entries are headings. The additions below are opt-in, with one change every form
-sees, even one that uses none of them: a `select` or `radio` comes back with
+`checkbox`, `toggle`, `picker`, `checklist`, `radio`, `color` and `colorList`;
+`{ section: 'Label' }` entries are headings. The additions below are opt-in,
+with one change every form sees, even one that uses none of them: a `select`
+or `radio` comes back with
 its option's OWN value and type (a numeric option submits `2`, not `'2'`; an
 option whose value is `null` submits `null`), a default of that type selects
 its option (`defaults: { s: 2 }` selects the option whose value is `2`), and an
@@ -2157,6 +2158,45 @@ a form and a settings panel cannot drift apart. In a form they are classed
 `.twm-flow-choice`; an unavailable option's reason is `.twm-choice__reason`.
 
 `tests/open_form_choices.test.mjs` covers each of these in jsdom.
+
+### Colours: `type: 'color'` and `type: 'colorList'` (0.17.0)
+
+```js
+openForm({
+    fields: [
+        { name: 'accent', label: 'Accent', type: 'color', default: 'rgb(31,119,180)',
+          presets: ['#1f77b4', '#ff7f0e', '#2ca02c'] },
+        { name: 'palette', label: 'Palette', type: 'colorList', default: ['#1f77b4', '#ff7f0e'] },
+    ],
+});
+// -> { accent: '#1f77b4', palette: ['#1f77b4', '#ff7f0e'] }
+```
+
+A `color` row is a swatch that opens the native picker, a hex box kept in step
+with it (picking writes the box; typing a valid hex moves the swatch), and,
+with `presets`, a strip of preset swatches. It submits lowercase `#rrggbb`, or
+`''` when left empty. A `colorList` row is an ordered list of such fields: add,
+remove, and reorder by drag or by the up / down buttons; `presets` are offered
+on every row, and it submits the colours in their current order as an array of
+`#rrggbb`. An `rgb()` / `rgba()` default (or `api.set` value) is shown as its
+hex; alpha is dropped, because the native picker has none. A box that does not
+hold `#rgb` or `#rrggbb` is a field error ("Not a hex colour", with the row
+numbers for a list) and the form does not resolve; `required` on either is
+checked by the form. `api.get` reads a `color` as its box text and a
+`colorList` as the array of its rows' text.
+
+Both are also components of their own in `@flexdesk/widgets`:
+`new ColorField({ value, presets, name, label, onChange })` and
+`new ColorListField({ value, presets, newColor, addLabel, name, onChange })`,
+each with `render()`, `getValue()` (null while something typed is not a
+colour), `setValue()`, `focus()` and `dispose()`; `onChange(value, { commit })`
+reports every edit and, with `commit: true`, every committed one.
+`normalizeHex(value)` (`#rgb`, `#rrggbb`, `rgb()` -> `#rrggbb` or null) and
+`isHexColor(value)` are exported with them, and `validateField` (in
+`@flexdesk/tiles`) now rejects a `FieldTypes.COLOR` value that is not a hex
+colour. The markup is `.twm-color-field` > `.twm-color-field__swatch` +
+`.twm-color-field__hex` (+ `.twm-color-field__presets`), and `.twm-color-list`
+rows are `.twm-color-list__row`. `tests/color_field.test.mjs` covers all of it.
 
 ### A switch: `ToggleField` and `type: 'toggle'` (0.17.0)
 

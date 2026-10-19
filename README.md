@@ -234,6 +234,20 @@ offers is now said once, in the taxonomy.
 
 `tests/panel_availability.test.mjs` drives all of it against a real shell.
 
+### Panels keep the size you dragged them to (0.17.0)
+
+Each desktop remembers every panel's share of the window-manager area along
+its axis (width for left and right, height for bottom), taken when a splitter
+drag ends, and saves it with the layout as `panelShares`. A reload, a switch to
+another desktop and back, and toggling one panel all rebuild the panels at
+those shares, and a closed panel comes back at the size it had. Only a panel
+that has never been sized on that desktop opens at the default 1:4. No split is
+built tighter than a drag allows (`TileRenderer.MIN_SLOT_FRACTION` of it per
+slot). A `TileRenderer` built by hand takes `onSplitResized(splitId)`, called
+once when a drag that changed a split's sizes ends.
+
+`tests/panel_sizes_kept.test.mjs` covers each of these.
+
 ### A navigation panel you drive yourself: `mountNavPanel` (0.17.0)
 
 `mountNavPanel(hostEl, { modes })` (from `@flexdesk/wm`) builds a mode strip, a

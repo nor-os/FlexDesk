@@ -622,6 +622,10 @@ export function createCanvasEditor(host, options = {}) {
         });
         canvasHost.appendChild(mini);
     }
+    // The frame is the canvas's visible box: a pane or window resized, or a
+    // host laid out only after the editor was built, moves no viewport.
+    const miniSized = mini && typeof ResizeObserver === 'function' ? new ResizeObserver(() => paintMinimap()) : null;
+    miniSized?.observe(canvas.root);
 
     /** The whole flow and the view's frame, small: what is drawn spans both. */
     function paintMinimap() {
@@ -1852,6 +1856,7 @@ export function createCanvasEditor(host, options = {}) {
             pressEnd?.();
             dragCleanup?.();
             cancelFit();
+            miniSized?.disconnect();
             closeFlowPopovers();
             unbindKeys();
             canvas.root.removeEventListener('keydown', onTab);

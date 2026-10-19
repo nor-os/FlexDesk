@@ -112,6 +112,43 @@
  * report waits until the wheel has been still for `WHEEL_SETTLE_MS`; the next
  * press, the next gesture and `destroy` each hand a waiting one on at once.
  * That is the editor's only timer, and it writes nothing: it tells.
+ *
+ * ══ COPY, CUT, PASTE, DUPLICATE, ONLY WHEN ASKED (`clipboard`) ══════════
+ *
+ * `clipboard: true` keeps what is copied in the editor, for as long as it is
+ * open; `clipboard: {read, write}` hands it to the consumer — `write(text)`
+ * hears the copied JSON (the graph's own `{nodes, connections}` text: the
+ * picked steps and the lines among them, never a line to a step left out) and
+ * `read()` supplies what Ctrl+V pastes, as text or a promise of it. A paste
+ * gives every step a fresh id (`nextId`), takes the lines between them along,
+ * sets the copy off from where it was copied (one more step off at each paste
+ * of the same text, none for the first paste after a cut), picks it and is ONE
+ * `flow:paste` entry; Ctrl+D is the same without the clipboard, as one
+ * `flow:node:duplicate`. A label the flow already has is derived (`Title
+ * (copy)`, `(copy 2)`, …), and `prepareCopy(node, {from, via})` may change a
+ * copy's config and label before it is added. Read only, copy still copies
+ * and the rest are refused with the reason on the message line.
+ *
+ * ══ LIVE VALUES ARE PAINTED, NEVER EDITED ═══════════════════════════════
+ *
+ * `setNodeValues({[id]: {badge, tone, ports: {[name]: text}}})` is what the
+ * host is showing right now — a value on a node's header, a value beside a
+ * port — and it extends the run overlay: no node is rebuilt, nothing is
+ * recorded, `onChange` is not called and the panel is not touched, so a
+ * field being typed into keeps its focus however often the host paints. The
+ * values reach a type's own body through `ctx.values`, and its `update` runs
+ * for each node whose values changed. Their elements exist only while there
+ * is a value to show.
+ *
+ * ══ A NODE FOLDS TO ITS HEADER, ONLY WHEN ASKED (`collapsible: true`) ═══
+ *
+ * A button on each header folds its node away to the header and back, one
+ * `flow:node:collapse` entry each way. Its port rows, its body and what is
+ * drawn under them are hidden; its lines stay, meeting the header's middle on
+ * its two sides (as a kernel node's `collapsedPorts` stand in for the ports a
+ * folded node hides). A folded node is `collapsed: true` in the graph; an unfolded one has no such
+ * key. Without the option a `collapsed` flag is carried through untouched and
+ * the node is drawn unfolded.
  */
 
 import { CanvasAdapter } from '../../canvas/canvas_adapter.js';
@@ -128,7 +165,7 @@ import { createFindingsStrip, findingsList, groupFindings } from '../kit/finding
 import { openStepPicker } from '../kit/step_picker.js';
 import { FlowHistory } from '../kit/history.js';
 import { bindFlowKeys } from '../kit/keys.js';
-import { addConnection, addNode, connect, disconnect, emptyGraph, normalise, removeNode, sameEdge, serialise } from '../kit/logic_graph.js';
+import { addConnection, addNode, connect, disconnect, emptyGraph, nextId, normalise, removeNode, sameEdge, serialise } from '../kit/logic_graph.js';
 import { CANVAS_STRINGS } from './strings.js';
 import { connectionRules } from './connections.js';
 import { CANVAS_NODE, isReturnEdge, layoutGraph, nodeBottom, nodeWidth, pathMidpoint, portAnchor } from './layout.js';
@@ -147,6 +184,9 @@ export const CANVAS_ACTIONS = Object.freeze([
     'flow:nodes:move',
     'flow:nodes:remove',
     'flow:nodes:align',
+    'flow:paste',
+    'flow:node:duplicate',
+    'flow:node:collapse',
 ]);
 
 /** `editor.align(kind)` and the toolbar's align verbs, in toolbar order. */
@@ -157,6 +197,8 @@ const ALIGN_ICON = Object.freeze({ left: 'align_horizontal_left', center: 'align
 /** `editor.distribute(axis)`. */
 const DISTRIBUTE = Object.freeze(['horizontal', 'vertical']);
 const DISTRIBUTE_ICON = Object.freeze({ horizontal: 'horizontal_distribute', vertical: 'vertical_distribute' });
+/** A paste or a duplicate is set off from what it copies by this many grid steps, right and down. */
+const COPY_OFFSET = 2;
 /** Shift+arrow nudges this many grid steps. */
 const NUDGE_FAR = 10;
 
@@ -229,11 +271,19 @@ export function createCanvasEditor(host, options = {}) {
         multiSelect = false,
         edgeStyle = null, routing = 'simple', hoverHighlight = false,
         onViewportChange = null, zoomControls = false, minimap = false,
+        clipboard = null, prepareCopy = null, collapsible = false,
     } = options;
+    const folding = Boolean(collapsible);
     const multi = Boolean(multiSelect);
     if (!ROUTINGS.includes(routing)) {
         throw new Error(`createCanvasEditor: routing is ${ROUTINGS.map((r) => `'${r}'`).join(' or ')}, not '${routing}'.`);
     }
+    if (clipboard && clipboard !== true
+        && (typeof clipboard.read !== 'function' || typeof clipboard.write !== 'function')) {
+        throw new Error('createCanvasEditor: clipboard is true or {read(), write(text)}.');
+    }
+    /** `'memory'`: what is copied stays in the editor; else the consumer's `{read, write}`; null: off. */
+    const clip = clipboard === true ? 'memory' : clipboard || null;
     const styled = typeof edgeStyle === 'function';
     let catalogue = toCatalogue(options.catalogue, 'createCanvasEditor');
     const S = createStrings(CANVAS_STRINGS, strings);
@@ -241,6 +291,8 @@ export function createCanvasEditor(host, options = {}) {
         width: Number(nodeOptions.width) || CANVAS_NODE.width,
         header: Number(nodeOptions.header) || CANVAS_NODE.header,
         row: Number(nodeOptions.row) || CANVAS_NODE.row,
+        /** Is this node drawn folded to its header? Only with `collapsible`. */
+        folded: (n) => folding && n?.collapsed === true,
     });
     const loopPorts = Object.freeze({ ...DEFAULT_LOOP_PORTS, ...plainObject(loop) });
     const canRemove = typeof removable === 'function' ? removable
@@ -296,6 +348,8 @@ export function createCanvasEditor(host, options = {}) {
     let findings = [];
     let findingsBy = new Map();
     let overlay = null;
+    /** What the host shows on each node now (`setNodeValues`), by node id: {badge, tone, ports}. */
+    let liveValues = new Map();
     /** {kind: 'flow'} | {kind: 'node', id} | {kind: 'many', ids} (two or more, `multiSelect`)
      *  | {kind: 'edge', edge} | null */
     let selected = null;
@@ -340,6 +394,10 @@ export function createCanvasEditor(host, options = {}) {
     let pressEnd = null;
     let zoomLimit = '';
     let miniMap = null;
+    /** What `clipboard: true` holds: the last copied text. */
+    let copiedText = null;
+    /** The text pasted last and how many times, so each paste of it is set off one step more. */
+    let pasteRun = { text: null, times: 0 };
 
     const canvas = new CanvasAdapter({ container: canvasHost, gridSize });
     if (startView) canvas.setViewport(startView);
@@ -826,7 +884,7 @@ export function createCanvasEditor(host, options = {}) {
     /** A node with its own body and no `size.h` is as tall as it is drawn,
      *  measured; jsdom (and a node not yet laid out) answers 0, and then the
      *  arithmetic box stands. */
-    const measured = (n) => (bodies.has(n.id) && !catalogue.size?.(n.type)?.h
+    const measured = (n) => (bodies.has(n.id) && !catalogue.size?.(n.type)?.h && !BOX.folded(n)
         ? nodeEls.get(n.id)?.offsetHeight || 0 : 0);
     const bottomOf = (n) => Math.max(nodeBottom(catalogue, n, BOX), n.position.y + measured(n));
     const isReturn = (c, target) => isReturnEdge(c, target, catalogue, loopPorts.entry);
@@ -878,6 +936,7 @@ export function createCanvasEditor(host, options = {}) {
         const tag = el('span', 'twm-flow-graph__node-tag', nodeRow.id);
         tag.title = say(S, 'stepId', nodeRow.id);
         header.append(chip, title, tag);
+        if (folding) header.appendChild(foldButton(nodeRow.id));
         header.addEventListener('pointerdown', (ev) => startMove(ev, nodeRow.id));
         n.appendChild(header);
         const inputs = catalogue.inputs(nodeRow.type);
@@ -939,6 +998,8 @@ export function createCanvasEditor(host, options = {}) {
         const box = el('div', 'twm-flow-graph__node-body');
         const ctx = Object.freeze({
             get readOnly() { return isReadOnly(); },
+            /** What the host shows on this node now (`setNodeValues`), a copy; null when nothing. */
+            get values() { return valuesCopy(id); },
             services,
             setConfig: (patch) => setNodeConfig(id, patch),
         });
@@ -982,6 +1043,94 @@ export function createCanvasEditor(host, options = {}) {
         if (selected?.kind === 'node' && selected.id === id) paintPanel();
         commit('flow:node:config', `config:${id}:${keys.join(',')}`);
         return true;
+    }
+
+    /** The header's fold button (`collapsible`): its press is its own, never a drag. */
+    function foldButton(id) {
+        const b = el('button', 'twm-flow-graph__node-fold');
+        b.type = 'button';
+        b.appendChild(icon('expand_less'));
+        b.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+        b.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            const nodeRow = nodeOf(id);
+            if (nodeRow) setCollapsed(id, nodeRow.collapsed !== true);
+        });
+        return b;
+    }
+
+    /** Fold a node to its header, or unfold it: ONE `flow:node:collapse` entry.
+     *  False when refused: no `collapsible`, read only, no such node, no change. */
+    function setCollapsed(id, collapsed) {
+        if (!folding || destroyed || isReadOnly()) return false;
+        const nodeRow = nodeOf(id);
+        if (!nodeRow || (nodeRow.collapsed === true) === Boolean(collapsed)) return false;
+        if (collapsed) nodeRow.collapsed = true; else delete nodeRow.collapsed;
+        if (connecting?.source === id) cancelConnect();
+        paintNodes();
+        commit('flow:node:collapse');
+        return true;
+    }
+
+    /** One node's entry of `setNodeValues`, read into what is drawn; null when it shows nothing. */
+    function valueEntry(v) {
+        if (!v || typeof v !== 'object') return null;
+        const text = (x) => (x === undefined || x === null || x === '' ? null : String(x));
+        const ports = {};
+        for (const [name, x] of Object.entries(plainObject(v.ports))) {
+            const shown = text(x);
+            if (shown !== null) ports[name] = shown;
+        }
+        const badge = text(v.badge);
+        if (badge === null && !Object.keys(ports).length) return null;
+        return Object.freeze({ badge, tone: TONES.includes(v.tone) ? v.tone : null, ports: Object.freeze(ports) });
+    }
+
+    const valuesCopy = (id) => {
+        const v = liveValues.get(id);
+        return v ? { badge: v.badge, tone: v.tone, ports: { ...v.ports } } : null;
+    };
+
+    /** A node's live values onto its header and its ports, in place. An
+     *  element is there only while it has a value to show. */
+    function paintValues(n, nodeRow) {
+        const v = liveValues.get(nodeRow.id) || null;
+        const header = n.querySelector('.twm-flow-graph__node-head');
+        let badge = header.querySelector('.twm-flow-graph__node-badge');
+        if (v?.badge !== null && v?.badge !== undefined) {
+            if (!badge) {
+                badge = el('span', 'twm-flow-graph__node-badge');
+                header.insertBefore(badge, header.querySelector('.twm-flow-graph__node-tag'));
+            }
+            if (badge.textContent !== v.badge) badge.textContent = badge.title = v.badge;
+            if (v.tone) badge.dataset.tone = v.tone; else delete badge.dataset.tone;
+        } else badge?.remove();
+        for (const b of n.querySelectorAll('.twm-flow-graph__port')) {
+            const shown = v && Object.hasOwn(v.ports, b.dataset.port) ? v.ports[b.dataset.port] : null;
+            let tag = b.querySelector('.twm-flow-graph__port-value');
+            if (shown === null) { tag?.remove(); continue; }
+            if (!tag) {
+                tag = el('span', 'twm-flow-graph__port-value');
+                b.insertBefore(tag, b.querySelector('.twm-flow-graph__port-count'));
+            }
+            if (tag.textContent !== shown) tag.textContent = shown;
+        }
+    }
+
+    /** A node's own `update`, onto its body; true when its body's findings changed. */
+    function runUpdate(nodeRow) {
+        const own = bodies.get(nodeRow.id);
+        if (typeof own?.update !== 'function') return false;
+        try {
+            own.update(own.el, nodeCopy(nodeRow), own.ctx);
+            if (bodyFindings.get(nodeRow.id)?.code !== 'node-update') return false;
+            bodyFindings.delete(nodeRow.id);
+            return true;
+        } catch (err) {
+            const before = bodyFindings.get(nodeRow.id)?.message;
+            bodyFailed(nodeRow, 'update', err);
+            return before !== bodyFindings.get(nodeRow.id).message;
+        }
     }
 
     function port(nodeRow, p) {
@@ -1382,27 +1531,19 @@ export function createCanvasEditor(host, options = {}) {
             n = fresh;
             if (focused) fresh.focus({ preventScroll: true });
         }
-        const own = bodies.get(nodeRow.id);
-        if (typeof own?.update === 'function') {
-            try {
-                own.update(own.el, nodeCopy(nodeRow), own.ctx);
-                if (bodyFindings.get(nodeRow.id)?.code === 'node-update') {
-                    bodyFindings.delete(nodeRow.id);
-                    bodyChanged = true;
-                }
-            } catch (err) {
-                const before = bodyFindings.get(nodeRow.id)?.message;
-                bodyFailed(nodeRow, 'update', err);
-                bodyChanged = bodyChanged || before !== bodyFindings.get(nodeRow.id).message;
-            }
-        }
+        bodyChanged = runUpdate(nodeRow) || bodyChanged;
         if (bodyChanged) findingsBy = groupFindings(allFindings(), { graph });
         n.style.left = `${nodeRow.position.x}px`;
         n.style.top = `${nodeRow.position.y}px`;
         n.style.width = `${widthOf(nodeRow)}px`;
-        const h = catalogue.size?.(nodeRow.type)?.h;
+        const folded = BOX.folded(nodeRow);
+        const h = folded ? null : catalogue.size?.(nodeRow.type)?.h;
         if (h) n.style.height = `${h}px`; else n.style.removeProperty('height');
         n.classList.toggle('twm-flow-graph__node--sized', Boolean(h));
+        if (folding) paintFold(n, folded);
+        if (liveValues.size || n.querySelector('.twm-flow-graph__node-badge, .twm-flow-graph__port-value')) {
+            paintValues(n, nodeRow);
+        }
         const accent = catalogue.accent?.(nodeRow.type) || null;
         if (accent) n.dataset.accent = accent; else delete n.dataset.accent;
         const picked = picks.has(nodeRow.id);
@@ -1439,6 +1580,20 @@ export function createCanvasEditor(host, options = {}) {
                 ? say(S, 'portCount', mark.count) : mark && !mark.taken ? say(S, 'portNotTaken') : '';
         }
         return bodyChanged;
+    }
+
+    /** A node folded or not (`collapsible`): its class and its button's state, in place. */
+    function paintFold(n, folded) {
+        n.classList.toggle('twm-flow-graph__node--collapsed', folded);
+        const b = n.querySelector('.twm-flow-graph__node-fold');
+        if (!b) return;
+        b.disabled = isReadOnly();
+        b.setAttribute('aria-expanded', String(!folded));
+        b.title = say(S, folded ? 'expandNode' : 'collapseNode');
+        b.setAttribute('aria-label', b.title);
+        const glyph = b.querySelector('.material-symbols-outlined');
+        const name = folded ? 'expand_more' : 'expand_less';
+        if (glyph && glyph.textContent !== name) glyph.textContent = name;
     }
 
     function paintEdges() {
@@ -1901,6 +2056,181 @@ export function createCanvasEditor(host, options = {}) {
         window.addEventListener('pointercancel', pressLetGo, true);
     }
 
+    // ── copy, cut, paste, duplicate (`clipboard`) ───────────────────────
+
+    /** What a method answers without the `clipboard` option: nothing done, nothing said. */
+    const CLIPBOARD_OFF = Object.freeze({ ok: false, reason: null });
+
+    /** A refusal, said on the message line and handed back. */
+    function refused(reason) {
+        setMessage(reason, 'warning');
+        return { ok: false, reason };
+    }
+
+    const roRefusal = () => refused(readOnlyReason() || say(S, 'readOnlyRefusal'));
+    const titleOf = (n) => n.label || typeOf(n)?.label || n.type;
+
+    /** May a step of this type be added again: a type the palette offers, and available here. */
+    const addable = (type) => Boolean(type) && !type.unavailable && offered(type);
+
+    /** The picked steps a copy is made of, in graph order. */
+    const copyRows = () => {
+        const picks = pickedSet();
+        return graph.nodes.filter((n) => picks.has(n.id) && addable(typeOf(n)));
+    };
+
+    /** The steps and the lines among them as the graph's own text; a line to a step left out is not copied. */
+    function copyText(rows) {
+        const ids = new Set(rows.map((n) => n.id));
+        return serialise({ nodes: rows,
+                           connections: graph.connections.filter((c) => ids.has(c.source) && ids.has(c.target)) });
+    }
+
+    /** Onto the clipboard: the editor's own, or the consumer's `write`. */
+    function writeClipboard(text, times) {
+        pasteRun = { text, times };
+        if (clip === 'memory') { copiedText = text; return true; }
+        const failed = () => setMessage(say(S, 'clipboardFailed'), 'warning');
+        try {
+            const done = clip.write(text);
+            if (done && typeof done.then === 'function') done.then(null, failed);
+        } catch {
+            failed();
+            return false;
+        }
+        return true;
+    }
+
+    /** COPY: the picked steps and the lines among them onto the clipboard. Read only, too. */
+    function copyNodes() {
+        if (!clip) return CLIPBOARD_OFF;
+        if (!pickedIds().length) return refused(say(S, 'nothingPicked'));
+        const rows = copyRows();
+        if (!rows.length) return refused(say(S, 'cannotCopy'));
+        if (!writeClipboard(copyText(rows), 0)) return { ok: false, reason: say(S, 'clipboardFailed') };
+        setMessage(say(S, 'copied', rows.length), 'ok');
+        return { ok: true, ids: rows.map((n) => n.id) };
+    }
+
+    /** CUT: a copy, then the copied steps removed with their lines — one remove entry. */
+    function cutNodes() {
+        if (!clip) return CLIPBOARD_OFF;
+        if (isReadOnly()) return roRefusal();
+        if (!pickedIds().length) return refused(say(S, 'nothingPicked'));
+        const rows = copyRows().filter((n) => canRemove(n, typeOf(n)));
+        if (!rows.length) return refused(say(S, 'cannotCut'));
+        // The first paste after a cut puts the steps back where they were.
+        if (!writeClipboard(copyText(rows), -1)) return { ok: false, reason: say(S, 'clipboardFailed') };
+        for (const n of rows) removeNode(graph, n.id);
+        findingsBy = groupFindings(allFindings(), { graph });
+        select(null);
+        paintNodes();
+        commit(rows.length > 1 ? 'flow:nodes:remove' : 'flow:node:remove');
+        setMessage(say(S, 'cutDone', rows.length), 'ok');
+        keepFocus();
+        return { ok: true, ids: rows.map((n) => n.id) };
+    }
+
+    /** What is on the clipboard, read as steps: the graph text, or a refusal. */
+    function stepsOf(text) {
+        if (typeof text !== 'string' || !text.trim()) return { reason: say(S, 'nothingToPaste') };
+        let raw;
+        try { raw = JSON.parse(text); } catch { return { reason: say(S, 'pasteNotSteps') }; }
+        if (!raw || !Array.isArray(raw.nodes) || !raw.nodes.length
+            || raw.nodes.some((n) => !n || typeof n !== 'object' || !n.id || !n.type)) {
+            return { reason: say(S, 'pasteNotSteps') };
+        }
+        const g = normalise(raw);
+        const odd = g.nodes.find((n) => !addable(typeOf(n)));
+        if (odd) return { reason: typeOf(odd) ? say(S, 'notAddable', titleOf(odd)) : say(S, 'unknownType', odd.type) };
+        return { g };
+    }
+
+    /**
+     * The copies into the graph, `offset` grid steps off: fresh ids, a label
+     * derived when the flow already has it, `prepareCopy`, the lines among
+     * them, then picked — ONE `action` entry. Nothing is written until every
+     * copy is made, so a `prepareCopy` that throws changes nothing.
+     */
+    function addCopies(g, offset, via, action) {
+        const step = (canvas.gridSize || CANVAS_NODE.row) * offset;
+        const titles = new Set(graph.nodes.map(titleOf));
+        const made = [];
+        const idOf = new Map();
+        for (const from of g.nodes) {
+            const id = nextId({ nodes: [...graph.nodes, ...made] }, from.type, { catalogue });
+            const title = titleOf(from);
+            let label = from.label || null;
+            if (titles.has(title)) {
+                let i = 1;
+                label = say(S, 'copyLabel', title, i);
+                while (titles.has(label)) { i += 1; label = say(S, 'copyLabel', title, i); }
+                titles.add(label);
+            }
+            const copy = { id, type: from.type, ...(label ? { label } : {}), config: structuredClone(from.config),
+                           position: { x: from.position.x + step, y: from.position.y + step } };
+            if (typeof prepareCopy === 'function') prepareCopy(copy, { from: from.id, via });
+            const [clean] = normalise({ nodes: [{ ...copy, id, type: from.type, position: { ...copy.position } }],
+                                        connections: [] }).nodes;
+            made.push(clean);
+            idOf.set(from.id, id);
+        }
+        graph.nodes.push(...made);
+        for (const c of g.connections) {
+            const source = idOf.get(c.source);
+            const target = idOf.get(c.target);
+            if (source && target) connect(graph, catalogue, { ...c, source, target }, { strings: S });
+        }
+        const ids = made.map((n) => n.id);
+        if (connecting) cancelConnect();
+        paintNodes();
+        if (multi) pickNodes(ids); else select({ kind: 'node', id: ids[0] });
+        commit(action);
+        setMessage('');
+        return { ok: true, ids };
+    }
+
+    /** PASTE `text` — or, without it, what the clipboard holds (a promise of
+     *  the answer when the consumer's `read` is one). */
+    function pasteNodes(text) {
+        if (!clip) return CLIPBOARD_OFF;
+        if (isReadOnly()) return roRefusal();
+        const settle = (t) => {
+            if (destroyed) return CLIPBOARD_OFF;
+            if (isReadOnly()) return roRefusal();
+            const { g, reason } = stepsOf(t);
+            if (!g) return refused(reason);
+            const times = pasteRun.text === t ? pasteRun.times + 1 : 1;
+            pasteRun = { text: t, times };
+            return addCopies(g, COPY_OFFSET * times, 'paste', 'flow:paste');
+        };
+        if (text !== undefined) return settle(text);
+        if (clip === 'memory') return settle(copiedText);
+        let got;
+        try { got = clip.read(); } catch { return refused(say(S, 'clipboardFailed')); }
+        if (got && typeof got.then === 'function') {
+            return got.then(settle, () => (destroyed ? CLIPBOARD_OFF : refused(say(S, 'clipboardFailed'))));
+        }
+        return settle(got);
+    }
+
+    /** DUPLICATE: a copy of the picked steps beside them, the clipboard untouched. */
+    function duplicateNodes() {
+        if (!clip) return CLIPBOARD_OFF;
+        if (isReadOnly()) return roRefusal();
+        if (!pickedIds().length) return refused(say(S, 'nothingPicked'));
+        const rows = copyRows();
+        if (!rows.length) return refused(say(S, 'cannotCopy'));
+        return addCopies(JSON.parse(copyText(rows)), COPY_OFFSET, 'duplicate', 'flow:node:duplicate');
+    }
+
+    /** A clipboard key: with nothing picked, Ctrl+C, X and D are not the editor's. */
+    const clipKey = (run, needsPick = true) => () => {
+        if (!clip || (needsPick && !pickedIds().length)) return false;
+        run();
+        return undefined;
+    };
+
     // ── keys ────────────────────────────────────────────────────────────
 
     const unbindKeys = bindFlowKeys(root, {
@@ -1936,6 +2266,10 @@ export function createCanvasEditor(host, options = {}) {
             setMessage('');
             return undefined;
         },
+        copy: clipKey(copyNodes),
+        cut: clipKey(cutNodes),
+        paste: clipKey(() => pasteNodes(), false),
+        duplicate: clipKey(duplicateNodes),
         selectAll: () => {
             if (!multi) return false;
             pickNodes(graph.nodes.map((x) => x.id));
@@ -2048,6 +2382,48 @@ export function createCanvasEditor(host, options = {}) {
             paintNodes();
             panel.setFindings(allFindings());
         },
+        /**
+         * What the host shows on the nodes now — `{[id]: {badge, tone, ports:
+         * {[name]: text}}}`, or null for none — replacing what it showed
+         * before. Painted in place: nothing is rebuilt or recorded, `onChange`
+         * is not called and the panel is not touched. A type's own `update`
+         * runs for each node whose values changed, and reads them as `ctx.values`.
+         */
+        setNodeValues(next) {
+            if (destroyed) return;
+            const fresh = new Map();
+            for (const [id, v] of Object.entries(plainObject(next))) {
+                const entry = valueEntry(v);
+                if (entry) fresh.set(String(id), entry);
+            }
+            const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+            const changed = [...new Set([...liveValues.keys(), ...fresh.keys()])]
+                .filter((id) => !same(liveValues.get(id), fresh.get(id)));
+            liveValues = fresh;
+            let bodyChanged = false;
+            painting = true;
+            try {
+                for (const id of changed) {
+                    const nodeRow = nodeOf(id);
+                    const n = nodeEls.get(id);
+                    if (!nodeRow || !n) continue;
+                    paintValues(n, nodeRow);
+                    bodyChanged = runUpdate(nodeRow) || bodyChanged;
+                }
+            } finally {
+                painting = false;
+            }
+            // A body's `update` that started or stopped throwing: its finding is drawn.
+            if (bodyChanged) {
+                findingsBy = groupFindings(allFindings(), { graph });
+                paintNodes();
+                paintStrip();
+                panel.setFindings(allFindings());
+            }
+        },
+        /** `collapsible`: fold a node to its header (true) or unfold it, one
+         *  `flow:node:collapse` entry; false when refused or nothing changes. */
+        setCollapsed: (id, collapsed) => setCollapsed(String(id), collapsed),
         /** Draw a run on the canvas — never changes the graph and rebuilds no field. */
         setRunOverlay(next) {
             overlay = next && typeof next === 'object' ? next : null;
@@ -2093,6 +2469,14 @@ export function createCanvasEditor(host, options = {}) {
         /** `multiSelect`: equal gaps, horizontal or vertical (three or more). */
         distribute: (axis) => (multi ? distributeNodes(axis) : false),
         fit: (opts) => { fit(opts); viewportBaseline(); },
+        /** `clipboard`: copy the picked steps and the lines among them; `{ok, ids}` or `{ok: false, reason}`. */
+        copy: () => copyNodes(),
+        /** `clipboard`: copy, then remove what was copied (one remove entry). Refused read only. */
+        cut: () => cutNodes(),
+        /** `clipboard`: paste `text`, or what the clipboard holds — a promise when the consumer's `read` is async. */
+        paste: (text) => pasteNodes(text),
+        /** `clipboard`: a copy of the picked steps beside them, one `flow:node:duplicate` entry. */
+        duplicate: () => duplicateNodes(),
         destroy() {
             if (destroyed) return;
             // A wheel's report still waiting is handed on: the reader did zoom.

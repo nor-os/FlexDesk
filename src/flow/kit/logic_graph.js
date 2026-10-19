@@ -5,7 +5,7 @@
  *
  * The shape is the consumer server's:
  *
- *     { nodes: [{ id, type, label?, config, position: {x, y} }],
+ *     { nodes: [{ id, type, label?, config, position: {x, y}, collapsed? }],
  *       connections: [{ source, target, sourcePort, targetPort }] }
  *
  * **The editors decide nothing a publish depends on.** Whether a graph is a
@@ -16,7 +16,8 @@
  * returned, never thrown into a console.
  *
  * `serialise` is byte-stable: node keys in the order `id, type, label?, config,
- * position`, config keys sorted, nodes and connections in the order they were
+ * position, collapsed?` (`collapsed` only when it is `true`, so a graph that
+ * never folded a node is the text it always was), config keys sorted, nodes and connections in the order they were
  * drawn — so a graph opened and saved with no edit is the identical text.
  */
 
@@ -53,6 +54,7 @@ export function normalise(graph) {
             ...(n.label ? { label: String(n.label) } : {}),
             config: n.config && typeof n.config === 'object' ? structuredClone(n.config) : {},
             position: { x: Math.round(Number(n.position?.x) || 0), y: Math.round(Number(n.position?.y) || 0) },
+            ...(n.collapsed === true ? { collapsed: true } : {}),
         })),
         connections: (Array.isArray(g.connections) ? g.connections : []).map((c) => ({
             source: String(c.source),
@@ -77,7 +79,7 @@ export function serialise(graph) {
     return JSON.stringify({
         nodes: g.nodes.map((n) => ({
             id: n.id, type: n.type, ...(n.label ? { label: n.label } : {}),
-            config: sortedKeys(n.config), position: n.position,
+            config: sortedKeys(n.config), position: n.position, ...(n.collapsed ? { collapsed: true } : {}),
         })),
         connections: g.connections.map((c) => ({
             source: c.source, target: c.target, sourcePort: c.sourcePort, targetPort: c.targetPort,

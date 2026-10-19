@@ -40,6 +40,9 @@ export const CANVAS_STRINGS = Object.freeze({
     renderFailed: (name, why) => `${name} could not draw its body${why ? `: ${why}` : '.'}`,
     updateFailed: (name, why) => `${name} could not bring its body up to date${why ? `: ${why}` : '.'}`,
     stepId: (id) => `Step id: ${id}`,
+    // `collapsible`
+    collapseNode: 'Fold this step to its header',
+    expandNode: 'Show this step\'s ports again',
     connection: 'Connection',
     connectionLine: (e) => `${e.source} · ${e.sourcePort} → ${e.target} · ${e.targetPort}`,
     removeConnection: 'Remove connection',
@@ -71,5 +74,16 @@ export const CANVAS_STRINGS = Object.freeze({
     stepsPicked: (n) => `${n} steps picked`,
     stepsPickedLine: 'Drag one to move them all. The arrow keys nudge them.',
     removeSteps: (n) => (n === 1 ? 'Remove 1 step' : `Remove ${n} steps`),
+    // `clipboard`
+    copyLabel: (title, n) => (n > 1 ? `${title} (copy ${n})` : `${title} (copy)`),
+    copied: (n) => (n === 1 ? 'Copied 1 step.' : `Copied ${n} steps.`),
+    cutDone: (n) => (n === 1 ? 'Cut 1 step.' : `Cut ${n} steps.`),
+    nothingPicked: 'Pick a step first.',
+    cannotCopy: 'None of the picked steps can be copied.',
+    cannotCut: 'None of the picked steps can be removed, so none can be cut.',
+    nothingToPaste: 'There is nothing to paste.',
+    pasteNotSteps: 'What is on the clipboard is not steps of a flow.',
+    notAddable: (name) => `‘${name}’ cannot be added to this flow.`,
+    clipboardFailed: 'The clipboard could not be reached.',
     routingFallback: (n) => `More than ${n} steps: the lines are drawn as plain curves, not routed round the steps.`,
 });

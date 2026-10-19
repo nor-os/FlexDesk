@@ -2921,6 +2921,23 @@ an attempt failed.
 If you already load Plotly yourself (a `<script>` tag that sets `window.Plotly`),
 the chart loader short-circuits and you can skip `setPlotlySource`.
 
+### Auto-height editors: `maxHeight` (0.17.0)
+
+`createEditor()` sizes its container to the content (80px at least, see
+`setMinHeight`). Cap it with `maxHeight`, in px; `Infinity`, the default, is
+no cap. Past the cap Monaco scrolls internally and takes the mouse wheel;
+below it the wheel reaches whatever scrolls around the editor.
+
+```js
+const h = factory.createEditor(el, source, { maxHeight: 400 });
+h.setMaxHeight(Infinity);   // applies at once: grows to the content
+```
+
+A non-positive or non-number cap throws a `RangeError`. With `noAutoHeight`
+the container's own layout decides the size and `setMaxHeight` has no effect.
+Before 0.17.0 the cap was a fixed 400px, switched on by `data-code-max-height="true"`
+on a `.notebook-editor-container` ancestor; that attribute is no longer read.
+
 ## Storage keys and names are yours (0.17.0)
 
 Every localStorage key FlexDesk writes is an option, and so is each name in the

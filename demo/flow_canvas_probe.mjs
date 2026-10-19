@@ -630,7 +630,7 @@ try {
     check('editor.undo() with the node\'s control focused: the node shows the restored value',
           undone.value === 45 && undone.shown === '45' && undone.panel === '45', JSON.stringify(undone));
     check('and the node\'s control keeps the focus', undone.focused, JSON.stringify(undone));
-    await page.screenshot(join(OUT, '8-in-place.png'));
+    await page.screenshot(join(OUT, '9-in-place.png'));
 
     console.log('\nnarrow — the container query');
     await page.send('Emulation.setDeviceMetricsOverride', { width: 700, height: 900, deviceScaleFactor: 1, mobile: false });
@@ -650,7 +650,7 @@ try {
     })()`);
     check('the minimap\'s frame took the resized canvas\'s shape, with no pan', Math.abs(shape.frame - shape.canvas) < 0.02,
           JSON.stringify(shape));
-    await page.screenshot(join(OUT, '9-narrow.png'));
+    await page.screenshot(join(OUT, '10-narrow.png'));
 } finally {
     page?.close();
     await browser.close();

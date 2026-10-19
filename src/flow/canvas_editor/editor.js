@@ -211,9 +211,13 @@ export function createCanvasEditor(host, options = {}) {
     /** {kind: 'flow'} | {kind: 'node', id} | {kind: 'many', ids} (two or more, `multiSelect`)
      *  | {kind: 'edge', edge} | null */
     let selected = null;
-    /** The node a press went down on (`multiSelect`): its focus and its click
-     *  are the press's, and a press that dragged does not narrow the pick. */
+    /** The node a left press went down on (`multiSelect`), while it is held:
+     *  the focus it brings is the press's, settled by its click. A port's
+     *  press is the port's and sets nothing. */
     let pressed = null;
+    /** That press once let go, for the click that follows it: a press that
+     *  dragged does not narrow the pick. The next press replaces it. */
+    let released = null;
     /** The output a click-then-click connection started from: {source, sourcePort}. */
     let connecting = null;
     let suppressClick = false;
@@ -595,13 +599,17 @@ export function createCanvasEditor(host, options = {}) {
         n.append(notes, runLine);
         if (multi) {
             // Ahead of the header's own press, which stops it from going on.
-            n.addEventListener('pointerdown', () => { pressed = { id: nodeRow.id, moved: false }; }, true);
+            n.addEventListener('pointerdown', (ev) => {
+                released = null;
+                if (ev.button !== 0 || ev.target.closest('.twm-flow-graph__port')) return;
+                pressed = { id: nodeRow.id, moved: false };
+            }, true);
         }
         n.addEventListener('click', (ev) => {
             if (ev.target.closest('.twm-flow-graph__port')) return;
             if (multi) {
-                const press = pressed;
-                pressed = null;
+                const press = pressed || released;
+                pressed = released = null;
                 if (toggles(ev)) { togglePick(nodeRow.id); return; }
                 if (press?.id === nodeRow.id && press.moved) return;     // the tail of a drag
             }
@@ -1159,9 +1167,18 @@ export function createCanvasEditor(host, options = {}) {
         canvas.bringIntoView({ x: n.position.x, y: n.position.y, width: BOX.width, height: heightOf(n) });
     }
 
+    /** A press lasts until it is let go: whatever it was, the keyboard's
+     *  focus picks again after it. */
+    function pressLetGo(ev) {
+        released = ev.type === 'pointerup' ? pressed : null;
+        pressed = null;
+    }
+
     if (multi) {
         canvas.onMarquee = (box) => pickNodes(nodesIn(box));
         canvas.root.addEventListener('keydown', onTab);
+        window.addEventListener('pointerup', pressLetGo, true);
+        window.addEventListener('pointercancel', pressLetGo, true);
     }
 
     // ── keys ────────────────────────────────────────────────────────────
@@ -1319,6 +1336,8 @@ export function createCanvasEditor(host, options = {}) {
             closeFlowPopovers();
             unbindKeys();
             canvas.root.removeEventListener('keydown', onTab);
+            window.removeEventListener('pointerup', pressLetGo, true);
+            window.removeEventListener('pointercancel', pressLetGo, true);
             panel.destroy();
             strip.destroy();
             destroyed = true;

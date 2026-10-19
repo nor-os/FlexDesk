@@ -5,7 +5,8 @@
  *   §2  appendChunk updates only the last message's DOM; beginStream(null)
  *   §3  scrolling up while streaming stops following and shows Jump to latest;
  *       clicking it follows again; content growing never unpins; a wheel
- *       over a nested scroller, or one a handler cancelled, does not unpin
+ *       over a nested scroller, one a handler cancelled, a Ctrl+wheel (zoom),
+ *       or one over a transcript at its top, does not unpin
  *   §4  Enter submits and clears; Shift+Enter is left to the browser; empty is ignored
  *   §5  setBusy(true) turns Send into Cancel; Esc (anywhere in the view) or a click cancels once,
  *       and that Esc never reaches the ManagedWindow holding the view
@@ -334,6 +335,41 @@ console.log('§3 scrolling up during streaming stops auto-scroll; Jump to latest
     t.view.appendChunk('e');
     ok('a wheel a handler inside the transcript cancelled (a zoomable chart) leaves the view following',
         t.view.isPinned() && t.jump.hidden && t.log.scrollTop === t.geo.max());
+    t.view.endStream();
+}
+
+// A Ctrl+wheel is a zoom (a trackpad pinch arrives as one), not a scroll: the
+// transcript does not move, so it keeps following.
+{
+    const t = fresh();
+    for (let i = 0; i < 20; i++) t.view.append({ role: i % 2 ? 'assistant' : 'user', text: `m${i}` });
+    t.view.beginStream();
+    t.view.appendChunk('a');
+    ok('(zoom) pinned at the bottom first', t.view.isPinned() && t.log.scrollTop === t.geo.max());
+    t.log.dispatchEvent(new dom.window.WheelEvent('wheel', { deltaY: -50, ctrlKey: true }));
+    t.view.appendChunk('b');
+    t.view.append({ role: 'user', text: 'after' });
+    ok('a Ctrl+wheel up (zoom, pinch) leaves the view following',
+        t.view.isPinned() && t.jump.hidden && t.log.scrollTop === t.geo.max(),
+        `pinned ${t.view.isPinned()}, scrollTop ${t.log.scrollTop}, max ${t.geo.max()}`);
+    t.view.endStream();
+}
+
+// A wheel up over a transcript at its top (short, no overflow yet) cannot move
+// it, so nothing could re-pin it afterwards: it must keep following.
+{
+    const t = fresh();
+    for (let i = 0; i < 3; i++) t.view.append({ role: i % 2 ? 'assistant' : 'user', text: `m${i}` });
+    t.view.beginStream();
+    t.view.appendChunk('a');
+    ok('(top) a short transcript sits at its top, pinned', t.log.scrollTop === 0 && t.geo.max() === 0 && t.view.isPinned());
+    t.log.dispatchEvent(new dom.window.WheelEvent('wheel', { deltaY: -50 }));
+    ok('a wheel up over a transcript at its top leaves the view following', t.view.isPinned() && t.jump.hidden);
+    for (let i = 0; i < 10; i++) t.view.append({ role: 'assistant', text: `n${i}` });
+    t.view.appendChunk('b');
+    ok('…so the content that later overflows is followed',
+        t.view.isPinned() && t.geo.max() > 0 && t.log.scrollTop === t.geo.max(),
+        `pinned ${t.view.isPinned()}, scrollTop ${t.log.scrollTop}, max ${t.geo.max()}`);
     t.view.endStream();
 }
 

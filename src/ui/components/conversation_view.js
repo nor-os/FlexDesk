@@ -42,7 +42,9 @@
  * back down to the end — follows again. Content growing below a pinned view
  * never unpins it: only the scroll position moving up does, and a wheel over
  * a nested scroller (a `<pre>` in a body, say) scrolls that, not the view;
- * nor does a wheel a handler inside the transcript cancelled. `scrollTop` is
+ * nor does a wheel a handler inside the transcript cancelled, a Ctrl+wheel
+ * (zoom, or a trackpad pinch), or a wheel up over a transcript already at its
+ * top. `scrollTop` is
  * readable and settable (`getScrollTop` / `setScrollTop`) so an embedder can
  * keep it across a remount.
  *
@@ -190,9 +192,11 @@ export function mountConversationView(host, {
      * the scroll it causes is reported. One that a nested scroller keeps, or
      * one a handler inside the transcript cancelled (a zoomable chart in a
      * slot, say), leaves the transcript where it is, so it changes nothing.
+     * Nor does a Ctrl+wheel (page zoom; a trackpad pinch arrives as one), or
+     * a wheel up over a transcript already at its top, which cannot go up.
      */
     function onWheel(e) {
-        if (e.deltaY < 0 && pinned && !e.defaultPrevented && log.scrollTop > 0
+        if (e.deltaY < 0 && pinned && !e.ctrlKey && !e.defaultPrevented && log.scrollTop > 0
             && !innerTakesWheelUp(e.target)) setPinned(false);
     }
     function onJump() { setPinned(true); toBottom(); }

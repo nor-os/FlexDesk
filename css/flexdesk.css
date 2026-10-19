@@ -7639,6 +7639,14 @@ body.twm-dragging * { user-select: none; }
     border-color: var(--accent-bright);
     color: var(--text-bright);
 }
+.twm-chip[aria-disabled="true"] {
+    color: var(--text-dim);
+    cursor: not-allowed;
+}
+.twm-chip[aria-disabled="true"]:hover {
+    background: var(--surface-2);
+    color: var(--text-dim);
+}
 .twm-cmdpal__list {
     max-height: 40vh;
     overflow: auto;

@@ -259,6 +259,49 @@ content: {
 chrome shows only — the tree, the tab labels and the saved layout are left
 alone — and a call from content whose pane has since been rebuilt does nothing.
 
+### Panels a page does not offer (0.17.0)
+
+A kind says which panels it offers while it is the primary tile. Each side is
+`true`, `false` or `{ reason }`; a side it does not name is offered, and a kind
+that does not name a side takes it from its top-nav kind, so one declaration on
+a page covers every record opened under it:
+
+```js
+kinds: {
+    paper: { label: 'Paper', isTopNav: true, panels: { bottom: { reason: 'No console here' } } },
+    sheet: { label: 'Sheet', topNav: 'paper' },                        // withholds it too
+    slide: { label: 'Slide', topNav: 'paper', panels: { bottom: true } }, // offers it
+},
+```
+
+While a panel is withheld it is not in the layout, `wm.togglePanel(side)`
+answers `false` and changes nothing (nor what is saved), `wm.isPanelOpen(side)`
+is `false`, and the shell's toggle button and the palette chip carry
+`aria-disabled="true"` with the reason as their tooltip (`data-tooltip` on a
+`twm-has-tooltip` button, `title` otherwise; the button's own comes back after).
+The desktop still remembers the panel was open, and it comes back open when the
+user returns to a page that offers it. With no declarations every panel is
+offered, exactly as before.
+
+Content overrides its kind at runtime, until it clears the override with `null`:
+
+```js
+ctx.wm.setPanelAvailability('bottom', { reason: 'Run the model first' });
+ctx.wm.setPanelAvailability('bottom', null);           // e.g. in destroy()
+```
+
+`wm.isPanelAvailable(side)` and `wm.getPanelAvailability(side)` (`{ available,
+reason }`) read it, and a change is announced once — whatever caused it and
+however many sides it moved — to `wm.onPanelAvailabilityChange(fn)` (which
+returns the unsubscribe) and on the bus as `wm:panels:availability`, both with
+`{ panels, changed }`. `togglePanel` now answers `true` when it flipped a panel.
+
+`PanelStateMachine`, `PANEL_STATES` and `PANEL_TRANSITIONS` are gone from
+`@flexdesk/widgets`: nothing in the library used them, and which panels a page
+offers is now said once, in the taxonomy.
+
+`tests/panel_availability.test.mjs` drives all of it against a real shell.
+
 ### A navigation panel you drive yourself: `mountNavPanel` (0.17.0)
 
 `mountNavPanel(hostEl, { modes })` (from `@flexdesk/wm`) builds a mode strip, a
@@ -2584,7 +2627,6 @@ before the first read:
 | ManagedWindow geometry | `'flexdesk.managedWindows.v1'` | `ManagedWindow.configure({ storageKey })` from `@flexdesk/widgets` |
 | Saved tile layouts | `'twm.tiles.layouts'` | `configureLayoutPersistence({ layoutsKey })` from `@flexdesk/tiles` |
 | Saved tile configurations | `'twm.tiles.configs'` | `configureLayoutPersistence({ configsKey })` from `@flexdesk/tiles` |
-| Panel open/size state | none: you must pass one | `new PanelStateMachine({ persistenceKey })` from `@flexdesk/widgets` |
 | Built-in Monaco themes | `'flexdesk-dark'`, `'flexdesk-light'` | `setEditorThemeNames({ dark, light })` from `@flexdesk/editor` |
 | MIME type of a dragged editor tab | `'application/x-flexdesk-tab'` | `setTabDragMime(mime)` from `@flexdesk/editor` |
 | Chart PNG export file name | `'chart'` (saved as `chart.png`) | `setChartExportFilename(name)` from `@flexdesk/charts` |

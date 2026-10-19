@@ -18,6 +18,10 @@
  *   move       a real drag of a node's header moves it by the pointer's
  *              travel, snapped; a real Ctrl+Z puts it back; a real Backspace
  *              removes nothing; a real Delete removes the picked step
+ *   many       (`multiSelect`, on a 300-step graph of its own) a real marquee
+ *              over three steps picks those three; a real drag of one moves
+ *              all three and one real Ctrl+Z puts them back; a bulk move of
+ *              50 picked steps, and its undo, each finish in under 100 ms
  *   narrow     at 700px the canvas takes the editor's whole width (the
  *              container query)
  *
@@ -215,6 +219,81 @@ try {
     check('Go to it is the element at its own centre', goTo?.hit === true, JSON.stringify(goTo));
     await page.screenshot(join(OUT, '4-run-and-findings.png'));
 
+    console.log('\nmany — multiSelect on a 300-step graph');
+    // Its own editor over the demo's, built from the same barrel, and gone
+    // again before the narrow check.
+    await page.evaluate(`(async () => {
+        const { createCanvasEditor, createStepCatalogue } = await import('/flow.js');
+        const F = (name, direction) => ({ name, direction, port_type: 'FLOW' });
+        const catalogue = createStepCatalogue([{ type_id: 'task', label: 'Task', category: 'work',
+            ports: [F('in', 'input'), F('out', 'output')] }], { categories: [{ id: 'work', label: 'Work' }] });
+        const nodes = [];
+        const connections = [];
+        for (let i = 0; i < 300; i += 1) {
+            nodes.push({ id: 's' + i, type: 'task', config: {}, position: { x: 96 + (i % 20) * 272, y: 96 + Math.floor(i / 20) * 128 } });
+            if (i) connections.push({ source: 's' + (i - 1), sourcePort: 'out', target: 's' + i, targetPort: 'in' });
+        }
+        const host = document.createElement('div');
+        host.style.cssText = 'position:fixed;inset:0;z-index:50;display:flex;background:var(--twm-surface, #fff)';
+        document.body.appendChild(host);
+        window.__picks = [];
+        const editor = createCanvasEditor(host, { catalogue, multiSelect: true, onSelect: (s) => window.__picks.push(s) });
+        editor.el.style.flex = '1';
+        editor.load({ graph: { nodes, connections } }, { fit: false });
+        editor.canvas.setViewport({ scale: 0.5, tx: 0, ty: 0 });
+        window.__many = { editor, host };
+        return true;
+    })()`);
+    await sleep(100);
+    const toClient = (x, y) => page.evaluate(`window.__many.editor.canvas.canvasToClient(${x}, ${y})`);
+    const a = await toClient(60, 60);
+    const b = await toClient(96 + 2 * 272 + 40, 140);
+    await drag(page, a, b, 10);
+    await sleep(60);
+    const picks = await page.evaluate('JSON.stringify(window.__picks.at(-1))');
+    check('a real marquee over three steps picks those three', picks === JSON.stringify({ kind: 'many', ids: ['s0', 's1', 's2'] }), picks);
+    const where = () => page.evaluate(`JSON.stringify(['s0', 's1', 's2', 's3'].map((id) => window.__many.editor.getGraph().nodes.find((n) => n.id === id).position))`);
+    const w0 = await where();
+    const head1 = await centre(page, '.twm-flow-graph__node[data-node-id="s1"] .twm-flow-graph__node-title');
+    await drag(page, { x: head1.x, y: head1.y }, { x: head1.x + 80, y: head1.y + 48 }, 12);
+    await sleep(60);
+    const w1 = JSON.parse(await where());
+    const was = JSON.parse(w0);
+    check('a real drag of one moves all three by the same travel, and not the fourth',
+          [0, 1, 2].every((i) => w1[i].x - was[i].x === w1[0].x - was[0].x && w1[i].y - was[i].y === w1[0].y - was[0].y)
+          && w1[0].x !== was[0].x && w1[3].x === was[3].x, JSON.stringify({ was, w1 }));
+    await key(page, 'z', { mods: ['ctrl'] });
+    await sleep(60);
+    check('one real Ctrl+Z puts all three back', (await where()) === w0);
+    const timing = await page.evaluate(`(() => {
+        const { editor } = window.__many;
+        const ids = Array.from({ length: 50 }, (_, i) => 's' + (i * 6));
+        editor.select(ids);
+        const head = document.querySelector('.twm-flow-graph__node[data-node-id="s0"] .twm-flow-graph__node-head');
+        const r = head.getBoundingClientRect();
+        const at = (dx) => ({ bubbles: true, cancelable: true, button: 0, isPrimary: true, clientX: r.left + 20 + dx, clientY: r.top + 10 });
+        const before = editor.serialise();
+        const t0 = performance.now();
+        head.dispatchEvent(new PointerEvent('pointerdown', at(0)));
+        window.dispatchEvent(new PointerEvent('pointermove', at(120)));
+        window.dispatchEvent(new PointerEvent('pointerup', at(120)));
+        document.body.getBoundingClientRect();
+        const move = performance.now() - t0;
+        const moved = editor.getGraph().nodes.filter((n, i) => JSON.stringify(n.position) !== JSON.stringify(JSON.parse(before).nodes[i].position)).length;
+        const t1 = performance.now();
+        editor.undo();
+        document.body.getBoundingClientRect();
+        const undo = performance.now() - t1;
+        return { move, undo, moved, back: editor.serialise() === before, action: editor.history.redoAction };
+    })()`);
+    check('a bulk move of 50 picked steps (of 300) finishes in under 100 ms', timing.moved === 50 && timing.move < 100,
+          JSON.stringify(timing));
+    check('and its undo, which puts all 50 back, in under 100 ms', timing.back && timing.undo < 100
+          && timing.action === 'flow:nodes:move', JSON.stringify(timing));
+    console.log(`       (move ${timing.move.toFixed(1)} ms, undo ${timing.undo.toFixed(1)} ms)`);
+    await page.screenshot(join(OUT, '5-many.png'));
+    await page.evaluate('(() => { window.__many.editor.destroy(); window.__many.host.remove(); return true; })()');
+
     console.log('\nnarrow — the container query');
     await page.send('Emulation.setDeviceMetricsOverride', { width: 700, height: 900, deviceScaleFactor: 1, mobile: false });
     await sleep(200);
@@ -226,7 +305,7 @@ try {
     })()`);
     check('at 700px the canvas takes the whole width, over the palette', Math.abs(narrow.canvas - narrow.editor) <= 2
           && narrow.paletteTop >= narrow.canvasBottom - 2, JSON.stringify(narrow));
-    await page.screenshot(join(OUT, '5-narrow.png'));
+    await page.screenshot(join(OUT, '6-narrow.png'));
 } finally {
     page?.close();
     await browser.close();

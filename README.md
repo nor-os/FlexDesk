@@ -1493,7 +1493,7 @@ configured renames nothing.
 
 **Keys.** `bindFlowKeys(root, handlers)` binds Ctrl/⌘+Z (`undo`), Ctrl/⌘+Y and
 Ctrl/⌘+Shift+Z (`redo`), Delete (`remove`), Ctrl/⌘+D, C, X and V (`duplicate`,
-`copy`, `cut`, `paste`), F2 (`rename`), Alt+↑, Alt+↓ and Alt+← (`moveUp`,
+`copy`, `cut`, `paste`), Ctrl/⌘+A (`selectAll`, 0.17.0), F2 (`rename`), Alt+↑, Alt+↓ and Alt+← (`moveUp`,
 `moveDown`, `moveOut`), the arrows (`up`, `down`, `left`, `right`), Enter
 (`open`) and Escape (`escape`), and returns an unbind. A key whose handler is
 absent, or returns `false`, is not taken. An editor's own row or card marks
@@ -1597,7 +1597,8 @@ editor.setRunOverlay({ steps, ports, banner });
 | `readOnly` | `false`, or `{reason}`, which is shown above the editor. Every verb is then refused with that reason, and no gesture writes |
 | `actions` | Your toolbar verbs, `[{id, label, icon, primary, danger, title, run(editor)}]`, after Undo, Redo, Arrange and Fit |
 | `slots` | `toolbarEnd(el)`, `flowPanel(el, editor)` and `stepPanel(el, node, editor)`, drawn by you; `setRunOverlay` redraws the panel slots and nothing else |
-| `onChange`, `onSelect` | After every committed edit. An undo or a redo is a change too (`action: null`, `via: 'undo' \| 'redo'`), because you autosave what is undone. `onSelect({kind, id})`: `step`, `flow`, `connection` (with `connection`) or `null` |
+| `onChange`, `onSelect` | After every committed edit. An undo or a redo is a change too (`action: null`, `via: 'undo' \| 'redo'`), because you autosave what is undone. `onSelect({kind, id})`: `step`, `flow`, `connection` (with `connection`) or `null`; with `multiSelect`, two or more picked steps are `{kind: 'many', ids}` |
+| `multiSelect` (0.17.0) | `true` makes the pick a set (below, *Many picked*). Without it none of it is bound or drawn |
 | `loop`, `waitsForAll` | The loop's port names (`{entry: 'in', next, body, done}`): a line into a loop-role step on any input but `entry` is its body going back round, drawn dashed under both steps. `waitsForAll(join)` goes to `alwaysBefore` |
 | `removable(node, type)` | Whether a step may be removed. By default every step except a start step |
 | `node` | `{width: 208, header: 34, row: 22}` (`CANVAS_NODE`). Lines are anchored by arithmetic over these numbers, and the stylesheet is held to them |
@@ -1609,14 +1610,17 @@ editor.setRunOverlay({ steps, ports, banner });
 | `getGraph()`, `serialise()`, `snapshot()`, `getFlowSettings()` | A copy of the graph; its byte-stable text; the text the history holds (graph and settings); the settings |
 | `setFindings(list)`, `setRunOverlay(overlay \| null)`, `setReadOnly(false \| {reason})` | — |
 | `setActionState(id, {disabled, reason, busy})`, `setStatus(text)`, `setMessage(text, tone)` | A verb refused in place, with its reason printed beside the toolbar; the status line; the gesture line |
-| `select(id \| 'flow' \| null)`, `repaintPanel()`, `focus()`, `undo()`, `redo()`, `arrange()`, `fit({whole})` | — |
+| `align(kind)`, `distribute(axis)` (0.17.0) | With `multiSelect`: line the picked steps up (`'left'`, `'center'`, `'right'`, `'top'`, `'middle'`, `'bottom'`; two or more picked) or give them equal gaps (`'horizontal'`, `'vertical'`; three or more), one `flow:nodes:align` entry. `false` when refused (too few picked, read only, or no `multiSelect`); an unknown kind or axis throws |
+| `select(id \| [id, …] \| 'flow' \| null)`, `repaintPanel()`, `focus()`, `undo()`, `redo()`, `arrange()`, `fit({whole})` | `select([id, …])` (0.17.0, `multiSelect`) picks several steps at once (unknown ids are left out; one left is one step picked, none lets go) |
 | `history`, `canvas` | The editor's `FlowHistory` (`keep()`, `adopt(kept, editor.snapshot())`, `baseline(editor.snapshot())` for your publish) and its `CanvasAdapter` |
 | `destroy()` | Removes every listener, the ghost of a drag and any picker it opened. It saves nothing, because the editor holds nothing |
 
 Its edits are the closed list `CANVAS_ACTIONS`: `flow:node:add`,
 `flow:node:remove`, `flow:node:move` (one per drag), `flow:edge:connect`,
 `flow:edge:disconnect`, `flow:node:label`, `flow:node:config`,
-`flow:settings`, `flow:arrange` (one entry for the whole layout). Typing a name
+`flow:settings`, `flow:arrange` (one entry for the whole layout), and with
+`multiSelect` `flow:nodes:move`, `flow:nodes:remove` and `flow:nodes:align`
+(0.17.0; one entry per gesture on several steps). Typing a name
 or a setting is one entry. The geometry under it is exported as well, all of it
 pure: `CANVAS_NODE`, `arrangeCanvasGraph(graph, catalogue, {loopEntry})` (where
 Arrange puts each step: a Map of id → `{x, y}` from the origin),
@@ -1636,6 +1640,22 @@ on the node it went down on. Arrange lays the run out left to right, a branch's
 arms in their declared order, from the graph's own top-left corner. Fit frames
 the graph at natural size or smaller; pressing Fit frames all of it.
 
+**Many picked** (`multiSelect: true`, 0.17.0). A left drag on the empty canvas
+draws a marquee and picks every step it touches; Shift-, Ctrl- or ⌘-click on
+a step adds it to the pick or takes it away; Ctrl/⌘+A picks every step and
+Escape lets go. `select([id, …])` picks several from code. Dragging any picked
+step moves them all (`flow:nodes:move`), Delete removes every one that may be
+removed, with their lines (`flow:nodes:remove`; a start step stays), and the
+panel says how many are picked, with their Remove. On the canvas the arrow
+keys nudge the pick one grid step (`gridSize`), ten with Shift; a held arrow is
+one entry. Eight icon verbs after Fit align the pick's left edges, centres,
+right edges, tops, middles and bottoms, and distribute it horizontally and
+vertically, each refused in place with fewer than two (three) picked. Tab and
+Shift+Tab move the focus from step to step in graph order, and past either end
+Tab is the browser's again, so the keyboard can leave the canvas. Every one of
+these is a single undo entry. In read-only mode a marquee still picks, and no
+gesture writes.
+
 **Keys** (bound on the editor's root): Ctrl/⌘+Z and Ctrl/⌘+Y or Ctrl/⌘+Shift+Z,
 stopped at the root even inside a text field; Delete; F2 renames the picked
 step; Enter on a focused node opens its settings; Escape. Backspace is never
@@ -1648,8 +1668,8 @@ flow opens on a start step adds that step to the graph before `load`, so it is
 part of the baseline and the first Ctrl+Z does not take it away.
 
 **Where each claim was checked.** `tests/canvas_adapter.test.mjs`,
-`canvas_edge_router`, `canvas_graph`, `flow_canvas_layout`, `flow_canvas_editor`
-and `flow_canvas_css` check the DOM, the events, the geometry and the stylesheet
+`canvas_edge_router`, `canvas_graph`, `flow_canvas_layout`, `flow_canvas_editor`,
+`flow_canvas_multiselect` and `flow_canvas_css` check the DOM, the events, the geometry and the stylesheet
 as text. In headless Edge, `demo/flow_canvas_probe.mjs` drives
 `demo/flow_canvas.html` with real input:
 - `elementFromPoint` at the centre of Undo, Arrange, Fit, a consumer verb, a
@@ -1663,6 +1683,9 @@ as text. In headless Edge, `demo/flow_canvas_probe.mjs` drives
 - A real click-then-click connected two steps.
 - A header drag moved its node, and a real Ctrl+Z put it back. Backspace removed
   nothing, Delete removed the step, and the focus stayed on the canvas.
+- On a 300-step graph with `multiSelect`, a real marquee picked three steps, a
+  real drag of one moved all three and one real Ctrl+Z put them back; a move
+  of 50 picked steps and its undo each finished in under 100 ms.
 - At 700px the canvas took the editor's whole width.
 
 ### The outline editor

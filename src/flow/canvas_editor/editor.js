@@ -70,6 +70,17 @@
  * shown with Accept and Not now; Accept makes the line (and the step) and runs
  * the offer's `apply(draft)` on a copy of the graph, as one undo entry. Without
  * the option none of this is drawn or bound.
+ *
+ * ══ MANY PICKED, ONLY WHEN ASKED (`multiSelect: true`) ══════════════════
+ *
+ * The pick becomes a set: a marquee over the empty surface picks every node
+ * it touches, Shift/Ctrl/⌘+click adds or takes one away, Ctrl+A picks all and
+ * Escape lets go. Dragging any picked node moves them all, Delete removes
+ * them all, an arrow key nudges them a grid step (Shift: ten), and the
+ * toolbar aligns and distributes them — each gesture ONE undo entry
+ * (`flow:nodes:move`, `flow:nodes:remove`, `flow:nodes:align`). Tab and
+ * Shift+Tab walk the nodes, the keyboard's way round the canvas. Without the
+ * option none of it is bound, drawn or reported.
  */
 
 import { CanvasAdapter } from '../../canvas/canvas_adapter.js';
@@ -102,7 +113,21 @@ export const CANVAS_ACTIONS = Object.freeze([
     'flow:node:config',
     'flow:settings',
     'flow:arrange',
+    'flow:nodes:move',
+    'flow:nodes:remove',
+    'flow:nodes:align',
 ]);
+
+/** `editor.align(kind)` and the toolbar's align verbs, in toolbar order. */
+const ALIGN = Object.freeze(['left', 'center', 'right', 'top', 'middle', 'bottom']);
+const ALIGN_ICON = Object.freeze({ left: 'align_horizontal_left', center: 'align_horizontal_center',
+                                   right: 'align_horizontal_right', top: 'align_vertical_top',
+                                   middle: 'align_vertical_center', bottom: 'align_vertical_bottom' });
+/** `editor.distribute(axis)`. */
+const DISTRIBUTE = Object.freeze(['horizontal', 'vertical']);
+const DISTRIBUTE_ICON = Object.freeze({ horizontal: 'horizontal_distribute', vertical: 'vertical_distribute' });
+/** Shift+arrow nudges this many grid steps. */
+const NUDGE_FAR = 10;
 
 /** The scale a fit frames at most: natural size. The kernel's own ceiling is
  *  4×, so a new flow — one step — was framed at it: the step drew 514 px wide
@@ -130,6 +155,7 @@ function sortedKeys(value) {
     return value;
 }
 
+const cap = (word) => word.charAt(0).toUpperCase() + word.slice(1);
 const plainObject = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
 
 /**
@@ -144,7 +170,9 @@ export function createCanvasEditor(host, options = {}) {
         history: historyOptions = {}, loop = {}, node: nodeOptions = {}, dataPortRead = null,
         removable = null, paletteTypes = null, label = null, gridSize = 16, waitsForAll = undefined,
         connections: linkOptions = null,
+        multiSelect = false,
     } = options;
+    const multi = Boolean(multiSelect);
     const catalogue = Array.isArray(options.catalogue) ? createStepCatalogue(options.catalogue)
         : options.catalogue;
     if (!catalogue?.get || !catalogue?.byCategory) {
@@ -208,8 +236,16 @@ export function createCanvasEditor(host, options = {}) {
     let findings = [];
     let findingsBy = new Map();
     let overlay = null;
-    /** {kind: 'flow'} | {kind: 'node', id} | {kind: 'edge', edge} | null */
+    /** {kind: 'flow'} | {kind: 'node', id} | {kind: 'many', ids} (two or more, `multiSelect`)
+     *  | {kind: 'edge', edge} | null */
     let selected = null;
+    /** The node a left press went down on (`multiSelect`), while it is held:
+     *  the focus it brings is the press's, settled by its click. A port's
+     *  press is the port's and sets nothing. */
+    let pressed = null;
+    /** That press once let go, for the click that follows it: a press that
+     *  dragged does not narrow the pick. The next press replaces it. */
+    let released = null;
     /** The output a click-then-click connection started from: {source, sourcePort}. */
     let connecting = null;
     /** A policy's offer on the screen: {offer, build, action, after}. It needs no staleness check:
@@ -238,6 +274,13 @@ export function createCanvasEditor(host, options = {}) {
     const readOnlyReason = () => (ro && typeof ro === 'object' && ro.reason ? String(ro.reason) : '');
     const nodeOf = (id) => graph.nodes.find((x) => x.id === id) || null;
     const typeOf = (n) => catalogue.get(n?.type);
+    /** The picked nodes' ids: none, one, or (`multiSelect`) several. */
+    const pickedIds = () => (selected?.kind === 'node' ? [selected.id]
+        : selected?.kind === 'many' ? selected.ids : []);
+    const pickedSet = () => new Set(pickedIds());
+    const isPicked = (id) => (selected?.kind === 'node' ? selected.id === id
+        : selected?.kind === 'many' ? selected.ids.includes(id) : false);
+    const toggles = (ev) => multi && Boolean(ev.shiftKey || ev.ctrlKey || ev.metaKey);
 
     // ── state ───────────────────────────────────────────────────────────
 
@@ -272,14 +315,24 @@ export function createCanvasEditor(host, options = {}) {
         settingsValue = plainObject(p.flowSettings);
         if (connecting) cancelConnect();
         if (pendingOffer) clearOffer();
-        if (selected?.kind === 'node' && !nodeOf(selected.id)) selected = null;
-        if (selected?.kind === 'edge' && !graph.connections.some((c) => sameEdge(c, selected.edge))) selected = null;
+        prunePick();
         findingsBy = groupFindings(findings, { graph });
         paintNodes();
         paintPanel();
         keepFocus();
         emitChange(null, null, travelling);
         announceSelection();
+    }
+
+    /** What is picked and no longer there is let go of (an undo, a load). */
+    function prunePick() {
+        if (selected?.kind === 'node' && !nodeOf(selected.id)) selected = null;
+        if (selected?.kind === 'edge' && !graph.connections.some((c) => sameEdge(c, selected.edge))) selected = null;
+        if (selected?.kind === 'many') {
+            const live = new Set(graph.nodes.map((x) => x.id));
+            const ids = selected.ids.filter((id) => live.has(id));
+            selected = ids.length > 1 ? { kind: 'many', ids } : ids.length ? { kind: 'node', id: ids[0] } : null;
+        }
     }
 
     /** A verb that repainted away the focused control leaves focus on the body,
@@ -316,6 +369,24 @@ export function createCanvasEditor(host, options = {}) {
         fit: tool('fit', { label: say(S, 'fit'), icon: 'fit_screen', title: say(S, 'fitTitle'),
                            onClick: () => fit({ whole: true }) }),
     };
+    // The align and distribute verbs, icon-only, after Fit (`multiSelect`).
+    const pickTools = [];
+    if (multi) {
+        for (const kind of ALIGN) {
+            const id = `align-${kind}`;
+            const words = say(S, `align${cap(kind)}`);
+            tools[id] = tool(id, { label: words, title: words, icon: ALIGN_ICON[kind], iconOnly: true,
+                                   onClick: () => alignNodes(kind) });
+            pickTools.push(tools[id]);
+        }
+        for (const axis of DISTRIBUTE) {
+            const id = `distribute-${axis}`;
+            const words = say(S, `distribute${cap(axis)}`);
+            tools[id] = tool(id, { label: words, title: words, icon: DISTRIBUTE_ICON[axis], iconOnly: true,
+                                   onClick: () => distributeNodes(axis) });
+            pickTools.push(tools[id]);
+        }
+    }
     const own = new Set(Object.keys(tools));
     const consumerTools = [];
     for (const a of Array.isArray(actions) ? actions : []) {
@@ -325,18 +396,24 @@ export function createCanvasEditor(host, options = {}) {
                                onClick: () => { if (!b.disabled) a.run?.(api); } });
         consumerTools.push({ spec: a, el: b });
     }
-    toolbar.append(tools.undo, tools.redo, tools.arrange, tools.fit, ...consumerTools.map((t) => t.el),
+    toolbar.append(tools.undo, tools.redo, tools.arrange, tools.fit, ...pickTools, ...consumerTools.map((t) => t.el),
                    status, toolbarEnd);
     if (typeof slots.toolbarEnd === 'function') slots.toolbarEnd(toolbarEnd);
 
     function refusals() {
         const stop = isReadOnly() ? (readOnlyReason() || say(S, 'readOnlyRefusal')) : null;
-        return {
+        const r = {
             undo: stop || (history.canUndo ? null : say(S, 'nothingToUndo')),
             redo: stop || (history.canRedo ? null : say(S, 'nothingToRedo')),
             arrange: stop || (graph.nodes.length < 2 ? say(S, 'arrangeNeedsTwo') : null),
             fit: null,
         };
+        if (multi) {
+            const n = pickedIds().length;
+            for (const kind of ALIGN) r[`align-${kind}`] = stop || (n < 2 ? say(S, 'alignNeedsTwo') : null);
+            for (const axis of DISTRIBUTE) r[`distribute-${axis}`] = stop || (n < 3 ? say(S, 'distributeNeedsThree') : null);
+        }
+        return r;
     }
 
     function refuse(control, sentence) {
@@ -553,11 +630,28 @@ export function createCanvasEditor(host, options = {}) {
         const notes = el('div', 'twm-flow-graph__node-findings');
         const runLine = el('p', 'twm-flow-graph__node-run');
         n.append(notes, runLine);
+        if (multi) {
+            // Ahead of the header's own press, which stops it from going on.
+            n.addEventListener('pointerdown', (ev) => {
+                released = null;
+                if (ev.button !== 0 || ev.target.closest('.twm-flow-graph__port')) return;
+                pressed = { id: nodeRow.id, moved: false };
+            }, true);
+        }
         n.addEventListener('click', (ev) => {
             if (ev.target.closest('.twm-flow-graph__port')) return;
+            if (multi) {
+                const press = pressed || released;
+                pressed = released = null;
+                if (toggles(ev)) { togglePick(nodeRow.id); return; }
+                if (press?.id === nodeRow.id && press.moved) return;     // the tail of a drag
+            }
             if (!(selected?.kind === 'node' && selected.id === nodeRow.id)) select({ kind: 'node', id: nodeRow.id });
         });
         n.addEventListener('focus', () => {
+            // A press's focus is the press's to settle (its click); a node of
+            // the picked set keeps the set when the keyboard arrives on it.
+            if (multi && (pressed?.id === nodeRow.id || isPicked(nodeRow.id))) return;
             if (!(selected?.kind === 'node' && selected.id === nodeRow.id)) select({ kind: 'node', id: nodeRow.id });
         });
         return n;
@@ -671,7 +765,7 @@ export function createCanvasEditor(host, options = {}) {
             graph = normalise(back && typeof back === 'object' ? back : draft);
         }
         held.after?.(made);
-        if (selected?.kind === 'node' && !nodeOf(selected.id)) selected = null;
+        prunePick();
         findingsBy = groupFindings(findings, { graph });
         paintNodes();
         paintPanel();
@@ -812,15 +906,19 @@ export function createCanvasEditor(host, options = {}) {
         });
     }
 
+    /** A press on a node's header: it picks the node and drags it — or, when
+     *  it is one of several picked (`multiSelect`), drags them all. A
+     *  Shift/Ctrl press is a toggle, settled by its click, and drags nothing. */
     function startMove(ev, nodeId) {
         if (ev.button !== 0) return;
         ev.stopPropagation();
-        select({ kind: 'node', id: nodeId });
+        if (toggles(ev)) return;
+        if (!(multi && isPicked(nodeId))) select({ kind: 'node', id: nodeId });
         if (isReadOnly()) return;
-        const nodeRow = nodeOf(nodeId);
-        const n = nodeEls.get(nodeId);
-        if (!nodeRow || !n) return;
-        const from = { ...nodeRow.position };
+        const ids = selected?.kind === 'many' ? selected.ids : [nodeId];
+        const rows = ids.map((id) => ({ nodeRow: nodeOf(id), n: nodeEls.get(id) })).filter((r) => r.nodeRow && r.n);
+        if (!rows.some((r) => r.nodeRow.id === nodeId)) return;
+        const from = rows.map((r) => ({ ...r.nodeRow.position }));
         const start = { x: ev.clientX, y: ev.clientY };
         let moved = false;
         const onMove = (m) => {
@@ -828,16 +926,19 @@ export function createCanvasEditor(host, options = {}) {
             const dy = (m.clientY - start.y) / canvas.scale;
             if (!moved && Math.abs(dx) + Math.abs(dy) < 3) return;
             moved = true;
-            nodeRow.position = { x: canvas.snap(from.x + dx), y: canvas.snap(from.y + dy) };
-            n.style.left = `${nodeRow.position.x}px`;
-            n.style.top = `${nodeRow.position.y}px`;
+            if (pressed?.id === nodeId) pressed.moved = true;
+            rows.forEach(({ nodeRow, n }, i) => {
+                nodeRow.position = { x: canvas.snap(from[i].x + dx), y: canvas.snap(from[i].y + dy) };
+                n.style.left = `${nodeRow.position.x}px`;
+                n.style.top = `${nodeRow.position.y}px`;
+            });
             paintEdges();
         };
         const onUp = () => {
             window.removeEventListener('pointermove', onMove);
             window.removeEventListener('pointerup', onUp);
             window.removeEventListener('pointercancel', onUp);
-            if (moved) commit('flow:node:move');
+            if (moved) commit(rows.length > 1 ? 'flow:nodes:move' : 'flow:node:move');
         };
         window.addEventListener('pointermove', onMove);
         window.addEventListener('pointerup', onUp);
@@ -852,6 +953,7 @@ export function createCanvasEditor(host, options = {}) {
         for (const [id, n] of nodeEls) {
             if (!live.has(id)) { n.remove(); nodeEls.delete(id); }
         }
+        const picks = pickedSet();
         for (const nodeRow of graph.nodes) {
             let n = nodeEls.get(nodeRow.id);
             const shape = `${nodeRow.type}|${nodeRow.label || ''}`;
@@ -867,7 +969,7 @@ export function createCanvasEditor(host, options = {}) {
             n.style.left = `${nodeRow.position.x}px`;
             n.style.top = `${nodeRow.position.y}px`;
             n.style.width = `${BOX.width}px`;
-            const picked = selected?.kind === 'node' && selected.id === nodeRow.id;
+            const picked = picks.has(nodeRow.id);
             n.classList.toggle('twm-flow-graph__node--picked', picked);
             if (picked) n.setAttribute('aria-current', 'true'); else n.removeAttribute('aria-current');
             n.classList.toggle('twm-flow-graph__node--connect-source', connecting?.source === nodeRow.id);
@@ -1062,24 +1164,49 @@ export function createCanvasEditor(host, options = {}) {
 
     function select(next) {
         selected = next;
+        const picks = pickedSet();
         for (const [id, n] of nodeEls) {
-            const picked = next?.kind === 'node' && next.id === id;
+            const picked = picks.has(id);
             n.classList.toggle('twm-flow-graph__node--picked', picked);
             if (picked) n.setAttribute('aria-current', 'true'); else n.removeAttribute('aria-current');
         }
         paintEdges();
         paintPanel();
         announceSelection();
+        if (multi) paintToolbar();
+    }
+
+    /** Pick exactly these nodes (`multiSelect`): none, one, or several. */
+    function pickNodes(ids) {
+        const live = new Set(graph.nodes.map((x) => x.id));
+        const list = [...new Set(ids)].filter((id) => live.has(id));
+        const next = list.length > 1 ? { kind: 'many', ids: list } : list.length ? { kind: 'node', id: list[0] } : null;
+        // A marquee asks on every pointer move: only a change repaints.
+        if (JSON.stringify(next) !== JSON.stringify(selected)) select(next);
+    }
+
+    function togglePick(id) {
+        const ids = pickedIds();
+        pickNodes(ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
+    }
+
+    /** The nodes a marquee box (canvas units) touches, in graph order. */
+    function nodesIn(box) {
+        return graph.nodes.filter((x) => x.position.x < box.x + box.width && x.position.x + BOX.width > box.x
+                                         && x.position.y < box.y + box.height && bottomOf(x) > box.y)
+            .map((x) => x.id);
     }
 
     function announceSelection() {
         const now = selected?.kind === 'node' ? `step:${selected.id}`
-            : selected?.kind === 'edge' ? `connection:${JSON.stringify(selected.edge)}`
-                : selected?.kind === 'flow' ? 'flow' : '';
+            : selected?.kind === 'many' ? `many:${JSON.stringify(selected.ids)}`
+                : selected?.kind === 'edge' ? `connection:${JSON.stringify(selected.edge)}`
+                    : selected?.kind === 'flow' ? 'flow' : '';
         if (now === lastSelect) return;
         lastSelect = now;
         if (!onSelect || destroyed) return;
         if (selected?.kind === 'node') onSelect({ kind: 'step', id: selected.id });
+        else if (selected?.kind === 'many') onSelect({ kind: 'many', ids: [...selected.ids] });
         else if (selected?.kind === 'edge') onSelect({ kind: 'connection', id: null, connection: { ...selected.edge } });
         else if (selected?.kind === 'flow') onSelect({ kind: 'flow', id: null });
         else onSelect({ kind: null, id: null });
@@ -1087,7 +1214,15 @@ export function createCanvasEditor(host, options = {}) {
 
     function removeSelected() {
         if (!selected || isReadOnly()) return false;
-        if (selected.kind === 'node') {
+        if (selected.kind === 'many') {
+            const doomed = removableOf(selected.ids);
+            if (!doomed.length) return false;
+            for (const id of doomed) removeNode(graph, id);
+            findingsBy = groupFindings(findings, { graph });
+            select(null);
+            paintNodes();
+            commit('flow:nodes:remove');
+        } else if (selected.kind === 'node') {
             const nodeRow = nodeOf(selected.id);
             if (!nodeRow || !canRemove(nodeRow, typeOf(nodeRow))) return false;
             removeNode(graph, selected.id);
@@ -1105,16 +1240,34 @@ export function createCanvasEditor(host, options = {}) {
         return true;
     }
 
-    function paintConnection() {
-        const e = selected.edge;
-        const remove = button({ label: say(S, 'removeConnection'), icon: 'link_off', danger: true,
+    /** The picked ids that may be removed. */
+    const removableOf = (ids) => ids.filter((id) => {
+        const nodeRow = nodeOf(id);
+        return nodeRow && canRemove(nodeRow, typeOf(nodeRow));
+    });
+
+    /** The box in place of the settings for a pick that has none: a line, or
+     *  several steps — what it is, and its Remove. */
+    function paintPickBox({ title, line, removeLabel, removeIcon, action, refused = false }) {
+        const remove = button({ label: removeLabel, icon: removeIcon, danger: true,
                                 className: 'twm-flow-graph__connection-remove', onClick: () => removeSelected() });
-        remove.dataset.action = 'remove-connection';
-        remove.disabled = isReadOnly();
-        connectionBox.replaceChildren(el('h3', 'twm-flow-graph__connection-title', say(S, 'connection')),
-                                      el('p', 'twm-flow-graph__connection-line', say(S, 'connectionLine', e)),
-                                      remove);
+        remove.dataset.action = action;
+        remove.disabled = isReadOnly() || refused;
+        connectionBox.replaceChildren(el('h3', 'twm-flow-graph__connection-title', title),
+                                      el('p', 'twm-flow-graph__connection-line', line), remove);
         connectionBox.hidden = false;
+    }
+
+    function paintConnection() {
+        paintPickBox({ title: say(S, 'connection'), line: say(S, 'connectionLine', selected.edge),
+                       removeLabel: say(S, 'removeConnection'), removeIcon: 'link_off', action: 'remove-connection' });
+    }
+
+    function paintMany() {
+        const n = removableOf(selected.ids).length;
+        paintPickBox({ title: say(S, 'stepsPicked', selected.ids.length), line: say(S, 'stepsPickedLine'),
+                       removeLabel: say(S, 'removeSteps', n), removeIcon: 'delete', action: 'remove-steps',
+                       refused: n === 0 });
     }
 
     /**
@@ -1125,10 +1278,10 @@ export function createCanvasEditor(host, options = {}) {
      */
     function paintPanel() {
         if (destroyed) return;
-        if (selected?.kind === 'edge') {
+        if (selected?.kind === 'edge' || selected?.kind === 'many') {
             panel.clear();
             panel.el.hidden = true;
-            paintConnection();
+            if (selected.kind === 'edge') paintConnection(); else paintMany();
             return;
         }
         connectionBox.hidden = true;
@@ -1163,6 +1316,107 @@ export function createCanvasEditor(host, options = {}) {
         panel.setFindings(findings);
     }
 
+    // ── many picked (`multiSelect`) ─────────────────────────────────────
+
+    const heightOf = (n) => bottomOf(n) - n.position.y;
+    const pickedRows = () => pickedIds().map(nodeOf).filter(Boolean);
+
+    /** Line the picked nodes up on one edge (or centre) of the box around
+     *  them: ONE `flow:nodes:align` entry. */
+    function alignNodes(kind) {
+        if (!ALIGN.includes(kind)) throw new Error(`align("${kind}"): the kinds are ${ALIGN.join(', ')}.`);
+        if (refusals()[`align-${kind}`]) return false;
+        const rows = pickedRows();
+        const left = Math.min(...rows.map((n) => n.position.x));
+        const right = Math.max(...rows.map((n) => n.position.x + BOX.width));
+        const top = Math.min(...rows.map((n) => n.position.y));
+        const bottom = Math.max(...rows.map(bottomOf));
+        for (const n of rows) {
+            const { x, y } = n.position;
+            const h = heightOf(n);
+            n.position = {
+                x: kind === 'left' ? left : kind === 'right' ? right - BOX.width
+                    : kind === 'center' ? Math.round((left + right - BOX.width) / 2) : x,
+                y: kind === 'top' ? top : kind === 'bottom' ? bottom - h
+                    : kind === 'middle' ? Math.round((top + bottom - h) / 2) : y,
+            };
+        }
+        paintNodes();
+        commit('flow:nodes:align');
+        return true;
+    }
+
+    /** Spread the picked nodes so the gaps between them are equal, the first
+     *  and the last staying where they are: ONE `flow:nodes:align` entry. */
+    function distributeNodes(axis) {
+        if (!DISTRIBUTE.includes(axis)) throw new Error(`distribute("${axis}"): the axes are ${DISTRIBUTE.join(', ')}.`);
+        if (refusals()[`distribute-${axis}`]) return false;
+        const across = axis === 'horizontal';
+        const at = (n) => (across ? n.position.x : n.position.y);
+        const size = (n) => (across ? BOX.width : heightOf(n));
+        const rows = pickedRows().sort((a, b) => at(a) - at(b));
+        const first = at(rows[0]);
+        const end = Math.max(...rows.map((n) => at(n) + size(n)));
+        const gap = (end - first - rows.reduce((sum, n) => sum + size(n), 0)) / (rows.length - 1);
+        let cursor = first;
+        for (const n of rows) {
+            const p = Math.round(cursor);
+            n.position = across ? { x: p, y: n.position.y } : { x: n.position.x, y: p };
+            cursor += size(n) + gap;
+        }
+        paintNodes();
+        commit('flow:nodes:align');
+        return true;
+    }
+
+    /** An arrow key on the canvas: the picked nodes one grid step along (ten
+     *  with Shift). Held down, it is one entry (a keyed commit merges). */
+    function nudge(dx, dy, ev) {
+        if (!multi || !canvas.root.contains(ev.target)) return false;
+        const rows = pickedRows();
+        if (!rows.length || isReadOnly()) return false;
+        const step = (canvas.gridSize || 1) * (ev.shiftKey ? NUDGE_FAR : 1);
+        for (const n of rows) {
+            n.position = { x: n.position.x + dx * step, y: n.position.y + dy * step };
+            const box = nodeEls.get(n.id);
+            if (box) { box.style.left = `${n.position.x}px`; box.style.top = `${n.position.y}px`; }
+        }
+        paintEdges();
+        commit(rows.length > 1 ? 'flow:nodes:move' : 'flow:node:move', `nudge:${rows.map((n) => n.id).join(',')}`);
+        return undefined;
+    }
+
+    /** Tab and Shift+Tab from a node (or from the canvas itself) go to the
+     *  next node and the one before, in graph order. Past either end it is
+     *  the browser's Tab again, so the keyboard can leave the canvas. */
+    function onTab(ev) {
+        if (ev.key !== 'Tab' || ev.ctrlKey || ev.metaKey || ev.altKey || ev.defaultPrevented) return;
+        const from = ev.target.closest?.('[data-node-id]');
+        if (!from && (ev.target !== canvas.root || ev.shiftKey)) return;
+        const ids = graph.nodes.map((x) => x.id);
+        const i = from ? ids.indexOf(from.dataset.nodeId) : -1;
+        const next = nodeEls.get(ids[ev.shiftKey ? i - 1 : i + 1]);
+        if (!next) return;
+        ev.preventDefault();
+        next.focus({ preventScroll: true });
+        const n = nodeOf(next.dataset.nodeId);
+        canvas.bringIntoView({ x: n.position.x, y: n.position.y, width: BOX.width, height: heightOf(n) });
+    }
+
+    /** A press lasts until it is let go: whatever it was, the keyboard's
+     *  focus picks again after it. */
+    function pressLetGo(ev) {
+        released = ev.type === 'pointerup' ? pressed : null;
+        pressed = null;
+    }
+
+    if (multi) {
+        canvas.onMarquee = (box) => pickNodes(nodesIn(box));
+        canvas.root.addEventListener('keydown', onTab);
+        window.addEventListener('pointerup', pressLetGo, true);
+        window.addEventListener('pointercancel', pressLetGo, true);
+    }
+
     // ── keys ────────────────────────────────────────────────────────────
 
     const unbindKeys = bindFlowKeys(root, {
@@ -1189,11 +1443,24 @@ export function createCanvasEditor(host, options = {}) {
             return false;
         },
         escape: () => {
-            if (!connecting) return false;
+            if (!connecting) {
+                if (!multi || !pickedIds().length) return false;
+                select(null);
+                return undefined;
+            }
             cancelConnect();
             setMessage('');
             return undefined;
         },
+        selectAll: () => {
+            if (!multi) return false;
+            pickNodes(graph.nodes.map((x) => x.id));
+            return undefined;
+        },
+        up: (ev) => nudge(0, -1, ev),
+        down: (ev) => nudge(0, 1, ev),
+        left: (ev) => nudge(-1, 0, ev),
+        right: (ev) => nudge(1, 0, ev),
     });
 
     // ── the page ────────────────────────────────────────────────────────
@@ -1228,8 +1495,7 @@ export function createCanvasEditor(host, options = {}) {
                 settingsTitle = fs?.title ?? settingsTitle;
                 settingsValue = structuredClone(plainObject(fs?.value));
             }
-            if (selected?.kind === 'node' && !nodeOf(selected.id)) selected = null;
-            if (selected?.kind === 'edge' && !graph.connections.some((c) => sameEdge(c, selected.edge))) selected = null;
+            prunePick();
             findingsBy = groupFindings(findings, { graph });
             paintNodes();
             paintPanel();
@@ -1285,6 +1551,7 @@ export function createCanvasEditor(host, options = {}) {
         select(target) {
             if (target === null || target === undefined) select(null);
             else if (target === 'flow') select({ kind: 'flow' });
+            else if (multi && Array.isArray(target)) pickNodes(target.map(String));
             else if (nodeOf(String(target))) select({ kind: 'node', id: String(target) });
         },
         /** Rebuild the panel's fields, keeping the focus and the caret — for a
@@ -1294,6 +1561,11 @@ export function createCanvasEditor(host, options = {}) {
         undo,
         redo,
         arrange: () => arrangeGraph(),
+        /** `multiSelect`: line the picked nodes up — left, center, right, top,
+         *  middle or bottom. False when refused (fewer than two, read only). */
+        align: (kind) => (multi ? alignNodes(kind) : false),
+        /** `multiSelect`: equal gaps, horizontal or vertical (three or more). */
+        distribute: (axis) => (multi ? distributeNodes(axis) : false),
         fit,
         destroy() {
             if (destroyed) return;
@@ -1301,6 +1573,9 @@ export function createCanvasEditor(host, options = {}) {
             if (fitFrame !== null) globalThis.cancelAnimationFrame?.(fitFrame);
             closeFlowPopovers();
             unbindKeys();
+            canvas.root.removeEventListener('keydown', onTab);
+            window.removeEventListener('pointerup', pressLetGo, true);
+            window.removeEventListener('pointercancel', pressLetGo, true);
             panel.destroy();
             strip.destroy();
             destroyed = true;

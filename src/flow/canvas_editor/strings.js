@@ -7,6 +7,10 @@
  * through `strings` and the `dataPortRead` option.
  */
 
+/** `1 step`, `2 notes`, …; a count of none is left out of what is said. */
+const counted = (steps, notes) => [[steps, 'step'], [notes, 'note']].filter(([n]) => n > 0)
+    .map(([n, w]) => `${n} ${w}${n === 1 ? '' : 's'}`).join(' and ');
+
 export const CANVAS_STRINGS = Object.freeze({
     palette: 'Steps',
     canvasLabel: 'Flow canvas',
@@ -98,6 +102,9 @@ export const CANVAS_STRINGS = Object.freeze({
     copyLabel: (title, n) => (n > 1 ? `${title} (copy ${n})` : `${title} (copy)`),
     copied: (n) => (n === 1 ? 'Copied 1 step.' : `Copied ${n} steps.`),
     cutDone: (n) => (n === 1 ? 'Cut 1 step.' : `Cut ${n} steps.`),
+    // a copy or a cut that took notes too (`notes`)
+    copiedItems: (steps, notes) => `Copied ${counted(steps, notes)}.`,
+    cutDoneItems: (steps, notes) => `Cut ${counted(steps, notes)}.`,
     nothingPicked: 'Pick a step first.',
     cannotCopy: 'None of the picked steps can be copied.',
     cannotCut: 'None of the picked steps can be removed, so none can be cut.',

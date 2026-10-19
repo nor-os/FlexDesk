@@ -20,6 +20,11 @@
  *       size included; a group renames in place
  *   §7  Ctrl+Shift+G ungroups; read only refuses every one of these
  *   §8  bindFlowKeys: Ctrl/⌘+G is `group`, Ctrl/⌘+Shift+G `ungroup`
+ *   §9  copy and paste (`clipboard`, STORY-0077) carry the picked notes under
+ *       fresh ids and make again, round the copies, each group wholly inside
+ *       the copy; a cut takes them and the paste after it puts them back;
+ *       notes alone copy, cut and duplicate; without the options neither is
+ *       carried
  *
  *     node tests/flow_canvas_groups_notes.test.mjs
  */
@@ -432,6 +437,90 @@ t.section('§8 bindFlowKeys: Ctrl/⌘+G and Ctrl/⌘+Shift+G, only when handled'
     t.ok('with no handler it is not prevented', !keyOn(bare, 'g', { ctrlKey: true }).defaultPrevented
          && !keyOn(bare, 'g', { ctrlKey: true, shiftKey: true }).defaultPrevented);
     off2();
+}
+
+t.section('§9 copy and paste carry the notes, and the groups wholly inside the copy');
+{
+    const NOTES = [{ id: 'n1', text: 'one', position: { x: 304, y: 48 }, size: { w: 160, h: 60 } },
+                   { id: 'n2', text: 'two', position: { x: 300, y: 600 }, size: { w: 160, h: 60 } }];
+    const GROUPS = [{ id: 'g1', label: 'Pair', tone: 'teal', nodes: ['a', 'b'] }, { id: 'g2', nodes: ['c', 'far'] }];
+    const board = { text: '' };
+    const clipboard = { write: (text) => { board.text = text; }, read: () => board.text };
+    const m = mount({ ...ALL, clipboard }, { ...GRAPH, groups: GROUPS, notes: NOTES });
+    marquee(m, { x: 80, y: 30 }, { x: 500, y: 200 });
+    clickNode(m, 'c', { shiftKey: true });
+    t.check('a, b, c and the note n1 are picked', m.selects.at(-1), { kind: 'many', ids: ['a', 'b', 'c'], notes: ['n1'] });
+    t.ok('Ctrl+C is the editor\'s', keyOn(canvasOf(m), 'c', { ctrlKey: true }).defaultPrevented);
+    const copied = JSON.parse(board.text);
+    t.check('the copy holds the steps, the note, and only the group wholly inside it (g2 has a member left out)',
+            [copied.nodes.map((n) => n.id), copied.notes, copied.groups],
+            [['a', 'b', 'c'], [NOTES[0]], [GROUPS[0]]]);
+    t.ok('the message line counts steps and notes', /Copied 3 steps and 1 note\./.test(m.el.textContent));
+    const before = m.editor.serialise();
+    const depth = m.editor.history.depth;
+    keyOn(canvasOf(m), 'v', { ctrlKey: true });
+    const g = m.editor.getGraph();
+    const fresh = g.nodes.slice(4).map((n) => n.id);
+    t.check('the paste adds three steps under fresh ids', [fresh.length, fresh.some((id) => ['a', 'b', 'c', 'far'].includes(id))],
+            [3, false]);
+    t.check('the note is pasted under a fresh id, its text and size kept, two grid steps off',
+            g.notes, [...NOTES, { id: 'note', text: 'one', position: { x: 336, y: 80 }, size: { w: 160, h: 60 } }]);
+    t.check('the group is made again round the copies of its members, its name and tone kept; g2 is not',
+            g.groups, [...GROUPS, { id: 'group', label: 'Pair', tone: 'teal', nodes: fresh.slice(0, 2) }]);
+    t.ok('its frame stands round both copies', Boolean(frameOf(m, 'group')) && frames(m).length === 3
+         && around(frameOf(m, 'group'), g.nodes[4]) && around(frameOf(m, 'group'), g.nodes[5]));
+    t.check('the pick is what was pasted, the note too', m.selects.at(-1), { kind: 'many', ids: fresh, notes: ['note'] });
+    t.check('ONE flow:paste entry', [m.editor.history.depth - depth, m.changes.at(-1).action], [1, 'flow:paste']);
+    t.ok('a second paste makes fresh ids again', (() => {
+        keyOn(canvasOf(m), 'v', { ctrlKey: true });
+        const h = m.editor.getGraph();
+        return h.notes.at(-1).id === 'note-2' && h.notes.at(-1).position.x === 368 && h.groups.at(-1).id === 'group-2'
+            && new Set(h.groups.flatMap((gr) => gr.nodes)).size === h.groups.flatMap((gr) => gr.nodes).length;
+    })());
+    m.editor.undo();
+    m.editor.undo();
+    t.ok('one undo per paste puts the graph back', m.editor.serialise() === before && frames(m).length === 2);
+
+    marquee(m, { x: 80, y: 30 }, { x: 500, y: 200 });
+    const cutDepth = m.editor.history.depth;
+    keyOn(canvasOf(m), 'x', { ctrlKey: true });
+    t.check('Ctrl+X takes the steps, the note and their group, ONE entry',
+            [m.editor.getGraph().nodes.map((n) => n.id), notesOf(m).map((n) => n.id), groupsOf(m).map((gr) => gr.id),
+             m.editor.history.depth - cutDepth, m.changes.at(-1).action],
+            [['c', 'far'], ['n2'], ['g2'], 1, 'flow:nodes:remove']);
+    keyOn(canvasOf(m), 'v', { ctrlKey: true });
+    t.check('the paste after it puts the note back where it was, and the group round the steps',
+            [notesOf(m).at(-1), groupsOf(m).at(-1).label, groupsOf(m).at(-1).nodes.length,
+             m.editor.getGraph().nodes.slice(2).map((n) => n.position)],
+            [{ ...NOTES[0], id: 'note' }, 'Pair', 2, [{ x: 96, y: 160 }, { x: 400, y: 176 }]]);
+    m.editor.undo();
+    m.editor.undo();
+    t.ok('two undos and the graph is as it was', m.editor.serialise() === before);
+
+    marquee(m, { x: 280, y: 580 }, { x: 320, y: 620 });
+    t.check('a note alone is picked', m.selects.at(-1), { kind: 'note', id: 'n2' });
+    t.ok('Ctrl+D on it is the editor\'s', keyOn(canvasOf(m), 'd', { ctrlKey: true }).defaultPrevented);
+    t.check('it duplicates the note beside it, ONE entry, the copy picked',
+            [notesOf(m).at(-1), m.changes.at(-1).action, m.selects.at(-1)],
+            [{ ...NOTES[1], id: 'note', position: { x: 332, y: 632 } }, 'flow:node:duplicate', { kind: 'note', id: 'note' }]);
+    m.editor.undo();
+    marquee(m, { x: 280, y: 580 }, { x: 320, y: 620 });
+    keyOn(canvasOf(m), 'c', { ctrlKey: true });
+    t.check('a note alone copies', [JSON.parse(board.text).nodes, JSON.parse(board.text).notes], [[], [NOTES[1]]]);
+    t.ok('and says so', /Copied 1 note\./.test(m.el.textContent));
+    const notesText = board.text;
+
+    const off = mount({ multiSelect: true, clipboard });
+    off.editor.select(['a', 'b']);
+    keyOn(canvasOf(off), 'c', { ctrlKey: true });
+    t.ok('without `groups` a copy carries no group', !('groups' in JSON.parse(board.text)));
+    const offBefore = off.editor.serialise();
+    t.check('without `notes` a paste of notes alone is refused, nothing written',
+            [off.editor.paste(notesText).ok, off.editor.serialise() === offBefore], [false, true]);
+    off.editor.paste(JSON.stringify({ ...JSON.parse(m.editor.serialise()) }));
+    t.check('…and a paste of steps with notes and groups takes only the steps',
+            [off.editor.getGraph().nodes.length, 'notes' in off.editor.getGraph(), 'groups' in off.editor.getGraph()],
+            [8, false, false]);
 }
 
 for (const e of mounted) e.destroy();

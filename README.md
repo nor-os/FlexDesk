@@ -1829,7 +1829,13 @@ Ctrl/⌘+D does the same beside the pick without touching the clipboard, as one
 editor's. What is not steps, or names a type the flow does not have, is refused
 with its sentence on the message line. In read-only mode copying still works,
 and Paste, Cut and Duplicate are refused with the read-only reason and change
-nothing.
+nothing. With `notes` the picked notes are copied, cut and duplicated with the
+steps (a note alone too), and pasted under fresh ids, set off as the steps
+are; with `groups` a group whose every member is copied is in the copy, and a
+paste makes it again round the copies of its members (a fresh id, its name and
+tone kept), while a group with a member left out is not copied. `copy()` and
+`cut()` answer `notes: [id, …]` and `paste()` and `duplicate()` answer `notes`
+and `groups`, each only when there are some.
 
 **Keys** (bound on the editor's root): Ctrl/⌘+Z and Ctrl/⌘+Y or Ctrl/⌘+Shift+Z,
 stopped at the root even inside a text field; Delete; F2 renames the picked

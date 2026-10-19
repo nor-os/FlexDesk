@@ -142,7 +142,9 @@
  * `flow:node:duplicate`. A label the flow already has is derived (`Title
  * (copy)`, `(copy 2)`, …), and `prepareCopy(node, {from, via})` may change a
  * copy's config and label before it is added. Read only, copy still copies
- * and the rest are refused with the reason on the message line.
+ * and the rest are refused with the reason on the message line. With `notes`
+ * the picked notes go along (under fresh ids when pasted), and with `groups`
+ * each group wholly inside the copy is made again round the copies.
  *
  * ══ LIVE VALUES ARE PAINTED, NEVER EDITED ═══════════════════════════════
  *
@@ -2709,12 +2711,34 @@ export function createCanvasEditor(host, options = {}) {
         return graph.nodes.filter((n) => picks.has(n.id) && addable(typeOf(n)));
     };
 
-    /** The steps and the lines among them as the graph's own text; a line to a step left out is not copied. */
-    function copyText(rows) {
+    /** The picked notes a copy takes along (`notes`), in graph order. */
+    const copyNoteRows = () => {
+        if (!noting) return [];
+        const picks = new Set(pickedNotes());
+        return noteList().filter((x) => picks.has(x.id));
+    };
+
+    /** Is anything picked a copy could be made of: a step, or (`notes`) a note. */
+    const pickedAny = () => pickedIds().length > 0 || copyNoteRows().length > 0;
+
+    /** The steps, the lines among them, (`groups`) the groups whose every
+     *  member is copied and (`notes`) the picked notes, as the graph's own
+     *  text; a line to a step left out is not copied, nor a group with a
+     *  member left out. */
+    function copyText(rows, notes = []) {
         const ids = new Set(rows.map((n) => n.id));
+        const groups = grouping ? groupList().filter((gr) => gr.nodes.every((id) => ids.has(id))) : [];
         return serialise({ nodes: rows,
-                           connections: graph.connections.filter((c) => ids.has(c.source) && ids.has(c.target)) });
+                           connections: graph.connections.filter((c) => ids.has(c.source) && ids.has(c.target)),
+                           ...(groups.length ? { groups } : {}), ...(notes.length ? { notes } : {}) });
     }
+
+    /** What a copy or a cut says it took: steps, or steps and notes. */
+    const tookSay = (key, rows, notes) => (notes.length ? say(S, `${key}Items`, rows.length, notes.length)
+        : say(S, key, rows.length));
+    /** What a copy or a cut answers: the steps' ids, and the notes' when there are some. */
+    const tookIds = (rows, notes) => ({ ok: true, ids: rows.map((n) => n.id),
+                                        ...(notes.length ? { notes: notes.map((x) => x.id) } : {}) });
 
     /** Onto the clipboard: the editor's own, or the consumer's `write`. */
     function writeClipboard(text, times) {
@@ -2731,34 +2755,39 @@ export function createCanvasEditor(host, options = {}) {
         return true;
     }
 
-    /** COPY: the picked steps and the lines among them onto the clipboard. Read only, too. */
+    /** COPY: the picked steps and the lines among them (and the picked notes,
+     *  and the groups wholly inside the pick) onto the clipboard. Read only, too. */
     function copyNodes() {
         if (!clip) return CLIPBOARD_OFF;
-        if (!pickedIds().length) return refused(say(S, 'nothingPicked'));
+        if (!pickedAny()) return refused(say(S, 'nothingPicked'));
         const rows = copyRows();
-        if (!rows.length) return refused(say(S, 'cannotCopy'));
-        if (!writeClipboard(copyText(rows), 0)) return { ok: false, reason: say(S, 'clipboardFailed') };
-        setMessage(say(S, 'copied', rows.length), 'ok');
-        return { ok: true, ids: rows.map((n) => n.id) };
+        const notes = copyNoteRows();
+        if (!rows.length && !notes.length) return refused(say(S, 'cannotCopy'));
+        if (!writeClipboard(copyText(rows, notes), 0)) return { ok: false, reason: say(S, 'clipboardFailed') };
+        setMessage(tookSay('copied', rows, notes), 'ok');
+        return tookIds(rows, notes);
     }
 
     /** CUT: a copy, then the copied steps removed with their lines — one remove entry. */
     function cutNodes() {
         if (!clip) return CLIPBOARD_OFF;
         if (isReadOnly()) return roRefusal();
-        if (!pickedIds().length) return refused(say(S, 'nothingPicked'));
+        if (!pickedAny()) return refused(say(S, 'nothingPicked'));
         const rows = copyRows().filter((n) => canRemove(n, typeOf(n)));
-        if (!rows.length) return refused(say(S, 'cannotCut'));
+        const notes = copyNoteRows();
+        if (!rows.length && !notes.length) return refused(say(S, 'cannotCut'));
         // The first paste after a cut puts the steps back where they were.
-        if (!writeClipboard(copyText(rows), -1)) return { ok: false, reason: say(S, 'clipboardFailed') };
+        if (!writeClipboard(copyText(rows, notes), -1)) return { ok: false, reason: say(S, 'clipboardFailed') };
         for (const n of rows) removeNode(graph, n.id);
+        dropNotes(notes.map((x) => x.id), null);
         findingsBy = groupFindings(allFindings(), { graph });
         select(null);
         paintNodes();
-        commit(rows.length > 1 ? 'flow:nodes:remove' : 'flow:node:remove');
-        setMessage(say(S, 'cutDone', rows.length), 'ok');
+        commit(!rows.length ? 'flow:note:remove'
+            : rows.length + notes.length > 1 ? 'flow:nodes:remove' : 'flow:node:remove');
+        setMessage(tookSay('cutDone', rows, notes), 'ok');
         keepFocus();
-        return { ok: true, ids: rows.map((n) => n.id) };
+        return tookIds(rows, notes);
     }
 
     /** What is on the clipboard, read as steps: the graph text, or a refusal. */
@@ -2766,7 +2795,9 @@ export function createCanvasEditor(host, options = {}) {
         if (typeof text !== 'string' || !text.trim()) return { reason: say(S, 'nothingToPaste') };
         let raw;
         try { raw = JSON.parse(text); } catch { return { reason: say(S, 'pasteNotSteps') }; }
-        if (!raw || !Array.isArray(raw.nodes) || !raw.nodes.length
+        // Notes alone paste too, where the editor draws notes.
+        const notesToo = noting && Array.isArray(raw?.notes) && raw.notes.length > 0;
+        if (!raw || !Array.isArray(raw.nodes) || (!raw.nodes.length && !notesToo)
             || raw.nodes.some((n) => !n || typeof n !== 'object' || !n.id || !n.type)) {
             return { reason: say(S, 'pasteNotSteps') };
         }
@@ -2779,8 +2810,10 @@ export function createCanvasEditor(host, options = {}) {
     /**
      * The copies into the graph, `offset` grid steps off: fresh ids, a label
      * derived when the flow already has it, `prepareCopy`, the lines among
-     * them, then picked — ONE `action` entry. Nothing is written until every
-     * copy is made, so a `prepareCopy` that throws changes nothing.
+     * them, (`notes`) the notes under fresh ids, (`groups`) each group made
+     * again round the copies of its members, then picked — ONE `action`
+     * entry. Nothing is written until every copy is made, so a `prepareCopy`
+     * that throws changes nothing.
      */
     function addCopies(g, offset, via, action) {
         const step = (canvas.gridSize || CANVAS_NODE.row) * offset;
@@ -2811,13 +2844,31 @@ export function createCanvasEditor(host, options = {}) {
             const target = idOf.get(c.target);
             if (source && target) connect(graph, catalogue, { ...c, source, target }, { strings: S });
         }
+        const noteIds = [];
+        for (const from of noting ? g.notes || [] : []) {
+            const id = freshId(noteList(), 'note');
+            graph.notes = [...noteList(), { ...structuredClone(from), id,
+                                            position: { x: from.position.x + step, y: from.position.y + step } }];
+            noteIds.push(id);
+        }
+        const groupIds = [];
+        for (const gr of grouping ? g.groups || [] : []) {
+            const members = gr.nodes.map((id) => idOf.get(id)).filter(Boolean);
+            if (!members.length || members.length !== gr.nodes.length) continue;
+            const id = freshId(groupList(), 'group');
+            setGroups([...groupList(), { id, ...(gr.label ? { label: gr.label } : {}),
+                                         ...(gr.tone ? { tone: gr.tone } : {}), nodes: members }]);
+            groupIds.push(id);
+        }
         const ids = made.map((n) => n.id);
         if (connecting) cancelConnect();
         paintNodes();
-        if (multi) pickNodes(ids); else select({ kind: 'node', id: ids[0] });
+        if (multi) pickItems(ids, noteIds);
+        else select(ids.length ? { kind: 'node', id: ids[0] } : { kind: 'note', id: noteIds[0] });
         commit(action);
         setMessage('');
-        return { ok: true, ids };
+        return { ok: true, ids, ...(noteIds.length ? { notes: noteIds } : {}),
+                 ...(groupIds.length ? { groups: groupIds } : {}) };
     }
 
     /** PASTE `text` — or, without it, what the clipboard holds (a promise of
@@ -2848,15 +2899,16 @@ export function createCanvasEditor(host, options = {}) {
     function duplicateNodes() {
         if (!clip) return CLIPBOARD_OFF;
         if (isReadOnly()) return roRefusal();
-        if (!pickedIds().length) return refused(say(S, 'nothingPicked'));
+        if (!pickedAny()) return refused(say(S, 'nothingPicked'));
         const rows = copyRows();
-        if (!rows.length) return refused(say(S, 'cannotCopy'));
-        return addCopies(JSON.parse(copyText(rows)), COPY_OFFSET, 'duplicate', 'flow:node:duplicate');
+        const notes = copyNoteRows();
+        if (!rows.length && !notes.length) return refused(say(S, 'cannotCopy'));
+        return addCopies(JSON.parse(copyText(rows, notes)), COPY_OFFSET, 'duplicate', 'flow:node:duplicate');
     }
 
     /** A clipboard key: with nothing picked, Ctrl+C, X and D are not the editor's. */
     const clipKey = (run, needsPick = true) => () => {
-        if (!clip || (needsPick && !pickedIds().length)) return false;
+        if (!clip || (needsPick && !pickedAny())) return false;
         run();
         return undefined;
     };
@@ -3125,7 +3177,8 @@ export function createCanvasEditor(host, options = {}) {
         moveNote: (id, position) => moveNote(String(id), position),
         /** `notes`: take a note away — one `flow:note:remove`. */
         removeNote: (id) => (noting && !isReadOnly() ? dropNotes([String(id)]) : false),
-        /** `clipboard`: copy the picked steps and the lines among them; `{ok, ids}` or `{ok: false, reason}`. */
+        /** `clipboard`: copy the picked steps and the lines among them (and the picked notes, the groups wholly
+         *  inside); `{ok, ids, notes?}` or `{ok: false, reason}`. */
         copy: () => copyNodes(),
         /** `clipboard`: copy, then remove what was copied (one remove entry). Refused read only. */
         cut: () => cutNodes(),

@@ -15,8 +15,8 @@
  *   §4  mountGalleryPicker: no entries and no host capability -> the empty
  *       label and one warning; `host.gallery.list(kind)` supplies entries;
  *       a pywebview-shaped global is never asked
- *   §5  PlotPopoutWindow redraws on the `streamEvents` it is given, and no
- *       longer on the default names once they are replaced
+ *   §5  PlotPopoutWindow redraws on the `streamEvents` it is given and has
+ *       no default names: without them it subscribes to `refreshEvent` only
  *   §6  the barrels export setToastBus / getToastBus; the host contract has
  *       the optional `gallery` capability
  *
@@ -318,18 +318,40 @@ console.log('\nno app globals: toasts, gallery picker, plot window\n');
     await ticks();
     check('closed: sim:delta does nothing', await after(bus, 'sim:delta'), { reads: 0, draws: 0 });
 
+    // No default names (BUG-0031): an embedder that passes no `streamEvents`
+    // gets no stream subscriptions at all, only its `refreshEvent`.
+    const subscribed = (bus) => {
+        const names = [];
+        const on = bus.on.bind(bus);
+        bus.on = (name, ...rest) => { names.push(name); return on(name, ...rest); };
+        return names;
+    };
     const bus2 = new EventBus();
+    const heard2 = subscribed(bus2);
     const dflt = await open(bus2);
-    check('default names', dflt.streamEvents, { delta: 'streaming:delta', complete: 'streaming:complete' });
-    ok('default: streaming:delta redraws', (await after(bus2, 'streaming:delta')).draws >= 1);
-    ok('default: streaming:complete redraws', (await after(bus2, 'streaming:complete')).draws >= 1);
+    check('no default names', dflt.streamEvents, { delta: null, complete: null });
+    check('without streamEvents it subscribes to refreshEvent only', heard2, ['data:changed']);
+    check('without streamEvents: streaming:delta does nothing', await after(bus2, 'streaming:delta'), { reads: 0, draws: 0 });
+    check('without streamEvents: streaming:complete does nothing', await after(bus2, 'streaming:complete'), { reads: 0, draws: 0 });
+    values = [10, 11, 12];
+    ok('without streamEvents: refreshEvent still redraws', (await after(bus2, 'data:changed')).draws >= 1);
+    check('…with the new values', Plotly.reacts.at(-1)?.data?.[0]?.y, [10, 11, 12]);
     dflt.close();
 
     const bus3 = new EventBus();
-    const half = await open(bus3, { streamEvents: { delta: null } });
-    check('a null name is not listened for', await after(bus3, 'streaming:delta'), { reads: 0, draws: 0 });
-    ok('…the other default stays', (await after(bus3, 'streaming:complete')).draws >= 1);
+    const heard3 = subscribed(bus3);
+    const half = await open(bus3, { streamEvents: { delta: null, complete: 'sim:done' } });
+    check('a null name is not listened for', half.streamEvents, { delta: null, complete: 'sim:done' });
+    check('…only the named one and refreshEvent are subscribed', heard3, ['sim:done', 'data:changed']);
+    ok('…the named one redraws', (await after(bus3, 'sim:done')).draws >= 1);
     half.close();
+
+    const bus4 = new EventBus();
+    const heard4 = subscribed(bus4);
+    const only = await open(bus4, { streamEvents: { delta: 'sim:delta' } });
+    check('a name left out is not filled in', only.streamEvents, { delta: 'sim:delta', complete: null });
+    check('…only the given one and refreshEvent are subscribed', heard4, ['sim:delta', 'data:changed']);
+    only.close();
 }
 
 // ════════════════════════════════════════════════════════════════════════

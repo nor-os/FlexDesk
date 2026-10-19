@@ -13,7 +13,7 @@ subsystem: charts
 labels: [charts]
 links: [blocked-by 62]
 created: 2026-10-17
-updated: 2026-10-19T20:45Z
+updated: 2026-10-19T21:50Z
 ---
 
 ## Description
@@ -128,3 +128,18 @@ Branch: story-0060 @ efb07c4 (origin/story-0060; merges cleanly into origin/main
 ### 2026-10-19T20:45Z · norman_agent
 
 Criterion amended by norman (Claude Code session, 2026-10-19), answering the question above: each story's README section headed "(0.17.0)" is its changelog entry; STORY-0069 compiles them into CHANGELOG.md at release. Old wording: "and the 0.17.0 changelog names the class change".
+
+### 2026-10-19T21:50Z · norman_agent
+
+Status: blocked. The reviewer's stale-draw bug is fixed in the worktree, but nothing is committed or pushed yet. I was told to return before the full test run finished, so that run is unconfirmed and the branch has not been updated.
+
+The fix is in `src/charts/plot_grid.js`. Draw tokens now come from one grid-wide counter (`lastToken`) that buildCells never resets; `tokens[index]` keeps the latest draw's token, and after each await drawCell checks `current()` (`!disposed && cells[index] === cell && tokens[index] === token`). A draw started for the old layout can no longer share a token with a draw for the new one.
+
+The new check is in §6 of `tests/plot_grid.test.mjs`, after 'a draw overtaken by a newer one is dropped'. It reproduces the reviewer's case twice (empty old subplot, drawable old subplot): a 1x1 grid whose first derivedTraces call is held open, a zero-size host, update() to 1x2, release of the held draw, then a host size and resize(). It asserts: nothing is drawn while zero-size; both new cells are then drawn (["a"], ["b"]); nothing is drawn into an old cell; after dispose() every cell Plotly drew into is purged. Without the fix the empty-old-draw case fails ('expected [["a"],["b"]], got [null,["b"]]'); with it `node tests/plot_grid.test.mjs` passes every assertion. The suite's header comment is updated.
+
+Open:
+- The full `node tests/run.mjs` run had reached leaf_chrome_actions.test.mjs when I returned; I have not seen it finish.
+- `node build.mjs` has not been run.
+- The two changed files are uncommitted in /mnt/c/Users/Norman/repos/FlexDesk-story-0060; origin/story-0060 is still at 3e704ed.
+
+To finish: wait for run.mjs to end green with no SKIPPED lines, run node build.mjs and restore dist/, commit "STORY-0060: stale draws are detected across a layout change", then `git push -u origin story-0060` (fast-forward). No criteria ticked. Nothing landed. Waiting on norman.

@@ -212,7 +212,8 @@ export function createCanvasEditor(host, options = {}) {
     let selected = null;
     /** The output a click-then-click connection started from: {source, sourcePort}. */
     let connecting = null;
-    /** A policy's offer on the screen: {at: the snapshot it was made against, offer, build, action, after}. */
+    /** A policy's offer on the screen: {offer, build, action, after}. It needs no staleness check:
+     *  every commit, restore, load and read-only switch clears it. */
     let pendingOffer = null;
     let suppressClick = false;
     let dragCleanup = null;
@@ -660,9 +661,9 @@ export function createCanvasEditor(host, options = {}) {
     /** The line (and step) the offer was made for, then its `apply` on a copy — ONE undo entry. */
     function acceptOffer() {
         const held = pendingOffer;
-        if (!held || destroyed) return false;
+        if (!held || destroyed) return;
         clearOffer();
-        if (isReadOnly()) return false;
+        if (isReadOnly()) return;
         const made = held.build();
         if (typeof held.offer?.apply === 'function') {
             const draft = normalise(graph);
@@ -677,7 +678,6 @@ export function createCanvasEditor(host, options = {}) {
         announceSelection();
         commit(held.action);
         keepFocus();
-        return true;
     }
 
     /** An output dragged: released on an input it connects, on the empty canvas it asks for a step. */
@@ -748,17 +748,16 @@ export function createCanvasEditor(host, options = {}) {
     function dropConnection(u) {
         const from = connecting;
         const under = document.elementFromPoint(u.clientX, u.clientY);
-        const at = typeof under?.closest === 'function' ? under : null;
-        const nodeHit = at?.closest('[data-node-id]');
+        const nodeHit = under?.closest('[data-node-id]');
         const onNode = Boolean(nodeHit && canvas.nodeLayer.contains(nodeHit));
-        const portHit = onNode ? at.closest('.twm-flow-graph__port') : null;
+        const portHit = onNode ? under.closest('.twm-flow-graph__port') : null;
         if (portHit && portHit.dataset.direction === 'input') {
             portClicked(nodeHit.dataset.nodeId, { direction: 'input', name: portHit.dataset.port });
             return;
         }
         cancelConnect();
         if (onNode) { setMessage(say(S, 'dropOnInput')); return; }
-        if ((at && canvas.root.contains(at)) || overCanvas(u.clientX, u.clientY)) { openDropPicker(from, u); return; }
+        if ((under && canvas.root.contains(under)) || overCanvas(u.clientX, u.clientY)) { openDropPicker(from, u); return; }
         setMessage('');
     }
 

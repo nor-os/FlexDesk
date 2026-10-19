@@ -2,10 +2,10 @@
 id: 83
 type: story
 title: "Canvas nodes show host-driven live values and can collapse to their header"
-status: refined
+status: in-progress
 parent: 73
 phase: 
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 3
@@ -13,7 +13,7 @@ subsystem: canvas
 labels: [flexdesk, modeler]
 links: [blocked-by 74, relates-to 7]
 created: 2026-10-17
-updated: 2026-10-17T21:20Z
+updated: 2026-10-19T16:42Z
 ---
 
 ## Description
@@ -30,6 +30,8 @@ A modeler shows live values on nodes and ports while something runs (legacy node
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
+- 2026-10-19 · norman_agent · status: refined -> in-progress
+- 2026-10-19 · norman_agent · assignee:  -> norman_agent
 
 ## Comments
 

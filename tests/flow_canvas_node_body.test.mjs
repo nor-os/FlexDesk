@@ -11,7 +11,8 @@
  *       keeps its focus and its value across ten repaints
  *   §3  `ctx.setConfig` from a body control is ONE `flow:node:config` undo
  *       entry, reaches onChange, and Ctrl+Z puts the config back; read only
- *       refuses it, and so does a call from inside `update`
+ *       refuses it, and so does a call from inside `update`; a patch holding
+ *       a value that cannot be cloned is refused whole and changes nothing
  *   §4  a custom `size`: the node is that box, its outputs are anchored at its
  *       own width, and every line in the SVG starts and ends on the anchors
  *       (the browser half is `demo/flow_canvas_probe.mjs`'s "bodies"); an
@@ -173,6 +174,22 @@ t.section('§3 ctx.setConfig is one undo entry; Ctrl+Z puts the config back');
     const e = mount([...PLAIN, echo], { nodes: [{ id: 'echo', type: 'echo', config: {}, position: { x: 0, y: 0 } }], connections: [] });
     t.ok('a setConfig from inside update is refused and records nothing', answer === false && e.editor.history.depth === 0
          && e.changes.length === 0);
+
+    let held = null;
+    const grab = { ...DIAL, type_id: 'grab', render(_b, _n, ctx) { held = ctx; }, update() {} };
+    const g = mount([...PLAIN, grab], { nodes: [{ id: 'grab', type: 'grab', config: { value: 3 }, position: { x: 0, y: 0 } }], connections: [] });
+    // Both orders: the bad key sorting first, and a good key sorting before it.
+    let threw = false;
+    const bad = [];
+    for (const patch of [{ ok: 1, bad: () => 0 }, { a: 1, b: () => 0 }]) {
+        try { bad.push(held.setConfig(patch)); } catch { threw = true; }
+    }
+    t.ok('a patch holding a value that cannot be cloned is refused', threw === false && bad.every((x) => x === false));
+    t.check('and changes nothing: the config is as it was', g.editor.getGraph().nodes.find((x) => x.id === 'grab').config, { value: 3 });
+    t.check('no undo entry', g.editor.history.depth, 0);
+    t.check('no onChange', g.changes.length, 0);
+    t.ok('a good patch after it still lands as one entry', held.setConfig({ ok: 1 }) === true && g.editor.history.depth === 1
+         && g.editor.getGraph().nodes.find((x) => x.id === 'grab').config.ok === 1 && g.changes.length === 1);
 }
 
 t.section('§4 a custom size and an accent');

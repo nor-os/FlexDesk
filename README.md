@@ -1665,8 +1665,9 @@ editor.setCatalogue(createStepCatalogue([...types, gauge], { categories }));   /
 - **`ctx`** is `{setConfig(patch), readOnly, services}`. `setConfig` merges
   `patch` into the node's config (an `undefined` value removes the key) as one
   `flow:node:config` edit: one undo entry, and `onChange` is called. It is
-  refused (answers `false`) while the editor is read only and from inside
-  `render` or `update`. `services` is the editor's `services` option.
+  refused (answers `false`) while the editor is read only, from inside
+  `render` or `update`, and when a value in `patch` cannot be cloned (a
+  function, a DOM node): then nothing is written. `services` is the editor's `services` option.
 - **`size: {w, h}`** is the node's box in pixels; either may be left out. Lines
   leave a node's outputs at its own width, and a node with `h` is exactly that
   tall, its body taking what is left. A body node without `h` is as tall as

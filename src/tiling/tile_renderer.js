@@ -1870,7 +1870,6 @@ export class TileRenderer {
         const scale = totalSize / sum;
         for (let i = 0; i < newSizes.length; i++) newSizes[i] *= scale;
         this.tree.setSplitSizes(split.id, newSizes);
-        this._drag.moved = true;
         // Cheap update: just rewrite flex on the slots.
         const containerEl = document.querySelector(`.twm-split[data-split-id="${split.id}"]`);
         if (!containerEl) return;
@@ -1885,7 +1884,12 @@ export class TileRenderer {
         const drag = this._drag;
         this._drag = null;
         document.body.classList.remove('twm-dragging');
-        if (!drag?.moved) return;
+        if (!drag) return;
+        // Only a drag that LEFT the split at other sizes is a resize. Pointer
+        // jitter along the splitter, or a drag that ends where it began,
+        // moves the mouse but not the layout, and reports nothing.
+        const sizes = this.tree.get(drag.splitId)?.sizes;
+        if (!sizes || sizes.every((v, i) => v === drag.startSizes[i])) return;
         try { this.onSplitResized(drag.splitId); }
         catch (err) { console.error('[tile-renderer] onSplitResized threw', err); }
     }

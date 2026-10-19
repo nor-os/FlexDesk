@@ -96,7 +96,7 @@ export const CANVAS_STRINGS = Object.freeze({
     noteText: 'Note text',
     noteEmpty: 'Empty note — double-click to write in it',
     removeNote: 'Remove note',
-    itemsPicked: (steps, notes) => `${steps === 1 ? '1 step' : `${steps} steps`} and ${notes === 1 ? '1 note' : `${notes} notes`} picked`,
+    itemsPicked: (steps, notes) => `${counted(steps, notes)} picked`,
     removeItems: (n) => (n === 1 ? 'Remove 1 item' : `Remove ${n} items`),
     // `clipboard`
     copyLabel: (title, n) => (n > 1 ? `${title} (copy ${n})` : `${title} (copy)`),

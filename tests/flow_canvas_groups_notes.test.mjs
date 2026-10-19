@@ -341,6 +341,24 @@ t.section('§5 a marquee picks notes and nodes together');
     marquee(m, { x: 280, y: 580 }, { x: 320, y: 620 });
     t.check('a marquee over a note alone picks the note', m.selects.at(-1), { kind: 'note', id: 'n2' });
 }
+{
+    // the pick box counts only what is in the pick: no "0 steps"
+    const titleOf = (m) => m.el.querySelector('.twm-flow-graph__connection-title')?.textContent;
+    const m = mount(ALL, { nodes: [node('a', 96, 160)], connections: [],
+                           notes: [{ id: 'n1', text: 'one', position: { x: 304, y: 48 }, size: { w: 160, h: 60 } },
+                                   { id: 'n2', text: 'two', position: { x: 300, y: 600 }, size: { w: 160, h: 60 } }] });
+    keyOn(canvasOf(m), 'a', { ctrlKey: true });
+    t.check('Ctrl+A over one step and two notes: the pick box says so', [m.selects.at(-1), titleOf(m)],
+            [{ kind: 'many', ids: ['a'], notes: ['n1', 'n2'] }, '1 step and 2 notes picked']);
+    clickNode(m, 'a', { shiftKey: true });
+    t.check('Shift+click takes the step out: "2 notes picked", no step count', [m.selects.at(-1), titleOf(m)],
+            [{ kind: 'many', ids: [], notes: ['n1', 'n2'] }, '2 notes picked']);
+    clickNode(m, 'a', { shiftKey: true });
+    noteEl(m, 'n2').dispatchEvent(ev(w.MouseEvent, 'pointerdown', { shiftKey: true }));
+    noteEl(m, 'n2').dispatchEvent(ev(w.MouseEvent, 'click', { shiftKey: true }));
+    t.check('one step and one note: "1 step and 1 note picked"', [m.selects.at(-1), titleOf(m)],
+            [{ kind: 'many', ids: ['a'], notes: ['n1'] }, '1 step and 1 note picked']);
+}
 
 t.section('§6 groups and notes survive serialise -> load unchanged; a group renames in place');
 {

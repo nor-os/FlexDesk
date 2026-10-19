@@ -9,6 +9,8 @@
  *   §4  a broken type is LISTED in `problems`, never thrown
  *   §5  `role` is 'step' for an unknown type; `idBase` is the consumer's stem,
  *       made safe for an id
+ *   §6  `rank`: 'source' or 'sink' is read and answered by `rank(typeId)`;
+ *       any other value is a line in `problems` and is not used
  *
  * Pure: no jsdom.   node tests/flow_kit_catalogue.test.mjs
  */
@@ -107,6 +109,24 @@ t.section('§5 role and idBase');
     t.check('the consumer\'s stem, made safe', cat.idBase('prefix-read rows'), 'read-rows');
     t.check('an unknown type id is its own stem', cat.idBase('wat'), 'wat');
     t.check('the default stem is the type id', createStepCatalogue([{ type_id: 'log' }]).idBase('log'), 'log');
+}
+
+t.section('§6 rank');
+{
+    const cat = createStepCatalogue([
+        { type_id: 'feed', rank: 'source' },
+        { type_id: 'show', rank: 'sink' },
+        { type_id: 'plain' },
+        { type_id: 'shout', rank: 'Sink' },
+        { type_id: 'late', rank: 'last' },
+        { type_id: 'num', rank: 3 },
+    ]);
+    t.check('a valid rank is answered', [cat.rank('feed'), cat.rank('show')], ['source', 'sink']);
+    t.check('none, or an unknown type, is null', [cat.rank('plain'), cat.rank('nope')], [null, null]);
+    t.check('any other value is not used', [cat.rank('shout'), cat.rank('late'), cat.rank('num')], [null, null, null]);
+    t.check('each is a line in problems', cat.problems.map((p) => p.type_id), ['shout', 'late', 'num']);
+    t.ok('the line names the value', cat.problems[0].message.includes('"Sink"')
+         && cat.problems[0].message.includes("'source' or 'sink'"), cat.problems[0].message);
 }
 
 t.done();

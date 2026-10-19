@@ -1915,10 +1915,15 @@ export function createCanvasEditor(host, options = {}) {
         const sizeOf = (n) => ({ width: widthOf(n), height: heightOf(n) });
         if (layout === 'layered') {
             return layeredLayout(part.nodes, part.connections.map((c) => ({ from: c.source, to: c.target })), {
-                rank: (n) => typeOf(n)?.rank ?? null, sizeOf, columnGap: 96, rowGap: 40, componentGap: 80 });
+                rank: (n) => catalogue.rank(n.type), sizeOf, columnGap: 96, rowGap: 40, componentGap: 80 });
         }
         const at = layout(normalise(part), { catalogue, node: BOX, ids, sizeOf, layeredLayout });
         if (!(at instanceof Map)) throw new Error('The canvas editor\'s layout function must return a Map of id → {x, y}.');
+        for (const [id, p] of at) {
+            if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) {
+                throw new Error(`The canvas editor's layout function placed "${id}" at ${JSON.stringify(p)}; a place must be finite numbers {x, y}.`);
+            }
+        }
         return at;
     }
 
@@ -1942,7 +1947,7 @@ export function createCanvasEditor(host, options = {}) {
         const oy = Math.min(...nodes.map((x) => x.position.y));
         for (const nodeRow of nodes) {
             const p = at.get(nodeRow.id);
-            if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) {
+            if (p) {
                 nodeRow.position = { x: canvas.snap(ox + p.x), y: canvas.snap(oy + p.y) };
             }
         }

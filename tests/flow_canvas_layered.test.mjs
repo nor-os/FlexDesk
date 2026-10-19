@@ -12,7 +12,8 @@
  *       Arrange moves only those two, as ONE undo entry; with one picked it
  *       arranges the whole graph
  *   §4  `layout: fn(graph, ctx)`: handed a copy of what is arranged and the
- *       context, its Map is applied; anything but a Map throws
+ *       context, its Map is applied; a step it leaves out stays put;
+ *       anything but a Map, or a place that is not finite {x, y}, throws
  *   §5  read only: Arrange moves nothing
  *
  *     node tests/flow_canvas_layered.test.mjs
@@ -181,6 +182,17 @@ t.section('§4 layout: a function');
     t.check('without ids, ctx.ids is null', calls[1].ctx.ids, null);
     const bad = mount({ layout: () => ({ A: { x: 0, y: 0 } }) });
     t.throws('anything but a Map throws', () => bad.editor.arrange(), /must return a Map/);
+    for (const [name, place] of [['{x: NaN}', { x: NaN, y: 0 }], ["{x: '10'}", { x: '10', y: 0 }],
+                                 ['{y: Infinity}', { x: 0, y: Infinity }], ['null', null]]) {
+        const m2 = mount({ layout: () => new Map([['A', { x: 0, y: 0 }], ['B', place]]) });
+        const before = m2.editor.serialise();
+        t.throws(`a place of ${name} throws`, () => m2.editor.arrange(), /must be finite numbers/);
+        t.ok(`  and nothing moved or was committed`, m2.editor.serialise() === before && m2.changes.length === 0);
+    }
+    const part = mount({ layout: () => new Map([['A', { x: 0, y: 0 }], ['B', { x: 320, y: 0 }]]) });
+    const c0 = { ...at(part, 'C') };
+    t.ok('a step the Map leaves out stays where it was', part.editor.arrange() === true
+         && JSON.stringify(at(part, 'C')) === JSON.stringify(c0));
 }
 
 t.section('§5 read only');

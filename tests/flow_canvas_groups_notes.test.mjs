@@ -25,6 +25,9 @@
  *       the copy; a cut takes them and the paste after it puts them back;
  *       notes alone copy, cut and duplicate; without the options neither is
  *       carried
+ *  §10 a group and a note may share an id (separate namespaces): typing in
+ *       note 'x' does not stop group 'x''s title bar dragging, nor does
+ *       renaming group 'x' stop note 'x' dragging
  *
  *     node tests/flow_canvas_groups_notes.test.mjs
  */
@@ -539,6 +542,30 @@ t.section('§9 copy and paste carry the notes, and the groups wholly inside the 
     t.check('…and a paste of steps with notes and groups takes only the steps',
             [off.editor.getGraph().nodes.length, 'notes' in off.editor.getGraph(), 'groups' in off.editor.getGraph()],
             [8, false, false]);
+}
+
+t.section('§10 a group and a note with the same id: editing one never blocks the other');
+{
+    const SAME = { nodes: [node('a', 96, 160)], connections: [],
+                   groups: [{ id: 'x', nodes: ['a'] }],
+                   notes: [{ id: 'x', text: 'same id', position: { x: 96, y: 600 } }] };
+    const m = mount(ALL, SAME);
+    noteEl(m, 'x').dispatchEvent(ev(w.MouseEvent, 'dblclick'));
+    t.ok('note x is open for typing', Boolean(noteEl(m, 'x').querySelector('.twm-flow-graph__note-input')));
+    const depth = m.editor.history.depth;
+    dragBy(frameOf(m, 'x').querySelector('.twm-flow-graph__group-head'), 64, 32);
+    t.check('group x\'s title bar still drags its node, one entry', [pos(m, 'a'), m.editor.history.depth - depth],
+            [{ x: 160, y: 192 }, 1]);
+    keyOn(noteEl(m, 'x').querySelector('textarea'), 'Escape');
+
+    frameOf(m, 'x').querySelector('.twm-flow-graph__group-head').dispatchEvent(ev(w.MouseEvent, 'dblclick'));
+    t.ok('group x is being renamed', Boolean(m.el.querySelector('.twm-flow-graph__group-input')));
+    const at = notesOf(m)[0].position;
+    const depth2 = m.editor.history.depth;
+    dragBy(noteEl(m, 'x'), 48, 32);
+    t.check('note x still drags, one entry', [notesOf(m)[0].position, m.editor.history.depth - depth2,
+                                               m.changes.at(-1)?.action],
+            [{ x: m.editor.canvas.snap(at.x + 48), y: m.editor.canvas.snap(at.y + 32) }, 1, 'flow:note:move']);
 }
 
 for (const e of mounted) e.destroy();

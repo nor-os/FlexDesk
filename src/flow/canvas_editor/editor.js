@@ -2124,7 +2124,7 @@ export function createCanvasEditor(host, options = {}) {
         const head = el('div', 'twm-flow-graph__group-head');
         head.appendChild(el('span', 'twm-flow-graph__group-label'));
         head.addEventListener('pointerdown', (ev) => {
-            if (ev.button !== 0 || editing?.id === id) return;
+            if (ev.button !== 0 || (editing?.kind === 'group' && editing.id === id)) return;
             ev.stopPropagation();
             const gr = groupOf(id);
             if (!gr) return;
@@ -2293,7 +2293,7 @@ export function createCanvasEditor(host, options = {}) {
         box.tabIndex = 0;
         box.appendChild(el('p', 'twm-flow-graph__note-text'));
         box.addEventListener('pointerdown', (ev) => {
-            if (ev.button !== 0 || editing?.id === id) return;
+            if (ev.button !== 0 || (editing?.kind === 'note' && editing.id === id)) return;
             ev.stopPropagation();
             if (toggles(ev)) return;                                   // its click toggles it
             if (!isNotePicked(id)) select({ kind: 'note', id });

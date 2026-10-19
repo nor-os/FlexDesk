@@ -43,7 +43,7 @@ manager, and neither of them should drag in a plotting engine or a code editor.
 | `@flexdesk/core` | 30 kB | Event bus, settings store, logging, state machine, state guard |
 | `@flexdesk/host` | 5 kB | The host port (below) |
 | `@flexdesk/wm` | 166 kB | Tiling window manager: tabs, splits, desktops, command palette, taxonomy, `createShell()` |
-| `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus, a document outline, progress |
+| `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus, menu bars, a document outline, progress |
 | `@flexdesk/charts` | 26 kB | Plotly wrapper, chart types, subplot layouts, downsampling, plot windows, injected series transforms |
 | `@flexdesk/tiles` | 67 kB | Draggable/resizable widget grid, tile base class, widget registry, layout persistence, chart and KPI tiles |
 | `@flexdesk/editor` | 62 kB | Monaco loader + factory, multi-file tab bar, search, split panes, undo manager |
@@ -129,6 +129,74 @@ await createShell({
     },
 });
 ```
+
+### A menu bar: `createMenuBar` (0.17.0)
+
+File / Edit / View menus from one declarative model, instead of hand-built
+buttons and `showContextMenu` calls. A menu is `{ id, label, items }`; an item
+is `{ id, label, shortcut?, disabled?, checked?, radio?, submenu? }` or
+`{ separator: true }`:
+
+```js
+import { createMenuBar, MenuBar } from '@flexdesk/widgets';
+
+const bar = createMenuBar(document.getElementById('menus'), {
+    menus: [
+        { id: 'file', label: 'File', items: [
+            { id: 'open',   label: 'Open…',       shortcut: 'Ctrl+O' },
+            { id: 'recent', label: 'Open recent', submenu: () => recentItems() },  // rebuilt on every open
+            { separator: true },
+            { id: 'save',   label: 'Save',        shortcut: 'Ctrl+S', disabled: true },
+        ] },
+        { id: 'view', label: 'View', items: [
+            { id: 'grid',  label: 'Show grid', checked: true },                // a check item
+            { id: 'light', label: 'Light', radio: 'theme', checked: true },    // a radio group
+            { id: 'dark',  label: 'Dark',  radio: 'theme', checked: false },
+        ] },
+    ],
+    onAction: (id, { checked }) => run(id, checked),
+});
+bar.setEnabled('save', true);     // patches an open menu in place
+bar.setChecked('dark', true);     // …and unchecks the rest of the radio group
+```
+
+`createMenuBar(el, opts)` returns a `MenuBar` (also exported, for
+`instanceof`). Its methods: `open(menuId, { focusItem })`, `close()`,
+`focus()`, `isOpen()`, `isEnabled(id)`, `isChecked(id)`, `setEnabled(id, on)`,
+`setChecked(id, on)`, `commands()` and `dispose()`.
+
+- **Pointer.** Clicking a title opens its menu; while one is open, hovering
+  another title switches to it. Hovering an item with a submenu opens it.
+- **Keyboard.** Alt (on its own) or F10 focuses the bar. Left/Right move across
+  menus, Up/Down/Home/End within one, Right opens a submenu and Left closes it,
+  Enter/Space activate. Esc closes one level; the last Esc gives focus back to
+  what had it. Disabled items and separators are skipped, and never reach
+  `onAction`.
+- **Roles.** The WAI-ARIA menubar pattern: `menubar`, `menu`, `menuitem`,
+  `menuitemcheckbox`, `menuitemradio`, with `aria-checked`, `aria-disabled`
+  and `aria-expanded`.
+- `shortcut` is a label: the bar binds no key for it.
+- `bar.commands()` returns the model as palette rows (`{ id, label, shortcut,
+  context: 'File › Open recent', action }`), so the palette and the bar list the
+  same verbs.
+
+In a shell, pass the model as `menuBar` and the element as `chrome.menuBar`
+(each needs the other; either alone throws at boot);
+`shell.chrome.menuBar` is that `MenuBar`, and its enabled items follow the palette's
+own `commands` unless `menuBar.palette` is `false`:
+
+```js
+const shell = await createShell({
+    // …
+    menuBar: { menus, onAction },
+    chrome:  { menuBar: document.getElementById('menus') },
+});
+shell.chrome.menuBar.setEnabled('save', dirty);
+```
+
+The bar is `.twm-menubar` (not the older `.twm-menu-bar` icon strip).
+`tests/menu_bar.test.mjs` drives it in jsdom; `tests/menu_bar_css.test.mjs`
+holds its stylesheet.
 
 ### A kind that exists once: `single` (0.17.0)
 
@@ -276,6 +344,39 @@ pane is never handed a query; the next mode with a filter shows its own saved
 text again. `showFilter: false` renders no filter box at all. All three options
 default to the old behaviour, so a panel built without them renders exactly as
 before.
+
+### Buttons that change with the pane: `ctx.setChromeActions` (0.17.0)
+
+A factory may return `chromeActions` — `[{icon, title, onClick}]`, drawn in the
+pane's chrome left of the split/float/close buttons — but those are read once.
+`ctx.setChromeActions(specs)` replaces them at any time, the way `setTitle`
+replaces the title: called during the mount it wins over the returned list, the
+later call wins, the list survives repaints, `null` or `[]` clears it, and a
+call from content whose pane has since been rebuilt does nothing. The content is
+never re-mounted.
+
+```js
+content: {
+    page: (hostEl, props, ctx) => {
+        let wide = false;
+        const paint = () => ctx.setChromeActions([
+            { icon: wide ? 'width_normal' : 'width_wide', title: 'Page width',
+              pressed: wide, onClick: () => { wide = !wide; paint(); } },
+            { separator: true },
+            { icon: 'add', label: 'New', title: 'Add a page', onClick: addPage },
+            { icon: 'publish', title: 'Nothing to publish yet', disabled: true },
+        ]);
+        paint();
+        return { destroy() {} };
+    },
+},
+```
+
+A spec may add **`label`** (text beside the glyph, or instead of it),
+**`pressed`** (`aria-pressed`, plus a pressed style; leave it out for a button
+that is not a toggle), **`disabled`** (greyed and inert, with its tooltip kept —
+it is `aria-disabled`, not the `disabled` attribute) and **`{separator: true}`**
+(a divider). A spec with none of them renders exactly as before.
 
 ### Your desktops beside the app's (0.10.0)
 
@@ -1904,9 +2005,10 @@ keystrokes ask the preview once.
 `openForm({ title, fields, defaults, submitLabel })` (in `@flexdesk/widgets`)
 opens a modal form and resolves with `{ [name]: value }`, or `null` when it is
 cancelled. Fields are `text`, `number`, `password`, `select`, `textarea`,
-`checkbox`, `toggle`, `picker`, `checklist` and `radio`; `{ section: 'Label' }`
-entries are headings. The additions below are opt-in, with one change every form
-sees, even one that uses none of them: a `select` or `radio` comes back with
+`checkbox`, `toggle`, `picker`, `checklist`, `radio`, `color` and `colorList`;
+`{ section: 'Label' }` entries are headings. The additions below are opt-in,
+with one change every form sees, even one that uses none of them: a `select`
+or `radio` comes back with
 its option's OWN value and type (a numeric option submits `2`, not `'2'`; an
 option whose value is `null` submits `null`), a default of that type selects
 its option (`defaults: { s: 2 }` selects the option whose value is `2`), and an
@@ -2060,6 +2162,45 @@ a form and a settings panel cannot drift apart. In a form they are classed
 
 `tests/open_form_choices.test.mjs` covers each of these in jsdom.
 
+### Colours: `type: 'color'` and `type: 'colorList'` (0.17.0)
+
+```js
+openForm({
+    fields: [
+        { name: 'accent', label: 'Accent', type: 'color', default: 'rgb(31,119,180)',
+          presets: ['#1f77b4', '#ff7f0e', '#2ca02c'] },
+        { name: 'palette', label: 'Palette', type: 'colorList', default: ['#1f77b4', '#ff7f0e'] },
+    ],
+});
+// -> { accent: '#1f77b4', palette: ['#1f77b4', '#ff7f0e'] }
+```
+
+A `color` row is a swatch that opens the native picker, a hex box kept in step
+with it (picking writes the box; typing a valid hex moves the swatch), and,
+with `presets`, a strip of preset swatches. It submits lowercase `#rrggbb`, or
+`''` when left empty. A `colorList` row is an ordered list of such fields: add,
+remove, and reorder by drag or by the up / down buttons; `presets` are offered
+on every row, and it submits the colours in their current order as an array of
+`#rrggbb`. An `rgb()` / `rgba()` default (or `api.set` value) is shown as its
+hex; alpha is dropped, because the native picker has none. A box that does not
+hold `#rgb` or `#rrggbb` is a field error ("Not a hex colour", with the row
+numbers for a list) and the form does not resolve; `required` on either is
+checked by the form. `api.get` reads a `color` as its box text and a
+`colorList` as the array of its rows' text.
+
+Both are also components of their own in `@flexdesk/widgets`:
+`new ColorField({ value, presets, name, label, onChange })` and
+`new ColorListField({ value, presets, newColor, addLabel, name, onChange })`,
+each with `render()`, `getValue()` (null while something typed is not a
+colour), `setValue()`, `focus()` and `dispose()`; `onChange(value, { commit })`
+reports every edit and, with `commit: true`, every committed one.
+`normalizeHex(value)` (`#rgb`, `#rrggbb`, `rgb()` -> `#rrggbb` or null) and
+`isHexColor(value)` are exported with them, and `validateField` (in
+`@flexdesk/tiles`) now rejects a `FieldTypes.COLOR` value that is not a hex
+colour. The markup is `.twm-color-field` > `.twm-color-field__swatch` +
+`.twm-color-field__hex` (+ `.twm-color-field__presets`), and `.twm-color-list`
+rows are `.twm-color-list__row`. `tests/color_field.test.mjs` covers all of it.
+
 ### A switch: `ToggleField` and `type: 'toggle'` (0.17.0)
 
 ```js
@@ -2207,6 +2348,16 @@ checks jsdom has nothing to repair.
 `{ title, markdown }`; the modal renders it with `renderMarkdown` and the
 provider's optional `markdownOptions`. `{ title, html }` is unchanged:
 pre-rendered, **trusted** HTML, inserted as it is.
+
+**A table of contents for a help topic.** A topic with two or more headings,
+markdown or html, gets its contents between the breadcrumb and the article: a
+`createDocumentOutline` (below) of its `h1`–`h6`, numbered, the one in view
+marked as the content pane scrolls, a click that scrolls to its heading. The
+outline points at the heading elements themselves, so your markup needs no
+ids and the modal adds none; a topic with one heading or none shows no
+contents (the empty `.help-content__toc` is `hidden`). Until now the modal's
+documentation promised this and drew nothing. `tests/help_modal_toc.test.mjs`
+drives it in jsdom (BUG-0010).
 
 ## A document outline: `createDocumentOutline` (0.17.0)
 
@@ -2718,6 +2869,23 @@ an attempt failed.
 
 If you already load Plotly yourself (a `<script>` tag that sets `window.Plotly`),
 the chart loader short-circuits and you can skip `setPlotlySource`.
+
+### Auto-height editors: `maxHeight` (0.17.0)
+
+`createEditor()` sizes its container to the content (80px at least, see
+`setMinHeight`). Cap it with `maxHeight`, in px; `Infinity`, the default, is
+no cap. Past the cap Monaco scrolls internally and takes the mouse wheel;
+below it the wheel reaches whatever scrolls around the editor.
+
+```js
+const h = factory.createEditor(el, source, { maxHeight: 400 });
+h.setMaxHeight(Infinity);   // applies at once: grows to the content
+```
+
+A non-positive or non-number cap throws a `RangeError`. With `noAutoHeight`
+the container's own layout decides the size and `setMaxHeight` has no effect.
+Before 0.17.0 the cap was a fixed 400px, switched on by `data-code-max-height="true"`
+on a `.notebook-editor-container` ancestor; that attribute is no longer read.
 
 ## Storage keys and names are yours (0.17.0)
 

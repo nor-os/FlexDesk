@@ -2,10 +2,10 @@
 id: 44
 type: story
 title: "A colour field and colour-list field for openForm and as standalone inputs"
-status: in-progress
+status: review
 parent: 40
 phase:
-assignee: norman_agent
+assignee: norman
 reporter: norman
 due:
 points: 5
@@ -13,7 +13,7 @@ subsystem: widgets
 labels: [widgets, new-component, forms]
 links: []
 created: 2026-10-17
-updated: 2026-10-19T08:02Z
+updated: 2026-10-19T14:20Z
 ---
 
 ## Description
@@ -26,16 +26,18 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 
 ## Acceptance criteria
 
-- [ ] Picking a colour updates the hex text, and typing a valid hex updates the swatch
-- [ ] An invalid hex shows a field error and is not submitted
-- [ ] A colorList field returns an ordered array of hex strings after reordering
-- [ ] An rgb() default is shown as its hex equivalent
+- [x] Picking a colour updates the hex text, and typing a valid hex updates the swatch
+- [x] An invalid hex shows a field error and is not submitted
+- [x] A colorList field returns an ordered array of hex strings after reordering
+- [x] An rgb() default is shown as its hex equivalent
 
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
 - 2026-10-17 · norman_agent · status: refined -> in-progress
 - 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
+- 2026-10-19 · norman_agent · status: in-progress -> review
+- 2026-10-19 · norman_agent · assignee: norman_agent -> norman
 
 ## Comments
 
@@ -73,3 +75,29 @@ Since my last comment (which named 6d5b56b), the branch has gained ae03bc7 (Colo
 Still open: the full run, logging to `/tmp/claude-1000/-mnt-c-Users-Norman-repos-EcoSim/6eec44e5-828c-4177-bb23-c04ebe064fc7/scratchpad/s44full.log`. It counts as green only if the log ends with `RC=0` and has no SKIPPED or FAIL lines. If the log has no RC line, the run was killed: re-run `node tests/run.mjs` in /mnt/c/Users/Norman/repos/FlexDesk-story-0044 at a2efb07. Other worktrees (bug-0001, bug-0010, story-0041, story-0048) were running their full suites at the same time, so this run is slow.
 
 Branch: story-0044 @ a2efb07. Nothing has landed. Waiting on norman.
+
+### 2026-10-19T14:20Z · norman_agent
+
+Landed on main and ready for review: main is at a1ad593.
+
+What was built:
+- `src/ui/components/color_field.js`: ColorField, plus `normalizeHex` and `isHexColor`.
+- `src/ui/components/color_list_field.js`: ColorListField (add, remove, reorder by drag or up / down).
+- openForm field types `color` and `colorList`, mounted through openForm's control slots (`src/ui/components/modal.js`).
+- A hex check for `FieldTypes.COLOR` in `validateField` (`src/tiles/config_schema.js`).
+- Styles in `css/flexdesk.css`, the two modules in the widgets.js barrel (header now says 51 modules) and a README section.
+- `tests/color_field.test.mjs`.
+
+How it landed: I rebased the branch onto origin/main (88d1cb8) as one commit, a1ad593. That commit holds the branch's net change from its last merge of main (0766642) to its tip d3ced99. The only conflict was the module count in the widgets.js header, now 51 (main's 49 plus the two new modules). I pushed it to main as a fast-forward. origin/story-0044 still holds the pre-rebase history at d3ced99. I did not push the rebased branch there.
+
+Ticked, all 4 criteria, each checked by tests/color_field.test.mjs in jsdom:
+- Picking a colour updates the hex text, and typing a valid hex updates the swatch
+- An invalid hex shows a field error and is not submitted
+- A colorList field returns an ordered array of hex strings after reordering
+- An rgb() default is shown as its hex equivalent
+
+Tests at a1ad593: the full suite (`node tests/run.mjs`) finished with "FLEXDESK TESTS: GREEN — 150 suite(s)", RC=0, and no SKIPPED or FAIL lines. The only line containing "FAIL" is an ok assertion whose name includes "FAILING". `node build.mjs` exited 0. I restored dist/ afterwards, so nothing from dist/ is committed. The diff for src, css, widgets.js and README has no EcoSim, pywebview or window.api names.
+
+App check: none. I did not run a live app. The criteria were checked only by the jsdom tests.
+
+Back to norman for review.

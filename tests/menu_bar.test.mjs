@@ -289,6 +289,22 @@ section('§6 Esc closes one level and the last Esc returns focus to where it was
     check('the next Esc closes the menu, focus on its title', [openMenus().length, focused()], [0, 'File']);
     press('Escape');
     check('…and the last Esc gives focus back', document.activeElement === outside, true);
+    // Moving focus by keyboard within a menu closes a submenu open below it,
+    // as hovering another item does, so each Esc still closes one level.
+    for (const [key, to] of [['ArrowDown', 'Quit'], ['ArrowUp', 'Open recent'], ['Home', 'New'], ['End', 'Quit']]) {
+        outside.focus();
+        mouse('mousedown', title('File'));
+        click(title('File'));
+        mouse('mouseover', itemIn(openMenus()[0], 'Export'));
+        check(`hover Export opens its submenu (${key})`, [openMenus().length, focused()], [2, 'Export']);
+        press(key);
+        check(`${key} closes the submenu and moves focus`,
+            [openMenus().length, focused(), itemIn(openMenus()[0], 'Export').getAttribute('aria-expanded')],
+            [1, to, 'false']);
+        press('Escape');
+        check(`…then one Esc closes the menu (${key})`, [openMenus().length, focused()], [0, 'File']);
+        press('Escape');
+    }
     // Running an item gives focus back BEFORE onAction runs.
     actions.length = 0;
     press('F10'); press('ArrowDown');

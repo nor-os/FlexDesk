@@ -397,9 +397,9 @@ export function createCanvasEditor(host, options = {}) {
     const builtFrom = new Map();
     /** A node's own body, by node id: {el, ctx, update} — built once with the node. */
     const bodies = new Map();
-    /** A type's `inline` settings drawn on the node, by node id: {readOnly, fields: [{key, shown, field}]}. */
+    /** A type's `inline` settings drawn on the node, by node id: {readOnly, fields: [{key, spec, shown, field}]}. */
     const inlines = new Map();
-    /** The title being typed in place (`renameInPlace`): {id, input, title, finish}. */
+    /** The title being typed in place (`renameInPlace`): {id, finish(keep)}. */
     let renaming = null;
     /** What a type's own `render` or `update` threw, by node id: the editor's own findings. */
     const bodyFindings = new Map();
@@ -1027,7 +1027,7 @@ export function createCanvasEditor(host, options = {}) {
         const list = inlineFields(nodeRow);
         if (!list.length) return;
         const box = el('div', 'twm-flow-graph__node-inline');
-        const drawn = { readOnly: isReadOnly(), box, fields: [] };
+        const drawn = { readOnly: isReadOnly(), fields: [] };
         for (const f of list) {
             const slot = { key: f.key, spec: f, shown: shownKey(nodeRow.config[f.key]), field: null };
             slot.field = inlineField(nodeRow.id, slot, nodeRow.config[f.key]);
@@ -1055,8 +1055,9 @@ export function createCanvasEditor(host, options = {}) {
 
     /** The node's inline controls brought in step with its config: a control
      *  whose value changed elsewhere (the panel, an undo) is drawn again, and
-     *  every one is when read only changed. The one being typed in holds what
-     *  it wrote, so it is left alone. */
+     *  every one is when read only changed. The one being typed in already
+     *  shows what it wrote (its `set` moved `shown`), so it is left alone; a
+     *  focused one drawn again gets its focus and caret back. */
     function paintInline(nodeRow) {
         const drawn = inlines.get(nodeRow.id);
         if (!drawn) return;
@@ -1067,15 +1068,39 @@ export function createCanvasEditor(host, options = {}) {
             const value = nodeRow.config[slot.key];
             const shown = shownKey(value);
             if (!roChanged && shown === slot.shown) continue;
-            const focused = slot.field.el.contains(document.activeElement);
-            if (focused && !roChanged) continue;
+            const held = heldCaret(slot.field);
             slot.field.destroy();
             const fresh = inlineField(nodeRow.id, slot, value);
             slot.field.el.replaceWith(fresh.el);
             slot.field = fresh;
             slot.shown = shown;
-            if (focused) fresh.focus();
+            if (held) restoreCaret(fresh, held.caret);
         }
+    }
+
+    /** Whether `field` holds the focus, and where its caret is: {caret} | null. */
+    function heldCaret(field) {
+        const active = document.activeElement;
+        if (!active || !field.el.contains(active)) return null;
+        let caret = field.caret?.() ?? null;
+        if (!caret) {
+            try {
+                if (Number.isInteger(active.selectionStart)) {
+                    caret = { start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection };
+                }
+            } catch { /* a type without a caret */ }
+        }
+        return { caret };
+    }
+
+    function restoreCaret(field, caret) {
+        if (!field.focus() || !caret) return;
+        if (field.caret?.()) { field.restoreCaret(caret); return; }
+        const box = document.activeElement;
+        try {
+            const end = box.value.length;
+            box.setSelectionRange(Math.min(caret.start, end), Math.min(caret.end, end), caret.direction || 'none');
+        } catch { /* no caret */ }
     }
 
     function dropInline(id) {
@@ -1116,16 +1141,17 @@ export function createCanvasEditor(host, options = {}) {
         input.type = 'text';
         input.value = before;
         input.setAttribute('aria-label', say(S, 'rename'));
-        const edit = { id, input, title, done: false };
+        const edit = { id };
+        let done = false;
         edit.finish = (keep, { enter = false } = {}) => {
-            if (edit.done) return;
+            if (done) return;
             const text = input.value.trim();
             if (keep && !text) {
                 setMessage(say(S, 'nameEmpty'), 'warning');
                 input.setAttribute('aria-invalid', 'true');
                 if (enter && input.isConnected) return;          // still open, to be typed again
             } else if (input.getAttribute('aria-invalid')) setMessage('');
-            edit.done = true;
+            done = true;
             if (renaming === edit) renaming = null;
             const hadFocus = input === document.activeElement;
             input.remove();

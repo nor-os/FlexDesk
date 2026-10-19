@@ -19,7 +19,9 @@
  *   §6  an `inline` number setting on the node and the same setting in the
  *       panel stay in step both ways, each change one `flow:node:config`
  *       entry; the node's control being typed in keeps its element and focus;
- *       an undo redraws both; read only disables the node's control
+ *       an undo redraws both, a focused node control too (Ctrl+Z on a
+ *       checkbox or select, `editor.undo()` on a number), focus kept; read
+ *       only disables the node's control
  *   §7  `setCatalogue` with a changed `inline` rebuilds the node; the same
  *       one keeps it
  *
@@ -245,6 +247,51 @@ t.section('§6 an inline setting and the panel stay in step');
     t.ok('read only disables the node\'s control', inlineBox().disabled === true);
     m.editor.setReadOnly(false);
     t.ok('and enables it again', inlineBox().disabled === false);
+}
+
+// A focused inline control whose value changes elsewhere (an undo) is drawn again, focus kept.
+{
+    const SWITCHES = { ...STEP, type_id: 'switches', label: 'Switches', inline: ['on', 'mode', 'count'],
+                       config_schema: { type: 'object', properties: {
+                           on: { type: 'boolean', title: 'On' },
+                           mode: { type: 'string', enum: ['fast', 'slow'], title: 'Mode' },
+                           count: { type: 'number', title: 'Count' } } } };
+    const g = { nodes: [{ id: 's', type: 'switches', config: { mode: 'fast', count: 1 }, position: { x: 80, y: 80 } }],
+                connections: [] };
+    const m = mount({}, [STEP, SWITCHES], g);
+    m.editor.select('s');
+    const on = (root) => root.querySelector('[data-field="on"] input[type="checkbox"]');
+    const mode = (root) => root.querySelector('[data-field="mode"] select');
+    const count = (root) => root.querySelector('[data-field="count"] input');
+    const node = () => nodeEl(m, 's').querySelector('.twm-flow-graph__node-inline');
+    const panel = () => m.el.querySelector('.twm-flow-graph__aside');
+
+    on(node()).focus();
+    on(node()).click();
+    t.check('a click on the node\'s checkbox: the graph is on', configOf(m, 's').on, true);
+    key(document.activeElement, { key: 'z', ctrlKey: true });
+    t.check('Ctrl+Z with the checkbox focused: the graph is off again', configOf(m, 's').on, undefined);
+    t.check('the node\'s checkbox shows it', on(node()).checked, false);
+    t.check('and the panel\'s', on(panel()).checked, false);
+    t.ok('the node\'s checkbox keeps the focus', document.activeElement === on(node()));
+
+    mode(node()).focus();
+    mode(node()).selectedIndex = [...mode(node()).options].findIndex((o) => o.textContent === 'slow');
+    mode(node()).dispatchEvent(new w.Event('change', { bubbles: true }));
+    t.check('a choice on the node\'s select: the graph holds it', configOf(m, 's').mode, 'slow');
+    key(document.activeElement, { key: 'z', ctrlKey: true });
+    t.check('Ctrl+Z with the select focused puts it back', configOf(m, 's').mode, 'fast');
+    t.check('the node\'s select shows it', mode(node()).selectedOptions[0].textContent, 'fast');
+    t.ok('and keeps the focus', document.activeElement === mode(node()));
+
+    count(node()).focus();
+    type(count(node()), '5');
+    t.check('typed on the node\'s number', configOf(m, 's').count, 5);
+    m.editor.undo();
+    t.check('editor.undo() with the number focused puts it back', configOf(m, 's').count, 1);
+    t.check('the node\'s number shows the restored value', count(node()).value, '1');
+    t.check('and the panel\'s', count(panel()).value, '1');
+    t.ok('the number keeps the focus', document.activeElement === count(node()));
 }
 
 t.section('§7 setCatalogue: a changed inline rebuilds the node, the same one keeps it');

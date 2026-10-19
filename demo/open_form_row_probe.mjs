@@ -9,6 +9,9 @@
  *   340px  the same dialog narrowed below 360px stacks them (the second under
  *          the first, both as wide as the row)
  *          `setVisible` on one field of the row hides only that one
+ *          a row that leads the form, then two ordinary fields: the first of
+ *          them is 10px below the row, as every other pair of fields is (and
+ *          the same with the row in the middle)
  *          a real press on OK with Steps = 500 is refused, with the error under
  *          Steps, and the form stays open
  *
@@ -91,6 +94,32 @@ try {
         return { lo: Math.round(r('lo').width), hi: Math.round(r('hi').width), mode: Math.round(r('mode').width) }; })()`);
     check('setVisible(hi, false) hides only hi: lo and mode keep their box', vis.hi === 0 && vis.lo > 0 && vis.mode > 0, JSON.stringify(vis));
     await page.screenshot(join(OUT, '3-hidden.png'));
+
+    // Spacing: [ {row:[lo,hi]}, a, b ] and [ a, {row:[lo,hi]}, b ] — every gap 10px.
+    const GAPS = (fields) => `(async () => {
+        document.querySelector('.twm-managed-window--modal [data-action="cancel"]').click();
+        await __formDemo.result;
+        const { openForm } = await import('../widgets.js');
+        __formDemo.result = openForm({ title: 'Range', fields: ${fields} });
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        document.querySelector('.twm-managed-window--modal').style.width = '640px';
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const r = (n) => document.querySelector('[data-field-row="' + n + '"]').getBoundingClientRect();
+        const rowBottom = Math.round(Math.max(r('lo').bottom, r('hi').bottom));
+        return { loTop: Math.round(r('lo').top), rowBottom,
+                 aTop: Math.round(r('a').top), aBottom: Math.round(r('a').bottom), bTop: Math.round(r('b').top) };
+    })()`;
+    const ROW = "{ row: [ { name: 'lo', label: 'Min', type: 'number' }, { name: 'hi', label: 'Max', type: 'number' } ] }";
+    const A = "{ name: 'a', label: 'A' }";
+    const B = "{ name: 'b', label: 'B' }";
+    const lead = await page.evaluate(GAPS(`[ ${ROW}, ${A}, ${B} ]`));
+    check('a field after a leading row is 10px below it', lead.aTop - lead.rowBottom === 10, JSON.stringify(lead));
+    check('…and the next field 10px below that', lead.bTop - lead.aBottom === 10, JSON.stringify(lead));
+    await page.screenshot(join(OUT, '4-leading-row.png'));
+    const mid = await page.evaluate(GAPS(`[ ${A}, ${ROW}, ${B} ]`));
+    check('a row in the middle is 10px from the field above and the field below',
+          mid.loTop - mid.aBottom === 10 && mid.bTop - mid.rowBottom === 10, JSON.stringify(mid));
+
     await page.evaluate(`(async () => { document.querySelector('.twm-managed-window--modal [data-action="cancel"]').click();
         await __formDemo.result; return __formDemo.open(); })()`);
     await page.waitFor(`!!document.querySelector('[name="steps"]')`);
@@ -109,7 +138,7 @@ try {
                  open: !!document.querySelector('.twm-managed-window--modal') }; })()`);
     check('Steps = 500 is refused with "Must be between 2 and 200." under Steps, the form still open',
           err.text === 'Must be between 2 and 200.' && err.inRow && err.open, JSON.stringify(err));
-    await page.screenshot(join(OUT, '4-range.png'));
+    await page.screenshot(join(OUT, '5-range.png'));
     page.close();
 } finally {
     await browser.close();

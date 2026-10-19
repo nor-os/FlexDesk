@@ -6028,9 +6028,10 @@ button.twm-about-dialog__btn--close:focus {
 /* A `{ row: [...] }` entry of openForm: its fields side by side, each one an
  * ordinary `.twm-modal__row` with its own label, hint and error. The fields
  * after the first size their label to its text; the first keeps the form's
- * label column, so it lines up with the rows above and below. A form
- * narrower than 360px stacks them — the form is the query container, and only
- * a form that has a row is made one, so no other form's layout moves. */
+ * label column, so it lines up with the rows above and below, 10px from
+ * each, as any two rows are. A form narrower than 360px stacks them — the
+ * form is the query container, and only a form that has a row is made one,
+ * so no other form's layout moves. */
 .twm-managed-window--modal .twm-modal__form:has(.twm-modal__field-group) {
     container: twm-form / inline-size;
 }
@@ -6049,6 +6050,12 @@ button.twm-about-dialog__btn--close:focus {
 }
 .twm-managed-window--modal .twm-modal__fields > .twm-modal__field-group:first-child {
     margin-top: 14px;
+}
+/* A field after a leading row is still its label's first-of-type, so the
+ * leading-row margin above would land on it a second time: it keeps the
+ * normal 10px under the row (the row's own bottom margin) instead. */
+.twm-managed-window--modal .twm-modal__fields > .twm-modal__field-group ~ .twm-modal__row:first-of-type {
+    margin-top: 0;
 }
 .twm-managed-window--modal .twm-modal__field-group > .twm-modal__row + .twm-modal__row {
     grid-template-columns: auto 1fr;

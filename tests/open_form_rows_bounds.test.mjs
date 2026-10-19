@@ -14,7 +14,10 @@
  *       its own label, hint, error, visibility, value and key. `setVisible` on
  *       one hides only that one. Side by side in a 600px dialog, stacked below
  *       360px — a container query, asserted on the sheet's text because jsdom
- *       lays nothing out.
+ *       lays nothing out. A field after a row that leads the form keeps the
+ *       normal 10px under it: the form's leading 14px is not given to it a
+ *       second time (also the sheet's text; demo/open_form_row_probe.mjs
+ *       measures it).
  *   §3  A form with no rows and no bounds renders as before: no new markup, no
  *       new attribute, the same estimated size, and its form is not made a
  *       query container.
@@ -29,7 +32,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve as resolvePath } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
-import { ruleBody, stripComments } from './css_rules.mjs';
+import { compareSpecificity, ruleBody, specificity, stripComments } from './css_rules.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -294,6 +297,22 @@ section('§2 { row: [...] } puts fields side by side, each its own field');
     ok('there is a narrow-form query', !!q);
     check('…which applies below 360px and not at 600px', q && Number(q[1]), 359);
     ok('…and stacks the row', q && /\.twm-modal__field-group\s*\{[^}]*flex-direction:\s*column/.test(q[2]));
+    // A row first in the form, then an ordinary field: the field is still its
+    // label's first-of-type, so the leading 14px would land on it a second
+    // time under the row. It must keep the normal 10px — the row's own bottom
+    // margin — and nothing on top of it.
+    const LEAD = '.twm-managed-window--modal .twm-modal__fields > .twm-modal__row:first-of-type';
+    const AFTER = '.twm-managed-window--modal .twm-modal__fields > .twm-modal__field-group ~ .twm-modal__row:first-of-type';
+    const leadRule = css.match(/([^{}]+)\{([^{}]*)\}/g)?.find((r) => r.split('{')[0].split(',').map((x) => x.trim().replace(/\s+/g, ' ')).includes(LEAD)) || '';
+    ok('the first field of a form gets the 14px leading margin', /margin-top:\s*14px/.test(leadRule), leadRule);
+    const after = ruleBody(css, AFTER) || '';
+    ok('…but a field after a leading row has no top margin of its own', /margin-top:\s*0(px)?\s*;/.test(after),
+       `rule body: ${JSON.stringify(after)}`);
+    ok('…and that rule outranks the leading margin', compareSpecificity(specificity(AFTER), specificity(LEAD)) > 0);
+    const rowRule = ruleBody(css, '.twm-managed-window--modal .twm-modal__row') || '';
+    ok('…so the gap is the row\'s 10px bottom margin, as between any two fields', /margin-bottom:\s*10px/.test(rowRule));
+    const cellRules = ruleBody(css, '.twm-modal__field-group > .twm-modal__row', { all: true }).join('');
+    ok('…which the row\'s fields keep (nothing zeroes it inside the group)', !/margin-bottom/.test(cellRules));
 }
 
 // ── §3 ──────────────────────────────────────────────────────────────────

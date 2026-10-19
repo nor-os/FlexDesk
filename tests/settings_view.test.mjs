@@ -563,6 +563,31 @@ section('§6 a slice registered after mount appears without remounting');
     ok('…the rows on screen are the same rows', row('a.name').querySelector('input') === box);
     view.dispose();
 }
+{
+    // Mounted with no `category`: a slice ordered before the category on
+    // screen must not change which category is shown.
+    const { bus, store } = fixture();
+    let asked = null;
+    const confirm = async ({ message }) => { asked = message; return false; };
+    const { view, q, row } = mount({ store, eventBus: bus, confirm });
+    const shown = () => [view.getCategory(), q('.twm-settings__cat--active')?.dataset.category,
+                         q('.twm-settings__title').textContent];
+    check('mounted with no category shows the first', shown(), ['first', 'first', 'First']);
+    store.extend({ categories: [{ id: 'zero', label: 'Zero', order: 1 }] });
+    check('a category ordered before it keeps the one on screen (state, sidebar, title)',
+          shown(), ['first', 'first', 'First']);
+    ok('…its rows stay', !!row('a.n'));
+    check('…the new category joins the sidebar first', q('.twm-settings__cat')?.dataset.category, 'zero');
+    store.extend({
+        defaults: { zz: { m: 2 } },
+        categories: [{ id: 'zero2', label: 'Zero2', order: 0 }],
+        schema: { 'zz.m': { type: 'number', category: 'mid', group: 'Late', label: 'M', defaultValue: 2 } },
+    });
+    check('…as does one whose paths go into another category', shown(), ['first', 'first', 'First']);
+    await view.resetCategory();
+    ok('resetCategory() with no argument names the category on screen', /“First”/.test(asked ?? ''));
+    view.dispose();
+}
 
 // ── §7 ──────────────────────────────────────────────────────────────────
 section('§7 a text setting is debounced, and written at once on Enter');

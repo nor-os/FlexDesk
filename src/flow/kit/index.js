@@ -20,9 +20,9 @@ export {
 } from './references.js';
 export { createChipInput } from './chip_input.js';
 export {
-    createWidgetRegistry, GENERIC_WIDGETS, DEFAULT_WIDGET_REFERENCES, renderField, shownValue, typedValue,
-    fitToText,
+    createWidgetRegistry, GENERIC_WIDGETS, DEFAULT_WIDGET_REFERENCES, renderField, typedValue, fitToText,
 } from './widgets.js';
+export { shownValue } from '../../ui/components/choice_controls.js';
 export { createSettingsPanel } from './settings_panel.js';
 export { openStepPicker } from './step_picker.js';
 export { openValuePicker } from './value_picker.js';

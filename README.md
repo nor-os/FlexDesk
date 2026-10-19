@@ -191,6 +191,63 @@ content: {
 chrome shows only — the tree, the tab labels and the saved layout are left
 alone — and a call from content whose pane has since been rebuilt does nothing.
 
+### Panels a page does not offer (0.17.0)
+
+A kind says which panels it offers while it is the primary tile. Each side is
+`true`, `false` or `{ reason }`; a side it does not name is offered, and a kind
+that does not name a side takes it from its top-nav kind, so one declaration on
+a page covers every record opened under it:
+
+```js
+kinds: {
+    paper: { label: 'Paper', isTopNav: true, panels: { bottom: { reason: 'No console here' } } },
+    sheet: { label: 'Sheet', topNav: 'paper' },                        // withholds it too
+    slide: { label: 'Slide', topNav: 'paper', panels: { bottom: true } }, // offers it
+},
+```
+
+While a panel is withheld it is not in the layout, `wm.togglePanel(side)`
+answers `false` and changes nothing (nor what is saved), `wm.isPanelOpen(side)`
+is `false`, and the shell's toggle button and the palette chip carry
+`aria-disabled="true"` with the reason as their tooltip (`data-tooltip` on a
+`twm-has-tooltip` button, `title` otherwise; the button's own comes back after).
+The desktop still remembers the panel was open, and it comes back open when the
+user returns to a page that offers it. With no declarations every panel is
+offered, exactly as before.
+
+Content overrides its kind at runtime, until it clears the override with `null`:
+
+```js
+ctx.wm.setPanelAvailability('bottom', { reason: 'Run the model first' });
+ctx.wm.setPanelAvailability('bottom', null);           // e.g. in destroy()
+```
+
+`wm.isPanelAvailable(side)` and `wm.getPanelAvailability(side)` (`{ available,
+reason }`) read it, and a change is announced once — whatever caused it and
+however many sides it moved — to `wm.onPanelAvailabilityChange(fn)` (which
+returns the unsubscribe) and on the bus as `wm:panels:availability`, both with
+`{ panels, changed }`. `togglePanel` now answers `true` when it flipped a panel.
+
+`PanelStateMachine`, `PANEL_STATES` and `PANEL_TRANSITIONS` are gone from
+`@flexdesk/widgets`: nothing in the library used them, and which panels a page
+offers is now said once, in the taxonomy.
+
+`tests/panel_availability.test.mjs` drives all of it against a real shell.
+
+### Panels keep the size you dragged them to (0.17.0)
+
+Each desktop remembers every panel's share of the window-manager area along
+its axis (width for left and right, height for bottom), taken when a splitter
+drag ends, and saves it with the layout as `panelShares`. A reload, a switch to
+another desktop and back, and toggling one panel all rebuild the panels at
+those shares, and a closed panel comes back at the size it had. Only a panel
+that has never been sized on that desktop opens at the default 1:4. No split is
+built tighter than a drag allows (`TileRenderer.MIN_SLOT_FRACTION` of it per
+slot). A `TileRenderer` built by hand takes `onSplitResized(splitId)`, called
+once when a drag that changed a split's sizes ends.
+
+`tests/panel_sizes_kept.test.mjs` covers each of these.
+
 ### A navigation panel you drive yourself: `mountNavPanel` (0.17.0)
 
 `mountNavPanel(hostEl, { modes })` (from `@flexdesk/wm`) builds a mode strip, a
@@ -1149,6 +1206,59 @@ host.appendChild(slider.render());
 | `setValue(x, { silent })`, `setRange({ min, max, step }, { silent })`, `setEnabled(on, { silent })`, `reset({ silent })` | Change the field from code. Each reports at most once, nothing with `silent: true`, and nothing when the reported value did not move, so a caller that writes back from its own `onChange` does not loop. `setValue` refuses a non-finite value (returns `false`); `setRange` refits the value and the default |
 | `getValue()`, `isEnabled()`, `isModified()` | What `onChange` would report now, the toggle state, and whether the value differs from `defaultValue` |
 
+### A stack of collapsible sections: `createSectionStack` (0.17.0)
+
+Inspector-style panel content: titled sections in a column, each opened and
+closed from its header. It is built from the tree's `.twm-collapsible-*`
+pieces plus `.twm-section-stack*` (`@flexdesk/widgets`).
+
+```js
+const stack = createSectionStack(panel, {
+    sections: [
+        { id: 'notes', title: 'Notes', icon: 'edit_note', content: notesEl },
+        { id: 'chat', title: 'Assistant', fill: true,
+          actions: [{ icon: 'delete', label: 'Clear', onClick: (id, event) => clear() }] },
+        { id: 'params', title: 'Parameters', defaultExpanded: false },
+    ],
+    key: 'inspector.sections',
+    stateStore: { read: (key) => saved[key], write: (key, map) => { saved[key] = map; } },
+});
+stack.body('params').appendChild(paramsEl);
+const off = stack.on('toggled', ({ id, expanded, source }) => { /* … */ });
+```
+
+- **The header toggles, its actions do not.** A click anywhere on a header
+  opens or closes the section and turns its arrow. A click on one of its
+  `actions` runs that action's `onClick(sectionId, event)` and nothing else.
+  The toggle is a `<button>`, so Enter and Space work.
+- **`defaultExpanded`** is `true` unless a section says `false`.
+- **One `fill` section** takes the height the others leave, and its body is
+  what scrolls (`min-height: 0`). A long conversation scrolls inside its
+  section and the panel stays the size of the window. The stack is
+  `height: 100%` of its container, so give the container a height. A closed
+  fill section is only its header.
+- **Remembering is injected.** `stateStore` is `{ read(key), write(key, map) }`.
+  `map` is `{ [sectionId]: expanded }`, and it is written on every open and
+  close under `key`. `read` may return a promise. Until it settles the
+  sections show their defaults; a section somebody toggled in the meantime
+  keeps that choice, and that toggle is written once the read has settled,
+  over the stored states of the sections nobody touched. `stack.ready` resolves once the read has been applied. A
+  store that throws, rejects or returns anything other than a map leaves every
+  section on its `defaultExpanded`. Without a store nothing is remembered.
+- **`setVisible(id, false)`** takes a section off the stack and keeps its
+  state, so `setVisible(id, true)` brings it back open or closed as it was.
+  `isVisible(id)` reads it.
+- `expand(id)`, `collapse(id)`, `toggle(id)` and `isExpanded(id)` work on
+  any section, hidden or not. An unknown id throws.
+- **`toggled`** fires on each change with `{ id, expanded, source }`, where
+  `source` is `'user'`, `'api'` or `'restore'` (a stored state that arrived
+  after mount). `on('toggled', fn)` returns the function that stops listening.
+- **`dispose()`** removes the stack's listener and every node it made, along
+  with any `content` you passed in.
+
+`tests/section_stack.test.mjs` covers each of these in jsdom. The fill
+layout was also measured in headless Edge.
+
 ## Flow editors
 
 *New in 0.6.0.* Both entries first ship in FlexDesk 0.6.0.
@@ -1814,9 +1924,14 @@ keystrokes ask the preview once.
 `openForm({ title, fields, defaults, submitLabel })` (in `@flexdesk/widgets`)
 opens a modal form and resolves with `{ [name]: value }`, or `null` when it is
 cancelled. Fields are `text`, `number`, `password`, `select`, `textarea`,
-`checkbox`, `toggle` and `picker`; `{ section: 'Label' }` entries are headings.
-Each of the additions below is opt-in, and a form that uses none of them renders
-and submits exactly as in 0.9.1.
+`checkbox`, `toggle`, `picker`, `checklist` and `radio`; `{ section: 'Label' }`
+entries are headings. The additions below are opt-in, with one change every form
+sees, even one that uses none of them: a `select` or `radio` comes back with
+its option's OWN value and type (a numeric option submits `2`, not `'2'`; an
+option whose value is `null` submits `null`), a default of that type selects
+its option (`defaults: { s: 2 }` selects the option whose value is `2`), and an
+option object with no `label` shows its value. A select with no option
+selected still reads and submits `''`.
 
 ### A form that adapts: `onFieldChange`
 
@@ -1840,12 +1955,23 @@ openForm({
 every field's `change`. `api` addresses fields and named sections by name:
 
 - `setVisible(name, on)` hides or shows the row. A hidden row keeps its value
-  and is still submitted, but it is not asked about: its `required` and its
+  and is still submitted (a disabled option it holds submits as no value:
+  `''` for a select or combobox, `null` for a radio), but it is not asked
+  about: its `required` and its
   `validator` stand down until it is shown again.
-- `get(name)` reads the control as it stands: a checkbox as a boolean,
-  anything else as its string.
+- `get(name)` reads the control as it stands: a checkbox as a boolean, a
+  select or radio as its option's own value (a select with no option selected
+  as `''`, a radio with none as `null`), a combobox as the value of the option
+  its text names — exactly what it submits — or as its text when it names
+  none, a checklist as the array of chosen values, anything else as its
+  string.
 - `set(name, value)` writes it. It does not call `onFieldChange` back, so a
-  hook that fills one field from another cannot loop.
+  hook that fills one field from another cannot loop. A value a select or
+  radio does not offer, or offers only disabled, clears it (a select then
+  submits `''`, a radio `null`).
+- `setOptions(name, options)` replaces the options of a `select` (a
+  combobox's suggestions too), `checklist` or `radio` while the form is open
+  — see below.
 
 A hook that throws is logged and the form carries on.
 
@@ -1886,6 +2012,73 @@ submit with "onCreate is not a function".
 
 `tests/open_form.test.mjs` mounts the real `openForm` in jsdom and covers all
 four, plus a plain form submitting as before.
+
+### Options: typed, unavailable, grouped, and changed while open (0.17.0)
+
+```js
+openForm({
+    fields: [
+        { name: 'country', label: 'Country', type: 'select', options: ['no', 'it'] },
+        { name: 'town', label: 'Town', type: 'select', options: [] },
+        { name: 'plan', label: 'Plan', type: 'select', options: [
+            { value: 1, label: 'Free' },
+            { value: 2, label: 'Pro', disabled: true, reason: 'needs a licence' },
+            { group: 'Teams', options: [{ value: 10, label: 'Small team' }, { value: 50, label: 'Large team' }] },
+        ] },
+        { name: 'days', label: 'Days', type: 'checklist', required: true,
+          options: [{ value: 'mon', label: 'Mon' }, { value: 'tue', label: 'Tue' }] },
+        { name: 'mode', label: 'Mode', type: 'radio', options: [
+            { value: 'fast', label: 'Fast', description: 'Skips the checks.' },
+            { value: 'safe', label: 'Safe' },
+        ] },
+    ],
+    onFieldChange: (name, value, api) => {
+        if (name === null || name === 'country') api.setOptions('town', townsOf(api.get('country')));
+    },
+});
+// → { country: 'it', town: 'Rome', plan: 10, days: ['mon'], mode: 'fast' }
+```
+
+An option is a bare value or `{ value, label?, disabled?, reason?,
+description? }`.
+
+- **Values keep their type.** An option whose value is the number 10 submits
+  10, and `api.get` reads 10 — not `'10'`. A default matches an option of the
+  same text, so `defaults: { plan: '10' }` selects 10. A combobox entry typed
+  as an option's text submits (and `api.get` reads) that option's value. An
+  option whose value IS the given one wins over one that only has its text:
+  with options `[1, '1']`, a default `'1'` submits `'1'`.
+- **A disabled option** is shown with its `reason` (in a select's option text
+  and tooltip, under a radio, on a chip) and is never the submitted value: a
+  default naming it does not select it, `api.set` to it clears a select,
+  radio or combobox and leaves a checklist's chip unpressed, the reader
+  cannot pick it, a combobox does not suggest it, and a submit
+  that finds one selected anyway (a script set `.value`, or every option is
+  disabled) is refused with "Not available: *reason*" on the field. In a
+  hidden row, which is not asked about, it submits as no value instead.
+- **`{ group, options }`** in a select's list is an `<optgroup>` headed
+  *group*. In a checklist or radio it is a `.twm-choice__group` heading over
+  that group's chips or rows (a group with no options draws none). A combobox
+  suggests a group's enabled options, without headings.
+- **`api.setOptions(name, options)`** replaces the list while the form is
+  open and keeps the current value when the new list offers it enabled.
+  Otherwise a select falls to its first enabled option, a radio to none and a
+  checklist drops what is gone. It does not call `onFieldChange` back.
+- **`type: 'checklist'`** draws toggle chips and submits the array of chosen
+  values in the list's order (`[]` for none). `required` means at least one,
+  and nothing chosen is "Required." on the field.
+- **`type: 'radio'`** draws one radio row per option, with its `description`
+  under it, and submits the chosen value, or `null`. `required` means one is
+  chosen.
+
+The select, the chips and the radio list are the flow kit's
+(`src/ui/components/choice_controls.js`): the settings panel's `enum` select,
+`enum-chips`, `upstream-columns` and `choice-cards` draw with the same code, so
+a form and a settings panel cannot drift apart. In a form they are classed
+`.twm-flow-togglechips` / `.twm-flow-togglechip` and `.twm-flow-choices` /
+`.twm-flow-choice`; an unavailable option's reason is `.twm-choice__reason`.
+
+`tests/open_form_choices.test.mjs` covers each of these in jsdom.
 
 ### A switch: `ToggleField` and `type: 'toggle'` (0.17.0)
 
@@ -2165,6 +2358,79 @@ const { status } = await dlg.result;   // 'done' | 'error' | 'cancelled'
 
 `tests/progress.test.mjs` holds all of it in jsdom.
 
+## Tabs: `createTabs` (0.17.0)
+
+One tab strip, from `@flexdesk/widgets`, keyed by whatever ids you give it — not
+by file path (`NotebookTabBar`) and not by a bus event (`createBottomPanelTabs`,
+which is now built on it). It is a strip and nothing else, or a strip with the
+panes behind it.
+
+```js
+const tabs = createTabs(el, {
+    items: [
+        { id: 'inputs',  label: 'Inputs', icon: 'tune', title: 'Model inputs' },
+        { id: 'results', label: 'Results', badge: { count: 3, level: 'warning' } },
+        { id: 'draft',   label: 'Draft', dirty: true, closable: true },
+    ],
+    active: 'inputs',
+    onSelect: (id, item) => …,
+    onReselect: (id, item) => …,                                       // optional: a click on the tab in front
+    onClose: (id) => tabs.update(items.filter((i) => i.id !== id)),   // optional
+    onReorder: (ids) => …,                                             // optional: tabs drag
+    onContextMenu: (id, event, item) => …,                             // optional
+    mountPane: (item, paneEl, tabs) => ({ onShow() {}, destroy() {} }), // optional: strip only
+    compact: false,
+    label: 'Views',
+});
+tabs.update(nextItems, 'results');
+tabs.setBadge('results', 7, 'alert');
+tabs.setIndicator('inputs', 'info');
+```
+
+| Member | Does |
+|---|---|
+| `update(items, activeId?)` | Replaces the items, keeping the button of every id it keeps. In front: `activeId` if present, else the tab in front now if it is still there, else the first (none when no items are left). Panes of items that went are destroyed |
+| `select(id)`, `active()`, `has(id)`, `ids()` | The tab in front; `select` answers false for an id it does not have |
+| `setBadge(id, n, level?)` | A count, `99+` above 99, none at zero; `level` is `info`, `warning` or `alert` (`TAB_LEVELS`) |
+| `setIndicator(id, value)` | A dot: a level, `true` for the neutral one, falsy for none |
+| `instance(id)`, `instances()` | The mounted panes' instances |
+| `destroy()` | Destroys the panes, lets the bus go, removes the markup |
+
+- **Panes mount on first selection.** The tab in front at creation counts;
+  `eager: true` on an item mounts its pane at once — at creation, or in the
+  `update` that brings the item in, before the tab in front is settled. Each
+  instance hears `onShow()` whenever its tab comes to the front and `destroy()`
+  when its item goes.
+- **`onSelect` hears changes**, not the tab chosen at creation. A click on the
+  tab already in front is not a change; `onReselect(id, item)` hears it. An
+  `update` that leaves no items empties the front, heard as `onSelect(null, null)`.
+- **The bus is opt-in:** pass `eventBus` *and* `selectEvent: 'views:show'` and
+  that event selects `payload.id` (or `selectFrom(payload)`). No event name, no
+  subscription.
+- **Keys** follow the ARIA tabs pattern with automatic activation:
+  ArrowLeft/ArrowRight (wrapping), Home, End; Delete (and a middle click) closes
+  a closable tab. Only the tab in front is in the tab order. When an `update`
+  removes the tab that has focus (Delete, then your `onClose` drops it), focus
+  moves to the tab now in front instead of falling to the page. Focus that the
+  update put somewhere else (a pane that focuses itself in `onShow`) stays there.
+- **Overflow scrolls**, never wraps: a vertical wheel moves the strip sideways and
+  the tab coming to the front is scrolled into view (`revealInStrip`,
+  `wheelStripSideways`, shared with `NotebookTabBar`).
+- **Classes** are BEM under `block` (default `twm-tabs`): `__tabs`, `__tab`,
+  `__tab--on`, `__tab--dirty`, `__tab--closable` (it has a close mark), `__icon`,
+  `__label`, `__badge`, `__indicator`, `__dirty`, `__close`, `__body`,
+  `--compact`, and `twm-tabs-pane`. A dirty tab shows its dot until hovered,
+  then its close mark; one with no close mark keeps the dot. Tabs and panes
+  carry the id in `data-tab-id` (`dataKey`), as a string; callbacks and `ids()`
+  hand back the id as you gave it, so a numeric id stays a number.
+
+`tests/tabs.test.mjs` covers it in jsdom; `tests/bottom_panel_tabs.test.mjs`
+runs on the bottom panel built over it. The bottom panel behaves as it did:
+`api.root` is set inside a pane's `mount`, and a click on the tab in front
+re-shows its pane, fires `onSelect` and is remembered, as `select` does. A
+remembered tab that is already in front when `remember.read` answers is shown
+again: its pane hears `onShow` and `onSelect` fires, and nothing is written back.
+
 ## Notifications: `NotificationCenter`
 
 Toasts, from `toast:show` on the bus (or `toastInfo` / `toastWarn` /
@@ -2241,7 +2507,7 @@ dismissed, and four pieces draw it. Each works without the others:
 | `createAlertLog({ source, limit })` | `widgets` | Entries `{id, at, level, title, body?, ref?, read}`, newest first; `add`, `receive`, `markRead`, `dismiss`, `unreadCount`, `worstUnread`, `subscribe`, `loadMore` |
 | `localSource({ read, write })` | `widgets` | Keeps the whole log in one stored value (localStorage, a workspace file) |
 | `mountAlertsPane(el, { log, onOpen, onBadge, rules?, stillMatches? })` | `widgets` | Level chips with counts, a filter, day groups, relative times, Open / Dismiss / Mark all read / Clear, *Load older* |
-| `createBottomPanelTabs(el, { panes, remember, store, eventBus })` | `wm` | The `.twm-bp` tab strip: `select`, `setBadge(id, n, level)`, `bottompanel:show {tab}` |
+| `createBottomPanelTabs(el, { panes, remember, store, eventBus })` | `wm` | The `.twm-bp` tab strip, on [`createTabs`](#tabs-createtabs-0170): `select`, `setBadge(id, n, level)`, `bottompanel:show {tab}` |
 | `new NotificationHistory({ alertLog, mountPoint, alertsTab, onOpen })` | `widgets` | The bell shows the log's unread count in the worst level's colour; a click (and "+N more") opens the Alerts tab |
 
 A **source** is where entries live: `load({offset, limit})` answers
@@ -2486,7 +2752,6 @@ before the first read:
 | ManagedWindow geometry | `'flexdesk.managedWindows.v1'` | `ManagedWindow.configure({ storageKey })` from `@flexdesk/widgets` |
 | Saved tile layouts | `'twm.tiles.layouts'` | `configureLayoutPersistence({ layoutsKey })` from `@flexdesk/tiles` |
 | Saved tile configurations | `'twm.tiles.configs'` | `configureLayoutPersistence({ configsKey })` from `@flexdesk/tiles` |
-| Panel open/size state | none: you must pass one | `new PanelStateMachine({ persistenceKey })` from `@flexdesk/widgets` |
 | Built-in Monaco themes | `'flexdesk-dark'`, `'flexdesk-light'` | `setEditorThemeNames({ dark, light })` from `@flexdesk/editor` |
 | MIME type of a dragged editor tab | `'application/x-flexdesk-tab'` | `setTabDragMime(mime)` from `@flexdesk/editor` |
 | Chart PNG export file name | `'chart'` (saved as `chart.png`) | `setChartExportFilename(name)` from `@flexdesk/charts` |
@@ -2734,11 +2999,19 @@ is told. What a scope means is yours; it is not part of the layout.
 
 Three stylesheets, and that is the whole CSS contract:
 
-| | |
-|---|---|
-| `dist/tokens.css` | Every rule reads `var(--…)` from here. Swap this one file and the shell restyles. |
-| `dist/reset.css` | The reset. |
-| `dist/flexdesk.css` | The library. Every class is `twm-` prefixed (the original working name; the prefix is stable and not worth a breaking rename). |
+| | Specifier | Resolves to | |
+|---|---|---|---|
+| `dist/tokens.css` | `flexdesk/css/tokens` | `css/tokens.css` | Every rule reads `var(--…)` from here. Swap this one file and the shell restyles. |
+| `dist/reset.css` | `flexdesk/css/reset` | `dist/reset.css` | The reset. |
+| `dist/flexdesk.css` | `flexdesk/css` | `dist/flexdesk.css` | The library. Every class is `twm-` prefixed (the original working name; the prefix is stable and not worth a breaking rename). |
+
+A bundler, an import-map generator or `require.resolve` reaches each one by its
+specifier, through the package's `exports` map, which closes every other path
+into the package. The map sends `flexdesk/css/tokens` to the source
+`css/tokens.css`, not `dist/tokens.css`. The two are identical in a release,
+since `dist/` is rebuilt in the release commit, but can differ on a working
+checkout. `flexdesk/css/reset` is missing from 0.16.1 and earlier,
+where it fails with `ERR_PACKAGE_PATH_NOT_EXPORTED`.
 
 `createDetailHeader` follows the prefix too: a badge is a `.twm-detail-header__badge`
 pill (a badge's `className` is added beside it, to recolour it), and an action is a

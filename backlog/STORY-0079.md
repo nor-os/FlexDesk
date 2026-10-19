@@ -2,10 +2,10 @@
 id: 79
 type: story
 title: "Canvas node titles, notes and chosen fields edit in place on the canvas"
-status: refined
+status: in-progress
 parent: 73
 phase: 
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 2
@@ -13,7 +13,7 @@ subsystem: canvas
 labels: [flexdesk, modeler]
 links: [blocked-by 74]
 created: 2026-10-17
-updated: 2026-10-17T21:20Z
+updated: 2026-10-19T16:41Z
 ---
 
 ## Description
@@ -31,6 +31,8 @@ Renaming a canvas node needs F2 or the settings panel; the legacy modeler edited
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
+- 2026-10-19 · norman_agent · status: refined -> in-progress
+- 2026-10-19 · norman_agent · assignee: (none) -> norman_agent
 
 ## Comments
 

@@ -633,15 +633,20 @@ export function createCanvasEditor(host, options = {}) {
 
     /** A body's write: the node's config merged with `patch` (an `undefined`
      *  value removes that key), as ONE `flow:node:config` edit. Refused while
-     *  read only and from inside a `render` or `update`. */
+     *  read only, from inside a `render` or `update`, and whole (nothing
+     *  written) when a value in `patch` cannot be cloned. */
     function setNodeConfig(id, patch) {
         if (destroyed || painting || isReadOnly()) return false;
         const nodeRow = nodeOf(id);
         if (!nodeRow || !patch || typeof patch !== 'object' || Array.isArray(patch)) return false;
         const keys = Object.keys(patch).sort();
         if (!keys.length) return false;
+        // Clone the whole patch before touching the node: a value that cannot
+        // be cloned throws here, so a bad patch changes nothing.
+        let next;
+        try { next = structuredClone(patch); } catch { return false; }
         for (const k of keys) {
-            if (patch[k] === undefined) delete nodeRow.config[k]; else nodeRow.config[k] = structuredClone(patch[k]);
+            if (next[k] === undefined) delete nodeRow.config[k]; else nodeRow.config[k] = next[k];
         }
         paintNodes();
         if (selected?.kind === 'node' && selected.id === id) paintPanel();

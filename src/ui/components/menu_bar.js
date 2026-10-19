@@ -630,6 +630,11 @@ export class MenuBar {
             this._closeFrom(level + 1);
             return true;
         }
+        // Moving within a menu closes any submenu open below it, as hovering
+        // another item does, so no stale submenu stays next to the focus.
+        if (key === 'ArrowDown' || key === 'ArrowUp' || key === 'Home' || key === 'End') {
+            this._closeFrom(level + 1);
+        }
         switch (key) {
             case 'ArrowDown': go(this._stepFrom(menu, btn, 1)); return true;
             case 'ArrowUp':   go(this._stepFrom(menu, btn, -1)); return true;

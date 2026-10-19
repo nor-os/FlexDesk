@@ -40,6 +40,9 @@ export const CANVAS_STRINGS = Object.freeze({
     renderFailed: (name, why) => `${name} could not draw its body${why ? `: ${why}` : '.'}`,
     updateFailed: (name, why) => `${name} could not bring its body up to date${why ? `: ${why}` : '.'}`,
     stepId: (id) => `Step id: ${id}`,
+    // `collapsible`
+    collapseNode: 'Fold this step to its header',
+    expandNode: 'Show this step\'s ports again',
     connection: 'Connection',
     connectionLine: (e) => `${e.source} · ${e.sourcePort} → ${e.target} · ${e.targetPort}`,
     removeConnection: 'Remove connection',

@@ -43,7 +43,7 @@ manager, and neither of them should drag in a plotting engine or a code editor.
 | `@flexdesk/core` | 30 kB | Event bus, settings store, logging, state machine, state guard |
 | `@flexdesk/host` | 5 kB | The host port (below) |
 | `@flexdesk/wm` | 166 kB | Tiling window manager: tabs, splits, desktops, command palette, taxonomy, `createShell()` |
-| `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus, a document outline, progress |
+| `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus, menu bars, a document outline, progress |
 | `@flexdesk/charts` | 26 kB | Plotly wrapper, chart types, subplot layouts, downsampling, plot windows, injected series transforms |
 | `@flexdesk/tiles` | 67 kB | Draggable/resizable widget grid, tile base class, widget registry, layout persistence, chart and KPI tiles |
 | `@flexdesk/editor` | 62 kB | Monaco loader + factory, multi-file tab bar, search, split panes, undo manager |
@@ -129,6 +129,74 @@ await createShell({
     },
 });
 ```
+
+### A menu bar: `createMenuBar` (0.17.0)
+
+File / Edit / View menus from one declarative model, instead of hand-built
+buttons and `showContextMenu` calls. A menu is `{ id, label, items }`; an item
+is `{ id, label, shortcut?, disabled?, checked?, radio?, submenu? }` or
+`{ separator: true }`:
+
+```js
+import { createMenuBar, MenuBar } from '@flexdesk/widgets';
+
+const bar = createMenuBar(document.getElementById('menus'), {
+    menus: [
+        { id: 'file', label: 'File', items: [
+            { id: 'open',   label: 'Open…',       shortcut: 'Ctrl+O' },
+            { id: 'recent', label: 'Open recent', submenu: () => recentItems() },  // rebuilt on every open
+            { separator: true },
+            { id: 'save',   label: 'Save',        shortcut: 'Ctrl+S', disabled: true },
+        ] },
+        { id: 'view', label: 'View', items: [
+            { id: 'grid',  label: 'Show grid', checked: true },                // a check item
+            { id: 'light', label: 'Light', radio: 'theme', checked: true },    // a radio group
+            { id: 'dark',  label: 'Dark',  radio: 'theme', checked: false },
+        ] },
+    ],
+    onAction: (id, { checked }) => run(id, checked),
+});
+bar.setEnabled('save', true);     // patches an open menu in place
+bar.setChecked('dark', true);     // …and unchecks the rest of the radio group
+```
+
+`createMenuBar(el, opts)` returns a `MenuBar` (also exported, for
+`instanceof`). Its methods: `open(menuId, { focusItem })`, `close()`,
+`focus()`, `isOpen()`, `isEnabled(id)`, `isChecked(id)`, `setEnabled(id, on)`,
+`setChecked(id, on)`, `commands()` and `dispose()`.
+
+- **Pointer.** Clicking a title opens its menu; while one is open, hovering
+  another title switches to it. Hovering an item with a submenu opens it.
+- **Keyboard.** Alt (on its own) or F10 focuses the bar. Left/Right move across
+  menus, Up/Down/Home/End within one, Right opens a submenu and Left closes it,
+  Enter/Space activate. Esc closes one level; the last Esc gives focus back to
+  what had it. Disabled items and separators are skipped, and never reach
+  `onAction`.
+- **Roles.** The WAI-ARIA menubar pattern: `menubar`, `menu`, `menuitem`,
+  `menuitemcheckbox`, `menuitemradio`, with `aria-checked`, `aria-disabled`
+  and `aria-expanded`.
+- `shortcut` is a label: the bar binds no key for it.
+- `bar.commands()` returns the model as palette rows (`{ id, label, shortcut,
+  context: 'File › Open recent', action }`), so the palette and the bar list the
+  same verbs.
+
+In a shell, pass the model as `menuBar` and the element as `chrome.menuBar`
+(each needs the other; either alone throws at boot);
+`shell.chrome.menuBar` is that `MenuBar`, and its enabled items follow the palette's
+own `commands` unless `menuBar.palette` is `false`:
+
+```js
+const shell = await createShell({
+    // …
+    menuBar: { menus, onAction },
+    chrome:  { menuBar: document.getElementById('menus') },
+});
+shell.chrome.menuBar.setEnabled('save', dirty);
+```
+
+The bar is `.twm-menubar` (not the older `.twm-menu-bar` icon strip).
+`tests/menu_bar.test.mjs` drives it in jsdom; `tests/menu_bar_css.test.mjs`
+holds its stylesheet.
 
 ### A kind that exists once: `single` (0.17.0)
 
@@ -276,6 +344,39 @@ pane is never handed a query; the next mode with a filter shows its own saved
 text again. `showFilter: false` renders no filter box at all. All three options
 default to the old behaviour, so a panel built without them renders exactly as
 before.
+
+### Buttons that change with the pane: `ctx.setChromeActions` (0.17.0)
+
+A factory may return `chromeActions` — `[{icon, title, onClick}]`, drawn in the
+pane's chrome left of the split/float/close buttons — but those are read once.
+`ctx.setChromeActions(specs)` replaces them at any time, the way `setTitle`
+replaces the title: called during the mount it wins over the returned list, the
+later call wins, the list survives repaints, `null` or `[]` clears it, and a
+call from content whose pane has since been rebuilt does nothing. The content is
+never re-mounted.
+
+```js
+content: {
+    page: (hostEl, props, ctx) => {
+        let wide = false;
+        const paint = () => ctx.setChromeActions([
+            { icon: wide ? 'width_normal' : 'width_wide', title: 'Page width',
+              pressed: wide, onClick: () => { wide = !wide; paint(); } },
+            { separator: true },
+            { icon: 'add', label: 'New', title: 'Add a page', onClick: addPage },
+            { icon: 'publish', title: 'Nothing to publish yet', disabled: true },
+        ]);
+        paint();
+        return { destroy() {} };
+    },
+},
+```
+
+A spec may add **`label`** (text beside the glyph, or instead of it),
+**`pressed`** (`aria-pressed`, plus a pressed style; leave it out for a button
+that is not a toggle), **`disabled`** (greyed and inert, with its tooltip kept —
+it is `aria-disabled`, not the `disabled` attribute) and **`{separator: true}`**
+(a divider). A spec with none of them renders exactly as before.
 
 ### Your desktops beside the app's (0.10.0)
 
@@ -2227,6 +2328,16 @@ checks jsdom has nothing to repair.
 `{ title, markdown }`; the modal renders it with `renderMarkdown` and the
 provider's optional `markdownOptions`. `{ title, html }` is unchanged:
 pre-rendered, **trusted** HTML, inserted as it is.
+
+**A table of contents for a help topic.** A topic with two or more headings,
+markdown or html, gets its contents between the breadcrumb and the article: a
+`createDocumentOutline` (below) of its `h1`–`h6`, numbered, the one in view
+marked as the content pane scrolls, a click that scrolls to its heading. The
+outline points at the heading elements themselves, so your markup needs no
+ids and the modal adds none; a topic with one heading or none shows no
+contents (the empty `.help-content__toc` is `hidden`). Until now the modal's
+documentation promised this and drew nothing. `tests/help_modal_toc.test.mjs`
+drives it in jsdom (BUG-0010).
 
 ## A document outline: `createDocumentOutline` (0.17.0)
 

@@ -43,7 +43,7 @@ manager, and neither of them should drag in a plotting engine or a code editor.
 | `@flexdesk/core` | 30 kB | Event bus, settings store, logging, state machine, state guard |
 | `@flexdesk/host` | 5 kB | The host port (below) |
 | `@flexdesk/wm` | 166 kB | Tiling window manager: tabs, splits, desktops, command palette, taxonomy, `createShell()` |
-| `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus, menu bars, a document outline, progress |
+| `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus, menu bars, a document outline, progress, a conversation view |
 | `@flexdesk/charts` | 26 kB | Plotly wrapper, chart types, subplot layouts, downsampling, plot windows, injected series transforms |
 | `@flexdesk/tiles` | 67 kB | Draggable/resizable widget grid, tile base class, widget registry, layout persistence, figure, chart and KPI tiles |
 | `@flexdesk/editor` | 62 kB | Monaco loader + factory, multi-file tab bar, search, split panes, undo manager |
@@ -1541,7 +1541,7 @@ the settings of whatever is picked, under a toolbar. It stands on the
 
 | Part | What it does |
 |---|---|
-| `new CanvasAdapter({container, gridSize = 16, onViewportChange, onBackgroundMenu, nodeSelector})` | A surface you put nodes and lines on: right-, middle- or Shift-drag pans, Ctrl + the wheel zooms about the pointer, a left press on the background draws a marquee (`onMarquee(box)`, `onSelectionChange(selection)`). Fields `root`, `surface`, `edgeLayer` (an SVG), `nodeLayer`, `marquee`, `selection`, `scale`, `tx`, `ty`, `gridSize`. Methods `clientToCanvas`, `canvasToClient`, `snap`, `setViewport`, `viewport`, `zoomAt`, `fit`, `visibleBox`, `contains`, `bringIntoView` (pans and never zooms, and does nothing when the box is already in view), `consumeRightDrag`, `clear`, `destroy`. **A node is whatever you put in `nodeLayer`**: a press inside one starts no pan and no marquee, and a right-click on one keeps your menu (or the browser's). Pass `nodeSelector` when the node layer holds other things too. `onViewportChange` fires once, synchronously, from the constructor, so declare what it reads before you build the adapter |
+| `new CanvasAdapter({container, gridSize = 16, onViewportChange, onBackgroundMenu, nodeSelector})` | A surface you put nodes and lines on: right-, middle- or Shift-drag pans, Ctrl + the wheel zooms about the pointer, a left press on the background draws a marquee (`onMarquee(box)`, `onSelectionChange(selection)`). Fields `root`, `surface`, `edgeLayer` (an SVG), `nodeLayer`, `marquee`, `selection`, `scale`, `tx`, `ty`, `gridSize`. Methods `clientToCanvas`, `canvasToClient`, `snap`, `setViewport`, `viewport`, `zoomAt`, `fit`, `visibleBox`, `contains`, `bringIntoView` (pans and never zooms, and does nothing when the box is already in view), `consumeRightDrag`, `clear`, `destroy`. **A node is whatever you put in `nodeLayer`**: a press inside one starts no pan and no marquee, and a right-click on one keeps your menu (or the browser's). Pass `nodeSelector` when the node layer holds other things too. `onViewportChange` fires once, synchronously, from the constructor, so declare what it reads before you build the adapter. `CanvasAdapter.MIN_SCALE` (0.15) and `CanvasAdapter.MAX_SCALE` (4) are the limits every zoom clamps to (0.17.0) |
 | `routeEdge(from, to, {obstacles, simple})`, `selfLoop`, `returnEdge(from, to, {floor})` | SVG path data between two anchors `{x, y, side}`: a line with horizontal lead-outs (bent round obstacles up to `OBSTACLE_ROUTING_NODE_LIMIT` nodes), a node's line to itself, and a loop's line back, which runs under both nodes |
 | `crowsFoot(point, side, kind)`, `footAnchor(point, side, kind)`, `cardinality({kind, optional})` | Crow's-foot ends (`many`, `one`, `zero-or-many`, `one-or-many`, `zero-or-one`, `exactly-one`) as an SVG group `twm-edge__marker twm-edge__marker--<kind>`, where the line should start so it meets the mark, and the two ends a reference implies |
 | `arrange(nodes, edges, {columnGap, rowGap})` | A layered layout. **Two quirks, kept on purpose:** an edge points from child to parent (a node sits one column right of what it points at), and each column is sorted by `label`, which every node must have |
@@ -1595,7 +1595,7 @@ editor.setRunOverlay({ steps, ports, banner });
 | `connections` | `{dataPorts: 'connect', policy(ctx)}`, absent by default, and then nothing below is drawn or bound. With it every line is asked, in order: what the canvas cannot draw (`canConnect` with `dataPorts`: a data port connects only to a data port, and a data output carries any number of lines); the kernel's `ConnectorRouter` over the catalogue ports, which take its descriptor keys (`disabled`, `disabledReason`, `maxConnections`, `allowMultiple`); the port types (an input's `accepts: ['number']` refuses an output whose `provides` names none of them, in a sentence); and your `policy(ctx)` — the router's context plus `connection` and a copy of the `graph` — which may refuse with a `reason`, allow, or answer `{ok: true, offer: {message, accept, apply(draft)}}`. An offer is shown with Accept and Not now: Accept makes the line and runs `apply` on a copy of the graph (change it in place or return a new one), as one undo entry. An output can also be dragged: while it is, the inputs it may end on carry `twm-flow-graph__port--can-drop`; released on one it connects; released on the empty canvas it opens the step picker with the types that have an input it may connect to, and the step picked is added with the line as one `flow:node:add` |
 | `flowSettings` | `{title, schema, value}` — the flow's own settings, edited as `flow:settings` |
 | `readOnly` | `false`, or `{reason}`, which is shown above the editor. Every verb is then refused with that reason, and no gesture writes |
-| `actions` | Your toolbar verbs, `[{id, label, icon, primary, danger, title, run(editor)}]`, after Undo, Redo, Arrange and Fit |
+| `actions` | Your toolbar verbs, `[{id, label, icon, primary, danger, title, run(editor)}]`, after Undo, Redo, Arrange and Fit (and the zoom buttons, with `zoomControls`) |
 | `slots` | `toolbarEnd(el)`, `flowPanel(el, editor)` and `stepPanel(el, node, editor)`, drawn by you; `setRunOverlay` redraws the panel slots and nothing else |
 | `onChange`, `onSelect` | After every committed edit. An undo or a redo is a change too (`action: null`, `via: 'undo' \| 'redo'`), because you autosave what is undone. `onSelect({kind, id})`: `step`, `flow`, `connection` (with `connection`) or `null`; with `multiSelect`, two or more picked steps are `{kind: 'many', ids}` |
 | `multiSelect` (0.17.0) | `true` makes the pick a set (below, *Many picked*). Without it none of it is bound or drawn |
@@ -1606,10 +1606,14 @@ editor.setRunOverlay({ steps, ports, banner });
 | `routing` | `'simple'` (the default: direct curves) or `'obstacles'`: each line is bent round the steps between its ends by the kernel's `routeEdge`, up to `OBSTACLE_ROUTING_NODE_LIMIT` steps. Above that the lines are direct curves and the findings strip says so (code `canvas-routing-simple`) |
 | `hoverHighlight` | `true`: the pointer over a step gives its lines `twm-flow-graph__edge--highlighted`, and over a line that line; leaving takes it away |
 | `history`, `gridSize`, `label` | `{limit, mergeMs}`, the snap grid, and the canvas's accessible name |
+| `viewport`, `onViewportChange(viewport)` | Where the reader looks, kept by you: the editor stores none of it. `viewport` (`{scale, tx, ty}`, as `getViewport()` gives it) is where the first `load` opens, instead of fitting. `onViewportChange` hears ONE report per finished gesture of the reader's (a pan's release, a run of wheel turns once the wheel has been still for 300 ms, Fit, Arrange, a zoom button, a minimap click, *Go to it*), never one per pointer move, never a gesture that ended where it began, and never what you set yourself (`load`, `setViewport`, `fit()`, `arrange()`). A wheel report still waiting is handed on by the next press and by `destroy` (0.17.0) |
+| `zoomControls` | `true` adds Zoom out, Zoom in and 100% after Fit. They step through 15%, 25%, 33%, 50%, 67%, 80%, 100%, 125%, 150%, 200%, 300% and 400%, about the centre of the view. At the kernel's limits the button is refused in place with its sentence. Off by default (0.17.0) |
+| `minimap` | `true` draws a small overview over the canvas's lower right corner, with the steps and the view's frame, redrawn when the canvas changes size as well as when the view moves. A click on it centres the view on that point, at the same scale. Off by default, and then there is no minimap in the DOM (0.17.0) |
 
 | Method | Does |
 |---|---|
-| `load({graph, flowSettings}, {baseline = true, fit = true})` | Replaces the content. A baseline clears both stacks. With `baseline: false` the stacks are kept, and the loaded content becomes the present they undo from |
+| `load({graph, flowSettings}, {baseline = true, fit = true, viewport})` | Replaces the content. A baseline clears both stacks. With `baseline: false` the stacks are kept, and the loaded content becomes the present they undo from. With `viewport` it opens there and does not fit |
+| `getViewport()`, `setViewport({scale, tx, ty})` | The kernel's viewport, as a copy; and putting the view there, clamped to the kernel's limits. `setViewport` drops a fit still waiting for its frame, is not reported to `onViewportChange`, and answers `false` (changing nothing) for anything that is not three finite numbers with a scale above 0 (0.17.0) |
 | `getGraph()`, `serialise()`, `snapshot()`, `getFlowSettings()` | A copy of the graph; its byte-stable text; the text the history holds (graph and settings); the settings |
 | `setFindings(list)`, `setRunOverlay(overlay \| null)`, `setReadOnly(false \| {reason})` | — |
 | `setActionState(id, {disabled, reason, busy})`, `setStatus(text)`, `setMessage(text, tone)` | A verb refused in place, with its reason printed beside the toolbar; the status line; the gesture line |
@@ -1617,7 +1621,7 @@ editor.setRunOverlay({ steps, ports, banner });
 | `select(id \| [id, …] \| 'flow' \| null)`, `repaintPanel()`, `focus()`, `undo()`, `redo()`, `arrange()`, `fit({whole})` | `select([id, …])` (0.17.0, `multiSelect`) picks several steps at once (unknown ids are left out; one left is one step picked, none lets go) |
 | `setCatalogue(catalogue \| types)` | Swaps the step types while the editor is open, for a type registered after `load`: the palette is redrawn and a node whose type's definition changed is rebuilt, so a node of a type that was unknown now draws. A definition is compared by what the node is drawn from (known or not, `icon`, `label`, tone, ports, `render` and `update`), not by object identity: a new catalogue of the same types plus one more rebuilds no node and calls no `render` again. Under the `connections` option the connection rules and the empty-drop picker judge by the new catalogue, and a pending offer is taken away. The graph and the history are untouched (0.17.0) |
 | `history`, `canvas` | The editor's `FlowHistory` (`keep()`, `adopt(kept, editor.snapshot())`, `baseline(editor.snapshot())` for your publish) and its `CanvasAdapter` |
-| `destroy()` | Removes every listener, the ghost of a drag and any picker it opened. It saves nothing, because the editor holds nothing |
+| `destroy()` | Removes every listener, the ghost of a drag, the minimap and any picker it opened. It saves nothing, because the editor holds nothing; a viewport report still waiting for the wheel to settle is handed to `onViewportChange` first |
 
 Its edits are the closed list `CANVAS_ACTIONS`: `flow:node:add`,
 `flow:node:remove`, `flow:node:move` (one per drag), `flow:edge:connect`,
@@ -2761,6 +2765,73 @@ An eager pane, and the first one shown, mount inside `createBottomPanelTabs`
 before it returns. Reach the host through `mount`'s `api` argument, not the
 variable being assigned. Without `alertLog` and `mountPoint`, `NotificationHistory`
 is the bell it was.
+
+## A conversation: `mountConversationView` (0.17.0)
+
+A transcript of role-tagged messages above a composer, in `@flexdesk/widgets`.
+It has no markdown and no model in it: you draw a message's body, and it tells
+you when the user submits or cancels.
+
+```js
+const view = mountConversationView(el, {
+    render:   (message, bodyEl, { streaming }) => { bodyEl.innerHTML = toHtml(message.text); },
+    onSubmit: (text) => { view.append({ role: 'user', text }); view.setBusy(true); ask(text); },
+    onCancel: () => abort(),
+    placeholder: 'Ask anything',
+});
+view.beginStream({ role: 'assistant' });
+for await (const chunk of reply) view.appendChunk(chunk);  // re-renders this message only
+view.endStream();
+view.setBusy(false);
+```
+
+| Method | Does |
+|---|---|
+| `append({ id?, role, text, meta? })` → id | Adds a message; `role` becomes `twm-chat__msg--<role>` |
+| `replaceAll(messages)`, `clear()` | Restores a transcript (and scrolls to its end), or empties it |
+| `beginStream(message?)` → id, `appendChunk(text)`, `endStream()` | A message that grows; each chunk re-renders that message's body and nothing else |
+| `slot(id)` | The element below a message's body, yours to fill (tool output, buttons); a re-render leaves it alone |
+| `messages()`, `streamingId()` | Copies of the messages; the one streaming |
+| `getScrollTop()`, `setScrollTop(px)`, `scrollToBottom()`, `isPinned()` | The transcript's scroll position, to keep across a remount |
+| `setBusy(bool)`, `isBusy()` | `true` turns Send into Cancel |
+| `getText()`, `setText(text)`, `focus()`, `destroy()` | The composer, and teardown |
+
+- **`render(message, bodyEl, { streaming })`** fills an emptied body. One that
+  throws leaves that message as its plain text and the view carries on; the
+  error goes to `onRenderError(error, message)`. Without `render`, every body
+  is plain text (`textContent`, never markup).
+- **Pinned to the bottom.** The transcript starts out following new content.
+  Any scroll up, even a few px from the end (the first frame of a smooth wheel
+  or arrow-key scroll), stops that and shows *Jump to latest*, and later chunks
+  leave the reader where they are. It follows again only after a scroll down
+  that ends within `pinThreshold` px (32) of the end, a click on *Jump to
+  latest*, `scrollToBottom()`, `replaceAll()` / `clear()`, or a
+  `setScrollTop(px)` that lands within the threshold. Content growing below
+  never unpins it, nor does content shrinking under it (the browser moves
+  `scrollTop` back to the new end, which is not the reader scrolling). A wheel
+  over a scroller nested in a body or a slot (a `<pre>`, a tool-output box)
+  scrolls that scroller (or, at its top with `overscroll-behavior: contain`,
+  keeps the wheel), and a wheel a handler in the transcript cancels, a
+  Ctrl+wheel (page zoom, or a trackpad pinch) and a wheel up over a transcript
+  already at its top move nothing, so in all these cases the transcript keeps
+  following.
+- **The composer** grows with its text up to `composerMaxHeight` (200 px).
+  Enter submits and clears it (blank text is ignored, and so is Enter during
+  IME composition); Shift+Enter is left to the browser, which inserts the
+  newline (so undo and `input` listeners see it). While busy, Enter submits
+  nothing, and Esc (wherever focus is inside the view) or a click on Cancel
+  calls `onCancel` once per busy period. That Esc goes no further
+  (`stopPropagation`), so a `ManagedWindow` or panel holding the view that
+  closes on Escape stays open. An Esc a handler inside the view has already
+  consumed (`preventDefault`, e.g. an inline popup in the transcript closing
+  itself) is left alone: it neither cancels nor is stopped.
+- **Ids are unique.** `append`, `beginStream` or `replaceAll` with an id already
+  in the transcript (or repeated within the `replaceAll` list) throws, and the
+  refused call changes nothing: no row, no open stream, the old transcript kept.
+- `labels: { send, cancel, jump, input }` replaces the four texts.
+
+`tests/conversation_view.test.mjs` drives all of it in jsdom with a fake
+scroll geometry.
 
 ## The host port
 

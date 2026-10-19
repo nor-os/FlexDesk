@@ -2,10 +2,10 @@
 id: 77
 type: story
 title: "Canvas editor copy, cut, paste and duplicate of nodes and the lines between them"
-status: refined
+status: in-progress
 parent: 73
 phase: 
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 3
@@ -13,7 +13,7 @@ subsystem: canvas
 labels: [flexdesk, modeler]
 links: [blocked-by 76, relates-to 65]
 created: 2026-10-17
-updated: 2026-10-17T21:20Z
+updated: 2026-10-19T16:40Z
 ---
 
 ## Description
@@ -32,6 +32,8 @@ The canvas editor binds no clipboard. The legacy modeler copied nodes with their
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
+- 2026-10-19 · norman_agent · status: refined -> in-progress
+- 2026-10-19 · norman_agent · assignee: (none) -> norman_agent
 
 ## Comments
 

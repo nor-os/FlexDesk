@@ -551,16 +551,16 @@ try {
     check('the step\'s name is the element at its centre', named?.hit, JSON.stringify(named));
     await dblclick(page, named.x, named.y);
     await sleep(60);
-    const box = await page.evaluate(`(() => {
+    const nameBox = await page.evaluate(`(() => {
         const b = document.querySelector('.twm-flow-graph__node[data-node-id="save"] .twm-flow-graph__node-title-input');
         const t = document.querySelector('.twm-flow-graph__node[data-node-id="save"] .twm-flow-graph__node-title');
         return b && { value: b.value, focused: document.activeElement === b, start: b.selectionStart, end: b.selectionEnd,
                       titleHidden: t.hidden, depth: window.__flowCanvas.editor.history.depth };
     })()`);
-    check('a real double-click opens a text box holding the name', box?.value === 'Save the applications' && box.titleHidden,
-          JSON.stringify(box));
-    check('focused, the whole name selected', box?.focused && box.start === 0 && box.end === 'Save the applications'.length,
-          JSON.stringify(box));
+    check('a real double-click opens a text box holding the name', nameBox?.value === 'Save the applications' && nameBox.titleHidden,
+          JSON.stringify(nameBox));
+    check('focused, the whole name selected', nameBox?.focused && nameBox.start === 0 && nameBox.end === 'Save the applications'.length,
+          JSON.stringify(nameBox));
     await type(page, 'Stored');
     // The empty canvas: a point inside it that no step, line or control is drawn at.
     const empty = await page.evaluate(`(() => {
@@ -583,8 +583,8 @@ try {
     })()`);
     check('real keys replace the selected name, a real click away commits it', renamed.label === 'Stored' && !renamed.open
           && renamed.title === 'Stored', JSON.stringify(renamed));
-    check('as ONE flow:node:label entry', renamed.depth === box.depth + 1 && renamed.action === 'flow:node:label',
-          JSON.stringify({ before: box.depth, renamed }));
+    check('as ONE flow:node:label entry', renamed.depth === nameBox.depth + 1 && renamed.action === 'flow:node:label',
+          JSON.stringify({ before: nameBox.depth, renamed }));
     await key(page, 'z', { mods: ['ctrl'] });
     await sleep(60);
     const unnamed = await page.evaluate(`window.__flowCanvas.editor.getGraph().nodes.find((x) => x.id === 'save').label`);

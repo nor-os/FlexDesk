@@ -399,6 +399,9 @@ export class SettingsView extends ComponentBase {
             content.append(el('div', 'twm-settings__empty', 'No settings.'));
             return;
         }
+        // The page drawn is the category: a slice registered later, ordered
+        // before it, must not move the sidebar marker or getCategory() off it.
+        this._category = cat.id;
         const header = el('header', 'twm-settings__header');
         const info = el('div', 'twm-settings__header-info');
         info.append(el('h2', 'twm-settings__title', cat.label ?? cat.id));

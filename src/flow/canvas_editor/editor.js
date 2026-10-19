@@ -168,6 +168,7 @@
 
 import { CanvasAdapter } from '../../canvas/canvas_adapter.js';
 import { OBSTACLE_ROUTING_NODE_LIMIT, crowsFoot, footAnchor, returnEdge, routeEdge } from '../../canvas/edge_router.js';
+import { layeredLayout } from '../../canvas/layered_layout.js';
 import { TONES, button, el, icon, toneClass, closeFlowPopovers } from '../kit/dom.js';
 import { createStrings, say } from '../kit/strings.js';
 import { createStepCatalogue } from '../kit/catalogue.js';
@@ -287,9 +288,13 @@ export function createCanvasEditor(host, options = {}) {
         edgeStyle = null, routing = 'simple', hoverHighlight = false,
         onViewportChange = null, zoomControls = false, minimap = false, renameInPlace = false,
         clipboard = null, prepareCopy = null, collapsible = false,
+        layout = 'flow',
     } = options;
     const folding = Boolean(collapsible);
     const multi = Boolean(multiSelect);
+    if (layout !== 'flow' && layout !== 'layered' && typeof layout !== 'function') {
+        throw new Error(`createCanvasEditor's layout is 'flow', 'layered' or a function (graph, ctx) → Map; got ${String(layout)}.`);
+    }
     if (!ROUTINGS.includes(routing)) {
         throw new Error(`createCanvasEditor: routing is ${ROUTINGS.map((r) => `'${r}'`).join(' or ')}, not '${routing}'.`);
     }
@@ -530,8 +535,9 @@ export function createCanvasEditor(host, options = {}) {
     const tools = {
         undo: tool('undo', { label: say(S, 'undo'), icon: 'undo', title: say(S, 'undoTitle'), onClick: () => undo() }),
         redo: tool('redo', { label: say(S, 'redo'), icon: 'redo', title: say(S, 'redoTitle'), onClick: () => redo() }),
-        arrange: tool('arrange', { label: say(S, 'arrange'), icon: 'account_tree', title: say(S, 'arrangeTitle'),
-                                   onClick: () => { if (arrangeGraph()) viewportSettled(); } }),
+        arrange: tool('arrange', { label: say(S, 'arrange'), icon: 'account_tree',
+                                   title: say(S, layout === 'flow' ? 'arrangeTitle' : 'arrangeLayeredTitle'),
+                                   onClick: () => { if (arrangeGraph(arrangeTarget())) viewportSettled(); } }),
         fit: tool('fit', { label: say(S, 'fit'), icon: 'fit_screen', title: say(S, 'fitTitle'),
                            onClick: () => { fit({ whole: true }); viewportSettled(); } }),
     };
@@ -1900,21 +1906,49 @@ export function createCanvasEditor(host, options = {}) {
         }
     }
 
-    /** ARRANGE: `layoutGraph`, anchored at the graph's current top-left corner
-     *  so nothing jumps off screen, and ONE undo entry. */
-    function arrangeGraph() {
+    /** Where the `layout` option puts each of `part`'s steps: a Map of id →
+     *  `{x, y}` from the origin. */
+    function placeSteps(part, ids) {
+        if (layout === 'flow') {
+            return layoutGraph(part, catalogue, { ...BOX, loopEntry: loopPorts.entry, heightOf: (n) => measured(n) || null });
+        }
+        const sizeOf = (n) => ({ width: widthOf(n), height: heightOf(n) });
+        if (layout === 'layered') {
+            return layeredLayout(part.nodes, part.connections.map((c) => ({ from: c.source, to: c.target })), {
+                rank: (n) => typeOf(n)?.rank ?? null, sizeOf, columnGap: 96, rowGap: 40, componentGap: 80 });
+        }
+        const at = layout(normalise(part), { catalogue, node: BOX, ids, sizeOf, layeredLayout });
+        if (!(at instanceof Map)) throw new Error('The canvas editor\'s layout function must return a Map of id → {x, y}.');
+        return at;
+    }
+
+    /** What the toolbar's Arrange lays out: the picked steps when several are
+     *  picked (`multiSelect`), else the whole graph. */
+    const arrangeTarget = () => (selected?.kind === 'many' ? { ids: [...selected.ids] } : {});
+
+    /** ARRANGE: the `layout` option's places, anchored at the current top-left
+     *  corner of what is arranged so nothing jumps off screen, and ONE undo
+     *  entry. With `ids`, only those steps (two or more) and the lines between
+     *  them are laid out, and only they move. */
+    function arrangeGraph({ ids = null } = {}) {
         if (refusals().arrange) return false;
-        const at = layoutGraph(graph, catalogue, { ...BOX, loopEntry: loopPorts.entry,
-                                                   heightOf: (n) => measured(n) || null });
-        const ox = Math.min(...graph.nodes.map((x) => x.position.x));
-        const oy = Math.min(...graph.nodes.map((x) => x.position.y));
-        for (const nodeRow of graph.nodes) {
+        const only = Array.isArray(ids) ? new Set(ids.map(String)) : null;
+        const nodes = only ? graph.nodes.filter((n) => only.has(n.id)) : graph.nodes;
+        if (nodes.length < 2) return false;
+        const part = only ? { nodes, connections: graph.connections.filter((c) => only.has(c.source) && only.has(c.target)) }
+            : graph;
+        const at = placeSteps(part, only ? nodes.map((n) => n.id) : null);
+        const ox = Math.min(...nodes.map((x) => x.position.x));
+        const oy = Math.min(...nodes.map((x) => x.position.y));
+        for (const nodeRow of nodes) {
             const p = at.get(nodeRow.id);
-            if (p) nodeRow.position = { x: canvas.snap(ox + p.x), y: canvas.snap(oy + p.y) };
+            if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) {
+                nodeRow.position = { x: canvas.snap(ox + p.x), y: canvas.snap(oy + p.y) };
+            }
         }
         paintNodes();
         commit('flow:arrange');
-        fit();
+        if (!only) fit();
         return true;
     }
 
@@ -2644,7 +2678,7 @@ export function createCanvasEditor(host, options = {}) {
         focus() { canvas.root.focus({ preventScroll: true }); },
         undo,
         redo,
-        arrange: () => { const done = arrangeGraph(); viewportBaseline(); return done; },
+        arrange: (opts) => { const done = arrangeGraph(opts); viewportBaseline(); return done; },
         /** `multiSelect`: line the picked nodes up — left, center, right, top,
          *  middle or bottom. False when refused (fewer than two, read only). */
         align: (kind) => (multi ? alignNodes(kind) : false),

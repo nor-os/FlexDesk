@@ -13,6 +13,7 @@ export const CANVAS_STRINGS = Object.freeze({
     toolbarLabel: 'Flow',
     arrange: 'Arrange',
     arrangeTitle: 'Lay the steps out left to right, in the order a run takes them',
+    arrangeLayeredTitle: 'Lay the steps out left to right, following their connections',
     fit: 'Fit',
     fitTitle: 'Show the whole flow',
     zoomOut: 'Zoom out',

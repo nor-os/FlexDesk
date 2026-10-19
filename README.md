@@ -2799,8 +2799,10 @@ view.setBusy(false);
   growing below never unpins it: only the reader scrolling up does. A wheel
   over a scroller nested in a body or a slot (a `<pre>`, a tool-output box)
   scrolls that scroller (or, at its top with `overscroll-behavior: contain`,
-  keeps the wheel), and a wheel a handler in the transcript cancels moves
-  nothing, so in both cases the transcript keeps following.
+  keeps the wheel), and a wheel a handler in the transcript cancels, a
+  Ctrl+wheel (page zoom, or a trackpad pinch) and a wheel up over a transcript
+  already at its top move nothing, so in all these cases the transcript keeps
+  following.
 - **The composer** grows with its text up to `composerMaxHeight` (200 px).
   Enter submits and clears it (blank text is ignored, and so is Enter during
   IME composition); Shift+Enter is left to the browser, which inserts the

@@ -91,19 +91,32 @@ function same(a, b) {
     return ka.length === kb.length && ka.every((k) => same(a[k], b[k]));
 }
 
-/** A number written by a number row: snapped to `step` from `min`, then clamped. */
+/**
+ * A number written by a number row, always both in range and on the step grid
+ * (`min + k * step`, or `k * step` with no `min`): snapped to the nearest grid
+ * point, and a point outside [min, max] is moved inward to the nearest grid
+ * point inside. `min` is itself a grid point, so the range holds none only
+ * when `max < min`; the value is then `min`. With no step it is only clamped.
+ */
 function fitNumber(n, { min, max, step }) {
-    let v = n;
+    const lo = min != null && Number.isFinite(Number(min)) ? Number(min) : null;
+    const hi = max != null && Number.isFinite(Number(max)) ? Number(max) : null;
     const s = Number(step);
-    if (Number.isFinite(s) && s > 0) {
-        const base = Number.isFinite(Number(min)) ? Number(min) : 0;
-        v = base + Math.round((v - base) / s) * s;
-        const decimals = (String(s).split('.')[1] || '').length;
-        v = Number(v.toFixed(decimals));
+    if (!(Number.isFinite(s) && s > 0)) {
+        let v = n;
+        if (hi != null) v = Math.min(hi, v);
+        if (lo != null) v = Math.max(lo, v);
+        return v;
     }
-    if (min != null && Number.isFinite(Number(min))) v = Math.max(Number(min), v);
-    if (max != null && Number.isFinite(Number(max))) v = Math.min(Number(max), v);
-    return v;
+    const base = lo ?? 0;
+    const places = (x) => (String(x).split('.')[1] || '').length;
+    const decimals = Math.max(places(s), places(base));
+    const at = (k) => Number((base + k * s).toFixed(decimals));
+    const EPS = 1e-9;
+    let k = Math.round((n - base) / s);
+    if (hi != null && at(k) > hi) k = Math.floor((hi - base) / s + EPS);
+    if (lo != null && at(k) < lo) k = Math.ceil((lo - base) / s - EPS);
+    return at(k);
 }
 
 export class SettingsView extends ComponentBase {
@@ -478,7 +491,13 @@ export class SettingsView extends ComponentBase {
             const c = selectBox(def.options || [], this.store.get(def.path), {
                 label: name, valueAttr: 'value', className: 'twm-settings__select',
             });
-            c.box.addEventListener('change', () => write(c.valueOf()));
+            c.box.addEventListener('change', () => {
+                // Redrawn as a fresh mount draws the chosen value, so a stray
+                // '(not found)' entry goes once an offered option is picked.
+                const v = c.valueOf();
+                c.setOptions(def.options || [], v);
+                write(v);
+            });
             return {
                 el: c.box,
                 // Redrawn with the new value, as a fresh mount draws it: a

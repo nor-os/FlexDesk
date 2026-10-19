@@ -161,6 +161,7 @@ const DEFAULT_ALLOWED_DATASET_KEYS = Object.freeze([
     'direction',
     'dismiss',
     'entry',
+    'error',
     'extra',
     'flow',
     'from',

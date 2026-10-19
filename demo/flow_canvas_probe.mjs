@@ -18,8 +18,15 @@
  *   move       a real drag of a node's header moves it by the pointer's
  *              travel, snapped; a real Ctrl+Z puts it back; a real Backspace
  *              removes nothing; a real Delete removes the picked step
+ *   viewport   the zoom buttons pass the same layout check; the minimap sits
+ *              over the canvas's lower right corner, ABOVE the steps
+ *              (`elementFromPoint` at its centre is the minimap); a real
+ *              click on a step's box in it centres the view on that step, at
+ *              the same scale, with one viewport report; a real click on −
+ *              zooms out one step
  *   narrow     at 700px the canvas takes the editor's whole width (the
- *              container query)
+ *              container query), and the minimap's frame takes the canvas's
+ *              new shape (its ResizeObserver)
  *
  *     node demo/flow_canvas_probe.mjs [out-dir]      (a node with a global WebSocket)
  *
@@ -67,6 +74,9 @@ try {
         ['Undo', '.twm-flow-graph__toolbar [data-action="undo"]'],
         ['Arrange', '.twm-flow-graph__toolbar [data-action="arrange"]'],
         ['Fit', '.twm-flow-graph__toolbar [data-action="fit"]'],
+        ['Zoom out', '.twm-flow-graph__toolbar [data-action="zoom-out"]'],
+        ['Zoom in', '.twm-flow-graph__toolbar [data-action="zoom-in"]'],
+        ['100%', '.twm-flow-graph__toolbar [data-action="zoom-reset"]'],
         ['the consumer\'s Run', '.twm-flow-graph__toolbar [data-action="run"]'],
         ['a palette item', '.twm-flow-graph__palette-item[data-type="log"]'],
         ['a node\'s header', '.twm-flow-graph__node[data-node-id="fetch"] .twm-flow-graph__node-head'],
@@ -215,6 +225,73 @@ try {
     check('Go to it is the element at its own centre', goTo?.hit === true, JSON.stringify(goTo));
     await page.screenshot(join(OUT, '4-run-and-findings.png'));
 
+    console.log('\nviewport — the minimap and the zoom buttons');
+    const placed = await page.evaluate(`(() => {
+        const m = document.querySelector('.twm-flow-graph__minimap').getBoundingClientRect();
+        const c = document.querySelector('.twm-canvas').getBoundingClientRect();
+        return { right: Math.round(c.right - m.right), bottom: Math.round(c.bottom - m.bottom),
+                 inside: m.left >= c.left && m.top >= c.top && m.right <= c.right && m.bottom <= c.bottom,
+                 w: Math.round(m.width), h: Math.round(m.height) };
+    })()`);
+    check('the minimap is over the canvas\'s lower right corner', placed.inside && placed.right >= 0 && placed.right <= 20
+          && placed.bottom >= 0 && placed.bottom <= 20 && placed.w > 100 && placed.h > 60, JSON.stringify(placed));
+    // A step dragged under it first: the minimap must be drawn over the steps.
+    const fitBtn = await centre(page, '.twm-flow-graph__toolbar [data-action="fit"]');
+    await click(page, fitBtn.x, fitBtn.y);
+    await sleep(80);
+    const mc = await centre(page, '.twm-flow-graph__minimap');
+    const mover = await page.evaluate(`(() => [...document.querySelectorAll('.twm-flow-graph__node')].map((n) => n.dataset.nodeId)
+        .find((id) => { const t = document.querySelector('[data-node-id="' + id + '"] .twm-flow-graph__node-title').getBoundingClientRect();
+                        const h = document.elementFromPoint(t.left + t.width / 2, t.top + t.height / 2);
+                        return h && h.closest('[data-node-id]') && h.closest('[data-node-id]').dataset.nodeId === id; }))()`);
+    const under = await centre(page, `.twm-flow-graph__node[data-node-id="${mover}"] .twm-flow-graph__node-title`);
+    await drag(page, { x: under.x, y: under.y }, { x: mc.x, y: mc.y }, 12);
+    await sleep(60);
+    const covers = await page.evaluate(`(() => {
+        const m = document.querySelector('.twm-flow-graph__minimap'); const b = m.getBoundingClientRect();
+        const n = document.querySelector('[data-node-id="${mover}"]').getBoundingClientRect();
+        const overlap = n.left < b.right && n.right > b.left && n.top < b.bottom && n.bottom > b.top;
+        const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+        return { overlap, hit: Boolean(hit && m.contains(hit)), hitIs: hit && String(hit.getAttribute('class')),
+                 node: [n.left, n.top, n.right, n.bottom].map(Math.round), mini: [b.left, b.top, b.right, b.bottom].map(Math.round) };
+    })()`);
+    check('a step under the minimap: the minimap is the element at its own centre', covers.overlap && covers.hit,
+          JSON.stringify({ mover, covers }));
+    await key(page, 'z', { mods: ['ctrl'] });                 // the step goes back
+    await sleep(60);
+    await click(page, fitBtn.x, fitBtn.y);
+    await sleep(80);
+    const aim = await page.evaluate(`(() => {
+        const g = window.__flowCanvas.editor.getGraph();
+        const boxes = [...document.querySelectorAll('.twm-flow-graph__minimap-node')];
+        const frame = document.querySelector('.twm-flow-graph__minimap-view').getBoundingClientRect();
+        const fx = frame.left + frame.width / 2, fy = frame.top + frame.height / 2;
+        let best = null;
+        boxes.forEach((r, i) => { const b = r.getBoundingClientRect(); const x = b.left + b.width / 2, y = b.top + b.height / 2;
+            const d = Math.hypot(x - fx, y - fy); if (!best || d > best.d) best = { d, x, y, id: g.nodes[i].id }; });
+        return { ...best, scale: window.__flowCanvas.editor.canvas.scale, views: window.__flowCanvas.views };
+    })()`);
+    await click(page, Math.round(aim.x), Math.round(aim.y));
+    await sleep(80);
+    const centred = await page.evaluate(`(() => {
+        const c = document.querySelector('.twm-canvas').getBoundingClientRect();
+        const n = document.querySelector('.twm-flow-graph__node[data-node-id="${aim.id}"]').getBoundingClientRect();
+        return { dx: Math.round(n.left + n.width / 2 - (c.left + c.width / 2)), dy: Math.round(n.top + n.height / 2 - (c.top + c.height / 2)),
+                 scale: window.__flowCanvas.editor.canvas.scale, views: window.__flowCanvas.views };
+    })()`);
+    // The click lands on a whole pixel of a map drawn at a fraction of the scale.
+    const slack = 2 / (await page.evaluate('(() => { const r = document.querySelector(".twm-flow-graph__minimap-view"); return Number(r.getAttribute("width")) / document.querySelector(".twm-canvas").getBoundingClientRect().width; })()'));
+    check('a real click on a step\'s box in the minimap centres the view on that step', Math.abs(centred.dx) <= slack
+          && Math.abs(centred.dy) <= slack, JSON.stringify({ aim, centred, slack }));
+    check('at the same scale, with one viewport report', centred.scale === aim.scale && centred.views === aim.views + 1,
+          JSON.stringify({ aim, centred }));
+    const zoomOut = await centre(page, '.twm-flow-graph__toolbar [data-action="zoom-out"]');
+    await click(page, zoomOut.x, zoomOut.y);
+    await sleep(60);
+    const outScale = await page.evaluate('window.__flowCanvas.editor.canvas.scale');
+    check('a real click on Zoom out makes the scale smaller', outScale < centred.scale, `${centred.scale} → ${outScale}`);
+    await page.screenshot(join(OUT, '5-minimap.png'));
+
     console.log('\nnarrow — the container query');
     await page.send('Emulation.setDeviceMetricsOverride', { width: 700, height: 900, deviceScaleFactor: 1, mobile: false });
     await sleep(200);
@@ -226,7 +303,14 @@ try {
     })()`);
     check('at 700px the canvas takes the whole width, over the palette', Math.abs(narrow.canvas - narrow.editor) <= 2
           && narrow.paletteTop >= narrow.canvasBottom - 2, JSON.stringify(narrow));
-    await page.screenshot(join(OUT, '5-narrow.png'));
+    const shape = await page.evaluate(`(() => {
+        const r = document.querySelector('.twm-flow-graph__minimap-view');
+        const c = document.querySelector('.twm-canvas').getBoundingClientRect();
+        return { frame: Number(r.getAttribute('width')) / Number(r.getAttribute('height')), canvas: c.width / c.height };
+    })()`);
+    check('the minimap\'s frame took the resized canvas\'s shape, with no pan', Math.abs(shape.frame - shape.canvas) < 0.02,
+          JSON.stringify(shape));
+    await page.screenshot(join(OUT, '6-narrow.png'));
 } finally {
     page?.close();
     await browser.close();

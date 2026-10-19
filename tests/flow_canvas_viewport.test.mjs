@@ -15,10 +15,11 @@
  *       centre of the view; refused, with the sentence, at the kernel's limits
  *   §5  `minimap: true`: the steps and the view's frame drawn small; a click
  *       centres the view on that point and is reported once; it follows edits
- *       and pans; destroy takes it away
+ *       and pans, and the canvas changing size; destroy takes it away
  *
- * jsdom computes no layout: each canvas is given a rectangle, and where the
- * minimap is drawn on screen is `demo/flow_canvas_probe.mjs`'s.
+ * jsdom computes no layout: each canvas is given a rectangle. Where the
+ * minimap and the zoom buttons are drawn on screen, and a real click on the
+ * minimap, are checked in headless Edge by `demo/flow_canvas_probe.mjs`.
  *
  *     node tests/flow_canvas_viewport.test.mjs
  */
@@ -281,6 +282,56 @@ t.section('§5 the minimap');
          && m.el.querySelector('.twm-canvas__marquee').hidden);
     m.editor.destroy();
     t.ok('destroy takes it away', !mini.isConnected);
+}
+
+t.section('§5 the minimap follows the canvas\'s size');
+{
+    // A ResizeObserver that this suite fires by hand: jsdom has none of its own.
+    const observers = [];
+    const Stub = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+        constructor(cb) { this.cb = cb; this.targets = []; this.live = true; observers.push(this); }
+        observe(el) { this.targets.push(el); }
+        unobserve() {}
+        disconnect() { this.live = false; this.targets = []; }
+    };
+    const plain = createCanvasEditor(t.host(), { catalogue });
+    t.ok('without the minimap, the editor watches nothing for it', !observers.some((o) => o.targets.length));
+    plain.destroy();
+    observers.length = 0;
+
+    const host = t.host();
+    const editor = createCanvasEditor(host, { catalogue, minimap: true });
+    const canvasEl = editor.el.querySelector('.twm-canvas');
+    let rect = { left: 0, top: 0, width: 0, height: 0 };
+    canvasEl.getBoundingClientRect = () => ({ ...rect, x: rect.left, y: rect.top, right: rect.left + rect.width,
+                                              bottom: rect.top + rect.height });
+    editor.load({ graph: structuredClone(GRAPH) }, { viewport: { scale: 1, tx: 0, ty: 0 } });
+    const svg = editor.el.querySelector('svg.twm-flow-graph__minimap-map');
+    const frame = () => { const r = svg.querySelector('.twm-flow-graph__minimap-view');
+        return r && { w: Number(r.getAttribute('width')), h: Number(r.getAttribute('height')) }; };
+    const watching = observers.filter((o) => o.targets.includes(canvasEl));
+    t.check('the minimap watches the kernel\'s root', watching.length, 1);
+    const fire = () => watching[0].cb([{ target: canvasEl }]);
+    t.ok('built before it was laid out: no frame yet', frame() === null);
+
+    rect = { left: 100, top: 50, width: 800, height: 600 };
+    fire();
+    const a = frame();
+    t.ok('laid out: the frame is drawn, the view\'s shape', a && near(a.w / a.h, 800 / 600), JSON.stringify(a));
+    rect = { left: 100, top: 50, width: 1600, height: 600 };
+    fire();
+    const b = frame();
+    t.ok('the canvas twice as wide: the frame\'s width follows, its height does not grow',
+         b && b.w > a.w && b.h <= a.h && near(b.w / b.h, 1600 / 600), JSON.stringify({ a, b }));
+    rect = { left: 100, top: 50, width: 400, height: 900 };
+    fire();
+    const c = frame();
+    t.ok('taller and narrower: the frame\'s height follows', c && near(c.w / c.h, 400 / 900) && c.h > b.h,
+         JSON.stringify({ b, c }));
+    editor.destroy();
+    t.ok('destroy disconnects it', watching[0].live === false);
+    globalThis.ResizeObserver = Stub;
 }
 
 t.done();

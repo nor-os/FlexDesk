@@ -1720,8 +1720,10 @@ const editor = createCanvasEditor(host, { catalogue: [counter], renameInPlace: t
   same labels and controls. A change on the node is a `flow:node:config` edit,
   and the panel shows it at once. A change in the panel, or an undo, redraws
   the node's control. The control being typed in is never redrawn under the
-  reader. Typing on the node and then in the panel are two undo entries. Read
-  only disables the node's controls. A node with inline settings and no
+  reader; a focused control whose value changes elsewhere (an undo pressed
+  while it holds the focus) is redrawn with its focus and caret kept. Typing
+  on the node and then in the panel are two undo entries. Read only disables
+  the node's controls. A node with inline settings and no
   `size.h` is as tall as it is drawn.
 - Without the option and the key nothing is bound or drawn: the same markup,
   and `serialise()` is unchanged.

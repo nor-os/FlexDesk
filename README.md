@@ -2201,9 +2201,9 @@ keystrokes ask the preview once.
 opens a modal form and resolves with `{ [name]: value }`, or `null` when it is
 cancelled. Fields are `text`, `number`, `password`, `select`, `textarea`,
 `checkbox`, `toggle`, `picker`, `checklist`, `radio`, `color` and `colorList`;
-`{ section: 'Label' }` entries are headings. The additions below are opt-in,
-with one change every form sees, even one that uses none of them: a `select`
-or `radio` comes back with
+`{ section: 'Label' }` entries are headings and `{ row: [...] }` entries put
+fields side by side. The additions below are opt-in, with one change every form
+sees, even one that uses none of them: a `select` or `radio` comes back with
 its option's OWN value and type (a numeric option submits `2`, not `'2'`; an
 option whose value is `null` submits `null`), a default of that type selects
 its option (`defaults: { s: 2 }` selects the option whose value is `2`), and an
@@ -2395,6 +2395,43 @@ reports every edit and, with `commit: true`, every committed one.
 colour. The markup is `.twm-color-field` > `.twm-color-field__swatch` +
 `.twm-color-field__hex` (+ `.twm-color-field__presets`), and `.twm-color-list`
 rows are `.twm-color-list__row`. `tests/color_field.test.mjs` covers all of it.
+
+### Number bounds and fields side by side: `min`, `max` and `{ row }` (0.17.0)
+
+```js
+openForm({
+    fields: [
+        { name: 'steps', label: 'Steps', type: 'number', min: 2, max: 200, step: 1 },
+        { row: [
+            { name: 'lo', label: 'Min', type: 'number', hint: 'lowest value' },
+            { name: 'hi', label: 'Max', type: 'number', min: 0 },
+        ] },
+    ],
+});
+// → { steps: 50, lo: 0, hi: 10 }
+```
+
+- **`min` / `max`** on a `number` field are the input's own `min` and `max`
+  attributes, and a value outside them is refused on submit with an error
+  under that field: "Must be between 2 and 200." (or "Must be at least 2." /
+  "Must be at most 200." with only one). The browser's own range check stops
+  such a submit first; the form cancels its bubble and shows the field error
+  instead, and it checks the range itself as well, before the field's
+  `validator`. An empty field that is not `required` is not out of range. A
+  row hidden by `setVisible` drops its bounds until it is shown again, as it
+  drops `required`. As with any `<input type="number">`, a `min` is also where
+  `step` counts from.
+- **`{ row: [field, ...] }`** puts its fields on one line, sharing the width.
+  The row is layout only and has no name: each field in it is an ordinary
+  field with its own label, hint, error, `setVisible`, value and submitted
+  key, so hiding one hides only that one. The first keeps the form's label
+  column; the others size their label to its text. A form narrower than
+  360px stacks them (a container query, `twm-form`, on a form that has a row;
+  a form without one is not made a container). A form with a row opens at the
+  wide (640px) layout. The row is `.twm-modal__field-group`.
+
+A form with neither renders exactly as before.
+`tests/open_form_rows_bounds.test.mjs` covers both in jsdom.
 
 ### A switch: `ToggleField` and `type: 'toggle'` (0.17.0)
 

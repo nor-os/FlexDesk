@@ -34,6 +34,7 @@ export const LOGIC_GRAPH_STRINGS = Object.freeze({
     connectNotFlow: (how) => (how
         ? `Only flow ports connect; a data port is read as ${how}.`
         : 'Only flow ports connect; a data port is read, not connected.'),
+    connectKinds: 'A flow port connects to a flow port, and a data port to a data port.',
     connectTwice: 'These two are already connected.',
     connectOneLine: (port) => `The ${port} port takes one connection; `
         + 'use a step that runs several branches.',
@@ -145,9 +146,13 @@ function portOf(catalogue, node, name, direction) {
  * `{ok: false, reason}` — the editor shows the reason where the gesture failed.
  * `dataRead` is the consumer's words for how a data port is read instead
  * (`syntax.format(...)`), put in the refusal.
+ *
+ * With `dataPorts: true` a data port connects to a data port (never to a flow
+ * port) and a data output carries any number of lines; whatever else limits a
+ * data connection is the caller's (the canvas editor asks a `ConnectorRouter`).
  */
 export function canConnect(graph, catalogue, { source, sourcePort, target, targetPort },
-                           { strings = null, dataRead = null } = {}) {
+                           { strings = null, dataRead = null, dataPorts = false } = {}) {
     const S = createStrings(LOGIC_GRAPH_STRINGS, strings);
     if (source === target) return { ok: false, reason: S.connectSelf };
     const from = graph.nodes.find((n) => n.id === source);
@@ -157,14 +162,15 @@ export function canConnect(graph, catalogue, { source, sourcePort, target, targe
     const inp = portOf(catalogue, to, targetPort, 'input');
     if (!out) return { ok: false, reason: S.connectNoOutput(sourcePort) };
     if (!inp) return { ok: false, reason: S.connectNoInput(targetPort) };
-    if ((out.port_type || 'FLOW') !== 'FLOW' || (inp.port_type || 'FLOW') !== 'FLOW') {
-        return { ok: false, reason: S.connectNotFlow(dataRead) };
-    }
+    const flowOut = (out.port_type || 'FLOW') === 'FLOW';
+    const flowIn = (inp.port_type || 'FLOW') === 'FLOW';
+    if (!dataPorts && (!flowOut || !flowIn)) return { ok: false, reason: S.connectNotFlow(dataRead) };
+    if (flowOut !== flowIn) return { ok: false, reason: S.connectKinds };
     if (graph.connections.some((c) => c.source === source && c.sourcePort === sourcePort
                                     && c.target === target && c.targetPort === targetPort)) {
         return { ok: false, reason: S.connectTwice };
     }
-    if (!out.multiple && graph.connections.some((c) => c.source === source && c.sourcePort === sourcePort)) {
+    if (flowOut && !out.multiple && graph.connections.some((c) => c.source === source && c.sourcePort === sourcePort)) {
         return { ok: false, reason: S.connectOneLine(out.label || sourcePort) };
     }
     return { ok: true };
@@ -173,11 +179,17 @@ export function canConnect(graph, catalogue, { source, sourcePort, target, targe
 /** Connect when `canConnect` allows it; returns its verdict either way. */
 export function connect(graph, catalogue, edge, options = {}) {
     const verdict = canConnect(graph, catalogue, edge, options);
-    if (verdict.ok) {
-        graph.connections.push({ source: edge.source, target: edge.target,
-                                 sourcePort: edge.sourcePort, targetPort: edge.targetPort });
-    }
+    if (verdict.ok) addConnection(graph, edge);
     return verdict;
+}
+
+/**
+ * Append the line `edge` describes, asking nothing — for a caller whose own
+ * rules already allowed it (the canvas editor's `connections` option). The one
+ * place a connection row is built.
+ */
+export function addConnection(graph, { source, target, sourcePort, targetPort }) {
+    graph.connections.push({ source, target, sourcePort, targetPort });
 }
 
 export function disconnect(graph, edge) {

@@ -58,6 +58,20 @@
  * second step). A drag swallows the click that follows it; Escape,
  * `pointercancel` and a destroy each take the ghost away.
  *
+ * ══ UNDER `connections` ═════════════════════════════════════════════════
+ *
+ * With the option every line is asked of `connectionRules` (the kernel's
+ * `ConnectorRouter` over the catalogue's port descriptors, the port types,
+ * then the host's `policy`); `dataPorts: 'connect'` makes data ports
+ * connectable, any number of lines out of one. An output can also be DRAGGED:
+ * released on an input it connects, on the empty canvas it opens the step
+ * picker with the types that have an input it may connect to, and the step
+ * picked arrives connected — one undo entry. While a line is being drawn the
+ * inputs it may end on carry `--can-drop`. A policy's `{ok: true, offer}` is
+ * shown with Accept and Not now; Accept makes the line (and the step) and runs
+ * the offer's `apply(draft)` on a copy of the graph, as one undo entry. Without
+ * the option none of this is drawn or bound.
+ *
  * ══ MANY PICKED, ONLY WHEN ASKED (`multiSelect: true`) ══════════════════
  *
  * The pick becomes a set: a marquee over the empty surface picks every node
@@ -148,10 +162,12 @@ import { fieldsFromSchema } from '../kit/settings_schema.js';
 import { FORMULA_REFERENCES, PARAMETER_REFERENCES, TEMPLATE_REFERENCES } from '../kit/references.js';
 import { alwaysBefore, enclosingArms, enclosingLoops, DEFAULT_LOOP_PORTS } from '../kit/always_before.js';
 import { createFindingsStrip, findingsList, groupFindings } from '../kit/findings.js';
+import { openStepPicker } from '../kit/step_picker.js';
 import { FlowHistory } from '../kit/history.js';
 import { bindFlowKeys } from '../kit/keys.js';
-import { addNode, connect, disconnect, emptyGraph, nextId, normalise, removeNode, sameEdge, serialise } from '../kit/logic_graph.js';
+import { addConnection, addNode, connect, disconnect, emptyGraph, nextId, normalise, removeNode, sameEdge, serialise } from '../kit/logic_graph.js';
 import { CANVAS_STRINGS } from './strings.js';
+import { connectionRules } from './connections.js';
 import { CANVAS_NODE, isReturnEdge, layoutGraph, nodeBottom, nodeWidth, pathMidpoint, portAnchor } from './layout.js';
 
 /** Every edit the canvas editor records (36 §5.4). Anything else is a programming error. */
@@ -251,6 +267,7 @@ export function createCanvasEditor(host, options = {}) {
         slots = {}, strings = null, services = null, onChange = null, onSelect = null,
         history: historyOptions = {}, loop = {}, node: nodeOptions = {}, dataPortRead = null,
         removable = null, paletteTypes = null, label = null, gridSize = 16, waitsForAll = undefined,
+        connections: linkOptions = null,
         multiSelect = false,
         edgeStyle = null, routing = 'simple', hoverHighlight = false,
         onViewportChange = null, zoomControls = false, minimap = false,
@@ -281,9 +298,17 @@ export function createCanvasEditor(host, options = {}) {
     const canRemove = typeof removable === 'function' ? removable
         : (_node, type) => (type?.role || 'step') !== 'start';
     const offered = typeof paletteTypes === 'function' ? paletteTypes : (type) => type.role !== 'start';
+    /** The `connections` option: absent, the editor draws and binds exactly what it did without it. */
+    const linking = linkOptions && typeof linkOptions === 'object' ? linkOptions : null;
+    const dataConnect = linking?.dataPorts === 'connect';
+    /** The connection rules over the current catalogue: `setCatalogue` builds them again. */
+    const rulesFor = (types) => (linking
+        ? connectionRules({ catalogue: types, policy: linking.policy, dataPorts: dataConnect, strings: S }) : null);
+    let verdictOf = rulesFor(catalogue);
 
     // ── the frame ───────────────────────────────────────────────────────
     const root = el('div', 'twm-flow-graph');
+    if (linking) root.classList.add('twm-flow-graph--linking');
     if (BOX.width !== CANVAS_NODE.width) root.style.setProperty('--twm-canvas-node-width', `${BOX.width}px`);
     if (BOX.header !== CANVAS_NODE.header) root.style.setProperty('--twm-canvas-node-header', `${BOX.header}px`);
     if (BOX.row !== CANVAS_NODE.row) root.style.setProperty('--twm-canvas-node-row', `${BOX.row}px`);
@@ -299,6 +324,11 @@ export function createCanvasEditor(host, options = {}) {
     message.setAttribute('aria-live', 'polite');
     const banner = el('p', 'twm-flow-graph__banner');
     banner.hidden = true;
+    const offerBox = linking ? el('div', 'twm-flow-graph__offer') : null;
+    if (offerBox) {
+        offerBox.hidden = true;
+        offerBox.setAttribute('role', 'status');
+    }
     const body = el('div', 'twm-flow-graph__body');
     const palette = el('nav', 'twm-flow-graph__palette');
     palette.setAttribute('aria-label', say(S, 'palette'));
@@ -332,6 +362,9 @@ export function createCanvasEditor(host, options = {}) {
     let released = null;
     /** The output a click-then-click connection started from: {source, sourcePort}. */
     let connecting = null;
+    /** A policy's offer on the screen: {offer, build, action, after}. It needs no staleness check:
+     *  every commit, restore, load and read-only switch clears it. */
+    let pendingOffer = null;
     let suppressClick = false;
     let dragCleanup = null;
     let destroyed = false;
@@ -418,6 +451,7 @@ export function createCanvasEditor(host, options = {}) {
 
     /** After every edit: one undo entry (the closed list), and the consumer told. */
     function commit(action, key = null) {
+        if (pendingOffer) clearOffer();
         if (history.commit(snapshot(), action, key)) emitChange(action, key);
         paintToolbar();
     }
@@ -427,6 +461,7 @@ export function createCanvasEditor(host, options = {}) {
         graph = normalise(p.graph);
         settingsValue = plainObject(p.flowSettings);
         if (connecting) cancelConnect();
+        if (pendingOffer) clearOffer();
         prunePick();
         findingsBy = groupFindings(allFindings(), { graph });
         paintNodes();
@@ -1105,24 +1140,30 @@ export function createCanvasEditor(host, options = {}) {
         b.dataset.direction = p.direction;
         b.append(el('span', 'twm-flow-graph__port-dot'), el('span', 'twm-flow-graph__port-label', p.label || p.name),
                  el('span', 'twm-flow-graph__port-count'));
-        if ((p.port_type || 'FLOW') !== 'FLOW') {
+        const isData = (p.port_type || 'FLOW') !== 'FLOW';
+        if (isData) {
             b.classList.add('twm-flow-graph__port--data');
-            b.disabled = true;
-            b.dataset.data = '';
-            b.title = say(S, 'dataPort', dataPortRead ? dataPortRead(nodeRow, p) : null);
-            return b;
+            if (!dataConnect) {
+                b.disabled = true;
+                b.dataset.data = '';
+                b.title = say(S, 'dataPort', dataPortRead ? dataPortRead(nodeRow, p) : null);
+                return b;
+            }
         }
         b.title = p.direction === 'output' ? say(S, 'connectFrom') : say(S, 'connectTo');
         b.addEventListener('click', (ev) => {
             ev.stopPropagation();
+            if (linking && suppressClick) return;                // the tail of a connection drag
             portClicked(nodeRow.id, p);
         });
+        if (linking && p.direction === 'output') b.addEventListener('pointerdown', (ev) => startConnectDrag(ev, nodeRow.id, p));
         return b;
     }
 
     function portClicked(nodeId, p) {
         if (isReadOnly()) return;
         if (p.direction === 'output') {
+            if (pendingOffer) clearOffer();
             connecting = { source: nodeId, sourcePort: p.name };
             root.classList.add('twm-flow-graph--connecting');
             paintNodes();
@@ -1134,6 +1175,11 @@ export function createCanvasEditor(host, options = {}) {
             return;
         }
         const edge = { ...connecting, target: nodeId, targetPort: p.name };
+        if (verdictOf) {
+            cancelConnect();
+            linkTo(edge);
+            return;
+        }
         const verdict = connect(graph, catalogue, edge, { strings: S });
         cancelConnect();
         if (!verdict.ok) { setMessage(verdict.reason, 'warning'); return; }
@@ -1146,6 +1192,196 @@ export function createCanvasEditor(host, options = {}) {
         connecting = null;
         root.classList.remove('twm-flow-graph--connecting');
         paintNodes();
+    }
+
+    // ── connections under the `connections` option ──────────────────────
+
+    /** Ask the rules; refuse in words, show an offer, or connect. */
+    function linkTo(edge) {
+        const verdict = verdictOf(graph, edge);
+        if (!verdict.ok) { setMessage(verdict.reason, 'warning'); return; }
+        const build = () => addConnection(graph, edge);
+        if (verdict.offer) { showOffer(verdict.offer, build, 'flow:edge:connect'); return; }
+        build();
+        setMessage(isReturn(edge, nodeOf(edge.target)) ? say(S, 'connectedReturn') : '');
+        paintEdges();
+        commit('flow:edge:connect');
+    }
+
+    /** A legal-once-something-else-changes line: its sentence, Accept and Not now. */
+    function showOffer(offer, build, action, after = null) {
+        const words = String(offer?.message ?? '');
+        pendingOffer = { offer, build, action, after };
+        const accept = button({ label: offer?.accept ? String(offer.accept) : say(S, 'offerAccept'), primary: true,
+                                className: 'twm-flow-graph__offer-accept', onClick: () => acceptOffer() });
+        accept.dataset.action = 'accept-offer';
+        const dismiss = button({ label: say(S, 'offerDismiss'), className: 'twm-flow-graph__offer-dismiss',
+                                 onClick: () => { clearOffer(); keepFocus(); } });
+        dismiss.dataset.action = 'dismiss-offer';
+        offerBox.replaceChildren(el('p', 'twm-flow-graph__offer-text', words), accept, dismiss);
+        offerBox.hidden = false;
+        setMessage('');
+    }
+
+    function clearOffer() {
+        pendingOffer = null;
+        if (!offerBox) return;
+        offerBox.hidden = true;
+        offerBox.replaceChildren();
+    }
+
+    /** The line (and step) the offer was made for, then its `apply` on a copy — ONE undo entry. */
+    function acceptOffer() {
+        const held = pendingOffer;
+        if (!held || destroyed) return;
+        clearOffer();
+        if (isReadOnly()) return;
+        const made = held.build();
+        if (typeof held.offer?.apply === 'function') {
+            const draft = normalise(graph);
+            const back = held.offer.apply(draft);
+            graph = normalise(back && typeof back === 'object' ? back : draft);
+        }
+        held.after?.(made);
+        prunePick();
+        findingsBy = groupFindings(allFindings(), { graph });
+        paintNodes();
+        paintPanel();
+        announceSelection();
+        commit(held.action);
+        keepFocus();
+    }
+
+    /** An output dragged: released on an input it connects, on the empty canvas it asks for a step. */
+    function startConnectDrag(ev, nodeId, p) {
+        if (ev.button !== 0 || ev.isPrimary === false || isReadOnly()) return;
+        dragCleanup?.();
+        const start = { x: ev.clientX, y: ev.clientY };
+        let draft = null;
+        const onMove = (m) => {
+            if (!draft) {
+                if (Math.abs(m.clientX - start.x) + Math.abs(m.clientY - start.y) < DRAG_PX) return;
+                if (pendingOffer) clearOffer();
+                connecting = { source: nodeId, sourcePort: p.name };
+                root.classList.add('twm-flow-graph--connecting');
+                paintNodes();
+                setMessage(say(S, 'connectDrag'));
+                draft = document.createElementNS(SVG, 'path');
+                draft.setAttribute('class', 'twm-flow-graph__edge twm-flow-graph__edge--draft');
+            }
+            const from = nodeOf(nodeId);
+            if (!from) return;
+            if (!draft.isConnected) canvas.edgeLayer.appendChild(draft);
+            draft.setAttribute('d', routeEdge(anchor(from, p.name, 'output'),
+                                              canvas.clientToCanvas(m.clientX, m.clientY), { simple: true }));
+        };
+        const finish = () => {
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onCancel);
+            window.removeEventListener('keydown', onKey, true);
+            draft?.remove();
+            dragCleanup = null;
+        };
+        function onUp(u) {
+            const dragged = Boolean(draft);
+            finish();
+            if (!dragged) return;                        // a click: click-then-click
+            swallowNextClick({ afterRelease: true });
+            dropConnection(u);
+        }
+        function onCancel() {
+            const dragged = Boolean(draft);
+            finish();
+            if (dragged) { cancelConnect(); setMessage(''); }
+        }
+        function onKey(k) {
+            if (k.key !== 'Escape') return;
+            k.preventDefault();
+            k.stopPropagation();
+            const dragged = Boolean(draft);
+            finish();
+            if (!dragged) return;
+            cancelConnect();
+            setMessage('');
+            swallowNextClick();                          // the port is still pressed
+        }
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onCancel);
+        window.addEventListener('keydown', onKey, true);
+        dragCleanup = finish;
+    }
+
+    /** Where a dragged line was let go. The element under the pointer, not the
+     *  release's target: a touch pointer is captured by the port it started on,
+     *  so `u.target` is the source port. Released outside the window the point
+     *  has no element (null) and the line is let go over nothing. */
+    function dropConnection(u) {
+        const from = connecting;
+        const under = document.elementFromPoint(u.clientX, u.clientY);
+        const nodeHit = under?.closest('[data-node-id]');
+        const onNode = Boolean(nodeHit && canvas.nodeLayer.contains(nodeHit));
+        const portHit = onNode ? under.closest('.twm-flow-graph__port') : null;
+        if (portHit && portHit.dataset.direction === 'input') {
+            portClicked(nodeHit.dataset.nodeId, { direction: 'input', name: portHit.dataset.port });
+            return;
+        }
+        cancelConnect();
+        if (onNode) { setMessage(say(S, 'dropOnInput')); return; }
+        if ((under && canvas.root.contains(under)) || overCanvas(u.clientX, u.clientY)) { openDropPicker(from, u); return; }
+        setMessage('');
+    }
+
+    /** The step picker at the drop, offering only the types with an input `from` may connect to. */
+    function openDropPicker(from, u) {
+        const p = canvas.clientToCanvas(u.clientX, u.clientY);
+        const where = { x: canvas.snap(p.x), y: canvas.snap(p.y - BOX.header / 2) };
+        const fits = new Map();
+        for (const t of catalogue.list()) {
+            if (t.unavailable || !offered(t)) continue;
+            const trial = normalise(graph);
+            const added = addNode(trial, t.type_id, where, { catalogue });
+            let pick = null;
+            for (const inp of catalogue.inputs(t.type_id)) {
+                const v = verdictOf(trial, { ...from, target: added.id, targetPort: inp.name });
+                if (v.ok && (!pick || (pick.offer && !v.offer))) pick = { port: inp.name, offer: v.offer || null };
+                if (pick && !pick.offer) break;
+            }
+            if (pick) fits.set(t.type_id, pick);
+        }
+        if (!fits.size) { setMessage(say(S, 'dropNothingFits'), 'warning'); return; }
+        const mark = el('span', 'twm-flow-graph__drop-anchor');
+        const box = canvasHost.getBoundingClientRect();
+        mark.style.left = `${Math.round(u.clientX - box.left)}px`;
+        mark.style.top = `${Math.round(u.clientY - box.top)}px`;
+        canvasHost.appendChild(mark);
+        const asked = snapshot();
+        openStepPicker({
+            anchor: mark, strings: S, title: say(S, 'dropPickerTitle'),
+            categories: catalogue.categories.map((c) => ({ id: c.id, label: c.label, layout: c.layout })),
+            entries: catalogue.list().filter((t) => fits.has(t.type_id)).map((t) => ({
+                id: t.type_id, label: t.label, description: t.description, icon: t.icon || 'widgets',
+                tone: catalogue.tone(t.type_id), category: t.category ?? '' })),
+        }).then((choice) => {
+            mark.remove();
+            if (destroyed) return;
+            if (!choice?.entry || isReadOnly() || snapshot() !== asked) { keepFocus(); return; }
+            const fitting = fits.get(choice.entry.id);
+            const build = () => {
+                const added = addNode(graph, choice.entry.id, where, { catalogue });
+                addConnection(graph, { ...from, target: added.id, targetPort: fitting.port });
+                return added.id;
+            };
+            const after = (id) => { if (nodeOf(id)) selected = { kind: 'node', id }; };
+            if (fitting.offer) { showOffer(fitting.offer, build, 'flow:node:add', after); keepFocus(); return; }
+            after(build());
+            paintNodes();
+            paintPanel();
+            announceSelection();
+            commit('flow:node:add');
+            keepFocus();
+        });
     }
 
     /** A press on a node's header: it picks the node and drags it — or, when
@@ -1332,6 +1568,10 @@ export function createCanvasEditor(host, options = {}) {
         const ports = overlay?.ports?.[nodeRow.id] || null;
         for (const b of n.querySelectorAll('.twm-flow-graph__port')) {
             if (!('data' in b.dataset)) b.disabled = isReadOnly();
+            if (verdictOf && b.dataset.direction === 'input') {
+                b.classList.toggle('twm-flow-graph__port--can-drop', Boolean(connecting) && verdictOf(graph, {
+                    ...connecting, target: nodeRow.id, targetPort: b.dataset.port }).ok);
+            }
             const mark = b.dataset.direction === 'output' ? ports?.[b.dataset.port] : null;
             b.classList.toggle('twm-flow-graph__port--taken', Boolean(mark?.taken));
             b.classList.toggle('twm-flow-graph__port--untaken', Boolean(mark) && !mark.taken);
@@ -1616,7 +1856,7 @@ export function createCanvasEditor(host, options = {}) {
             const doomed = removableOf(selected.ids);
             if (!doomed.length) return false;
             for (const id of doomed) removeNode(graph, id);
-            findingsBy = groupFindings(findings, { graph });
+            findingsBy = groupFindings(allFindings(), { graph });
             select(null);
             paintNodes();
             commit('flow:nodes:remove');
@@ -2043,7 +2283,7 @@ export function createCanvasEditor(host, options = {}) {
 
     // ── the page ────────────────────────────────────────────────────────
 
-    root.append(toolbar, why, readonlyBanner, message, strip.el, banner, body);
+    root.append(toolbar, why, readonlyBanner, message, ...(offerBox ? [offerBox] : []), strip.el, banner, body);
     if (host) host.appendChild(root);
 
     function cancelFit() {
@@ -2071,6 +2311,7 @@ export function createCanvasEditor(host, options = {}) {
         load({ graph: g = null, flowSettings: fs } = {}, { baseline = true, fit: andFit = true, viewport } = {}) {
             if (destroyed) return;
             if (connecting) cancelConnect();
+            if (pendingOffer) clearOffer();
             graph = normalise(g);
             if (fs !== undefined) {
                 settingsSchema = fs?.schema ?? settingsSchema;
@@ -2110,7 +2351,9 @@ export function createCanvasEditor(host, options = {}) {
         setCatalogue(next) {
             if (destroyed) return;
             catalogue = toCatalogue(next, 'setCatalogue');
+            verdictOf = rulesFor(catalogue);
             if (connecting) cancelConnect();
+            if (pendingOffer) clearOffer();
             paintPalette();
             paintNodes();
             paintPanel();
@@ -2192,6 +2435,7 @@ export function createCanvasEditor(host, options = {}) {
         setReadOnly(next) {
             ro = next;
             if (ro && connecting) cancelConnect();
+            if (ro && pendingOffer) clearOffer();
             dragCleanup?.();
             paintReadOnly();
             paintPalette();

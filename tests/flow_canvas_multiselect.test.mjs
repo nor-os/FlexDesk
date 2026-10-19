@@ -313,6 +313,35 @@ t.section('§5 arrows nudge, Tab walks the nodes');
     nodeEl(m, 'c').focus();
     t.check('focus arriving on a picked node keeps the pick', picked(m), ['a', 'c']);
 }
+{
+    // A press that never becomes the node's own click leaves nothing behind:
+    // Tab onto the node afterwards still picks it, and the arrow moves it.
+    const m = mount({ multiSelect: true, gridSize: 16 });
+    const focused = () => w.document.activeElement?.dataset?.nodeId ?? null;
+    const tabOntoC = () => {
+        m.editor.select('b');
+        nodeEl(m, 'b').focus();
+        keyOn(nodeEl(m, 'b'), 'Tab');
+        return [focused(), picked(m)];
+    };
+    const out = nodeEl(m, 'c').querySelector('.twm-flow-graph__port[data-direction="output"]');
+    out.dispatchEvent(ev(w.MouseEvent, 'pointerdown'));
+    out.dispatchEvent(ev(w.MouseEvent, 'click'));
+    keyOn(nodeEl(m, 'c'), 'Escape');
+    t.check('after a port click, Tab onto the node picks it', tabOntoC(), ['c', ['c']]);
+    keyOn(nodeEl(m, 'c'), 'ArrowRight');
+    t.check('and the arrow moves it', pos(m, 'c'), { x: 720, y: 208 });
+    headOf(m, 'c').dispatchEvent(ev(w.MouseEvent, 'pointerdown', { button: 2 }));
+    w.dispatchEvent(ev(w.MouseEvent, 'pointerup', { button: 2 }));
+    t.check('after a right-click, Tab onto the node picks it', tabOntoC(), ['c', ['c']]);
+    keyOn(nodeEl(m, 'c'), 'ArrowRight');
+    t.check('and the arrow moves it', pos(m, 'c'), { x: 736, y: 208 });
+    headOf(m, 'c').dispatchEvent(ev(w.MouseEvent, 'pointerdown'));
+    w.dispatchEvent(ev(w.MouseEvent, 'pointerup'));
+    t.check('after a press let go off the node, Tab onto it picks it', tabOntoC(), ['c', ['c']]);
+    keyOn(nodeEl(m, 'c'), 'ArrowRight');
+    t.check('and the arrow moves it', pos(m, 'c'), { x: 752, y: 208 });
+}
 
 t.section('§6 read only: no gesture changes the graph');
 {

@@ -1610,7 +1610,7 @@ editor.setRunOverlay({ steps, ports, banner });
 | `setFindings(list)`, `setRunOverlay(overlay \| null)`, `setReadOnly(false \| {reason})` | — |
 | `setActionState(id, {disabled, reason, busy})`, `setStatus(text)`, `setMessage(text, tone)` | A verb refused in place, with its reason printed beside the toolbar; the status line; the gesture line |
 | `align(kind)`, `distribute(axis)` (0.17.0) | With `multiSelect`: line the picked steps up (`'left'`, `'center'`, `'right'`, `'top'`, `'middle'`, `'bottom'`; two or more picked) or give them equal gaps (`'horizontal'`, `'vertical'`; three or more), one `flow:nodes:align` entry. `false` when refused (too few picked, read only, or no `multiSelect`); an unknown kind or axis throws |
-| `select(id \| 'flow' \| null)`, `repaintPanel()`, `focus()`, `undo()`, `redo()`, `arrange()`, `fit({whole})` | — |
+| `select(id \| [id, …] \| 'flow' \| null)`, `repaintPanel()`, `focus()`, `undo()`, `redo()`, `arrange()`, `fit({whole})` | `select([id, …])` (0.17.0, `multiSelect`) picks several steps at once (unknown ids are left out; one left is one step picked, none lets go) |
 | `history`, `canvas` | The editor's `FlowHistory` (`keep()`, `adopt(kept, editor.snapshot())`, `baseline(editor.snapshot())` for your publish) and its `CanvasAdapter` |
 | `destroy()` | Removes every listener, the ghost of a drag and any picker it opened. It saves nothing, because the editor holds nothing |
 

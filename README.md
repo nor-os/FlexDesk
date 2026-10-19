@@ -43,7 +43,7 @@ manager, and neither of them should drag in a plotting engine or a code editor.
 | `@flexdesk/core` | 30 kB | Event bus, settings store, logging, state machine, state guard |
 | `@flexdesk/host` | 5 kB | The host port (below) |
 | `@flexdesk/wm` | 166 kB | Tiling window manager: tabs, splits, desktops, command palette, taxonomy, `createShell()` |
-| `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus, a document outline, progress |
+| `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus, menu bars, a document outline, progress |
 | `@flexdesk/charts` | 26 kB | Plotly wrapper, chart types, subplot layouts, downsampling, plot windows, injected series transforms |
 | `@flexdesk/tiles` | 67 kB | Draggable/resizable widget grid, tile base class, widget registry, layout persistence, chart and KPI tiles |
 | `@flexdesk/editor` | 62 kB | Monaco loader + factory, multi-file tab bar, search, split panes, undo manager |
@@ -129,6 +129,74 @@ await createShell({
     },
 });
 ```
+
+### A menu bar: `createMenuBar` (0.17.0)
+
+File / Edit / View menus from one declarative model, instead of hand-built
+buttons and `showContextMenu` calls. A menu is `{ id, label, items }`; an item
+is `{ id, label, shortcut?, disabled?, checked?, radio?, submenu? }` or
+`{ separator: true }`:
+
+```js
+import { createMenuBar, MenuBar } from '@flexdesk/widgets';
+
+const bar = createMenuBar(document.getElementById('menus'), {
+    menus: [
+        { id: 'file', label: 'File', items: [
+            { id: 'open',   label: 'Open…',       shortcut: 'Ctrl+O' },
+            { id: 'recent', label: 'Open recent', submenu: () => recentItems() },  // rebuilt on every open
+            { separator: true },
+            { id: 'save',   label: 'Save',        shortcut: 'Ctrl+S', disabled: true },
+        ] },
+        { id: 'view', label: 'View', items: [
+            { id: 'grid',  label: 'Show grid', checked: true },                // a check item
+            { id: 'light', label: 'Light', radio: 'theme', checked: true },    // a radio group
+            { id: 'dark',  label: 'Dark',  radio: 'theme', checked: false },
+        ] },
+    ],
+    onAction: (id, { checked }) => run(id, checked),
+});
+bar.setEnabled('save', true);     // patches an open menu in place
+bar.setChecked('dark', true);     // …and unchecks the rest of the radio group
+```
+
+`createMenuBar(el, opts)` returns a `MenuBar` (also exported, for
+`instanceof`). Its methods: `open(menuId, { focusItem })`, `close()`,
+`focus()`, `isOpen()`, `isEnabled(id)`, `isChecked(id)`, `setEnabled(id, on)`,
+`setChecked(id, on)`, `commands()` and `dispose()`.
+
+- **Pointer.** Clicking a title opens its menu; while one is open, hovering
+  another title switches to it. Hovering an item with a submenu opens it.
+- **Keyboard.** Alt (on its own) or F10 focuses the bar. Left/Right move across
+  menus, Up/Down/Home/End within one, Right opens a submenu and Left closes it,
+  Enter/Space activate. Esc closes one level; the last Esc gives focus back to
+  what had it. Disabled items and separators are skipped, and never reach
+  `onAction`.
+- **Roles.** The WAI-ARIA menubar pattern: `menubar`, `menu`, `menuitem`,
+  `menuitemcheckbox`, `menuitemradio`, with `aria-checked`, `aria-disabled`
+  and `aria-expanded`.
+- `shortcut` is a label: the bar binds no key for it.
+- `bar.commands()` returns the model as palette rows (`{ id, label, shortcut,
+  context: 'File › Open recent', action }`), so the palette and the bar list the
+  same verbs.
+
+In a shell, pass the model as `menuBar` and the element as `chrome.menuBar`
+(each needs the other; either alone throws at boot);
+`shell.chrome.menuBar` is that `MenuBar`, and its enabled items follow the palette's
+own `commands` unless `menuBar.palette` is `false`:
+
+```js
+const shell = await createShell({
+    // …
+    menuBar: { menus, onAction },
+    chrome:  { menuBar: document.getElementById('menus') },
+});
+shell.chrome.menuBar.setEnabled('save', dirty);
+```
+
+The bar is `.twm-menubar` (not the older `.twm-menu-bar` icon strip).
+`tests/menu_bar.test.mjs` drives it in jsdom; `tests/menu_bar_css.test.mjs`
+holds its stylesheet.
 
 ### A kind that exists once: `single` (0.17.0)
 

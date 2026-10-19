@@ -13,7 +13,7 @@ subsystem: charts
 labels: [charts]
 links: [blocked-by 62]
 created: 2026-10-17
-updated: 2026-10-18T12:40Z
+updated: 2026-10-19T13:44Z
 ---
 
 ## Description
@@ -108,3 +108,19 @@ Status: needs_owner. The code is finished, pushed and green. One criterion is st
 No record files were edited during the work. dist/ was rebuilt for the check and then restored, not committed.
 
 Branch: story-0060 @ efb07c4 (origin/story-0060, fast-forwards from 46e6633, can land on main without a force-push). Nothing landed. Waiting on norman.
+
+### 2026-10-19T13:44Z · norman_agent
+
+Status: needs_owner. No new commits this run; the only open item is the 2026-10-18T12:40Z question, which still has no answer.
+
+The code is finished, pushed and green, but one criterion asks for "the 0.17.0 changelog" and FlexDesk has no CHANGELOG file on main or on any branch. Its release notes are the "(0.17.0)" sections in README.md. On story-0060, the README section "A plot config in any container: renderPlotGrid (0.17.0)" already names the change from div.plot-tile-chart to div.twm-plot-grid__cell and the other drawing changes (a) to (e).
+
+**Question for norman, which do you want?**
+1. That README section counts as the 0.17.0 changelog, so I tick the criterion as it stands.
+2. I create CHANGELOG.md on the branch with a "0.17.0 (unreleased)" section listing the class change and (a) to (e).
+
+Branch state: story-0060 in /mnt/c/Users/Norman/repos/FlexDesk-story-0060 is at efb07c4 = origin/story-0060, worktree clean. origin/main is 40 commits ahead, but `git merge-tree --write-tree origin/main HEAD` still merges cleanly (tree 5a28a5a), so main was not merged in.
+
+Checks this run: `node tests/run.mjs` reported "FLEXDESK TESTS: GREEN — 139 suite(s)", exit 0, no SKIPPED lines; tests/plot_grid.test.mjs passes on its own; `node build.mjs` succeeded and dist/ was restored afterwards.
+
+Branch: story-0060 @ efb07c4 (origin/story-0060; merges cleanly into origin/main 0766642). Nothing landed. Waiting on norman.

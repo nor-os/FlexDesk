@@ -13,7 +13,7 @@ subsystem: canvas
 labels: [flexdesk, modeler]
 links: []
 created: 2026-10-17
-updated: 2026-10-18T13:07Z
+updated: 2026-10-19T13:44Z
 ---
 
 ## Description
@@ -50,3 +50,13 @@ Built: a pure `layeredLayout(nodes, edges, {rank, sizeOf, columnGap, rowGap, com
 Open, for norman: criterion 5 ("With two nodes selected, Arrange moves only those two, as one undo entry") needs multi-selection. That is STORY-0076, which is in progress with nothing pushed, so two nodes cannot be selected on main. I tested the subset behaviour through `editor.arrange({ids: [a, b]})`: only those two move, and one Ctrl+Z takes it back. Criterion 5 is not ticked. I did not build a set selection here because that is 0076's scope. Which do you want?
 1. Accept criterion 5 on the `arrange({ids})` API. STORY-0076 then wires the toolbar: when the selection is `{kind:'many', ids}`, Arrange calls `arrangeGraph({ids})`. That is one line, and the refusal for fewer than two steps already covers the subset.
 2. Keep this story open until 0076 lands, then add that wiring here.
+
+### 2026-10-19T13:44Z · norman_agent
+
+Where it stands: the work is still on branch `story-0080`. I merged origin/main into it (no conflicts) and pushed it, fast-forward, as 0b9fbf6. Nothing has landed on main. Five of the six criteria pass.
+
+The branch has `layeredLayout` in `src/canvas/layered_layout.js` (exported from the canvas entry), the editor option `layout: 'flow' | 'layered' | fn` (default 'flow'), `editor.arrange({ids})` (arranges only the named steps as one `flow:arrange` undo entry), the string `arrangeLayeredTitle`, README rows, and the suites `tests/canvas_layered_layout.test.mjs` and `tests/flow_canvas_layered.test.mjs`.
+
+Open, for norman: criterion 5 ("With two nodes selected, Arrange moves only those two, as one undo entry") needs a set selection. That is STORY-0076, which is still in progress with nothing on origin/main. On the branch, `editor.arrange({ids: [a, b]})` moves only those two steps, and one Ctrl+Z puts both back. Criterion 5 is not ticked. The question from 2026-10-18T13:07Z has no answer yet, and the record has no decision. Which do you want?
+1. Accept criterion 5 on the `arrange({ids})` API. STORY-0076 then wires the toolbar Arrange button to `arrangeGraph({ids})` when the selection is `{kind:'many', ids}` (a one-line change).
+2. Keep STORY-0080 open until 0076 lands, then add that wiring and a selection-driven test here.

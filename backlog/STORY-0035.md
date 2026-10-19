@@ -2,10 +2,10 @@
 id: 35
 type: story
 title: "Panel tile sizes survive load, desktop switch and panel toggle"
-status: in-progress
+status: review
 parent: 29
 phase:
-assignee: norman_agent
+assignee: norman
 reporter: norman
 due:
 points: 3
@@ -13,7 +13,7 @@ subsystem: shell
 labels: [shell, panels, bugfix]
 links: [relates-to BUG-0007]
 created: 2026-10-17
-updated: 2026-10-18T01:57Z
+updated: 2026-10-19T10:29Z
 ---
 
 ## Description
@@ -26,16 +26,18 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 
 ## Acceptance criteria
 
-- [ ] A Navigator dragged to 40% width is 40% after a reload
-- [ ] A Console dragged to 50% height is 50% after switching desktop and back
-- [ ] Toggling the right panel keeps the left and bottom panel sizes unchanged
-- [ ] A panel opened for the first time uses the default ratio
+- [x] A Navigator dragged to 40% width is 40% after a reload
+- [x] A Console dragged to 50% height is 50% after switching desktop and back
+- [x] Toggling the right panel keeps the left and bottom panel sizes unchanged
+- [x] A panel opened for the first time uses the default ratio
 
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
 - 2026-10-17 · norman_agent · status: refined -> in-progress
 - 2026-10-17 · norman_agent · assignee: (unset) -> norman_agent
+- 2026-10-19 · norman_agent · status: in-progress -> review
+- 2026-10-19 · norman_agent · assignee: norman_agent -> norman
 
 ## Comments
 
@@ -59,3 +61,21 @@ Open:
 2. src/tiling/wm.js:3169-3174 (the step 2 comment in `_canonicalize`): it says measuring first catches "a split resized without a drag". The only writer of split sizes in src/ is the renderer's splitter drag (tile_renderer.js:1872), and the end of that drag now records shares through `_onSplitResized`, so no such path exists. To fix: drop that example and keep only the real case, a stored blob that predates `panelShares`. The comment will then describe code that actually exists.
 
 Side note: the alerts_pane 'grouped by day' check fails on any run in the first few minutes after local midnight, because its seed entries come from minutesAgo(). It may be worth a separate bug.
+
+### 2026-10-19T10:29Z · norman_agent (status: in-progress -> review)
+
+Landed on main at a00ee8a (rebased onto origin/main 66c5589, fast-forward). This is the rebased form of approved tip 39861dc; origin/story-0035 still holds the pre-rebase history (39861dc) and was not pushed again.
+
+What was built: `_canonicalize` records each panel's share of its parent split before it detaches the panel leaves, and `wrap()` reuses that share instead of the hard-coded [1,4]/[4,1]. The shares are kept in the saved desktop layout under a new `panelShares` key, so they survive load, desktop switch and panel toggle. Defaults apply only to a panel that has no recorded share yet. The end of a splitter drag records the new share through the new `onSplitResized` renderer option. New public API, documented in the README: `TileRenderer.MIN_SLOT_FRACTION`, the `onSplitResized` constructor option and the `panelShares` key.
+
+Review items:
+- The reviewer's onSplitResized issue is fixed (39861dc). `_onMouseUp` in src/tiling/tile_renderer.js now compares the split's sizes with `drag.startSizes` and does not call `onSplitResized` when they are equal. A click, a jitter only across the splitter, or a drag that ends where it began no longer saves the layout or sends `split-resized`. The new case 'a splitter moved across but not along saves nothing' in tests/panel_sizes_kept.test.mjs covers it: it fails (3 FAILs) with 0376ae1's tile_renderer.js and passes with the fix.
+- Both open items from the comment that names e1100b1 are fixed: `_panelLeaves` and `_clampPanelShare` now sit above `_tabTitle`'s JSDoc, so every doc block is directly above its own function, and the step 2 comment in `_canonicalize` names only the real cases (the default, and a stored blob that predates `panelShares`).
+
+Ticked all four criteria: Navigator at 40% after a reload, Console at 50% after switching desktop and back, toggling the right panel keeps the left and bottom sizes, and a panel opened for the first time uses the default ratio. Each one is checked in tests/panel_sizes_kept.test.mjs.
+
+Tests: after the rebase, `node tests/run.mjs` in the worktree ran to completion with "FLEXDESK TESTS: GREEN — 145 suite(s)", exit 0, no `: SKIPPED` lines and no FAIL lines (the only match is the passing assertion 'an older request FAILING last is dropped too'). `node build.mjs` succeeded; dist/ was reverted and cleaned afterwards and is not committed.
+
+App check: none in a live app. These criteria are FlexDesk behaviour and are checked by the panel_sizes_kept suite in FlexDesk's test harness. Seeing it in EcoSim belongs to EcoSim STORY-0034.
+
+BUG-0007 is handed back to testing in the same commit.

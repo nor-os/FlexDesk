@@ -632,7 +632,11 @@ export class CellGrid {
         }
         if (this.renderWaiting) {
             this.renderWaiting = false;
-            t.render();
+            // A commit made by the virtual window taking the row out is made
+            // in the middle of the window's own redraw, which a render would
+            // pull out from under it: that one waits for the redraw to end.
+            if (reason === 'scroll') queueMicrotask(() => { if (t._wrapperEl) t.render(); });
+            else t.render();
         }
     }
 

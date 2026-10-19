@@ -17,11 +17,13 @@
  *       controls write back, and a select redraws as a fresh mount does.
  *   §4  SEARCH across every category's label, description and path; a query
  *       holding markup is shown as typed and makes no element; schema text
- *       holding markup is shown as text too.
+ *       holding markup is shown as text too. A query of only spaces is no
+ *       search: the category stays active and its page drawn.
  *   §5  RESETS: Reset all asks to confirm and Cancel changes nothing; OK
  *       resets. Reset category asks too; a row's reset does not.
  *   §6  A SLICE REGISTERED AFTER MOUNT: its category joins the sidebar, its
- *       rows draw, and its paths are live — without a remount.
+ *       rows draw, and its paths are live — without a remount. A slice for
+ *       another category keeps a text or number edit still being typed.
  *   §7  TEXT is debounced: written after the pause, at once on Enter.
  *   §8  dispose() takes the view down and stops listening; the content
  *       factory mounts and destroys it.
@@ -427,6 +429,16 @@ section('§4 search matches across categories; markup in a query is shown litera
     type(input, '');
     check('clearing the filter goes back to the category', view.getCategory(), 'first');
     ok('…active again', q('.twm-settings__cat--active')?.dataset.category === 'first');
+    view.setQuery('  ');
+    ok('a query of only spaces is no search: the category stays marked active',
+       q('.twm-settings__cat--active')?.dataset.category === 'first');
+    check('…and its page is drawn', [q('.twm-settings__title').textContent, !!q('.twm-settings__reset-category')],
+          ['First', true]);
+    store.extend({ categories: [{ id: 'spaced', label: 'Spaced', order: 99 }] });
+    ok('…and stays so when another slice registers',
+       q('.twm-settings__cat--active')?.dataset.category === 'first'
+       && q('.twm-settings__title').textContent === 'First');
+    view.setQuery('');
     view.setQuery('kappa');
     check('setQuery() searches too, and fills the box', [input.value, qa('.twm-settings__row').length], ['kappa', 1]);
     q('.twm-settings__cat[data-category="late"]').click();
@@ -528,6 +540,27 @@ section('§6 a slice registered after mount appears without remounting');
     fire(sb, 'change');
     check('…both ways', getSetting('plugin.speed'), 8);
     resetAllSettings();
+    view.dispose();
+}
+{
+    // A slice for another category must not drop an edit still being typed.
+    const { bus, store } = fixture();
+    const { view, row } = mount({ store, eventBus: bus, textDebounceMs: 30 });
+    const box = row('a.name').querySelector('input');
+    type(box, 'typed');
+    const num = row('a.n').querySelector('input');
+    type(num, '35');
+    store.extend({
+        defaults: { two: { t: 1 } },
+        categories: [{ id: 'two', label: 'Two', order: 95 }],
+        schema: { 'two.t': { type: 'number', category: 'two', group: 'G', label: 'T', defaultValue: 1 } },
+    });
+    check('a pending text edit stays in its box when another category registers', box.value, 'typed');
+    check('…digits typed into a number box stay too', num.value, '35');
+    check('…and both reach the store', [store.get('a.name'), store.get('a.n')], ['typed', 35]);
+    await wait(60);
+    check('…and are still there after the debounce', [store.get('a.name'), box.value], ['typed', 'typed']);
+    ok('…the rows on screen are the same rows', row('a.name').querySelector('input') === box);
     view.dispose();
 }
 

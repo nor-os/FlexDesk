@@ -42,7 +42,9 @@
  * for `settings:changed` with a null path (the resets) and for
  * `settings:registered` (a slice registered after mount: its categories join
  * the sidebar and its settings their category, without a remount). A value
- * changed elsewhere moves its control and its marker.
+ * changed elsewhere moves its control and its marker. An edit still being
+ * typed (a text before its debounce, digits before 'change') is written
+ * before the view redraws or syncs its rows, so it is never dropped.
  *
  * RESETS. A row's reset button resets that setting. *Reset category* and
  * *Reset all* ask `confirm(…)` first (default `openConfirm`) and change
@@ -303,11 +305,22 @@ export class SettingsView extends ComponentBase {
         for (const path of Object.keys(schema)) this.#watch(path);
         this.#paintNav();
         const active = this.getCategory();
-        const touches = this._query !== ''
+        const touches = this.#searching()
             || !this._rows.size
             || paths.some((p) => schema[p]?.category === active);
-        if (touches) this.#paintContent();
-        else this.#syncAll();
+        if (touches) {
+            this.#paintContent();
+            return;
+        }
+        // The slice's defaults may have moved values on screen; an edit still
+        // being typed is written first, so the sync shows it rather than drop it.
+        this.#flushAll();
+        this.#syncAll();
+    }
+
+    /** True while a filter is in effect: the trimmed query is not empty. */
+    #searching() {
+        return this._query.trim() !== '';
     }
 
     #syncAll() {
@@ -331,7 +344,7 @@ export class SettingsView extends ComponentBase {
     }
 
     #paintNav() {
-        const active = this._query ? null : this.getCategory();
+        const active = this.#searching() ? null : this.getCategory();
         const buttons = this.store.getCategories().map((cat) => {
             const b = el('button', 'twm-settings__cat');
             b.type = 'button';
@@ -354,7 +367,7 @@ export class SettingsView extends ComponentBase {
         const content = this._content;
         content.replaceChildren();
 
-        if (this._query.trim() !== '') {
+        if (this.#searching()) {
             const q = this._query.trim().toLowerCase();
             const cats = this.store.getCategories();
             const labelOf = new Map(cats.map((c) => [c.id, c.label ?? c.id]));
@@ -513,19 +526,28 @@ export class SettingsView extends ComponentBase {
             if (def.min != null) box.min = String(def.min);
             if (def.max != null) box.max = String(def.max);
             if (def.step != null) box.step = String(def.step);
+            // Digits typed but not yet committed by 'change'.
+            let dirty = false;
             const show = (v) => {
+                dirty = false;
                 const text = v == null ? '' : String(v);
                 if (box.value !== text) box.value = text;
             };
-            box.addEventListener('change', () => {
+            const commit = () => {
                 const current = this.store.get(def.path);
                 const n = box.value.trim() === '' ? NaN : Number(box.value);
                 if (!Number.isFinite(n)) { show(current); return; }
                 const v = fitNumber(n, def);
                 show(v);
                 if (!same(v, current)) write(v);
-            });
-            return { el: box, show };
+            };
+            box.addEventListener('input', () => { dirty = true; });
+            box.addEventListener('change', commit);
+            return {
+                el: box,
+                show,
+                flush: () => { if (dirty) commit(); },
+            };
         }
         case 'text': {
             const box = el('input', 'twm-settings__text');

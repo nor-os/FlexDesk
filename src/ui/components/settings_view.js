@@ -91,14 +91,6 @@ function same(a, b) {
     return ka.length === kb.length && ka.every((k) => same(a[k], b[k]));
 }
 
-/** `eventBus.on` returns `{dispose}` (FlexDesk's bus) or a function (others). */
-function listen(bus, name, fn) {
-    const sub = bus.on(name, fn);
-    if (typeof sub === 'function') return sub;
-    if (sub && typeof sub.dispose === 'function') return () => sub.dispose();
-    return () => bus.off?.(name, fn);
-}
-
 /** A number written by a number row: snapped to `step` from `min`, then clamped. */
 function fitNumber(n, { min, max, step }) {
     let v = n;
@@ -148,8 +140,9 @@ export class SettingsView extends ComponentBase {
         this._search = null;
         /** path -> { sync(), flush(), dispose() } for the rows on screen. */
         this._rows = new Map();
-        /** path -> unsubscribe, for every schema path. */
+        /** path -> the bus subscription handle, for every schema path. */
         this._pathSubs = new Map();
+        /** Bus subscription handles for the whole-store events. */
         this._subs = [];
         this._disposed = false;
     }
@@ -196,10 +189,10 @@ export class SettingsView extends ComponentBase {
         this._mounted = true;
 
         for (const path of Object.keys(this.store.getSchema())) this.#watch(path);
-        this._subs.push(listen(this.eventBus, 'settings:changed', (p) => {
+        this._subs.push(this.eventBus.on('settings:changed', (p) => {
             if (p?.path == null) this.#syncAll();
         }));
-        this._subs.push(listen(this.eventBus, 'settings:registered', (p) => this.#onRegistered(p)));
+        this._subs.push(this.eventBus.on('settings:registered', (p) => this.#onRegistered(p)));
 
         this.#paintNav();
         this.#paintContent();
@@ -270,9 +263,9 @@ export class SettingsView extends ComponentBase {
         this._disposed = true;
         this.#flushAll();
         this.#dropRows();
-        for (const off of this._pathSubs.values()) off();
+        for (const sub of this._pathSubs.values()) sub.dispose();
         this._pathSubs.clear();
-        for (const off of this._subs) off();
+        for (const sub of this._subs) sub.dispose();
         this._subs = [];
         this.root?.remove();
         this.root = null;
@@ -286,7 +279,7 @@ export class SettingsView extends ComponentBase {
 
     #watch(path) {
         if (this._pathSubs.has(path)) return;
-        this._pathSubs.set(path, listen(this.eventBus, `settings:${path}:changed`, () => {
+        this._pathSubs.set(path, this.eventBus.on(`settings:${path}:changed`, () => {
             this._rows.get(path)?.sync();
         }));
     }
@@ -488,7 +481,10 @@ export class SettingsView extends ComponentBase {
             c.box.addEventListener('change', () => write(c.valueOf()));
             return {
                 el: c.box,
-                show: (v) => { if (!same(c.valueOf(), v)) c.select(v); },
+                // Redrawn with the new value, as a fresh mount draws it: a
+                // value the options lack shows as its '(not found)' entry, and
+                // a stray entry left from an earlier value goes.
+                show: (v) => { if (!same(c.valueOf(), v)) c.setOptions(def.options || [], v); },
             };
         }
         case 'number': {

@@ -2266,7 +2266,7 @@ category clears it.
 | `type` | Control |
 | --- | --- |
 | `boolean` | a `ToggleField` |
-| `select` | a select over `options` |
+| `select` | a select over `options`; a value the options lack (stored, or set elsewhere while the view is open) is kept and shown as *value (not found)* |
 | `number` | a number box with `min`, `max` and `step`; a written value is snapped to the step (counted from `min`) and clamped to the range; an empty or unreadable box goes back to the value |
 | `text` | a text box, written `textDebounceMs` (default `SETTINGS_TEXT_DEBOUNCE_MS`, 300) after the last keystroke, or at once on Enter or blur; emptied, it writes `null` when the default is `null` |
 | `colorList` | a `ColorListField`, written on each committed edit while every row holds a colour |

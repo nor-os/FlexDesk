@@ -12,7 +12,10 @@
  * `ctx` is the shell's ctx plus, per leaf, `leafId` and `setTitle(text)` —
  * rename the pane's chrome title from inside the content, at mount or any
  * time after; it survives repaints, and `setTitle(null)` gives the title back
- * to the tree (tile_renderer.js, C41).
+ * to the tree (tile_renderer.js, C41) — and `setChromeActions(specs)`, which
+ * replaces the pane's content buttons the same way: at mount (winning over a
+ * returned `chromeActions`) or any time after, surviving repaints, `null` or
+ * `[]` clearing them (tile_renderer.js, C42).
  *
  * ── ONE REGISTRY PER SHELL ────────────────────────────────────────────
  * This module used to hold a module-level `Map` plus a `register(kind, fn)`

@@ -190,6 +190,15 @@ export async function click(page, x, y) {
     await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1 });
 }
 
+/** A real double-click: two presses, the second with clickCount 2, as a browser sends them. */
+export async function dblclick(page, x, y) {
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+    for (const clickCount of [1, 2]) {
+        await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount });
+        await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount });
+    }
+}
+
 /** A real drag from one point to another, in steps. */
 export async function drag(page, from, to, steps = 12) {
     await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: from.x, y: from.y });

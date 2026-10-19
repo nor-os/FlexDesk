@@ -2,17 +2,17 @@
 id: 3
 type: story
 title: "The editable grid: selection, keyboard over cells, editors, staged edits, fill handle and paste"
-status: refined
+status: in-progress
 parent: 1
 phase: 
-assignee: 
+assignee: norman_agent
 reporter: norman
 points: 8
 subsystem: grid
 labels: [grid, editing, tables-consumer]
 links: []
 created: 2026-10-11
-updated: 2026-10-18T10:34Z
+updated: 2026-10-19T20:48Z
 ---
 ## Description
 
@@ -40,6 +40,8 @@ Owner decisions (norman, 2026-10-18): FlexDesk provides every UI operation and m
 
 - 2026-10-11 · norman_agent · status: (unset) -> draft
 - 2026-10-18 · norman_agent · status: draft -> refined
+- 2026-10-19 · norman_agent · status: refined -> in-progress
+- 2026-10-19 · norman_agent · assignee: (unset) -> norman_agent
 
 ## Comments
 

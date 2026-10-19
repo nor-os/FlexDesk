@@ -8,6 +8,9 @@
  *       ('source' / 'sink') puts its steps in the first / last column
  *   §3  `arrange({ids})`: with two steps named, only those two move, as ONE
  *       undo entry that one Ctrl+Z takes back; fewer than two is refused
+ *   §3b `multiSelect`: with two steps picked by Shift-click, the toolbar's
+ *       Arrange moves only those two, as ONE undo entry; with one picked it
+ *       arranges the whole graph
  *   §4  `layout: fn(graph, ctx)`: handed a copy of what is arranged and the
  *       context, its Map is applied; anything but a Map throws
  *   §5  read only: Arrange moves nothing
@@ -48,6 +51,14 @@ const at = (m, id) => m.editor.getGraph().nodes.find((n) => n.id === id).positio
 const drawnAt = (m, id) => {
     const n = m.el.querySelector(`.twm-flow-graph__node[data-node-id="${id}"]`);
     return { x: parseFloat(n.style.left), y: parseFloat(n.style.top) };
+};
+const ev = (Kind, type, init = {}) => new Kind(type, { bubbles: true, cancelable: true, button: 0, ...init });
+/** A click on a node's header the way a browser reports it, with or without a modifier. */
+const clickNode = (m, id, init = {}) => {
+    const head = m.el.querySelector(`.twm-flow-graph__node[data-node-id="${id}"] .twm-flow-graph__node-head`);
+    head.dispatchEvent(ev(w.MouseEvent, 'pointerdown', init));
+    w.dispatchEvent(ev(w.MouseEvent, 'pointerup', init));
+    head.dispatchEvent(ev(w.MouseEvent, 'click', init));
 };
 const ctrlZ = (m) => m.el.querySelector('.twm-canvas').dispatchEvent(
     new w.KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'z', ctrlKey: true }));
@@ -110,6 +121,40 @@ t.section('§3 arrange({ids}): the selection only');
         t.ok(`${layout}: one Ctrl+Z puts both back`, m.editor.serialise() === before && !m.editor.history.canUndo);
         t.ok(`${layout}: one step (or an unknown one) is refused`, m.editor.arrange({ ids: ['A', 'nope'] }) === false
              && m.changes.length === 2);
+    }
+}
+
+t.section('§3b multiSelect: the toolbar arranges the pick');
+{
+    const g = {
+        nodes: [node('A', 'pass', 400, 400), node('B', 'pass', 96, 96), node('C', 'pass', 800, 32), node('D', 'pass', 32, 800)],
+        connections: [line('A', 'B'), line('B', 'C'), line('C', 'D')],
+    };
+    for (const layout of ['flow', 'layered']) {
+        const selects = [];
+        const m = mount({ layout, multiSelect: true, onSelect: (s) => selects.push(s) }, g);
+        const before = m.editor.serialise();
+        const c0 = { ...at(m, 'C') };
+        const d0 = { ...at(m, 'D') };
+        clickNode(m, 'A');
+        clickNode(m, 'B', { shiftKey: true });
+        t.check(`${layout}: two steps picked`, selects.at(-1), { kind: 'many', ids: ['A', 'B'] });
+        t.ok(`${layout}: Arrange is offered`, !tool(m, 'arrange').disabled);
+        tool(m, 'arrange').click();
+        t.ok(`${layout}: the two moved, A left of B on one line`, at(m, 'A').x < at(m, 'B').x
+             && at(m, 'A').y === at(m, 'B').y, JSON.stringify([at(m, 'A'), at(m, 'B')]));
+        t.ok(`${layout}: from the corner the two had`, at(m, 'A').x === 96 && at(m, 'A').y === 96, JSON.stringify(at(m, 'A')));
+        t.ok(`${layout}: nothing else moved`, JSON.stringify(at(m, 'C')) === JSON.stringify(c0)
+             && JSON.stringify(at(m, 'D')) === JSON.stringify(d0));
+        t.ok(`${layout}: as ONE edit`, m.changes.length === 1 && m.changes[0].action === 'flow:arrange');
+        ctrlZ(m);
+        t.ok(`${layout}: one Ctrl+Z puts both back`, m.editor.serialise() === before && !m.editor.history.canUndo);
+
+        clickNode(m, 'A');
+        t.check(`${layout}: one step picked`, selects.at(-1), { kind: 'step', id: 'A' });
+        tool(m, 'arrange').click();
+        t.ok(`${layout}: with one picked, Arrange lays out the whole graph`,
+             JSON.stringify(at(m, 'C')) !== JSON.stringify(c0) || JSON.stringify(at(m, 'D')) !== JSON.stringify(d0));
     }
 }
 

@@ -14,13 +14,35 @@
  *     onText?, offText?, disabled?, compact? }
  *
  *   - type: 'text' | 'number' | 'password' | 'select' | 'textarea' |
- *           'checkbox' | 'toggle' | 'picker' | 'color' | 'colorList'
+ *           'checkbox' | 'toggle' | 'picker' | 'checklist' | 'radio' |
+ *           'color' | 'colorList'
  *   - hint: small dim help line rendered under the field
  *   - validator: fn(value, allValues) => string | null    (inline error)
  *   - rows: number of textarea rows (only used for type='textarea')
  *   - toggle: a `ToggleField` switch, submitted as a boolean like a checkbox;
  *     `onText` / `offText` label its state, `disabled` and `compact` pass
  *     through to it
+ *
+ * Options — `select`, `checklist` and `radio` take `options`: bare values, or
+ * `{ value, label?, disabled?, reason?, description? }`. A value comes back AS
+ * ITSELF — an option whose value is the number 2 submits 2, not '2' — and a
+ * default matches an option of the same text (`'2'` selects 2). A `disabled`
+ * option is shown with its `reason` and is never the submitted value: it is not
+ * selected by a default or by `api.set`, the reader cannot pick it, and a
+ * submit that finds one selected anyway is refused with a field error.
+ * `{ group: 'Heading', options: [...] }` in a select's list is an `<optgroup>`;
+ * in a checklist or radio it is a `.twm-choice__group` heading over its
+ * options. A combobox (a `select` with `create`) offers a group's enabled
+ * options, flattened, and an entry naming a disabled one — a default or an
+ * `api.set` — leaves the box empty.
+ *
+ *   - `checklist`: toggle chips; submits the ARRAY of chosen values in the
+ *     list's order (`[]` for none). `required` means at least one.
+ *   - `radio`: one radio row per option, each with its `description` under it;
+ *     submits the chosen value, or null. `required` means one is chosen.
+ *
+ * These three are drawn by `choice_controls.js` — the same select, chips and
+ * radio list as the flow kit's settings widgets, so there is one of each.
  *
  * Section dividers — entries of the form `{ section: 'Label' }` are
  * rendered as a small uppercase heading that groups the fields below
@@ -78,6 +100,7 @@ import { ManagedWindow } from '../../ui/components/managed_window.js';
 import { ToggleField } from '../../ui/components/toggle_field.js';
 import { ColorField } from './color_field.js';
 import { ColorListField } from './color_list_field.js';
+import { choiceList, findChoice, flatChoices, selectBox, toggleChips } from './choice_controls.js';
 
 /**
  * C25. WHERE A DIALOG OPENS, when the application spans more than one window.
@@ -109,18 +132,32 @@ let _modalSeq = 1;
  * @param {Function?} o.onFieldChange  `(name, value, api)` — called after any
  *   field's `change`, and ONCE on open with `name === null` so the form starts
  *   consistent with its defaults. `api` is
- *   `{ setVisible(name, on), get(name), set(name, value) }`, addressing fields
- *   and named sections by name. `get` reads the control as it stands (a
- *   checkbox as a boolean, everything else as its string); `set` writes it and
- *   does NOT call `onFieldChange` back, so a hook that fills one field from
- *   another cannot loop.
+ *   `{ setVisible(name, on), get(name), set(name, value), setOptions(name,
+ *   options) }`, addressing fields and named sections by name. `get` reads the
+ *   control as it stands (a checkbox or toggle as a boolean, a select or radio as its
+ *   option's own value — a select with no option selected as '', a radio
+ *   with none as null — a combobox as the value of the option its text names,
+ *   exactly as it submits, or as its text when it names none — a checklist as
+ *   the array of chosen values, a colorList as the array of its rows' text,
+ *   everything else — a colour too — as its string). An option
+ *   whose value IS the given one wins over one that only has its text, here,
+ *   in `set` and in defaults. `set` writes it (a value a select or radio does not
+ *   offer, or offers only disabled, clears it; so does a disabled option's
+ *   value in a combobox) and does NOT call
+ *   `onFieldChange` back, so a hook that fills one field from another cannot
+ *   loop. `setOptions` replaces the options of a `select` (a combobox's too),
+ *   `checklist` or `radio` while the form is open, keeping the current value
+ *   when the new list still offers it enabled — otherwise a select falls to its
+ *   first enabled option, a radio to none, and a checklist drops what is gone.
+ *   It does not call `onFieldChange` back either.
  *
  *   It exists for the form whose Type select spans two record kinds and must
  *   show the fields of the kind actually chosen. Rebuilding the form on every
  *   change would lose what the user had already typed, so every field is
  *   built once and the irrelevant rows are hidden. A hidden row keeps its
  *   value and is still submitted — the caller drops what its chosen kind does
- *   not use — but it is not ASKED about: its `required` and its `validator`
+ *   not use; a disabled option it holds submits as no value ('' for a select
+ *   or combobox, null for a radio) — but it is not ASKED about: its `required` and its `validator`
  *   stand down until it is shown again, because a constraint on a field the
  *   user cannot see is a submit button that silently does nothing.
  *
@@ -145,9 +182,6 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                 </div>
             </form>
         `;
-        // Colour fields are components, mounted into the placeholders their
-        // rows rendered; everything below reaches them by name like any field.
-        const components = _mountColorFields(body, fields, defaults);
 
         const win = new ManagedWindow({
             container: _modalHost,
@@ -163,38 +197,10 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
             defaultWidth: _estimateWidth(fields),
             defaultHeight: _estimateHeight(fields),
             onClose: () => {
-                disposeComponents();
+                disposeControls();
                 if (!_resolved) { _resolved = true; resolve(null); }
             },
         });
-
-        // Toggles are components, not markup: each is mounted into the slot
-        // its row left for it, and its input carries the field's name.
-        const toggles = new Map();
-        for (const f of fields) {
-            if (!f || f.section != null || f.type !== 'toggle') continue;
-            const slot = body.querySelector(`[data-toggle-slot="${f.name}"]`);
-            if (!slot) continue;
-            const value = defaults[f.name] ?? f.default;
-            const toggle = new ToggleField({
-                name: f.name,
-                checked: value === true || value === 'true',
-                ariaLabel: f.label || f.name,
-                onText: f.onText ?? null,
-                offText: f.offText ?? null,
-                disabled: !!f.disabled,
-                compact: !!f.compact,
-            });
-            slot.appendChild(toggle.render());
-            toggles.set(f.name, toggle);
-        }
-        function disposeComponents() {
-            for (const t of toggles.values()) t.dispose();
-            toggles.clear();
-            for (const c of components.values()) c.dispose();
-            components.clear();
-        }
-        win.show();
 
         let _resolved = false;
         const close = (result) => {
@@ -202,7 +208,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
             _resolved = true;
             resolve(result);
             try { win.close({ force: true }); } catch {}
-            disposeComponents();
+            disposeControls();
         };
 
         const errEl = body.querySelector('[data-role="form-error"]');
@@ -214,8 +220,15 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
         body.querySelector('[data-action="cancel"]')?.addEventListener('click', () => close(null));
 
         const formFields = fields.filter((f) => !f.section);
+        // The options each field offers NOW — `setOptions` replaces them, the
+        // caller's field object is never written to.
+        const optionsOf = new Map(formFields.map((f) => [f.name, f.options]));
+        const comboHints = new Map();
         for (const f of formFields) {
-            if (f.type === 'select' && f.create) _wireComboboxHint(body, f);
+            if (f.type === 'select' && f.create) {
+                const update = _wireComboboxHint(body, f, () => optionsOf.get(f.name));
+                if (update) comboHints.set(f.name, update);
+            }
             if (f.type === 'picker') _wirePicker(body, f);
         }
         const rowHidden = (name) => !!body.querySelector(`[data-field-row="${name}"]`)?.hidden;
@@ -232,6 +245,36 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
             if (row) row.classList.add('twm-is-invalid');
             if (errEl) { errEl.textContent = msg; errEl.hidden = false; }
         };
+        // Fields that are components, not markup — toggles, selects,
+        // checklists, radios and colours — are mounted into the slot their
+        // row left (`_mountControl`) and read back through it: a toggle as a
+        // boolean, a choice as its option's own value, a colour as its hex. `onChoice` is what a checklist or
+        // radio calls when the reader changes it (a toggle or select is a
+        // named control and is heard by the loops below).
+        let onChoice = (name) => clearFieldError(name);
+        const controls = new Map();
+        for (const f of formFields) {
+            const c = _mountControl(body, f, defaults[f.name] ?? f.default, (name) => onChoice(name));
+            if (c) controls.set(f.name, c);
+        }
+        function disposeControls() {
+            for (const c of controls.values()) c.dispose?.();
+            controls.clear();
+        }
+        win.show();
+        /** The option a combobox entry names — the one whose value IS it, else the
+         *  one whose value has its text — or undefined. `get` and the submit both
+         *  read a combobox through this, so they agree (`'2'` is option `2`). */
+        const comboOption = (f, text) => findChoice(flatChoices(optionsOf.get(f.name)), text, true);
+        /** A disabled option's reason ('' with none) when one is the value, else null. */
+        const unavailable = (f, value) => {
+            const c = controls.get(f.name);
+            if (c) return c.unavailable();
+            if (f.type !== 'select' || !f.create || value == null || value === '') return null;
+            const o = comboOption(f, value);
+            return o?.disabled ? (o.reason || '') : null;
+        };
+
         // Clear per-field errors on input so the user sees the row recover.
         for (const f of formFields) {
             const el = body.querySelector(`[name="${f.name}"]`);
@@ -261,25 +304,46 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                     }
                 },
                 get(name) {
-                    // A colour list is a list: its rows' text, as it stands.
-                    if (fieldOf(name)?.type === 'colorList') return components.get(name).getTexts();
+                    if (controls.has(name)) return controls.get(name).read();
                     const el = body.querySelector(`[name="${name}"]`);
                     if (!el) return undefined;
-                    return el.type === 'checkbox' ? !!el.checked : el.value;
+                    if (el.type === 'checkbox') return !!el.checked;
+                    const f = fieldOf(name);
+                    if (f?.type === 'select' && f.create) {
+                        const match = comboOption(f, el.value);
+                        return match ? match.value : el.value;
+                    }
+                    return el.value;
                 },
                 set(name, value) {
-                    // Through the component, so the swatch follows the value.
-                    if (components.has(name)) { components.get(name).setValue(value); return; }
+                    if (controls.has(name)) { controls.get(name).write(value); return; }
                     const el = body.querySelector(`[name="${name}"]`);
                     if (!el) return;
-                    if (toggles.has(name)) { toggles.get(name).set(value); return; }
                     if (el.type === 'checkbox') { el.checked = !!value; return; }
-                    el.value = value == null ? '' : String(value);
                     const f = fieldOf(name);
+                    // A combobox does not take a disabled option's text either.
+                    const shut = f?.type === 'select' && f.create && comboOption(f, value)?.disabled;
+                    el.value = value == null || shut ? '' : String(value);
+                    comboHints.get(name)?.();
                     if (f?.type === 'picker') {
                         const display = body.querySelector(`[data-picker-display="${name}"]`);
                         if (display) display.value = _pickerLabel(f, el.value);
                     }
+                },
+                setOptions(name, options) {
+                    const f = fieldOf(name);
+                    if (!f) return;
+                    const c = controls.get(name);
+                    if (c?.setOptions) {
+                        optionsOf.set(name, options);
+                        c.setOptions(options);
+                        return;
+                    }
+                    if (f.type !== 'select' || !f.create) return;
+                    optionsOf.set(name, options);
+                    const list = body.querySelector(`[data-datalist-for="${name}"]`);
+                    if (list) list.innerHTML = _datalistOptions(options);
+                    comboHints.get(name)?.();
                 },
             };
             const fire = (name) => {
@@ -290,6 +354,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                 const el = body.querySelector(`[name="${f.name}"]`);
                 el?.addEventListener('change', () => fire(f.name));
             }
+            onChoice = (name) => { clearFieldError(name); fire(name); };
             // Once on open, so a preselected value is reflected immediately
             // rather than only after the user touches something.
             fire(null);
@@ -301,12 +366,16 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
             showError('');
             const data = {};
             for (const f of formFields) {
-                const el = body.querySelector(`[name="${f.name}"]`);
-                if (!el) continue;
+                const control = controls.get(f.name);
+                const el = control ? null : body.querySelector(`[name="${f.name}"]`);
+                if (!control && !el) continue;
                 let v;
-                if (components.has(f.name)) {
-                    v = components.get(f.name).getValue();
-                } else if (f.type === 'checkbox' || f.type === 'toggle') {
+                if (control) {
+                    // A colour reads as its text but submits as its hex.
+                    v = control.submit ? control.submit() : control.read();
+                    // An option with no value submits '', as an empty select does.
+                    if (v === undefined) v = f.type === 'select' ? '' : null;
+                } else if (f.type === 'checkbox') {
                     v = !!el.checked;
                 } else if (f.type === 'number') {
                     v = (el.value === '' ? null : Number(el.value));
@@ -315,8 +384,11 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                 }
                 if (f.type === 'select' && f.create) {
                     const spec = _createSpec(f);
-                    const known = new Set(_optionValues(f.options));
-                    if (v && !known.has(v)) {
+                    // A typed value that is an option's text IS that option,
+                    // with the option's own value (a number stays a number).
+                    const match = comboOption(f, v);
+                    if (match) v = match.value;
+                    else if (v) {
                         if (submitBtn) submitBtn.disabled = true;
                         let created;
                         let failMsg = null;
@@ -340,10 +412,24 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
             let firstBadName = null;
             for (const f of formFields) {
                 clearFieldError(f.name);
-                if (rowHidden(f.name)) continue;
-                let msg = _builtinError(f, data[f.name], components.get(f.name));
+                if (rowHidden(f.name)) {
+                    // Not asked about — but a disabled option is still never
+                    // the value: a hidden row holding one submits no value.
+                    if (unavailable(f, data[f.name]) != null) data[f.name] = f.type === 'radio' ? null : '';
+                    continue;
+                }
+                const v = data[f.name];
+                // A picker's value lives in a hidden input, and a checklist or
+                // radio is no single control, so the browser's own `required`
+                // check never sees them — they are checked here.
+                let msg = f.required && _missing(f, v) ? 'Required.' : null;
+                if (!msg) {
+                    const reason = unavailable(f, v);
+                    if (reason != null) msg = reason ? `Not available: ${reason}` : 'Not available.';
+                }
+                if (!msg) msg = controls.get(f.name)?.error?.() ?? null;
                 if (!msg && typeof f.validator === 'function') {
-                    try { msg = f.validator(data[f.name], data); } catch (err) { msg = err?.message || String(err); }
+                    try { msg = f.validator(v, data); } catch (err) { msg = err?.message || String(err); }
                 }
                 if (msg) {
                     setFieldError(f.name, msg);
@@ -351,7 +437,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                 }
             }
             if (firstBadName) {
-                components.get(firstBadName)?.focus();
+                controls.get(firstBadName)?.focus();
                 body.querySelector(`[data-picker="${firstBadName}"]`)?.focus();
                 body.querySelector(`[name="${firstBadName}"]:not([type="hidden"])`)?.focus();
                 return;
@@ -789,6 +875,11 @@ function _estimateHeight(fields) {
             body += 46 + (Array.isArray(f.presets) && f.presets.length ? 28 : 0);
             if (f.hint) body += 16;
         }
+        else if (f.type === 'radio') {
+            const opts = flatChoices(f.options);
+            body += 12 + opts.reduce((h, o) => h + 22 + (o.description || o.reason ? 16 : 0), 0);
+            if (f.hint) body += 16;
+        }
         else { body += 46; if (f.hint) body += 16; }
     }
     const base = 36 + 46 + 28 + body;
@@ -804,8 +895,129 @@ function _estimateWidth(fields) {
     return wide ? 640 : 480;
 }
 
-function _optionValues(options) {
-    return (options || []).map((o) => (typeof o === 'object') ? o.value : o);
+/** A combobox's offered options: enabled, groups flattened. */
+function _offered(options) {
+    return flatChoices(options).filter((o) => !o.disabled);
+}
+
+function _datalistOptions(options) {
+    return _offered(options).map((o) => `<option value="${_esc(o.value)}"></option>`).join('');
+}
+
+/**
+ * Mount a field that is a component rather than markup — a `toggle`, a
+ * `select` (not a combobox), `checklist` or `radio` drawn by
+ * `choice_controls.js`, or a `color` / `colorList` — into the
+ * `data-control-slot` its row left, and hand back what the form needs of it:
+ * `{ read(), write(v), focus(), unavailable(), submit?(), error?(),
+ * setOptions?(options), dispose?() }`. `unavailable()` is the reason (or '')
+ * when the selected option is disabled, else null. `submit()`, where given,
+ * is the value submitted when it differs from what `read()` shows (a colour's
+ * hex, null while its box holds none), and `error()` is the field's own
+ * message for a value it cannot submit, else null. `onChange(name)` hears the
+ * reader's choice on a checklist or radio; a toggle or select is a named
+ * control, heard as one. Null for any other field.
+ */
+function _mountControl(host, f, value, onChange) {
+    const slot = host.querySelector(`[data-control-slot="${f.name}"]`);
+    if (!slot) return null;
+    if (f.type === 'toggle') {
+        // Mounted INTO the slot: the slot is the row's `.twm-modal__toggle`
+        // cell, and the switch's own root is the <label>.
+        const toggle = new ToggleField({
+            name: f.name,
+            checked: value === true || value === 'true',
+            ariaLabel: f.label || f.name,
+            onText: f.onText ?? null,
+            offText: f.offText ?? null,
+            disabled: !!f.disabled,
+            compact: !!f.compact,
+        });
+        slot.appendChild(toggle.render());
+        return {
+            read: () => toggle.get(),
+            write: (v) => toggle.set(v),
+            focus: () => toggle.input?.focus(),
+            unavailable: () => null,
+            dispose: () => toggle.dispose(),
+        };
+    }
+    if (f.type === 'color' || f.type === 'colorList') {
+        // Read as their text as it stands (a list as its rows' text), submitted
+        // as hex: `getValue()` is null while a box holds no hex colour.
+        const c = f.type === 'color'
+            ? new ColorField({ name: f.name, value: value ?? '', presets: f.presets, label: f.label })
+            : new ColorListField({ name: f.name, value: value ?? [], presets: f.presets });
+        slot.replaceWith(c.render());
+        const list = f.type === 'colorList';
+        return {
+            read: () => (list ? c.getTexts() : c.getText()),
+            submit: () => c.getValue(),
+            write: (v) => c.setValue(v),
+            focus: () => c.focus(),
+            unavailable: () => null,
+            error: () => {
+                if (c.getValue() !== null) return null;
+                if (!list) return 'Not a hex colour: use #rgb or #rrggbb.';
+                const bad = c.invalidIndexes().map((i) => i + 1).join(', ');
+                return `Not a hex colour (row ${bad}): use #rgb or #rrggbb.`;
+            },
+            dispose: () => c.dispose(),
+        };
+    }
+    const common = { keepMissing: false, loose: true };
+    const disabledReason = (entry) => (entry?.disabled ? (entry.reason || '') : null);
+    if (f.type === 'select') {
+        const c = selectBox(f.options, value, { ...common, valueAttr: 'value', className: '' });
+        c.box.name = f.name;
+        if (f.required) c.box.required = true;
+        slot.replaceWith(c.box);
+        return {
+            // No option selected reads '', as an empty select always has (and
+            // as it submits); a selected option reads as its own value.
+            read: () => (c.entry() ? c.entry().value : ''),
+            // A value the list does not offer enabled clears the select, as
+            // writing an unknown `.value` always has (it then submits '').
+            write: (v) => { if (!c.select(v)) c.box.selectedIndex = -1; },
+            focus: () => c.box.focus(),
+            unavailable: () => disabledReason(c.entry()),
+            setOptions: c.setOptions,
+        };
+    }
+    const list = (v) => (Array.isArray(v) ? v : (v == null || v === '' ? [] : [v]));
+    if (f.type === 'checklist') {
+        const c = toggleChips({ ...common, options: f.options, value: list(value), label: f.label || f.name,
+                                onChange: () => onChange(f.name) });
+        slot.replaceWith(c.el);
+        return {
+            read: c.valueOf,
+            write: (v) => c.setValue(list(v)),
+            focus: () => c.el.querySelector('button:not(:disabled)')?.focus(),
+            unavailable: () => null,           // a disabled chip cannot be pressed, by hand or by set
+            setOptions: c.setOptions,
+        };
+    }
+    const c = choiceList({ ...common, options: f.options, value, label: f.label || f.name,
+                           name: `twm-form-${_modalSeq}-${f.name}`, onChange: () => onChange(f.name) });
+    slot.replaceWith(c.el);
+    return {
+        read: () => c.valueOf() ?? null,
+        write: (v) => { c.select(v); },
+        focus: c.focus,
+        unavailable: () => disabledReason(c.entry()),
+        setOptions: c.setOptions,
+    };
+}
+
+/** Is a `required` field without a value the browser cannot check for itself? */
+function _missing(f, v) {
+    if (f.type === 'picker') return !v;
+    if (f.type === 'checklist') return !Array.isArray(v) || v.length === 0;
+    if (f.type === 'radio') return v == null;
+    // A colour that is not a hex (null) is its own error, not a missing one.
+    if (f.type === 'color') return v === '';
+    if (f.type === 'colorList') return Array.isArray(v) && v.length === 0;
+    return false;
 }
 
 /** Normalise a `create` spec. `true` means the typed value is accepted as-is. */
@@ -856,48 +1068,9 @@ function _wirePicker(host, f) {
 }
 
 
-/** Mount a ColorField / ColorListField into each colour row's placeholder.
- *  Returns name -> component. */
-function _mountColorFields(host, fields, defaults) {
-    const components = new Map();
-    for (const f of fields) {
-        if (!f || f.section != null) continue;
-        if (f.type !== 'color' && f.type !== 'colorList') continue;
-        const slot = host.querySelector(`[data-color-slot="${f.name}"]`);
-        if (!slot) continue;
-        const value = defaults[f.name] ?? f.default;
-        const c = f.type === 'color'
-            ? new ColorField({ name: f.name, value: value ?? '', presets: f.presets, label: f.label })
-            : new ColorListField({ name: f.name, value: value ?? [], presets: f.presets });
-        slot.replaceWith(c.render());
-        components.set(f.name, c);
-    }
-    return components;
-}
-
-/** The form's own checks, before a caller's `validator`: a picker's
- *  `required` (its value lives in a hidden input, which the browser's
- *  `required` check skips) and a colour's hex. */
-function _builtinError(f, value, component) {
-    if (f.type === 'picker') return f.required && !value ? 'Required.' : null;
-    if (f.type === 'color') {
-        if (value === null) return 'Not a hex colour: use #rgb or #rrggbb.';
-        return f.required && !value ? 'Required.' : null;
-    }
-    if (f.type === 'colorList') {
-        if (value === null) {
-            const bad = component.invalidIndexes().map((i) => i + 1).join(', ');
-            return `Not a hex colour (row ${bad}): use #rgb or #rrggbb.`;
-        }
-        return f.required && !value.length ? 'Required.' : null;
-    }
-    return null;
-}
-
-
 /** Show / hide the "↳ will create …" hint as the user types into a
  *  create-capable combobox. */
-function _wireComboboxHint(host, f) {
+function _wireComboboxHint(host, f, optionsOf) {
     const input = host.querySelector(`input[name="${f.name}"]`);
     const hintEl = host.querySelector(`.twm-combobox__hint[data-for="${f.name}"]`);
     if (!input || !hintEl) return;
@@ -905,10 +1078,10 @@ function _wireComboboxHint(host, f) {
     // entity being made, so promising to "create" one is a lie that reads as
     // a warning.
     if (f.create === true) return;
-    const known = new Set(_optionValues(f.options));
     const label = _createSpec(f).hint || 'new entry';
     const update = () => {
         const v = input.value.trim();
+        const known = new Set(flatChoices(optionsOf()).map((o) => String(o.value)));
         if (v && !known.has(v)) {
             hintEl.textContent = `↳ will create ${label} “${v}”`;
             hintEl.hidden = false;
@@ -918,6 +1091,7 @@ function _wireComboboxHint(host, f) {
     };
     input.addEventListener('input', update);
     update();
+    return update;
 }
 
 
@@ -933,18 +1107,21 @@ function _renderEntry(f, value) {
 
 function _renderField(f, value) {
     const required = f.required ? 'required' : '';
-    const rowMod = (f.type === 'textarea') ? ' twm-modal__row--multiline' : '';
+    const rowMod = (f.type === 'textarea' || f.type === 'checklist' || f.type === 'radio')
+        ? ' twm-modal__row--multiline' : '';
     const hintHtml = f.hint
         ? `<div class="twm-modal__hint--field">${_esc(f.hint)}</div>` : '';
     const errHtml = `<div class="twm-modal__field-error" data-field-error="${f.name}" hidden></div>`;
-    const wrap = (inner) => `
-        <label class="twm-modal__row${rowMod}" data-field-row="${f.name}">
+    const wrap = (inner, tag = 'label') => `
+        <${tag} class="twm-modal__row${rowMod}" data-field-row="${f.name}">
             <span>${_esc(f.label || '')}</span>
             ${inner}
             ${hintHtml}
             ${errHtml}
-        </label>
+        </${tag}>
     `;
+    // A component's place, filled once the markup is in (`_mountControl`).
+    const slot = `<span data-control-slot="${f.name}"></span>`;
 
     if (f.type === 'checkbox') {
         const checked = (value === true || value === 'true') ? 'checked' : '';
@@ -961,18 +1138,14 @@ function _renderField(f, value) {
         `;
     }
 
+    // A group of controls is not one labelable control: a `<label>` round it
+    // would hand every click on the row to its first chip or radio.
+    if (f.type === 'checklist' || f.type === 'radio') return wrap(slot, 'div');
+
+    // A div, not a label: the switch's own root is the <label>, and a label
+    // may not hold another.
     if (f.type === 'toggle') {
-        // A div, not a label: the switch's own root is the <label>, and a
-        // label may not hold another. `openForm` mounts the ToggleField into
-        // the slot once the markup is in the document.
-        return `
-            <div class="twm-modal__row" data-field-row="${f.name}">
-                <span>${_esc(f.label || '')}</span>
-                <span class="twm-modal__toggle" data-toggle-slot="${f.name}"></span>
-                ${hintHtml}
-                ${errHtml}
-            </div>
-        `;
+        return wrap(`<span class="twm-modal__toggle" data-control-slot="${f.name}"></span>`, 'div');
     }
 
     if (f.type === 'textarea') {
@@ -983,10 +1156,9 @@ function _renderField(f, value) {
     }
 
     if (f.type === 'color' || f.type === 'colorList') {
-        // The component is mounted here by `_mountColorFields`. A list is a
-        // group of controls, so its row is not a <label>: a label would hand
-        // every click on it to the first row's swatch.
-        const slot = `<div data-color-slot="${f.name}"></div>`;
+        // The component is mounted into the slot by `_mountControl`. A list
+        // is a group of controls, so its row is not a <label>: a label would
+        // hand every click on it to the first row's swatch.
         if (f.type === 'color') return wrap(slot);
         return `
             <div class="twm-modal__row twm-modal__row--multiline" data-field-row="${f.name}" role="group" aria-label="${_esc(f.label || '')}">
@@ -1017,29 +1189,23 @@ function _renderField(f, value) {
         `);
     }
     if (f.type === 'select' && f.create) {
+        // A default naming a disabled option is not taken, as in a select.
+        const shown = findChoice(flatChoices(f.options), value, true)?.disabled ? '' : v;
         const dlId = `ea-dl-${f.name}-${_modalSeq}`;
-        const opts = _optionValues(f.options)
-            .map((ov) => `<option value="${_esc(ov)}"></option>`).join('');
+        const opts = _datalistOptions(f.options);
         const placeholder = f.placeholder
             ? `placeholder="${_esc(f.placeholder)}"` : 'placeholder="type to pick or create…"';
         return wrap(`
             <div class="twm-combobox">
                 <input name="${f.name}" type="text" list="${dlId}"
-                       value="${_esc(v)}" ${placeholder} ${required}
+                       value="${_esc(shown)}" ${placeholder} ${required}
                        autocomplete="off">
-                <datalist id="${dlId}">${opts}</datalist>
+                <datalist id="${dlId}" data-datalist-for="${f.name}">${opts}</datalist>
                 <span class="twm-combobox__hint" data-for="${f.name}" hidden></span>
             </div>
         `);
     }
-    if (f.type === 'select') {
-        const opts = (f.options || []).map((o) => {
-            const ov = (typeof o === 'object') ? o.value : o;
-            const ol = (typeof o === 'object') ? o.label : o;
-            return `<option value="${_esc(ov)}" ${ov === v ? 'selected' : ''}>${_esc(ol)}</option>`;
-        }).join('');
-        return wrap(`<select name="${f.name}" ${required}>${opts}</select>`);
-    }
+    if (f.type === 'select') return wrap(slot);
     const step = f.step != null ? `step="${f.step}"` : '';
     const placeholder = f.placeholder ? `placeholder="${_esc(f.placeholder)}"` : '';
     const type = (f.type === 'number' || f.type === 'password') ? f.type : 'text';

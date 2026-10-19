@@ -36,11 +36,16 @@
  * alone, `endStream()` renders it a last time, unmarked. Nothing is deferred to
  * a frame: every call has drawn by the time it returns.
  *
- * PINNED TO THE BOTTOM: while the transcript is scrolled to within
- * `pinThreshold` px of its end it follows new content. A scroll UP past that
- * stops the following and shows *Jump to latest*; clicking it — or scrolling
- * back down to the end — follows again. Content growing below a pinned view
- * never unpins it: only the scroll position moving up does, and a wheel over
+ * PINNED TO THE BOTTOM: the view starts out following new content. Any
+ * scroll UP — even a few px from the end, and whichever frame of a smooth
+ * wheel or key scroll reports it — stops the following and shows *Jump to
+ * latest*, and no later chunk moves the reader back. Following resumes only
+ * on a scroll down (or a move that is not up) that ends within
+ * `pinThreshold` px of the end, a click on *Jump to latest*,
+ * `scrollToBottom()`, `replaceAll()` / `clear()`, or a `setScrollTop(px)`
+ * that lands within the threshold. Content growing below a pinned view
+ * never unpins it, nor does content shrinking under it (the browser clamps
+ * `scrollTop` to the new end, which is not a move up). A wheel over
  * a nested scroller (a `<pre>` in a body, say) scrolls that, not the view;
  * nor does a wheel a handler inside the transcript cancelled, a Ctrl+wheel
  * (zoom, or a trackpad pinch), or a wheel up over a transcript already at its
@@ -63,6 +68,13 @@
 
 /** How near the end of the transcript still counts as "at the bottom". */
 export const CONVERSATION_PIN_WITHIN_PX = 32;
+
+/**
+ * A drop in `scrollTop` that still leaves the view this close to its end is
+ * the browser clamping it after the content shrank (or sub-pixel rounding),
+ * not the reader scrolling up.
+ */
+const AT_END_PX = 1;
 
 /** The tallest the composer grows before it scrolls instead. */
 export const CONVERSATION_COMPOSER_MAX_PX = 200;
@@ -145,20 +157,21 @@ export function mountConversationView(host, {
         jump.hidden = pinned;
     };
     /**
-     * Reads the position the reader left: a move up that ends past
-     * `pinThreshold` from the end stops following. Returns whether the view
-     * is within the threshold. Shared by the `scroll` event and by settle(),
-     * because a scrollbar drag, a key or a touch moves `scrollTop` before its
-     * `scroll` event is dispatched, and a change arriving in between must not
-     * snap the reader back.
+     * Reads the position the reader left: any move up stops following, however
+     * near the end it stops (a smooth wheel or key scroll reports its first
+     * frame only a few px up). Returns whether the move may follow again: it
+     * was not up and ends within `pinThreshold` of the end. Shared by the
+     * `scroll` event and by settle(), because a scrollbar drag, a key or a
+     * touch moves `scrollTop` before its `scroll` event is dispatched, and a
+     * change arriving in between must not snap the reader back.
      */
     function noticeMove() {
         const top = log.scrollTop;
-        const movedUp = top < lastScrollTop;
+        const distance = distanceFromEnd();
+        const movedUp = top < lastScrollTop && distance > AT_END_PX;
         lastScrollTop = top;
-        const near = distanceFromEnd() <= pinThreshold;
-        if (movedUp && !near && pinned) setPinned(false);
-        return near;
+        if (movedUp && pinned) setPinned(false);
+        return !movedUp && distance <= pinThreshold;
     }
     /** After every change to the transcript: follow it, or leave the reader where they are. */
     const settle = () => {

@@ -635,6 +635,13 @@ console.log('§7 replaceAll restores 100 messages and scrolls to the bottom');
     try { r.view.replaceAll([{ id: 'n1', text: 'a' }, { id: 'n2', text: 'b' }, { id: 'n1', text: 'c' }]); }
     catch { refused = true; }
     ok('replaceAll with a repeated id is refused', refused);
+
+    const z = fresh();
+    z.view.append({ role: 'user', text: 'gone' });
+    let zThrew = null;
+    try { z.view.replaceAll(null); } catch (e) { zThrew = e; }
+    ok('replaceAll(null) empties the transcript as clear() does', zThrew === null
+        && z.rows().length === 0 && z.view.messages().length === 0 && z.view.isPinned(), zThrew?.message);
     ok('…and changes nothing: messages, rows and slots as before',
         r.view.messages().map((m) => m.id).join() === keep.join()
         && r.rows().length === 8 && r.rows().every((row, i) => row === rowsBefore[i])

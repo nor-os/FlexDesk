@@ -194,8 +194,7 @@ export function mountConversationView(host, {
             const overflow = style?.overflowY;
             if (overflow !== 'auto' && overflow !== 'scroll' && overflow !== 'overlay') continue;
             if (n.scrollTop > 0) return true;
-            const chain = style.getPropertyValue('overscroll-behavior-y')
-                || style.getPropertyValue('overscroll-behavior').split(/\s+/).pop();
+            const chain = style.getPropertyValue('overscroll-behavior-y');
             if (chain === 'contain' || chain === 'none') return true;
         }
         return false;
@@ -278,9 +277,9 @@ export function mountConversationView(host, {
         return entry.message.id;
     }
 
-    /** All or nothing: a repeated id throws before the transcript is touched. */
-    function replaceAll(messages = []) {
-        const list = [...messages];
+    /** All or nothing: a repeated id throws before the transcript is touched. No list (undefined or null) empties it. */
+    function replaceAll(messages) {
+        const list = [...(messages ?? [])];
         const given = new Set();
         for (const m of list) {
             if (m?.id == null) continue;

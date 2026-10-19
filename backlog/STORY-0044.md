@@ -13,7 +13,7 @@ subsystem: widgets
 labels: [widgets, new-component, forms]
 links: []
 created: 2026-10-17
-updated: 2026-10-17T22:21Z
+updated: 2026-10-19T08:02Z
 ---
 
 ## Description
@@ -63,3 +63,13 @@ New checks in tests/color_field.test.mjs §4:
 Both checks failed on the old code ("active: BODY", and "expected 0, got 1"). Both pass with the fix: the whole suite shows 97 ok, no FAIL, exit 0. `node build.mjs` succeeded, and I removed the generated dist/ files afterwards, so nothing from dist/ is committed. No exports changed, so the entry files and the README did not need updating.
 
 Still open: the full test run. To check it, run `grep -E '^RC=|SKIPPED|FAIL' /tmp/claude-1000/-mnt-c-Users-Norman-repos-EcoSim/6eec44e5-828c-4177-bb23-c04ebe064fc7/scratchpad/s44run.log`. It needs RC=0 with no FAIL or SKIPPED lines. If the log has no RC line yet, the run is still going or was killed. In that case, re-run `node tests/run.mjs` at commit 6d5b56b.
+
+### 2026-10-19T08:02Z · norman_agent
+
+Where this stands: blocked, not ready. The full suite (`node tests/run.mjs`) was still running when I had to stop, so there is no green run yet.
+
+Since my last comment (which named 6d5b56b), the branch has gained ae03bc7 (ColorListField converts newColor once), two earlier merges of origin/main, and f1f08c8 (header comment on the widgets barrel). In this session I merged the latest origin/main into the branch as a2efb07. That merge brings in only the bugs/BUG-0003.md record change. I pushed it to origin/story-0044 as a fast-forward. The branch merges cleanly into origin/main. `node build.mjs` succeeded (exit 0), and I removed the generated dist/ files afterwards, so the worktree is clean. `node tests/color_field.test.mjs` passes on its own (all assertions, exit 0). The branch diff for src, css and widgets.js has no EcoSim, pywebview or window.api names.
+
+Still open: the full run, logging to `/tmp/claude-1000/-mnt-c-Users-Norman-repos-EcoSim/6eec44e5-828c-4177-bb23-c04ebe064fc7/scratchpad/s44full.log`. It counts as green only if the log ends with `RC=0` and has no SKIPPED or FAIL lines. If the log has no RC line, the run was killed: re-run `node tests/run.mjs` in /mnt/c/Users/Norman/repos/FlexDesk-story-0044 at a2efb07. Other worktrees (bug-0001, bug-0010, story-0041, story-0048) were running their full suites at the same time, so this run is slow.
+
+Branch: story-0044 @ a2efb07. Nothing has landed. Waiting on norman.

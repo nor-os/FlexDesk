@@ -16,10 +16,13 @@
  *       a refusal from the policy is its own sentence
  *   §5  a drag from an output: only the inputs it may end on carry
  *       `--can-drop`; released on an input it connects, the click after it is
- *       swallowed; Escape cancels; no setPointerCapture
+ *       swallowed; Escape cancels; no setPointerCapture; a touch release sent
+ *       to the source port (captured) connects to the input under the finger,
+ *       and one outside the window connects nothing
  *   §6  a drag released on the empty canvas: the picker offers only the types
  *       with a compatible input; picking adds the step AND the line as one undo
- *       entry; cancelling adds nothing; a type whose input gets an offer adds
+ *       entry; cancelling adds nothing; a captured touch release over the
+ *       canvas opens the picker too; a type whose input gets an offer adds
  *       nothing until Accept, which adds the step, the line and the offer's
  *       change as one undo entry with the new step picked
  *   §7  read only: no drag starts
@@ -35,6 +38,9 @@ const { createCanvasEditor, createStepCatalogue, canConnect, openFlowPopover, cl
 
 let captured = 0;
 w.Element.prototype.setPointerCapture = function setPointerCapture() { captured += 1; };
+/** What the browser's hit test finds at the release point (jsdom has none). */
+let underPointer = null;
+w.document.elementFromPoint = () => underPointer;
 
 const F = (name, direction, extra = {}) => ({ name, direction, port_type: 'FLOW', ...extra });
 const D = (name, direction, extra = {}) => ({ name, direction, port_type: 'DATA', ...extra });
@@ -96,7 +102,14 @@ const dragFrom = (m, id, port) => {
     w.dispatchEvent(ev('pointermove', { clientX: 104, clientY: 101 }));
     w.dispatchEvent(ev('pointermove', { clientX: 300, clientY: 220 }));
 };
-const releaseOn = (target) => target.dispatchEvent(ev('pointerup', { clientX: 300, clientY: 220 }));
+/** Let go over `target`: the hit test finds it, and (a mouse) the release is sent to it. */
+const releaseOn = (target) => { underPointer = target; target.dispatchEvent(ev('pointerup', { clientX: 300, clientY: 220 })); };
+/** A touch release: the pointer is captured by the port it started on, so the
+ *  release goes to that port while the hit test finds `under`. */
+const releaseCaptured = (m, id, port, under) => {
+    underPointer = under;
+    portOf(m, id, port, 'output').dispatchEvent(ev('pointerup', { clientX: 300, clientY: 220 }));
+};
 
 t.section('§1 without the option, nothing changes');
 {
@@ -241,6 +254,19 @@ t.section('§5 drag to connect');
     t.check('released on a step but not an input: it says where', message(m).textContent, 'Drop the line on an input to connect it.');
     t.ok('no pointer capture was asked for', captured === 0);
     await t.tick();
+
+    dragFrom(m, 'src', 'value');
+    releaseCaptured(m, 'src', 'value', portOf(m, 'y', 'b', 'input').querySelector('.twm-flow-graph__port-dot'));
+    t.ok('a touch release sent to the source port connects to the input under the finger',
+         lines(m).includes('src.value>y.b') && !m.el.classList.contains('twm-flow-graph--connecting'));
+    await t.tick();
+
+    const count = lines(m).length;
+    dragFrom(m, 'src', 'value');
+    releaseCaptured(m, 'src', 'value', null);
+    t.ok('let go outside the window (no element there): nothing connects and no picker opens',
+         lines(m).length === count && openFlowPopover() === null && !m.el.classList.contains('twm-flow-graph--connecting'));
+    await t.tick();
 }
 
 t.section('§6 dropped on the empty canvas');
@@ -265,6 +291,15 @@ t.section('§6 dropped on the empty canvas');
     undo(m);
     t.ok('one undo takes back the step and the line', m.editor.getGraph().nodes.length === n0 && lines(m).length === 0);
     await t.tick();
+
+    dragFrom(m, 'src', 'name');
+    releaseCaptured(m, 'src', 'name', m.el.querySelector('.twm-canvas'));
+    const popTouch = openFlowPopover();
+    t.check('a touch release sent to the source port over the empty canvas opens the picker',
+            popTouch ? [...popTouch.querySelectorAll('[role="option"]')].map((o) => o.dataset.entry) : [], ['caption']);
+    t.key(popTouch.querySelector('input'), 'Escape');
+    await t.tick();
+    t.ok('(and cancelling it adds nothing)', m.editor.getGraph().nodes.length === n0 && lines(m).length === 0);
 
     dragFrom(m, 'src', 'value');
     releaseOn(m.el.querySelector('.twm-canvas'));

@@ -177,11 +177,17 @@ export function canConnect(graph, catalogue, { source, sourcePort, target, targe
 /** Connect when `canConnect` allows it; returns its verdict either way. */
 export function connect(graph, catalogue, edge, options = {}) {
     const verdict = canConnect(graph, catalogue, edge, options);
-    if (verdict.ok) {
-        graph.connections.push({ source: edge.source, target: edge.target,
-                                 sourcePort: edge.sourcePort, targetPort: edge.targetPort });
-    }
+    if (verdict.ok) addConnection(graph, edge);
     return verdict;
+}
+
+/**
+ * Append the line `edge` describes, asking nothing — for a caller whose own
+ * rules already allowed it (the canvas editor's `connections` option). The one
+ * place a connection row is built.
+ */
+export function addConnection(graph, { source, target, sourcePort, targetPort }) {
+    graph.connections.push({ source, target, sourcePort, targetPort });
 }
 
 export function disconnect(graph, edge) {

@@ -86,7 +86,7 @@ import { createFindingsStrip, findingsList, groupFindings } from '../kit/finding
 import { openStepPicker } from '../kit/step_picker.js';
 import { FlowHistory } from '../kit/history.js';
 import { bindFlowKeys } from '../kit/keys.js';
-import { addNode, connect, disconnect, emptyGraph, normalise, removeNode, sameEdge, serialise } from '../kit/logic_graph.js';
+import { addConnection, addNode, connect, disconnect, emptyGraph, normalise, removeNode, sameEdge, serialise } from '../kit/logic_graph.js';
 import { CANVAS_STRINGS } from './strings.js';
 import { connectionRules } from './connections.js';
 import { CANVAS_NODE, isReturnEdge, layoutGraph, nodeBottom, portAnchor } from './layout.js';
@@ -627,10 +627,7 @@ export function createCanvasEditor(host, options = {}) {
     function linkTo(edge) {
         const verdict = verdictOf(graph, edge);
         if (!verdict.ok) { setMessage(verdict.reason, 'warning'); return; }
-        const build = () => {
-            graph.connections.push({ source: edge.source, target: edge.target,
-                                     sourcePort: edge.sourcePort, targetPort: edge.targetPort });
-        };
+        const build = () => addConnection(graph, edge);
         if (verdict.offer) { showOffer(verdict.offer, build, 'flow:edge:connect'); return; }
         build();
         setMessage(isReturn(edge, nodeOf(edge.target)) ? say(S, 'connectedReturn') : '');
@@ -641,7 +638,7 @@ export function createCanvasEditor(host, options = {}) {
     /** A legal-once-something-else-changes line: its sentence, Accept and Not now. */
     function showOffer(offer, build, action, after = null) {
         const words = String(offer?.message ?? '');
-        pendingOffer = { at: snapshot(), offer, build, action, after };
+        pendingOffer = { offer, build, action, after };
         const accept = button({ label: offer?.accept ? String(offer.accept) : say(S, 'offerAccept'), primary: true,
                                 className: 'twm-flow-graph__offer-accept', onClick: () => acceptOffer() });
         accept.dataset.action = 'accept-offer';
@@ -666,7 +663,6 @@ export function createCanvasEditor(host, options = {}) {
         if (!held || destroyed) return false;
         clearOffer();
         if (isReadOnly()) return false;
-        if (snapshot() !== held.at) { setMessage(say(S, 'offerStale'), 'warning'); return false; }
         const made = held.build();
         if (typeof held.offer?.apply === 'function') {
             const draft = normalise(graph);
@@ -746,11 +742,12 @@ export function createCanvasEditor(host, options = {}) {
     }
 
     /** Where a dragged line was let go. The element under the pointer, not the
-     *  release's target: a touch pointer is captured by the port it started on. */
+     *  release's target: a touch pointer is captured by the port it started on,
+     *  so `u.target` is the source port. Released outside the window the point
+     *  has no element (null) and the line is let go over nothing. */
     function dropConnection(u) {
         const from = connecting;
-        const under = (typeof document.elementFromPoint === 'function'
-            && document.elementFromPoint(u.clientX, u.clientY)) || u.target;
+        const under = document.elementFromPoint(u.clientX, u.clientY);
         const at = typeof under?.closest === 'function' ? under : null;
         const nodeHit = at?.closest('[data-node-id]');
         const onNode = Boolean(nodeHit && canvas.nodeLayer.contains(nodeHit));
@@ -802,8 +799,7 @@ export function createCanvasEditor(host, options = {}) {
             const fitting = fits.get(choice.entry.id);
             const build = () => {
                 const added = addNode(graph, choice.entry.id, where, { catalogue });
-                graph.connections.push({ source: from.source, target: added.id,
-                                         sourcePort: from.sourcePort, targetPort: fitting.port });
+                addConnection(graph, { ...from, target: added.id, targetPort: fitting.port });
                 return added.id;
             };
             const after = (id) => { if (nodeOf(id)) selected = { kind: 'node', id }; };

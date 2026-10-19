@@ -34,5 +34,5 @@ export { FlowHistory } from './history.js';
 export { bindFlowKeys, ownsUndo, isTextField, isOwnControl } from './keys.js';
 export {
     ID_OK, LOGIC_GRAPH_STRINGS, emptyGraph, normalise, serialise, nextId, addNode, removeNode, moveNode,
-    canConnect, connect, disconnect, sameEdge, inputNamesOf,
+    canConnect, connect, addConnection, disconnect, sameEdge, inputNamesOf,
 } from './logic_graph.js';

@@ -45,5 +45,4 @@ export const CANVAS_STRINGS = Object.freeze({
     dropNothingFits: 'No step has an input this output can connect to.',
     offerAccept: 'Accept',
     offerDismiss: 'Not now',
-    offerStale: 'The flow changed, so that suggestion no longer applies.',
 });

@@ -5,7 +5,7 @@
  *   §2  appendChunk updates only the last message's DOM; beginStream(null)
  *   §3  scrolling up while streaming stops following and shows Jump to latest;
  *       clicking it follows again; content growing never unpins; a wheel
- *       over a nested scroller does not unpin
+ *       over a nested scroller, or one a handler cancelled, does not unpin
  *   §4  Enter submits and clears; Shift+Enter is left to the browser; empty is ignored
  *   §5  setBusy(true) turns Send into Cancel; Esc (anywhere in the view) or a click cancels once,
  *       and that Esc never reaches the ManagedWindow holding the view
@@ -319,6 +319,21 @@ console.log('§3 scrolling up during streaming stops auto-scroll; Jump to latest
     const plain = t.rows()[0].querySelector('.twm-chat__body');
     plain.dispatchEvent(new dom.window.WheelEvent('wheel', { deltaY: -50, bubbles: true }));
     ok('a wheel up over a body that does not scroll stops following', !t.view.isPinned());
+    click(t.jump);
+    pre.style.setProperty('overscroll-behavior-y', 'contain');
+    pre.dispatchEvent(new dom.window.WheelEvent('wheel', { deltaY: -50, bubbles: true }));
+    t.view.appendChunk('d');
+    ok('a nested scroller at its top that does not chain (overscroll-behavior: contain) keeps the wheel: still following',
+        t.view.isPinned() && t.jump.hidden && t.log.scrollTop === t.geo.max(),
+        `computed ${dom.window.getComputedStyle(pre).getPropertyValue('overscroll-behavior-y')}`);
+    pre.style.removeProperty('overscroll-behavior-y');
+    const chart = document.createElement('div');
+    chart.addEventListener('wheel', (e) => e.preventDefault());
+    t.view.slot(codeId).append(chart);
+    chart.dispatchEvent(new dom.window.WheelEvent('wheel', { deltaY: -50, bubbles: true, cancelable: true }));
+    t.view.appendChunk('e');
+    ok('a wheel a handler inside the transcript cancelled (a zoomable chart) leaves the view following',
+        t.view.isPinned() && t.jump.hidden && t.log.scrollTop === t.geo.max());
     t.view.endStream();
 }
 

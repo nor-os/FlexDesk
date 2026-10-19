@@ -59,5 +59,23 @@ export const CANVAS_STRINGS = Object.freeze({
     stepsPicked: (n) => `${n} steps picked`,
     stepsPickedLine: 'Drag one to move them all. The arrow keys nudge them.',
     removeSteps: (n) => (n === 1 ? 'Remove 1 step' : `Remove ${n} steps`),
+    // `groups`
+    group: 'Group',
+    groupTitle: 'Group the picked steps (Ctrl+G)',
+    ungroup: 'Ungroup',
+    ungroupTitle: 'Ungroup the groups the picked steps are in (Ctrl+Shift+G)',
+    groupNeedsOne: 'Pick the steps to group first.',
+    ungroupNeedsGroup: 'None of the picked steps is in a group.',
+    groupUntitled: 'Group',
+    groupName: 'Group name',
+    // `notes`
+    note: 'Note',
+    noteTitle: 'Add a note to the canvas',
+    noteKind: 'Note',
+    noteText: 'Note text',
+    noteEmpty: 'Empty note — double-click to write in it',
+    removeNote: 'Remove note',
+    itemsPicked: (steps, notes) => `${steps === 1 ? '1 step' : `${steps} steps`} and ${notes === 1 ? '1 note' : `${notes} notes`} picked`,
+    removeItems: (n) => (n === 1 ? 'Remove 1 item' : `Remove ${n} items`),
     routingFallback: (n) => `More than ${n} steps: the lines are drawn as plain curves, not routed round the steps.`,
 });

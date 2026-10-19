@@ -22,6 +22,14 @@
  *              over three steps picks those three; a real drag of one moves
  *              all three and one real Ctrl+Z puts them back; a bulk move of
  *              50 picked steps, and its undo, each finish in under 100 ms
+ *   groups     (`groups`, `notes`, an editor of its own) a real Ctrl+G on two
+ *              picked steps draws one frame round both; its title bar and the
+ *              steps inside are each the element at their centre, and between
+ *              the steps the canvas is (the frame takes no pointer); a real
+ *              drag of the title bar moves both as one entry, one real Ctrl+Z
+ *              puts them back; a real double-click opens a note for typing,
+ *              real keys and Ctrl+Enter keep the text, a real drag moves it,
+ *              and a real marquee picks steps and the note together
  *   bodies     a type registered while the editor is open (`setCatalogue`)
  *              with its own body, a 280×170 box and an accent: it is in the
  *              palette, its node is drawn that size with its body below its
@@ -46,7 +54,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { centre, click, drag, key, launchBrowser, openPage, startServer } from './flow_cdp.mjs';
+import { centre, click, drag, key, launchBrowser, openPage, startServer, type } from './flow_cdp.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = resolve(process.argv[2] || join(tmpdir(), 'flow-canvas-probe'));
@@ -312,6 +320,97 @@ try {
     console.log(`       (move ${timing.move.toFixed(1)} ms, undo ${timing.undo.toFixed(1)} ms)`);
     await page.screenshot(join(OUT, '5-many.png'));
     await page.evaluate('(() => { window.__many.editor.destroy(); window.__many.host.remove(); return true; })()');
+
+    console.log('\ngroups — a frame behind its steps, and a note, with real input');
+    await page.evaluate(`(async () => {
+        const { createCanvasEditor, createStepCatalogue } = await import('/flow.js');
+        const F = (name, direction) => ({ name, direction, port_type: 'FLOW' });
+        const catalogue = createStepCatalogue([{ type_id: 'task', label: 'Task', category: 'work',
+            ports: [F('in', 'input'), F('out', 'output')] }], { categories: [{ id: 'work', label: 'Work' }] });
+        const nodes = [0, 1, 2].map((i) => ({ id: 'g' + i, type: 'task', config: {}, position: { x: 160 + i * 304, y: 208 } }));
+        const host = document.createElement('div');
+        host.style.cssText = 'position:fixed;inset:0;z-index:50;display:flex;background:var(--twm-surface, #fff)';
+        document.body.appendChild(host);
+        window.__picks = [];
+        const editor = createCanvasEditor(host, { catalogue, multiSelect: true, groups: true, notes: true,
+                                                  onSelect: (s) => window.__picks.push(s) });
+        editor.el.style.flex = '1';
+        editor.load({ graph: { nodes, connections: [{ source: 'g0', sourcePort: 'out', target: 'g1', targetPort: 'in' }],
+                               notes: [{ id: 'n', text: 'A note', position: { x: 160, y: 480 } }] } }, { fit: false });
+        editor.canvas.setViewport({ scale: 1, tx: 0, ty: 0 });
+        window.__groups = { editor, host };
+        return true;
+    })()`);
+    await sleep(100);
+    const gToClient = (x, y) => page.evaluate(`window.__groups.editor.canvas.canvasToClient(${x}, ${y})`);
+    const gWhere = () => page.evaluate(`JSON.stringify(window.__groups.editor.getGraph().nodes.map((n) => n.position))`);
+    const dblclick = async (x, y) => {
+        await click(page, x, y);
+        await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 2 });
+        await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 2 });
+    };
+    await drag(page, await gToClient(120, 180), await gToClient(160 + 304 + 120, 260), 10);
+    await sleep(60);
+    await key(page, 'g', { mods: ['ctrl'] });
+    await sleep(60);
+    const framed = await page.evaluate(`(() => {
+        const f = document.querySelector('.twm-flow-graph__group');
+        const r = f.getBoundingClientRect();
+        const box = (id) => document.querySelector('.twm-flow-graph__node[data-node-id="' + id + '"]').getBoundingClientRect();
+        const inside = (b) => b.left > r.left && b.top > r.top && b.right < r.right && b.bottom < r.bottom;
+        return { frames: document.querySelectorAll('.twm-flow-graph__group').length,
+                 groups: window.__groups.editor.getGraph().groups,
+                 both: inside(box('g0')) && inside(box('g1')), third: inside(box('g2')),
+                 behind: getComputedStyle(f).pointerEvents === 'none' };
+    })()`);
+    check('a real Ctrl+G on two picked steps draws one frame round both, and not the third',
+          framed.frames === 1 && framed.both && !framed.third
+          && JSON.stringify(framed.groups) === JSON.stringify([{ id: 'group', nodes: ['g0', 'g1'] }]), JSON.stringify(framed));
+    const gHead = await centre(page, '.twm-flow-graph__group-head');
+    check('its title bar is the element at its own centre', gHead?.hit === true, JSON.stringify(gHead));
+    const g1Title = await centre(page, '.twm-flow-graph__node[data-node-id="g1"] .twm-flow-graph__node-title');
+    check('a step inside it is above the frame (elementFromPoint)', g1Title?.hit === true, JSON.stringify(g1Title));
+    const gap = await gToClient(160 + 208 + 48, 300);
+    const gapHit = await page.evaluate(`(() => { const e = document.elementFromPoint(${gap.x}, ${gap.y});
+        return e ? e.className : null; })()`);
+    check('between the steps the frame takes no pointer: the canvas is under it',
+          framed.behind && /twm-canvas/.test(String(gapHit)) && !/group/.test(String(gapHit)), String(gapHit));
+    const gBefore = await gWhere();
+    await drag(page, { x: gHead.x, y: gHead.y }, { x: gHead.x + 96, y: gHead.y + 64 }, 12);
+    await sleep(60);
+    const gAfter = JSON.parse(await gWhere());
+    const gWas = JSON.parse(gBefore);
+    const depth = await page.evaluate('window.__groups.editor.history.depth');
+    check('a real drag of the title bar moves both steps by its travel, and not the third, as one entry',
+          gAfter[0].x - gWas[0].x === 96 && gAfter[0].y - gWas[0].y === 64 && gAfter[1].x - gWas[1].x === 96
+          && gAfter[2].x === gWas[2].x && depth === 2, JSON.stringify({ gWas, gAfter, depth }));
+    await key(page, 'z', { mods: ['ctrl'] });
+    await sleep(60);
+    check('one real Ctrl+Z puts both back', (await gWhere()) === gBefore);
+    const noteAt = await centre(page, '.twm-flow-graph__note[data-note-id="n"]');
+    check('a note is the element at its own centre', noteAt?.hit === true, JSON.stringify(noteAt));
+    await dblclick(noteAt.x, noteAt.y);
+    await sleep(60);
+    const typing = await page.evaluate(`document.activeElement && document.activeElement.className`);
+    check('a real double-click opens the note for typing, focused', /twm-flow-graph__note-input/.test(String(typing)), String(typing));
+    await key(page, 'End', { mods: ['ctrl'] });
+    await type(page, 'xy');
+    await key(page, 'Enter', { mods: ['ctrl'] });
+    await sleep(60);
+    const noted = await page.evaluate(`window.__groups.editor.getGraph().notes[0].text`);
+    check('real typing and Ctrl+Enter keep the text', noted === 'A notexy', noted);
+    const n2 = await centre(page, '.twm-flow-graph__note[data-note-id="n"]');
+    await drag(page, { x: n2.x, y: n2.y }, { x: n2.x + 64, y: n2.y + 32 }, 8);
+    await sleep(60);
+    const moved = await page.evaluate(`JSON.stringify(window.__groups.editor.getGraph().notes[0].position)`);
+    check('a real drag moves the note', moved === JSON.stringify({ x: 224, y: 512 }), moved);
+    await drag(page, await gToClient(100, 150), await gToClient(160 + 304 + 120, 560), 10);
+    await sleep(60);
+    const both = await page.evaluate('JSON.stringify(window.__picks.at(-1))');
+    check('a real marquee picks the steps and the note together',
+          both === JSON.stringify({ kind: 'many', ids: ['g0', 'g1'], notes: ['n'] }), both);
+    await page.screenshot(join(OUT, '5b-groups.png'));
+    await page.evaluate('(() => { window.__groups.editor.destroy(); window.__groups.host.remove(); return true; })()');
 
     console.log('\nbodies — a type registered while open, with its own body, box and accent');
     const bodies = await page.evaluate(`(() => {

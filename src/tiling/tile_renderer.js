@@ -91,6 +91,26 @@
  * tree's title until the content mounts and says otherwise. A call from a
  * content whose leaf has since been rebuilt does nothing.
  *
+ * ── C42. A CONTENT CAN REPLACE ITS OWN CHROME ACTIONS ──────────────────
+ *
+ * A factory's returned `chromeActions` were read once, after the mount, and
+ * drawn icon-only — so a toggle could not show that it was on, an action that
+ * did not apply yet could not say so, and a content whose offers changed had
+ * to be re-mounted to change them.
+ *
+ * The per-leaf ctx carries `setChromeActions(specs)`, and it behaves exactly
+ * like `setTitle`: it paints the content strip now; called DURING the mount it
+ * wins over the returned `chromeActions`; the later call wins; it survives
+ * repaints (a cached repaint never rebuilds the strip); `null` or `[]` clears
+ * it; and a call from a content whose leaf has since been rebuilt does
+ * nothing. A spec is `{icon, title, onClick}` as before, plus `label` (text
+ * beside, or instead of, the glyph), `disabled` (greyed, inert, its tooltip
+ * kept — `aria-disabled` rather than the `disabled` attribute, because a
+ * disabled button receives no pointer events and some engines then never show
+ * its `title`), `pressed` (`aria-pressed`, and a pressed style) and
+ * `{separator: true}` (a divider). A spec with none of the additions renders
+ * exactly as it did.
+ *
  * ── C33. A TAB DRAGGED INTO A TILE ───────────────────────────────────────
  *
  * *"I would like to be able to drag & drop tabs into tiles, too."* A tab could
@@ -199,6 +219,8 @@
 import { NotebookTabBar } from '../editor/notebook_tab_bar.js';
 
 const SPLITTER_PX = 4;
+/** The smallest share of its split a slot can be dragged down to. */
+const MIN_SLOT_FRACTION = 0.05;
 /** The three tab layouts, and the framework's default. `bottom` is the default
  *  because it is what every existing embedder already renders. */
 const TAB_LAYOUTS = ['bottom', 'top', 'header'];
@@ -302,8 +324,13 @@ export class TileRenderer {
      *  stub that this renderer will admit. */
     static get TAB_MIME() { return TILE_TAB_MIME; }
 
+    /** The smallest share of its split a splitter drag leaves a slot. Readable
+     *  so a caller that sets split sizes itself (the WM rebuilding its panel
+     *  splits) never builds one a drag could not have produced. */
+    static get MIN_SLOT_FRACTION() { return MIN_SLOT_FRACTION; }
+
     constructor({ root, tree, content, ctx, onFocusChange, onAfterRender,
-                  tabLayout = null, newTabButton = true }) {
+                  onSplitResized, tabLayout = null, newTabButton = true }) {
         if (!content || typeof content.mount !== 'function') {
             throw new Error('TileRenderer: a content registry is required');
         }
@@ -326,6 +353,11 @@ export class TileRenderer {
          *  The renderer cannot know about windows, so it says "I have
          *  repainted" and the WM re-homes what it owns. */
         this.onAfterRender = onAfterRender || (() => {});
+        /** Fired once at the END of a splitter drag that changed the split's
+         *  sizes, with the split's id. A drag only rewrites the tree's sizes
+         *  (and the slots' flex) as the pointer moves; whoever owns the tree
+         *  decides what a finished resize means — the WM saves the layout. */
+        this.onSplitResized = onSplitResized || (() => {});
         /** C38. Whether the `header` strip draws its `+`. An embedder whose
          *  new tab would open nothing useful turns it off; `wm.newTab` stays. */
         this.newTabButton = newTabButton !== false;
@@ -821,6 +853,9 @@ export class TileRenderer {
         // the entry after that.
         let liveTitle = null;
         let liveEntry = null;
+        // C42. Whether the content called `ctx.setChromeActions` DURING the
+        // mount — if it did, that list wins over the returned `chromeActions`.
+        let liveActionsSet = false;
         if (leaf.content) {
             const setTitle = (text) => {
                 const next = text == null || text === '' ? null : String(text);
@@ -836,7 +871,18 @@ export class TileRenderer {
                 const now = this.tree?.get?.(leaf.id) || leaf;
                 liveEntry.titleEl.textContent = next || now.title || (now.content ? now.content.kind : 'empty');
             };
-            const leafCtx = { ...this.ctx, leafId: leaf.id, setTitle };
+            const setChromeActions = (specs) => {
+                if (!liveEntry) {
+                    liveActionsSet = true;
+                    _paintContentActions(contentActions, specs);
+                    return;
+                }
+                // The same guard as `setTitle`: a rebuilt leaf's old content
+                // must not repaint the new content's buttons.
+                if (this._leafCache.get(leaf.id) !== liveEntry) return;
+                _paintContentActions(liveEntry.contentActionsEl, specs);
+            };
+            const leafCtx = { ...this.ctx, leafId: leaf.id, setTitle, setChromeActions };
             // Mount with the ACTIVE TAB's props, not `content.props`.
             // `wm.updateActiveTabProps` (the canonical per-tile view-state
             // store — survives reload + desktop switches via desktops.json)
@@ -858,7 +904,9 @@ export class TileRenderer {
             // `[{icon, title, onClick}]`. Read AFTER the mount, because that is
             // the first moment the content knows what it can offer — a table
             // does not know it has settings until it has a definition.
-            _paintContentActions(contentActions, content.chromeActions);
+            // C42. Unless the content already said, through
+            // `ctx.setChromeActions` during the mount, which wins.
+            if (!liveActionsSet) _paintContentActions(contentActions, content.chromeActions);
             // C20. A content factory may also VETO structural verbs:
             // `chrome: { promote: false, close: false }`. Read after the mount
             // for the same reason `chromeActions` is — it is the first moment
@@ -877,6 +925,10 @@ export class TileRenderer {
         }
         entry = { wrapEl: wrap, bodyEl: body, chromeEl: chrome,
                   titleEl: title, iconEl: icon, content,
+                  // C42. The strip `ctx.setChromeActions` repaints after the
+                  // mount. A cached repaint never rebuilds it, which is what
+                  // makes a list set later survive one.
+                  contentActionsEl: contentActions,
                   // DERIVED HERE, NOT REUSED FROM ABOVE. `kindKey` was computed
                   // before the mount; content that records its sub-tab or its
                   // scroll offset WHILE mounting has already written to the
@@ -1374,7 +1426,7 @@ export class TileRenderer {
     _topTabCallbacks(leafId) {
         return {
             // C33. `DragReorder` calls this through `NotebookTabBar`, which
-            // sets its own `application/x-ecosim-tab` first and unchanged — so
+            // sets its own tab MIME (getTabDragMime()) first and unchanged — so
             // an editor pane sharing the page cannot notice that tiles are
             // dragging tabs too.
             onDragStart: (ev, key, item) => {
@@ -1849,7 +1901,7 @@ export class TileRenderer {
         const px = totalPx - SPLITTER_PX * (split.children.length - 1);
         if (px <= 0) return;
         const deltaFrac = (delta / px) * totalSize;
-        const minFrac = totalSize * 0.05;
+        const minFrac = totalSize * MIN_SLOT_FRACTION;
         const newSizes = startSizes.slice();
         newSizes[slotIdx] = Math.max(minFrac, startSizes[slotIdx] + deltaFrac);
         newSizes[slotIdx + 1] = Math.max(minFrac, startSizes[slotIdx + 1] - deltaFrac);
@@ -1869,8 +1921,17 @@ export class TileRenderer {
     }
 
     _onMouseUp() {
+        const drag = this._drag;
         this._drag = null;
         document.body.classList.remove('twm-dragging');
+        if (!drag) return;
+        // Only a drag that LEFT the split at other sizes is a resize. Pointer
+        // jitter along the splitter, or a drag that ends where it began,
+        // moves the mouse but not the layout, and reports nothing.
+        const sizes = this.tree.get(drag.splitId)?.sizes;
+        if (!sizes || sizes.every((v, i) => v === drag.startSizes[i])) return;
+        try { this.onSplitResized(drag.splitId); }
+        catch (err) { console.error('[tile-renderer] onSplitResized threw', err); }
     }
 }
 
@@ -1927,19 +1988,54 @@ function _paintContentActions(hostEl, specs) {
     }
     hostEl.hidden = false;
     for (const spec of specs) {
-        if (!spec || !spec.icon) continue;
+        if (!spec) continue;
+        // C42. A divider between groups of content actions.
+        if (spec.separator) {
+            const sep = document.createElement('span');
+            sep.className = 'twm-leaf__sep';
+            sep.setAttribute('role', 'separator');
+            hostEl.appendChild(sep);
+            continue;
+        }
+        const label = spec.label == null || spec.label === '' ? '' : String(spec.label);
+        if (!spec.icon && !label) continue;
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'twm-leaf__btn';
         btn.title = spec.title || '';
-        btn.setAttribute('aria-label', spec.title || '');
-        btn.innerHTML =
-            `<span class="material-symbols-outlined">${spec.icon}</span>`;
+        btn.setAttribute('aria-label', spec.title || label);
+        btn.innerHTML = spec.icon
+            ? `<span class="material-symbols-outlined">${spec.icon}</span>` : '';
+        // C42. A text label, beside the glyph or instead of it. Text, never
+        // markup: it is the embedder's string.
+        if (label) {
+            const text = document.createElement('span');
+            text.className = 'twm-leaf__btn-label';
+            text.textContent = label;
+            btn.appendChild(text);
+            btn.classList.add('twm-leaf__btn--labelled');
+        }
+        // C42. A toggle says whether it is on. Absent means "not a toggle", so
+        // no attribute at all — `false` is a toggle that is off.
+        if (spec.pressed != null) {
+            btn.setAttribute('aria-pressed', spec.pressed ? 'true' : 'false');
+            if (spec.pressed) btn.classList.add('twm-leaf__btn--pressed');
+        }
+        // C42. Inert but still pointable at: `aria-disabled`, not `disabled`,
+        // because a disabled button receives no pointer events and some engines
+        // then never show its `title` — and the tooltip is how the user learns
+        // why it is greyed.
+        const disabled = !!spec.disabled;
+        if (disabled) {
+            btn.setAttribute('aria-disabled', 'true');
+            btn.classList.add('twm-leaf__btn--disabled');
+        }
         // `stopPropagation` so a click does not also reach the leaf's own
         // mousedown, which focuses the tile and then parks focus inside the
         // body — stealing it back from whatever the action just opened.
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
+            if (disabled) return;
             try { spec.onClick?.(); } catch (err) { console.error('[tile] action threw', err); }
         });
         hostEl.appendChild(btn);

@@ -2,14 +2,25 @@
  * HelpModal - Modal dialog for displaying help content
  *
  * Features:
- * - Markdown rendering with syntax highlighting
- * - Table of contents navigation
+ * - Topics as trusted HTML (`topic.html`) or as markdown (`topic.markdown`),
+ *   rendered safe by `renderMarkdown` with the provider's `markdownOptions`
+ *   (a highlighter, math, extension rules)
+ * - A table of contents for a topic with two or more headings, markdown or
+ *   html alike: its headings, listed and numbered, the one in view marked,
+ *   a click that scrolls to one (`createDocumentOutline`)
  * - Topic search
  * - Category browsing
  * - Keyboard navigation (Escape to close)
  */
 
 import { helpProvider, helpCategories, helpCopy } from './help_registry.js';
+import { renderMarkdown } from '../ui/utils/markdown.js';
+import { createDocumentOutline } from '../ui/components/document_outline.js';
+
+/** The headings a topic's table of contents lists. */
+const TOC_HEADINGS = 'h1, h2, h3, h4, h5, h6';
+/** Fewer headings than this, and a topic shows no table of contents. */
+const TOC_MIN_HEADINGS = 2;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HelpModal Class
@@ -34,6 +45,7 @@ export class HelpModal {
         this._currentTopic = null;
         this._searchQuery = '';
         this._fallback = null;
+        this._toc = null;
         this._boundKeyHandler = this._handleKeyDown.bind(this);
     }
 
@@ -78,6 +90,7 @@ export class HelpModal {
      * Close the help modal.
      */
     close() {
+        this._disposeToc();
         if (this._overlay) {
             document.removeEventListener('keydown', this._boundKeyHandler);
             this._overlay.remove();
@@ -207,6 +220,7 @@ export class HelpModal {
      * @private
      */
     _showIndex() {
+        this._disposeToc();
         const content = this._modal.querySelector('.help-modal__content');
         const categories = this._service.getCategories();
 
@@ -263,6 +277,7 @@ export class HelpModal {
      * @private
      */
     async _loadTopic(topicId) {
+        this._disposeToc();
         const content = this._modal.querySelector('.help-modal__content');
         content.innerHTML = '<div class="help-content__loading">Loading...</div>';
 
@@ -274,6 +289,8 @@ export class HelpModal {
         try {
             const topic = (await this._service.loadTopic(topicId))
                 ?? (this._fallback?.id === topicId ? this._fallback.topic : null);
+            // Closed (or closed and opened again) while the topic loaded.
+            if (!this._modal?.contains(content)) return;
             this._currentTopic = topicId;
 
             if (!topic) {
@@ -296,8 +313,9 @@ export class HelpModal {
                         <span class="help-breadcrumb__separator">/</span>
                         <span class="help-breadcrumb__title">${escapeHtml(topic.title)}</span>
                     </div>
+                    <div class="help-content__toc" hidden></div>
                     <article class="help-article">
-                        ${topic.html}
+                        ${this._articleHtml(topic)}
                     </article>
                 </div>
             `;
@@ -307,6 +325,8 @@ export class HelpModal {
                 e.preventDefault();
                 this._showIndex();
             });
+
+            this._buildToc(content);
         } catch (error) {
             content.innerHTML = `
                 <div class="help-content__error">
@@ -315,6 +335,54 @@ export class HelpModal {
                 </div>
             `;
         }
+    }
+
+    /**
+     * The article body: a markdown topic rendered safe, else the provider's
+     * own HTML, which is trusted by contract.
+     * @private
+     */
+    _articleHtml(topic) {
+        if (typeof topic.markdown === 'string') {
+            return renderMarkdown(topic.markdown, this._service.markdownOptions ?? {});
+        }
+        return topic.html ?? '';
+    }
+
+    /**
+     * The topic's table of contents: one entry per heading in the article, in
+     * document order, its level the heading's. Built only when the article
+     * has `TOC_MIN_HEADINGS` or more; the outline resolves each entry to its
+     * heading ELEMENT, so the provider's markup needs no ids and the modal
+     * adds none.
+     * @param {HTMLElement} content - The scrolling content pane.
+     * @private
+     */
+    _buildToc(content) {
+        this._disposeToc();
+        const host = content.querySelector('.help-content__toc');
+        const headings = [...content.querySelectorAll(`.help-article :is(${TOC_HEADINGS})`)];
+        if (!host || headings.length < TOC_MIN_HEADINGS) return;
+        const byId = new Map(headings.map((heading, index) => [`heading-${index}`, heading]));
+        const entries = [...byId].map(([id, heading]) => ({
+            id,
+            level: Number(heading.tagName.slice(1)),
+            label: heading.textContent.trim(),
+        }));
+        host.hidden = false;
+        this._toc = createDocumentOutline(host, {
+            entries,
+            numbering: true,
+            scrollContainer: content,
+            resolveTarget: (entry) => byId.get(entry.id) ?? null,
+            label: 'Contents',
+        });
+    }
+
+    /** @private */
+    _disposeToc() {
+        this._toc?.dispose();
+        this._toc = null;
     }
 
     /**
@@ -331,6 +399,7 @@ export class HelpModal {
             return;
         }
 
+        this._disposeToc();
         const results = this._service.searchTopics(query);
 
         if (results.length === 0) {
@@ -390,6 +459,19 @@ export class HelpModal {
     }
 
     /**
+     * Close the open help modal, or open the index when none is open — what
+     * the `?` shortcut does.
+     * @returns {HelpModal|null} the modal opened, or null when one was closed
+     */
+    static toggle() {
+        if (_activeModal) {
+            _activeModal.close();
+            return null;
+        }
+        return HelpModal.open();
+    }
+
+    /**
      * Get the currently active modal.
      * @returns {HelpModal|null}
      */
@@ -405,7 +487,8 @@ export class HelpModal {
 /**
  * Text for an innerHTML template. Everything the modal interpolates — the
  * search query the user typed, and the topic ids, titles and categories the
- * provider hands back — is TEXT; only `topic.html` is markup, by contract.
+ * provider hands back — is TEXT; only `topic.html` is markup, by contract
+ * (and `topic.markdown` becomes markup through `renderMarkdown`).
  * Quotes are escaped too, because ids and categories land in attributes.
  */
 function escapeHtml(value) {
@@ -419,31 +502,34 @@ function escapeHtml(value) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Global Help Shortcut
+// The `?` shortcut — installed, never imported
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Open help modal with the `?` key. (F1 is reserved for top-nav Home.)
+ * Bind `?` (outside editable fields) to `HelpModal.toggle()` on `target`, and
+ * return the disposer that takes it off again.
+ *
+ * Importing this module binds nothing. It used to add a `document` listener as
+ * a side effect of the import, which nobody could remove: a second shell in the
+ * same page, or an application with its own `?`, got two handlers. A
+ * `createShell()` shell binds `?` through its keymap (`installKeymap`), and
+ * `shell.dispose()` takes it off; this is for a page that uses the help modal
+ * without the shell.
+ *
+ * @param {object} [opts]
+ * @param {EventTarget} [opts.target=document]
+ * @returns {() => void}
  */
-function setupGlobalHelpShortcut() {
-    document.addEventListener('keydown', (event) => {
-        if (event.key !== '?') return;
+export function installHelpShortcut({ target = document } = {}) {
+    const onKeyDown = (event) => {
+        if (event.defaultPrevented || event.key !== '?') return;
         // Don't hijack `?` typed into a field (search boxes, editors).
-        const t = event.target;
-        if (t?.closest?.(
-            'input, textarea, select, [contenteditable="true"]')) return;
+        if (event.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
         event.preventDefault();
-        if (_activeModal) {
-            _activeModal.close();
-        } else {
-            HelpModal.open();
-        }
-    });
-}
-
-// Initialize global shortcut
-if (typeof document !== 'undefined') {
-    setupGlobalHelpShortcut();
+        HelpModal.toggle();
+    };
+    target.addEventListener('keydown', onKeyDown);
+    return () => target.removeEventListener('keydown', onKeyDown);
 }
 
 export default HelpModal;

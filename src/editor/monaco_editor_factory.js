@@ -5,7 +5,8 @@
  * Handles:
  *   - Creating full editors (multi-line, for CodeCells)
  *   - Creating single-line inline editors (for ParameterCell values, expression fields)
- *   - Theme registration (ecosim-dark, ecosim-light)
+ *   - Theme registration (built-in dark and light themes, names set by
+ *     setEditorThemeNames(); default flexdesk-dark, flexdesk-light)
  *   - Shared editor options
  *   - Instance lifecycle (dispose on cell removal)
  */
@@ -28,7 +29,7 @@ function safeDispose(editor) {
 
 // ─── Theme definitions ─────────────────────────────────────────────────────────
 
-const ECOSIM_DARK_THEME = {
+const DARK_THEME = {
     base: 'vs-dark',
     inherit: true,
     rules: [
@@ -74,7 +75,7 @@ const ECOSIM_DARK_THEME = {
     },
 };
 
-const ECOSIM_LIGHT_THEME = {
+const LIGHT_THEME = {
     base: 'vs',
     inherit: true,
     rules: [
@@ -108,13 +109,47 @@ const ECOSIM_LIGHT_THEME = {
     },
 };
 
-let _themesRegistered = false;
+/** The names the built-in themes are registered under when the embedder
+ *  names none. */
+export const DEFAULT_EDITOR_THEME_NAMES = Object.freeze({
+    dark: 'flexdesk-dark',
+    light: 'flexdesk-light',
+});
+
+let _themeNames = DEFAULT_EDITOR_THEME_NAMES;
+
+/**
+ * Name the built-in dark and light Monaco themes. Call before the first
+ * factory is created: a factory starts on the dark name, and init() registers
+ * the built-in themes under the names current at that moment. An embedder with
+ * its own theme defines it with `monaco.editor.defineTheme(name, …)` and passes
+ * that name to `factory.setTheme(name)` instead.
+ *
+ * @param {{ dark?: string, light?: string }} [names]
+ */
+export function setEditorThemeNames({ dark, light } = {}) {
+    _themeNames = Object.freeze({
+        dark: (typeof dark === 'string' && dark) ? dark : DEFAULT_EDITOR_THEME_NAMES.dark,
+        light: (typeof light === 'string' && light) ? light : DEFAULT_EDITOR_THEME_NAMES.light,
+    });
+}
+
+/** @returns {{ dark: string, light: string }} The built-in themes' names. */
+export function getEditorThemeNames() {
+    return _themeNames;
+}
+
+/** Monaco instance -> names already defined on it, so each name is defined once. */
+const _definedThemes = new WeakMap();
 
 function ensureThemes(monaco) {
-    if (_themesRegistered) return;
-    _themesRegistered = true;
-    monaco.editor.defineTheme('ecosim-dark',  ECOSIM_DARK_THEME);
-    monaco.editor.defineTheme('ecosim-light', ECOSIM_LIGHT_THEME);
+    let defined = _definedThemes.get(monaco);
+    if (!defined) { defined = new Set(); _definedThemes.set(monaco, defined); }
+    for (const [name, theme] of [[_themeNames.dark, DARK_THEME], [_themeNames.light, LIGHT_THEME]]) {
+        if (defined.has(name)) continue;
+        defined.add(name);
+        monaco.editor.defineTheme(name, theme);
+    }
 }
 
 // ─── Shared editor options ─────────────────────────────────────────────────────
@@ -122,7 +157,7 @@ function ensureThemes(monaco) {
 function baseOptions(overrides = {}) {
     return {
         language: _defaultLanguage,
-        theme: 'ecosim-dark',
+        theme: _themeNames.dark,
         fontFamily: 'Consolas, "Courier New", monospace',
         fontSize: 13,
         lineHeight: 19.5,
@@ -177,15 +212,23 @@ function singleLineOptions(overrides = {}) {
     });
 }
 
+/** A cap is a positive number of px, or `Infinity` for none. */
+function checkMaxHeight(px) {
+    if (typeof px !== 'number' || Number.isNaN(px) || px <= 0) {
+        throw new RangeError(`maxHeight must be a positive number of px or Infinity, got ${String(px)}`);
+    }
+    return px;
+}
+
 // ─── Factory ───────────────────────────────────────────────────────────────────
 
 /**
- * @typedef {{ editor: object, dispose: () => void, getValue: () => string, setValue: (v: string) => void, onDidChange: (cb: () => void) => object }} EditorHandle
+ * @typedef {{ editor: object, dispose: () => void, getValue: () => string, setValue: (v: string) => void, onDidChange: (cb: () => void) => object, setMaxHeight?: (px: number) => void }} EditorHandle
  */
 
 export class MonacoEditorFactory {
     #monaco = null;
-    #currentTheme = 'ecosim-dark';
+    #currentTheme = _themeNames.dark;
 
     constructor() {}
 
@@ -199,7 +242,8 @@ export class MonacoEditorFactory {
 
     /**
      * Set global theme for all editors.
-     * @param {'ecosim-dark'|'ecosim-light'} theme
+     * @param {string} theme  A theme name Monaco knows: one of
+     *   getEditorThemeNames(), or one the embedder defined itself.
      */
     setTheme(theme) {
         this.#currentTheme = theme;
@@ -207,17 +251,26 @@ export class MonacoEditorFactory {
     }
 
     /**
-     * Create a full multi-line editor (for CodeCell).
+     * Create a full multi-line editor.
+     *
+     * Unless `noAutoHeight` is set, the editor sizes `container` to its content,
+     * never below `setMinHeight()` (80px by default) and never above `maxHeight`.
+     * Past the cap, Monaco scrolls internally and handles the mouse wheel; below
+     * it, Monaco leaves the wheel alone, so it reaches whatever scrolls around
+     * the editor.
      *
      * @param {HTMLElement} container
      * @param {string} initialValue
-     * @param {{ language?: string, readOnly?: boolean, lineNumbers?: string } & object} [overrides]
+     * @param {{ language?: string, readOnly?: boolean, lineNumbers?: string, maxHeight?: number, noAutoHeight?: boolean } & object} [overrides]
+     *     `maxHeight`: the auto-height cap in px, `Infinity` (the default) for none.
+     *     `noAutoHeight`: leave the container's size to its layout; the wheel always scrolls the editor.
      * @returns {EditorHandle}
      */
     createEditor(container, initialValue = '', overrides = {}) {
         if (!this.#monaco) throw new Error('MonacoEditorFactory not initialized');
 
-        const { noAutoHeight, ...editorOverrides } = overrides;
+        const { noAutoHeight, maxHeight: maxHeightOption = Infinity, ...editorOverrides } = overrides;
+        let maxHeight = checkMaxHeight(maxHeightOption);
 
         const editor = this.#monaco.editor.create(container, {
             ...baseOptions({ theme: this.#currentTheme }),
@@ -225,17 +278,9 @@ export class MonacoEditorFactory {
             ...editorOverrides,
         });
 
-        // Auto-resize to content height.
-        // When the "limit code cell height" setting is active (data-code-max-height="true"
-        // on the editor container), cap at 400px so Monaco handles internal scrolling.
-        // Otherwise, grow to fit all content with no upper bound.
-        //
-        // Monaco's handleMouseWheel is toggled dynamically: disabled when the editor
-        // auto-sizes to fit content (so wheel events propagate to the notebook scroller),
-        // enabled only when content is capped and there is actual internal overflow.
-        //
-        // When noAutoHeight is true, skip auto-sizing entirely and let the container
-        // control dimensions (e.g. flex layout). Mouse wheel scrolling stays enabled.
+        // Monaco's handleMouseWheel is toggled with the height: off while the
+        // editor fits its content (the wheel scrolls the page around it), on only
+        // when the content overflows the cap and the editor has something to scroll.
         let minHeight = 80;
         let heightDisposable = null;
         let updateHeight = null;
@@ -243,27 +288,14 @@ export class MonacoEditorFactory {
             editor.updateOptions({ scrollbar: { handleMouseWheel: true } });
         } else {
             updateHeight = () => {
-                const maxHeightEnabled = container.closest('.notebook-editor-container')?.dataset.codeMaxHeight === 'true';
-                const maxH = maxHeightEnabled ? 400 : Infinity;
                 const rawContent = editor.getContentHeight();
-                const contentHeight = Math.min(maxH, Math.max(minHeight, rawContent));
+                const contentHeight = Math.min(maxHeight, Math.max(minHeight, rawContent));
                 container.style.height = `${contentHeight}px`;
                 editor.layout();
-
-                // Enable Monaco wheel handling only when content overflows the capped height
-                const needsInternalScroll = maxHeightEnabled && rawContent > maxH;
-                editor.updateOptions({ scrollbar: { handleMouseWheel: needsInternalScroll } });
+                editor.updateOptions({ scrollbar: { handleMouseWheel: rawContent > maxHeight } });
             };
             heightDisposable = editor.onDidContentSizeChange(updateHeight);
             updateHeight();
-        }
-
-        // Re-evaluate height when the code-max-height setting changes on the ancestor
-        const editorContainer = container.closest('.notebook-editor-container');
-        let maxHeightObserver = null;
-        if (updateHeight && editorContainer) {
-            maxHeightObserver = new MutationObserver(() => updateHeight());
-            maxHeightObserver.observe(editorContainer, { attributes: true, attributeFilter: ['data-code-max-height'] });
         }
 
         // Scroll the find widget into view when it becomes visible.
@@ -296,10 +328,14 @@ export class MonacoEditorFactory {
             focus: () => editor.focus(),
             layout: () => editor.layout(),
             setMinHeight: (h) => { minHeight = h; },
+            /** The auto-height cap in px, `Infinity` for none; applies at once. No effect with `noAutoHeight`. */
+            setMaxHeight: (px) => {
+                maxHeight = checkMaxHeight(px);
+                updateHeight?.();
+            },
             updateHeight,
             dispose: () => {
                 findWidgetObserver?.disconnect();
-                maxHeightObserver?.disconnect();
                 heightDisposable?.dispose();
                 safeDispose(editor);
             },

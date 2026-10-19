@@ -29,6 +29,7 @@
  */
 
 import { button, el, uid } from './dom.js';
+import { choiceList, selectBox, shownValue, toggleChips } from '../../ui/components/choice_controls.js';
 import { createChipInput } from './chip_input.js';
 import { resolveSyntaxes } from './references.js';
 import { admittedTypes, enumLabel, fieldsFromSchema, primaryType, titleOf, visibleFields, whenKeys }
@@ -36,9 +37,6 @@ import { admittedTypes, enumLabel, fieldsFromSchema, primaryType, titleOf, visib
 import { createStrings, say } from './strings.js';
 
 // ── values that keep their type ──────────────────────────────────────────
-
-/** A stored value as a one-line box shows it: a string as itself, anything else as JSON. */
-export const shownValue = (v) => (v === undefined ? '' : typeof v === 'string' ? v : JSON.stringify(v));
 
 /**
  * The text typed into a box, as a value OF THE TYPE IT WAS:
@@ -69,34 +67,6 @@ function textBox(value, { type = 'text', placeholder = '', label = '' } = {}) {
     if (placeholder) input.placeholder = placeholder;
     if (label) input.setAttribute('aria-label', label);
     return input;
-}
-
-/** A `<select>` over `options` (`{value, label, disabled?}`), keeping a stored value it lacks. */
-function selectBox(options, value, { empty = null, label = '', notFound = (v) => `${v} (not found)` } = {}) {
-    const box = el('select', 'twm-flow-input twm-flow-input--select');
-    if (label) box.setAttribute('aria-label', label);
-    const values = [];
-    if (empty !== null) {
-        box.appendChild(new Option(empty, ''));
-        values.push(undefined);
-    }
-    options.forEach((opt) => {
-        const o = new Option(opt.label, String(values.length));
-        if (opt.disabled) o.disabled = true;
-        box.appendChild(o);
-        values.push(opt.value);
-    });
-    const at = values.findIndex((v, i) => i >= (empty !== null ? 1 : 0) && v === value);
-    if (value !== undefined && value !== null && value !== '' && at < 0) {
-        // A stored value the list no longer offers is KEPT as its own option:
-        // it must not silently become the first entry on the next save.
-        box.appendChild(new Option(notFound(shownValue(value)), String(values.length)));
-        values.push(value);
-        box.value = String(values.length - 1);
-    } else {
-        box.value = at >= 0 ? String(at) : (empty !== null ? '' : '0');
-    }
-    return { box, valueOf: () => (box.value === '' ? undefined : values[Number(box.value)]) };
 }
 
 /**
@@ -345,49 +315,6 @@ function stringListWidget(spec, value, ctx) {
     return { el: rows.el, destroy: rows.destroy };
 }
 
-/** Toggle chips over a fixed list; the stored list follows the list's order,
- *  and a stored entry the list lacks is kept, marked, until it is toggled off. */
-function toggleChips({ options, value, label, readOnly, onChange, notFound }) {
-    const root = el('div', 'twm-flow-togglechips');
-    root.setAttribute('role', 'group');
-    if (label) root.setAttribute('aria-label', label);
-    const known = options.map((o) => o.value);
-    const chosen = new Set((Array.isArray(value) ? value : []).filter((v) => known.includes(v)));
-    const strays = (Array.isArray(value) ? value : []).filter((v) => !known.includes(v));
-    const emit = () => {
-        const out = [...known.filter((v) => chosen.has(v)), ...strays];
-        onChange(out.length ? out : undefined);
-    };
-    const chipFor = (text, pressed, toggle, stray = false) => {
-        const b = el('button', `twm-flow-togglechip${stray ? ' twm-flow-togglechip--missing' : ''}`, text);
-        b.type = 'button';
-        b.setAttribute('aria-pressed', pressed ? 'true' : 'false');
-        b.disabled = Boolean(readOnly);
-        b.addEventListener('click', () => {
-            const on = toggle();
-            b.setAttribute('aria-pressed', on ? 'true' : 'false');
-            emit();
-        });
-        return b;
-    };
-    for (const o of options) {
-        root.appendChild(chipFor(o.label, chosen.has(o.value), () => {
-            if (chosen.has(o.value)) chosen.delete(o.value); else chosen.add(o.value);
-            return chosen.has(o.value);
-        }));
-    }
-    for (const v of [...strays]) {
-        const b = chipFor(notFound(shownValue(v)), true, () => {
-            const i = strays.indexOf(v);
-            if (i >= 0) { strays.splice(i, 1); return false; }
-            strays.push(v);
-            return true;
-        }, true);
-        root.appendChild(b);
-    }
-    return root;
-}
-
 /** A multi-select from `items.enum`, drawn as chips. */
 function enumChipsWidget(spec, value, ctx) {
     const S = ctx.strings;
@@ -398,7 +325,7 @@ function enumChipsWidget(spec, value, ctx) {
         el: toggleChips({
             options: values.map((v) => ({ value: v, label: words(v) })), value, label: ctx.label,
             readOnly: ctx.readOnly, onChange: (v) => ctx.set(v), notFound: (v) => say(S, 'notFound', v),
-        }),
+        }).el,
     };
 }
 
@@ -408,43 +335,41 @@ function choiceCardsWidget(spec, value, ctx) {
     const values = Array.isArray(spec.enum) ? spec.enum : [];
     const descriptions = spec['x-ui-enum-descriptions'] && typeof spec['x-ui-enum-descriptions'] === 'object'
         ? spec['x-ui-enum-descriptions'] : {};
-    const root = el('div', 'twm-flow-choices');
-    root.setAttribute('role', 'radiogroup');
-    if (ctx.label) root.setAttribute('aria-label', ctx.label);
-    const name = uid('choice');
-    const current = value !== undefined ? value : spec.default;
-    const radios = [];
-    for (const v of values) {
-        const row = el('label', 'twm-flow-choice');
-        const radio = el('input', 'twm-flow-choice__radio');
-        radio.type = 'radio';
-        radio.name = name;
-        radio.checked = v === current;
-        radio.disabled = Boolean(ctx.readOnly);
-        radio.addEventListener('change', () => { if (radio.checked) ctx.set(v); });
-        radios.push(radio);
-        const words = el('span', 'twm-flow-choice__words');
-        words.appendChild(el('span', 'twm-flow-choice__label', enumLabel(spec, v)));
-        if (descriptions[v] !== undefined) words.appendChild(el('span', 'twm-flow-choice__sub', descriptions[v]));
-        row.append(radio, words);
-        root.appendChild(row);
-    }
-    if (current !== undefined && !values.includes(current)) {
-        root.appendChild(el('p', 'twm-flow-field__note', say(ctx.strings, 'notFound', shownValue(current))));
-    }
-    return { el: root, focus: () => (radios.find((r) => r.checked) || radios[0])?.focus({ preventScroll: true }) };
+    const list = choiceList({
+        options: values.map((v) => ({ value: v, label: enumLabel(spec, v), description: descriptions[v] })),
+        value: value !== undefined ? value : spec.default,
+        name: uid('choice'), label: ctx.label, readOnly: ctx.readOnly,
+        onChange: (v) => ctx.set(v), notFound: (v) => say(ctx.strings, 'notFound', v),
+    });
+    return { el: list.el, focus: list.focus };
 }
 
 const columnWords = (c) => (c.type ? `${c.name} · ${c.type}` : String(c.name));
+
+/**
+ * The columns are NOT KNOWN YET (`ctx.columns()` is null: nothing described or
+ * previewed the step's input so far): a column is typed by name, and the field
+ * says why it is not a choice. The name is stored as typed; once the columns
+ * arrive the panel is drawn again and the same setting is a choice among them,
+ * a name they lack kept and marked not found.
+ */
+function columnsNotKnownNote(S) {
+    return el('p', 'twm-flow-field__note', say(S, 'noColumns'));
+}
 
 /** One column of the step's input, by NAME. */
 function upstreamColumnWidget(spec, value, ctx) {
     const S = ctx.strings;
     const columns = ctx.columns?.();
     if (!Array.isArray(columns)) {
-        const note = el('p', 'twm-flow-field__note', say(S, 'noColumns'));
-        if (value !== undefined) note.appendChild(el('span', 'twm-flow-field__kept', ` ${shownValue(value)}`));
-        return { el: note };
+        const root = el('div', 'twm-flow-field__typed');
+        const box = textBox(shownValue(value), { label: ctx.label,
+                                                 placeholder: spec['x-ui-placeholder'] ?? say(S, 'columnName') });
+        box.spellcheck = false;
+        box.readOnly = Boolean(ctx.readOnly);
+        box.addEventListener('input', () => ctx.set(clean(typedValue(box.value, value))));
+        root.append(box, columnsNotKnownNote(S));
+        return { el: root, focus: () => box.focus({ preventScroll: true }) };
     }
     const { box, valueOf } = selectBox(columns.map((c) => ({ value: String(c.name), label: columnWords(c) })),
                                        value, { empty: say(S, 'choose'), label: ctx.label,
@@ -454,23 +379,75 @@ function upstreamColumnWidget(spec, value, ctx) {
     return { el: box };
 }
 
+/**
+ * Names typed into a chip list: Enter (or a comma, or leaving the box) makes
+ * the text a chip, pressing a chip removes it. The list keeps the order the
+ * names were given in, a name given twice once, and a stored entry as it is.
+ */
+function typedChips({ value, label, placeholder, readOnly, onChange, strings }) {
+    const root = el('div', 'twm-flow-togglechips twm-flow-typedchips');
+    root.setAttribute('role', 'group');
+    if (label) root.setAttribute('aria-label', label);
+    const list = Array.isArray(value) ? [...value] : [];
+    const input = textBox('', { label, placeholder });
+    input.classList.add('twm-flow-typedchips__input');
+    input.spellcheck = false;
+    input.readOnly = Boolean(readOnly);
+    const emit = () => onChange(list.length ? [...list] : undefined);
+    const chipFor = (v) => {
+        const text = shownValue(v);
+        const b = el('button', 'twm-flow-togglechip', text);
+        b.type = 'button';
+        b.setAttribute('aria-pressed', 'true');
+        b.setAttribute('aria-label', say(strings, 'removeNamed', text));
+        b.title = say(strings, 'removeNamed', text);
+        b.disabled = Boolean(readOnly);
+        b.addEventListener('click', () => {
+            const i = list.indexOf(v);
+            if (i >= 0) list.splice(i, 1);
+            b.remove();
+            emit();
+            input.focus({ preventScroll: true });
+        });
+        return b;
+    };
+    const take = () => {
+        const name = input.value.replace(/,+$/, '').trim();
+        input.value = '';
+        if (!name || list.includes(name)) return;
+        list.push(name);
+        root.insertBefore(chipFor(name), input);
+        emit();
+    };
+    for (const v of list) root.appendChild(chipFor(v));
+    root.appendChild(input);
+    input.addEventListener('keydown', (ev) => {
+        if (ev.isComposing || (ev.key !== 'Enter' && ev.key !== ',')) return;
+        ev.preventDefault();
+        take();
+    });
+    input.addEventListener('blur', () => { if (input.value.trim()) take(); });
+    return { el: root, input };
+}
+
 /** Several columns of the step's input, by name, as chips in the input's order. */
 function upstreamColumnsWidget(spec, value, ctx) {
     const S = ctx.strings;
     const columns = ctx.columns?.();
     if (!Array.isArray(columns)) {
-        const note = el('p', 'twm-flow-field__note', say(S, 'noColumns'));
-        if (Array.isArray(value) && value.length) {
-            note.appendChild(el('span', 'twm-flow-field__kept', ` ${value.map(shownValue).join(', ')}`));
-        }
-        return { el: note };
+        const root = el('div', 'twm-flow-field__typed');
+        const chips = typedChips({ value, label: ctx.label, readOnly: ctx.readOnly, strings: S,
+                                   placeholder: spec['x-ui-placeholder'] ?? say(S, 'columnNames'),
+                                   onChange: (v) => ctx.set(v) });
+        root.append(chips.el, columnsNotKnownNote(S));
+        return { el: root, focus: () => chips.input.focus({ preventScroll: true }) };
     }
     return {
         el: toggleChips({
             options: columns.map((c) => ({ value: String(c.name), label: String(c.name) })), value,
             label: ctx.label, readOnly: ctx.readOnly, onChange: (v) => ctx.set(v),
             notFound: (v) => say(S, 'notFound', v),
-        }),
+        }).el,
     };
 }
 

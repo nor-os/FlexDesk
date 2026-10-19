@@ -4,6 +4,7 @@
  *   Ctrl/⌘+Z · Ctrl/⌘+Y, Ctrl/⌘+Shift+Z   undo · redo
  *   Delete                                 remove the selection
  *   Ctrl/⌘+D · C · X · V                   duplicate · copy · cut · paste
+ *   Ctrl/⌘+A                               pick everything
  *   F2                                     rename
  *   Alt+↑ · Alt+↓ · Alt+←                  move up · down · out of its block
  *   ↑ ↓ ← →                                move the selection
@@ -66,7 +67,7 @@ export function isTextField(target) {
  *
  * @param {HTMLElement} root
  * @param {object} handlers  undo, redo, remove, duplicate, copy, cut, paste,
- *        rename, moveUp, moveDown, moveOut, up, down, left, right, open, escape
+ *        selectAll, rename, moveUp, moveDown, moveOut, up, down, left, right, open, escape
  * @returns {() => void} unbind
  */
 export function bindFlowKeys(root, handlers = {}) {
@@ -100,6 +101,7 @@ export function bindFlowKeys(root, handlers = {}) {
             if (lower === 'c') { run('copy', ev); return; }
             if (lower === 'x') { run('cut', ev); return; }
             if (lower === 'v') { run('paste', ev); return; }
+            if (lower === 'a') { run('selectAll', ev); return; }
             return;
         }
         if (ev.altKey && !ev.ctrlKey && !ev.metaKey) {

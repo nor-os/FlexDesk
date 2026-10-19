@@ -23,9 +23,29 @@
  */
 
 import { DragReorder } from '../ui/components/drag_reorder.js';
+import { revealInStrip, wheelStripSideways } from '../ui/utils/strip_scroll.js';
 
-/** Custom MIME type so tab bars recognise cross-pane drags. */
-const TAB_MIME = 'application/x-ecosim-tab';
+/** The MIME type a dragged editor tab carries when the embedder names none. */
+export const DEFAULT_TAB_DRAG_MIME = 'application/x-flexdesk-tab';
+
+/** Custom MIME type so tab bars and editor panes recognise cross-pane drags. */
+let _tabMime = DEFAULT_TAB_DRAG_MIME;
+
+/**
+ * Name the MIME type editor tabs carry while dragged. Every NotebookTabBar and
+ * EditorPane in the document reads it at drag time, so they always agree.
+ * Call at boot, before the first drag.
+ *
+ * @param {string} [mime=DEFAULT_TAB_DRAG_MIME]
+ */
+export function setTabDragMime(mime = DEFAULT_TAB_DRAG_MIME) {
+    _tabMime = (typeof mime === 'string' && mime) ? mime : DEFAULT_TAB_DRAG_MIME;
+}
+
+/** @returns {string} The MIME type editor tabs carry while dragged. */
+export function getTabDragMime() {
+    return _tabMime;
+}
 
 export class NotebookTabBar {
     /** @type {HTMLElement} */
@@ -75,7 +95,7 @@ export class NotebookTabBar {
             },
             onDragStart: (e, key, item) => {
                 // Carry the cross-pane MIME so other panes accept this tab.
-                try { e.dataTransfer.setData(TAB_MIME, key); } catch (_) {}
+                try { e.dataTransfer.setData(_tabMime, key); } catch (_) {}
                 // C33. …AND LET THE HOST ADD ITS OWN, which is the whole of
                 // what a second consumer of this strip needs from it.
                 //
@@ -87,7 +107,7 @@ export class NotebookTabBar {
                 // tabs — a different question from "is this an editor tab",
                 // asked of the same gesture.
                 //
-                // ADDITIVE BY CONSTRUCTION: `TAB_MIME` is set first and
+                // ADDITIVE BY CONSTRUCTION: the tab MIME is set first and
                 // unchanged, so `EditorPane`'s existing cross-pane drop cannot
                 // notice that anyone else is listening.
                 try { this.#callbacks.onDragStart?.(e, key, item); }
@@ -259,59 +279,25 @@ export class NotebookTabBar {
     /** @type {number} a pending retry, for a strip not yet laid out */
     #revealFrame = 0;
 
-    /** Bring the active tab fully into the strip — and ONLY the strip. Not
-     *  `scrollIntoView`, which scrolls every scrollable ancestor as well and
-     *  would drag the tile, the window or the page along with the tab. */
+    /** Bring the active tab fully into the strip (`revealInStrip`). */
     #revealActive(retry = false) {
         const el = this.#container;
         if (!el) return;
         const active = el.querySelector(':scope > .tab.active');
         if (!active) return;
-        if (!el.isConnected || el.clientWidth === 0) {
-            // Mounted but not laid out yet (the renderer updates a strip before
-            // it attaches it). Once, on the next frame — not a loop.
-            if (retry && !this.#revealFrame && typeof requestAnimationFrame === 'function') {
-                this.#revealFrame = requestAnimationFrame(() => {
-                    this.#revealFrame = 0;
-                    this.#revealActive(false);
-                });
-            }
-            return;
+        // Mounted but not laid out yet (the renderer updates a strip before it
+        // attaches it). Once, on the next frame — not a loop.
+        if (!revealInStrip(el, active) && retry && !this.#revealFrame
+            && typeof requestAnimationFrame === 'function') {
+            this.#revealFrame = requestAnimationFrame(() => {
+                this.#revealFrame = 0;
+                this.#revealActive(false);
+            });
         }
-        const box = el.getBoundingClientRect();
-        const tab = active.getBoundingClientRect();
-        // Client pixels to the strip's own: 1 unless something above it zooms.
-        const scale = (el.offsetWidth ? box.width / el.offsetWidth : 1) || 1;
-        const left = (tab.left - box.left) / scale + el.scrollLeft;
-        const right = left + tab.width / scale;
-        if (left < el.scrollLeft) el.scrollLeft = left;
-        else if (right > el.scrollLeft + el.clientWidth) el.scrollLeft = right - el.clientWidth;
     }
 
-    /**
-     * A VERTICAL WHEEL SCROLLS THE STRIP SIDEWAYS. Chromium and Firefox scroll
-     * an element that overflows only horizontally with Shift+wheel or a
-     * touchpad, and not with the plain wheel most people have — so with the
-     * scrollbar hidden, every tab past the edge was unreachable with a mouse.
-     *
-     * The wheel is taken from the page only while the strip can actually move
-     * that way: at either end it is left alone, so a wheel over a strip that
-     * has nothing more to show still scrolls whatever is behind it. A gesture
-     * that is already horizontal (a touchpad, Shift+wheel) and Ctrl+wheel (zoom)
-     * are the browser's, untouched.
-     */
-    #onWheel = (e) => {
-        const el = this.#container;
-        if (!el || e.ctrlKey || e.shiftKey) return;
-        if (Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
-        const room = el.scrollWidth - el.clientWidth;
-        if (room <= 0) return;
-        const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? el.clientWidth : 1;
-        const next = Math.max(0, Math.min(room, el.scrollLeft + e.deltaY * unit));
-        if (Math.abs(next - el.scrollLeft) < 0.5) return;
-        e.preventDefault();
-        el.scrollLeft = next;
-    };
+    /** A vertical wheel scrolls the strip sideways (`wheelStripSideways`). */
+    #onWheel = (e) => wheelStripSideways(this.#container, e);
 
     // ═════════════════════════════════════════════════════════════════════════
     //  Drag and drop reordering (same-pane + cross-pane)
@@ -335,7 +321,7 @@ export class NotebookTabBar {
      *
      *  C33. A HOST MAY NAME A SECOND MIME, at mount, as
      *  `callbacks.externalTabMimes` — the tile renderer's tabs are not editor
-     *  tabs and do not carry `application/x-ecosim-tab`, so without this the
+     *  tabs and do not carry the editor tab MIME (getTabDragMime()), so without this the
      *  strip in tile B would refuse a tab dragged out of tile A's strip. Empty
      *  by default, so every existing consumer keeps exactly today's admission
      *  test.
@@ -353,7 +339,7 @@ export class NotebookTabBar {
             ? this.#callbacks.externalTabMimes : [];
         try {
             const types = e.dataTransfer.types;
-            return types.includes(TAB_MIME) || extra.some((m) => types.includes(m));
+            return types.includes(_tabMime) || extra.some((m) => types.includes(m));
         } catch { return false; }
     }
 
@@ -374,7 +360,7 @@ export class NotebookTabBar {
         if (this.#isExternalTabDrag(e)) {
             e.preventDefault();
             this.#container.classList.remove('notebook-tabs--drop-target');
-            const filePath = e.dataTransfer.getData(TAB_MIME) || e.dataTransfer.getData('text/plain');
+            const filePath = e.dataTransfer.getData(_tabMime) || e.dataTransfer.getData('text/plain');
             if (filePath) {
                 this.#callbacks.onDropFromOtherPane?.(filePath);
             }

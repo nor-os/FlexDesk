@@ -1495,6 +1495,14 @@ body.twm-dragging * { user-select: none; }
     border-color: var(--accent-bright);
     color: var(--text-bright);
 }
+.twm-chip[aria-disabled="true"] {
+    color: var(--text-dim);
+    cursor: not-allowed;
+}
+.twm-chip[aria-disabled="true"]:hover {
+    background: var(--surface-2);
+    color: var(--text-dim);
+}
 .twm-cmdpal__list {
     max-height: 40vh;
     overflow: auto;
@@ -1643,6 +1651,8 @@ body.twm-dragging * { user-select: none; }
 }
 .twm-cmdpal__acts { display: none; gap: 10px; }
 .twm-cmdpal__item--active .twm-cmdpal__acts { display: flex; }
+/* A copy verb a single kind refuses: drawn, greyed, with the reason as its title. */
+.twm-cmdpal__act--disabled { opacity: 0.45; }
 .twm-cmdpal__item--active .twm-cmdpal__kind,
 .twm-cmdpal__item--active .twm-cmdpal__shortcut { display: none; }
 .twm-cmdpal__item--more { color: var(--text-muted); font-size: var(--font-size-sm); }

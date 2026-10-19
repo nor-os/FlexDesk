@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>FlexDesk — openForm rows</title>
+    <!-- openForm's `{ row: [...] }` in a real browser (STORY-0042). It loads the
+         SOURCE barrel `../widgets.js` and the sheets under `../css/`, so it
+         needs no dist/ build. `demo/open_form_row_probe.mjs` serves the
+         repository root, opens this page in headless Edge and measures the row. -->
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />
+    <link href="../css/tokens.css" rel="stylesheet" />
+    <link href="../css/reset.css" rel="stylesheet" />
+    <link href="../css/flexdesk.css" rel="stylesheet" />
+    <style>html, body { height: 100%; margin: 0; } body { background: var(--surface-0); }</style>
+</head>
+<body>
+<script type="module">
+    import { openForm } from '../widgets.js';
+    window.__formDemo = {
+        /** Open the form; resolves nothing until submitted or cancelled. */
+        open() {
+            this.result = openForm({
+                title: 'Range',
+                fields: [
+                    { name: 'steps', label: 'Steps', type: 'number', min: 2, max: 200, default: 50 },
+                    { row: [
+                        { name: 'lo', label: 'Min', type: 'number', default: 0, hint: 'lowest value' },
+                        { name: 'hi', label: 'Max', type: 'number', default: 10, min: 0 },
+                    ] },
+                ],
+            });
+            return true;
+        },
+    };
+    window.__formDemo.ready = true;
+</script>
+</body>
+</html>

@@ -41,7 +41,8 @@
  * stops the following and shows *Jump to latest*; clicking it — or scrolling
  * back down to the end — follows again. Content growing below a pinned view
  * never unpins it: only the scroll position moving up does, and a wheel over
- * a nested scroller (a `<pre>` in a body, say) scrolls that, not the view. `scrollTop` is
+ * a nested scroller (a `<pre>` in a body, say) scrolls that, not the view;
+ * nor does a wheel a handler inside the transcript cancelled. `scrollTop` is
  * readable and settable (`getScrollTop` / `setScrollTop`) so an embedder can
  * keep it across a remount.
  *
@@ -165,26 +166,34 @@ export function mountConversationView(host, {
 
     function onScroll() { if (noticeMove() && !pinned) setPinned(true); }
     /**
-     * Whether a wheel up over `target` scrolls something nested inside the
+     * Whether a wheel up over `target` is kept by something nested inside the
      * transcript — a scrollable block in a body or an extra slot that is not
-     * at its own top — rather than the transcript itself.
+     * at its own top, or one at its top whose `overscroll-behavior` keeps the
+     * scroll from chaining out — rather than moving the transcript itself.
      */
     function innerTakesWheelUp(target) {
         const view = doc.defaultView;
         for (let n = target; n && n !== log; n = n.parentElement) {
-            if (n.nodeType !== 1 || n.scrollTop <= 0 || n.scrollHeight <= n.clientHeight) continue;
-            const overflow = view?.getComputedStyle(n).overflowY;
-            if (overflow === 'auto' || overflow === 'scroll' || overflow === 'overlay') return true;
+            if (n.nodeType !== 1 || n.scrollHeight <= n.clientHeight) continue;
+            const style = view?.getComputedStyle(n);
+            const overflow = style?.overflowY;
+            if (overflow !== 'auto' && overflow !== 'scroll' && overflow !== 'overlay') continue;
+            if (n.scrollTop > 0) return true;
+            const chain = style.getPropertyValue('overscroll-behavior-y')
+                || style.getPropertyValue('overscroll-behavior').split(/\s+/).pop();
+            if (chain === 'contain' || chain === 'none') return true;
         }
         return false;
     }
     /**
      * A wheel up that will move the transcript stops following at once, before
-     * the scroll it causes is reported. One that a nested scroller takes
-     * leaves the transcript where it is, so it changes nothing.
+     * the scroll it causes is reported. One that a nested scroller keeps, or
+     * one a handler inside the transcript cancelled (a zoomable chart in a
+     * slot, say), leaves the transcript where it is, so it changes nothing.
      */
     function onWheel(e) {
-        if (e.deltaY < 0 && pinned && log.scrollTop > 0 && !innerTakesWheelUp(e.target)) setPinned(false);
+        if (e.deltaY < 0 && pinned && !e.defaultPrevented && log.scrollTop > 0
+            && !innerTakesWheelUp(e.target)) setPinned(false);
     }
     function onJump() { setPinned(true); toBottom(); }
     log.addEventListener('scroll', onScroll);

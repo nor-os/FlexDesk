@@ -2389,6 +2389,79 @@ const { status } = await dlg.result;   // 'done' | 'error' | 'cancelled'
 
 `tests/progress.test.mjs` holds all of it in jsdom.
 
+## Tabs: `createTabs` (0.17.0)
+
+One tab strip, from `@flexdesk/widgets`, keyed by whatever ids you give it — not
+by file path (`NotebookTabBar`) and not by a bus event (`createBottomPanelTabs`,
+which is now built on it). It is a strip and nothing else, or a strip with the
+panes behind it.
+
+```js
+const tabs = createTabs(el, {
+    items: [
+        { id: 'inputs',  label: 'Inputs', icon: 'tune', title: 'Model inputs' },
+        { id: 'results', label: 'Results', badge: { count: 3, level: 'warning' } },
+        { id: 'draft',   label: 'Draft', dirty: true, closable: true },
+    ],
+    active: 'inputs',
+    onSelect: (id, item) => …,
+    onReselect: (id, item) => …,                                       // optional: a click on the tab in front
+    onClose: (id) => tabs.update(items.filter((i) => i.id !== id)),   // optional
+    onReorder: (ids) => …,                                             // optional: tabs drag
+    onContextMenu: (id, event, item) => …,                             // optional
+    mountPane: (item, paneEl, tabs) => ({ onShow() {}, destroy() {} }), // optional: strip only
+    compact: false,
+    label: 'Views',
+});
+tabs.update(nextItems, 'results');
+tabs.setBadge('results', 7, 'alert');
+tabs.setIndicator('inputs', 'info');
+```
+
+| Member | Does |
+|---|---|
+| `update(items, activeId?)` | Replaces the items, keeping the button of every id it keeps. In front: `activeId` if present, else the tab in front now if it is still there, else the first (none when no items are left). Panes of items that went are destroyed |
+| `select(id)`, `active()`, `has(id)`, `ids()` | The tab in front; `select` answers false for an id it does not have |
+| `setBadge(id, n, level?)` | A count, `99+` above 99, none at zero; `level` is `info`, `warning` or `alert` (`TAB_LEVELS`) |
+| `setIndicator(id, value)` | A dot: a level, `true` for the neutral one, falsy for none |
+| `instance(id)`, `instances()` | The mounted panes' instances |
+| `destroy()` | Destroys the panes, lets the bus go, removes the markup |
+
+- **Panes mount on first selection.** The tab in front at creation counts;
+  `eager: true` on an item mounts its pane at once — at creation, or in the
+  `update` that brings the item in, before the tab in front is settled. Each
+  instance hears `onShow()` whenever its tab comes to the front and `destroy()`
+  when its item goes.
+- **`onSelect` hears changes**, not the tab chosen at creation. A click on the
+  tab already in front is not a change; `onReselect(id, item)` hears it. An
+  `update` that leaves no items empties the front, heard as `onSelect(null, null)`.
+- **The bus is opt-in:** pass `eventBus` *and* `selectEvent: 'views:show'` and
+  that event selects `payload.id` (or `selectFrom(payload)`). No event name, no
+  subscription.
+- **Keys** follow the ARIA tabs pattern with automatic activation:
+  ArrowLeft/ArrowRight (wrapping), Home, End; Delete (and a middle click) closes
+  a closable tab. Only the tab in front is in the tab order. When an `update`
+  removes the tab that has focus (Delete, then your `onClose` drops it), focus
+  moves to the tab now in front instead of falling to the page. Focus that the
+  update put somewhere else (a pane that focuses itself in `onShow`) stays there.
+- **Overflow scrolls**, never wraps: a vertical wheel moves the strip sideways and
+  the tab coming to the front is scrolled into view (`revealInStrip`,
+  `wheelStripSideways`, shared with `NotebookTabBar`).
+- **Classes** are BEM under `block` (default `twm-tabs`): `__tabs`, `__tab`,
+  `__tab--on`, `__tab--dirty`, `__tab--closable` (it has a close mark), `__icon`,
+  `__label`, `__badge`, `__indicator`, `__dirty`, `__close`, `__body`,
+  `--compact`, and `twm-tabs-pane`. A dirty tab shows its dot until hovered,
+  then its close mark; one with no close mark keeps the dot. Tabs and panes
+  carry the id in `data-tab-id` (`dataKey`), as a string; callbacks and `ids()`
+  hand back the id as you gave it, so a numeric id stays a number.
+
+`tests/tabs.test.mjs` covers it in jsdom; `tests/bottom_panel_tabs.test.mjs`
+runs on the bottom panel built over it. The bottom panel behaves as it did:
+`api.root` is set inside a pane's `mount`, and a click on the tab in front
+re-shows its pane, fires `onSelect` and is remembered, as `select` does. A
+remembered tab that is already in front when `remember.read` answers is shown
+again: its pane hears `onShow` and `onSelect` fires, and nothing is written back.
+
 ## Notifications: `NotificationCenter`
 
 Toasts, from `toast:show` on the bus (or `toastInfo` / `toastWarn` /
@@ -2465,7 +2538,7 @@ dismissed, and four pieces draw it. Each works without the others:
 | `createAlertLog({ source, limit })` | `widgets` | Entries `{id, at, level, title, body?, ref?, read}`, newest first; `add`, `receive`, `markRead`, `dismiss`, `unreadCount`, `worstUnread`, `subscribe`, `loadMore` |
 | `localSource({ read, write })` | `widgets` | Keeps the whole log in one stored value (localStorage, a workspace file) |
 | `mountAlertsPane(el, { log, onOpen, onBadge, rules?, stillMatches? })` | `widgets` | Level chips with counts, a filter, day groups, relative times, Open / Dismiss / Mark all read / Clear, *Load older* |
-| `createBottomPanelTabs(el, { panes, remember, store, eventBus })` | `wm` | The `.twm-bp` tab strip: `select`, `setBadge(id, n, level)`, `bottompanel:show {tab}` |
+| `createBottomPanelTabs(el, { panes, remember, store, eventBus })` | `wm` | The `.twm-bp` tab strip, on [`createTabs`](#tabs-createtabs-0170): `select`, `setBadge(id, n, level)`, `bottompanel:show {tab}` |
 | `new NotificationHistory({ alertLog, mountPoint, alertsTab, onOpen })` | `widgets` | The bell shows the log's unread count in the worst level's colour; a click (and "+N more") opens the Alerts tab |
 
 A **source** is where entries live: `load({offset, limit})` answers

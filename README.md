@@ -1521,7 +1521,11 @@ Its edits are the closed list `CANVAS_ACTIONS`: `flow:node:add`,
 or a setting is one entry. The geometry under it is exported as well, all of it
 pure: `CANVAS_NODE`, `arrangeCanvasGraph(graph, catalogue, {loopEntry})` (where
 Arrange puts each step: a Map of id → `{x, y}` from the origin),
-`canvasPortAnchor`, `canvasNodeBottom` and `isCanvasReturnEdge`.
+`canvasPortAnchor`, `canvasNodeBottom`, `isCanvasReturnEdge`,
+`canvasPathPoints(d, {steps})` (the points along a drawn line's path `d`:
+absolute `M`, `L`, `C`, `S` and `Z`, each curve sampled at `steps` points) and
+`canvasPathMidpoint(d)` (the point halfway along it by length, where a style's
+`label` sits).
 
 **Gestures.** A node's header moves it. A connection is made by clicking an
 output and then an input, and Escape cancels one in progress. A line is picked

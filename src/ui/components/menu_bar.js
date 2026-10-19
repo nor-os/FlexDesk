@@ -623,6 +623,13 @@ export class MenuBar {
         const menu = this._stack[level].menu;
         const item = this._models.get(btn);
         const go = (b) => b?.focus({ preventScroll: true });
+        // A submenu can be open while focus is still on the item it hangs
+        // from (opened by the pointer, or with no row the keyboard can land
+        // on). Left and Esc close that submenu first, keeping focus here.
+        if ((key === 'ArrowLeft' || key === 'Escape') && this._stack[level + 1]?.parent === btn) {
+            this._closeFrom(level + 1);
+            return true;
+        }
         switch (key) {
             case 'ArrowDown': go(this._stepFrom(menu, btn, 1)); return true;
             case 'ArrowUp':   go(this._stepFrom(menu, btn, -1)); return true;

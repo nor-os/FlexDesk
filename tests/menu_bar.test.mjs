@@ -233,6 +233,23 @@ section('§5 Right opens a submenu and Left closes it');
     mouse('mouseover', itemIn(openMenus()[0], 'Quit'));
     check('hovering a sibling closes it', openMenus().length, 1);
     reset();
+    // An empty function submenu: Right opens it, but its only row ('Empty')
+    // is disabled, so focus stays on its item; Left then closes only it.
+    const saved = recent;
+    recent = [];
+    press('F10');
+    press('ArrowDown'); press('ArrowDown'); press('ArrowDown');
+    check('on the function submenu item', focused(), 'Open recent');
+    press('ArrowRight');
+    check('Right opens the empty submenu', openMenus().length, 2);
+    check('…and focus stays on its item', focused(), 'Open recent');
+    press('ArrowLeft');
+    check('Left closes only the submenu', openMenus().length, 1);
+    check('…the open menu is still File', title('File').getAttribute('aria-expanded'), 'true');
+    check('…and focus is still on its item', focused(), 'Open recent');
+    check('…which is no longer expanded', document.activeElement.getAttribute('aria-expanded'), 'false');
+    recent = saved;
+    reset();
 }
 
 // ── §6 ───────────────────────────────────────────────────────────────────
@@ -257,6 +274,21 @@ section('§6 Esc closes one level and the last Esc returns focus to where it was
     check('after a click, Esc closes the menu', openMenus().length, 0);
     press('Escape');
     check('…and the next Esc gives focus back', document.activeElement === outside, true);
+    // A submenu the pointer opened, with focus still on its item: one Esc
+    // closes only the submenu.
+    outside.focus();
+    mouse('mousedown', title('File'));
+    click(title('File'));
+    const exportItem = itemIn(openMenus()[0], 'Export');
+    exportItem.focus();
+    mouse('mouseover', exportItem);
+    check('hover opens the submenu, focus on its item', [openMenus().length, focused()], [2, 'Export']);
+    press('Escape');
+    check('one Esc closes only the submenu', [openMenus().length, focused()], [1, 'Export']);
+    press('Escape');
+    check('the next Esc closes the menu, focus on its title', [openMenus().length, focused()], [0, 'File']);
+    press('Escape');
+    check('…and the last Esc gives focus back', document.activeElement === outside, true);
     // Running an item gives focus back BEFORE onAction runs.
     actions.length = 0;
     press('F10'); press('ArrowDown');

@@ -409,6 +409,31 @@ console.log('§7 close, context menu, reorder');
     kb.update(list.filter((i) => i.id !== 'd'));
     ok('focus outside the strip stays where it is', document.activeElement === outside);
     outside.remove();
+
+    // A pane that focuses its own input when shown: an update that brings it
+    // to the front, with focus on a kept tab, leaves focus in the pane.
+    const inputs = {};
+    const self = createTabs(fresh(), {
+        items: [{ id: 'a' }, { id: 'b' }, { id: 'c' }], active: 'a',
+        mountPane: (item, el) => {
+            const input = document.createElement('input');
+            el.appendChild(input);
+            inputs[item.id] = input;
+            return { onShow: () => input.focus() };
+        },
+    });
+    const keptBtn = self.root.querySelector('[data-tab-id="b"]');
+    keptBtn.focus();
+    ok('(a kept tab has focus)', document.activeElement === keptBtn);
+    self.update([{ id: 'a' }, { id: 'b' }, { id: 'c' }], 'c');
+    ok('a pane that focuses itself on show keeps focus after an update',
+       self.active() === 'c' && document.activeElement === inputs.c,
+       `activeElement is ${document.activeElement?.tagName} ${document.activeElement?.dataset?.tabId ?? ''}`);
+    // The focused tab goes and the new front's pane focuses itself: the pane wins.
+    self.root.querySelector('[data-tab-id="c"]').focus();
+    self.update([{ id: 'a' }, { id: 'b' }]);   // c (in front, focused) goes; a comes to the front
+    ok('…and when the focused tab goes, focus the pane took stays in the pane',
+       self.active() === 'a' && document.activeElement === inputs.a);
 }
 
 console.log('§8 overflow and compact');
@@ -454,6 +479,25 @@ console.log('§9 destroy');
     console.error = err;
     ok('a pane may destroy the strip while it mounts', errors.length === 0, String(errors[0]?.[1]));
     ok('…and then the bus is never subscribed', subs === 0 && early.select('b') === false);
+
+    // …and the pane that did it is never shown, and is destroyed exactly once.
+    const life = [];
+    createTabs(fresh(), { items: [{ id: 'a' }, { id: 'b' }],
+        mountPane: (item, el, api) => {
+            api.destroy();
+            return { onShow: () => life.push(`onShow ${item.id}`), destroy: () => life.push(`destroy ${item.id}`) };
+        } });
+    ok('a pane that destroys the strip while it mounts is not shown', !life.some((l) => l.startsWith('onShow')), life.join());
+    ok('…and is destroyed exactly once', life.join() === 'destroy a', life.join());
+    // The same through an eager pane and through select().
+    const life2 = [];
+    const later = createTabs(fresh(), { items: [{ id: 'a' }, { id: 'b' }],
+        mountPane: (item, el, api) => {
+            if (item.id === 'b') api.destroy();
+            return { onShow: () => life2.push(`onShow ${item.id}`), destroy: () => life2.push(`destroy ${item.id}`) };
+        } });
+    later.select('b');
+    ok('…also when it mounts on a later select', life2.join() === 'onShow a,destroy a,destroy b', life2.join());
 }
 
 console.log('§10 CSS');

@@ -54,7 +54,8 @@
  * the selection (wrapping), Home and End go to the ends, Delete closes a
  * closable tab. One tab is in the tab order — the one in front. When an
  * `update` removes the tab that has focus (Delete, then the caller drops the
- * item), focus moves to the tab now in front, so the keyboard keeps its place.
+ * item), focus moves to the tab now in front, so the keyboard keeps its place;
+ * focus that the update put somewhere else (a pane focusing itself) stays.
  *
  * OVERFLOW scrolls, never wraps: a vertical wheel moves the strip sideways and a
  * tab that comes to the front is scrolled into it (`../utils/strip_scroll.js`).
@@ -228,7 +229,7 @@ export function createTabs(container, {
     // ── panes ───────────────────────────────────────────────────────────
 
     function mount(id) {
-        if (!mountPane || panes.has(id)) return panes.get(id) ?? null;
+        if (destroyed || !mountPane || panes.has(id)) return panes.get(id) ?? null;
         const el = doc.createElement('div');
         el.className = `${block}-pane`;
         el.dataset[datasetKey] = id;
@@ -242,11 +243,22 @@ export function createTabs(container, {
         panes.set(id, entry);
         // ONE PANE THAT THROWS IS ONE EMPTY TAB, not a dead strip: the strip
         // and every other pane go on working.
+        let instance = null;
         try {
-            entry.instance = mountPane(byId.get(id), el, api) ?? null;
+            instance = mountPane(byId.get(id), el, api) ?? null;
         } catch (err) {
             console.error(`[tabs] pane "${id}" failed to mount`, err);
         }
+        // The pane let go of its own entry while it mounted (it destroyed the
+        // strip, or an update dropped its item): it was never anyone's, so it
+        // is destroyed now and never shown.
+        if (panes.get(id) !== entry) {
+            try { instance?.destroy?.(); } catch (err) {
+                console.warn(`[tabs] pane "${id}" destroy failed`, err);
+            }
+            return null;
+        }
+        entry.instance = instance;
         return entry;
     }
 
@@ -284,7 +296,8 @@ export function createTabs(container, {
         paint();
         if (id != null) {
             mount(id)?.instance?.onShow?.();
-            revealInStrip(strip, tabs.get(id).el);
+            if (destroyed) return;   // a pane destroyed the strip as it mounted
+            if (tabs.has(id)) revealInStrip(strip, tabs.get(id).el);
         }
         if (notify) onSelect?.(id, id == null ? null : byId.get(id));
     }
@@ -292,7 +305,7 @@ export function createTabs(container, {
     function select(id, { focus = false } = {}) {
         if (destroyed || !byId.has(id)) return false;
         if (id !== current) show(id, true);
-        if (focus) tabs.get(id).el.focus();
+        if (focus && !destroyed) tabs.get(id)?.el.focus();
         return true;
     }
 
@@ -411,20 +424,26 @@ export function createTabs(container, {
          * first. Panes of items that went are destroyed; eager items that
          * came are mounted, in order, before the tab in front is settled.
          * No items left: nothing is in front, heard as `onSelect(null, null)`.
-         * Focus on a tab that went moves to the tab in front.
+         * Focus on a tab that went moves to the tab in front, unless the
+         * update put it somewhere else (a pane that focuses itself on show).
          */
         update(next = [], activeId = undefined) {
             if (destroyed) return;
-            const hadFocus = strip.contains(doc.activeElement);
+            const focused = doc.activeElement;
+            const focusedTab = idByEl.has(focused) && strip.contains(focused);
             setItems(next);
             mountEager();
+            if (destroyed) return;
             const want = activeId !== undefined && byId.has(activeId) ? activeId
                 : byId.has(current) ? current
                 : order[0] ?? null;
             if (want !== current) show(want, true);
             else paint();   // a new button is drawn off; the kept ones keep their state
-            // The focused tab went with its item: focus would fall to <body>.
-            if (hadFocus && current != null && !strip.contains(doc.activeElement)) {
+            if (destroyed) return;
+            // The focused tab went with its item and focus fell to <body>:
+            // it goes to the tab in front. Focus that landed anywhere else stays.
+            const fell = doc.activeElement == null || doc.activeElement === doc.body;
+            if (focusedTab && !strip.contains(focused) && fell && current != null) {
                 tabs.get(current).el.focus();
             }
         },

@@ -19,6 +19,8 @@
  *       one entry; Tab and Shift+Tab walk the nodes and let go at the ends
  *   §6  read only: no gesture changes the graph
  *   §7  an undo that takes away a picked node lets go of it
+ *   §8  bindFlowKeys: Ctrl/⌘+A is selectAll, and only when handled
+ *   §9  Delete on many picked keeps the mark of a surviving node whose body threw
  *
  * The 300-node timing is `demo/flow_canvas_probe.mjs`'s (a real browser).
  *
@@ -390,6 +392,22 @@ t.section('§8 bindFlowKeys: Ctrl/⌘+A is selectAll, and only when handled');
     const off2 = bindFlowKeys(bare, {});
     t.ok('with no handler it is not prevented', !keyOn(bare, 'a', { ctrlKey: true }).defaultPrevented);
     off2();
+}
+
+t.section('§9 Delete on many picked keeps a body\'s finding');
+{
+    const broken = { type_id: 'broken', label: 'Broken', category: 'work', ports: [F('in', 'input')],
+                     render() { throw new Error('no canvas'); } };
+    const withBroken = createStepCatalogue([...TYPES, broken]);
+    const graph = { nodes: [node('p', 0, 0), node('q', 300, 0), node('b', 600, 0, 'broken')], connections: [] };
+    const m = mount({ catalogue: withBroken, multiSelect: true }, graph);
+    const marked = () => nodeEl(m, 'b').classList.contains('twm-flow-graph__node--error')
+        && nodeEl(m, 'b').querySelector('.twm-flow-graph__node-findings').textContent.includes('no canvas');
+    t.ok('(the node whose body threw is marked)', marked());
+    m.editor.select(['p', 'q']);
+    keyOn(nodeEl(m, 'p'), 'Delete');
+    t.check('(the two picked are gone)', m.editor.getGraph().nodes.map((n) => n.id), ['b']);
+    t.ok('after Delete the survivor is still marked', marked());
 }
 
 for (const e of mounted) e.destroy();

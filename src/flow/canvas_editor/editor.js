@@ -991,13 +991,15 @@ export function createCanvasEditor(host, options = {}) {
         b.dataset.direction = p.direction;
         b.append(el('span', 'twm-flow-graph__port-dot'), el('span', 'twm-flow-graph__port-label', p.label || p.name),
                  el('span', 'twm-flow-graph__port-count'));
-        if ((p.port_type || 'FLOW') !== 'FLOW' && dataConnect) b.classList.add('twm-flow-graph__port--data');
-        else if ((p.port_type || 'FLOW') !== 'FLOW') {
+        const isData = (p.port_type || 'FLOW') !== 'FLOW';
+        if (isData) {
             b.classList.add('twm-flow-graph__port--data');
-            b.disabled = true;
-            b.dataset.data = '';
-            b.title = say(S, 'dataPort', dataPortRead ? dataPortRead(nodeRow, p) : null);
-            return b;
+            if (!dataConnect) {
+                b.disabled = true;
+                b.dataset.data = '';
+                b.title = say(S, 'dataPort', dataPortRead ? dataPortRead(nodeRow, p) : null);
+                return b;
+            }
         }
         b.title = p.direction === 'output' ? say(S, 'connectFrom') : say(S, 'connectTo');
         b.addEventListener('click', (ev) => {

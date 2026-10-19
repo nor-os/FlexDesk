@@ -158,6 +158,22 @@ section('§4 an editor whose row leaves the window');
     check('row 5 comes back with the value', td(table, 5, 0)?.textContent, 'kept');
     table.dispose();
 }
+{
+    // A redraw that was waiting for the editor, when the window is what closes it.
+    const { host, table, commits } = virtual(1000);
+    table.setCellSelection({ row: 5, col: 0 });
+    key(tbl(table), 'F2');
+    const input = host.querySelector('.twm-dt-editor');
+    input.value = 'typed';
+    table.setData({ rows: makeRows(1000).map((r) => [r[0].toUpperCase(), r[1], r[2]]) });
+    ok('new rows wait for the editor', input.isConnected);
+    table.scrollToRow(900);
+    check('the window taking the row out commits it', commits.length, 1);
+    ok('…and the waiting redraw does not run inside the window\'s own', !table.isEditing());
+    await tick();
+    check('it runs right after: the new rows are drawn', td(table, 900, 0)?.textContent, 'ROW 900');
+    table.dispose();
+}
 
 section('§5 an editor holds a redraw back; Escape commits nothing');
 {

@@ -595,6 +595,34 @@ async function figureOf(subplot, results = RESULTS, options = {}) {
     check('a stacked-percent chart stacks its overlay in a group of its own',
           [f.data[1].stackgroup, f.data[1].groupnorm], ['overlay-y', 'fraction']);
 
+    // PlotPopoutWindow: its `actuals` are the overlays; no `overlay.etlKey` needed
+    const popoutOverlayFigure = async (chartType) => {
+        resetPlotly();
+        const subplot = sp(['a']);
+        subplot.yAxes[0].series[0].overlay = { label: 'Observed' };
+        if (chartType) subplot.chartType = chartType;
+        const win = new PlotPopoutWindow({
+            id: `overlay-popout-${chartType ?? 'line'}`, title: 'Overlay',
+            plotConfig: { layout: '1x1', subplots: [subplot] },
+            getResults: () => RESULTS,
+            actuals: { [subplot.yAxes[0].series[0].id]: { years: [0, 2], values: [1.5, 2.5] } },
+            services: { eventBus: { on: () => ({ dispose() {} }), emit() {} } },
+        });
+        await win.show();
+        await settle();
+        const cell = win._contentEl.querySelector('.twm-plot-grid > .twm-plot-grid__cell');
+        const fig = lastFigureFor(cell);
+        win.close();
+        await settle();
+        return fig;
+    };
+    f = await popoutOverlayFigure();
+    check('a popout draws an overlay from actuals for a series whose overlay has no etlKey',
+          f?.data.map((t) => [t.name, t.x, t.y]), [['a', [0, 1, 2, 3], [1, 2, 3, 4]], ['Observed', [0, 2], [1.5, 2.5]]]);
+    f = await popoutOverlayFigure('area-stacked');
+    check('  ...and on an area-stacked subplot stacks it with groupnorm fraction',
+          [f?.data[1]?.name, f?.data[1]?.groupnorm], ['Observed', 'fraction']);
+
     // hidden series
     f = await figureOf(sp(['a', 'b']), RESULTS, { hiddenSeries: ['a'] });
     check('hiddenSeries (an array) is not drawn', f.data.map((t) => t.name), ['b']);

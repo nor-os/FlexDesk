@@ -488,7 +488,7 @@ export class SettingsView extends ComponentBase {
             c.box.addEventListener('change', () => write(c.valueOf()));
             return {
                 el: c.box,
-                show: (v) => { if (!same(c.valueOf(), v)) c.select(v) || c.setOptions(def.options || []); },
+                show: (v) => { if (!same(c.valueOf(), v)) c.select(v); },
             };
         }
         case 'number': {

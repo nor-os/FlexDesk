@@ -156,6 +156,10 @@
     font-size: var(--font-size-sm);
     line-height: 1.5;
 }
+/* Shown: the service adds `visible` once the tooltip is positioned, and removes it to fade out */
+.twm-latex-tooltip.visible {
+    opacity: 1;
+}
 /* Tooltip header (first line) styling */
 .twm-latex-tooltip strong {
     display: block;

@@ -34,33 +34,26 @@
  * each. `line` on a series is merged over the built `trace.line`, so
  * `line: {shape: 'hv', dash: 'dash'}` is as good as `interpolation`/`lineStyle`.
  *
- * ══ WHY THE DRAW HAS ITS OWN TRY/CATCH, AND A SEQUENCE ══════════════════
+ * ══ THE DRAW IS FigureTile's ═══════════════════════════════════════════
  *
- * The draw is `await ensurePlotly()` deep, so `render()` returns long before
- * anything can throw. `_draw` therefore reports its own failures (Plotly
- * absent included — a clear error state, never an unhandled rejection), and
- * `_drawSeq` discards a draw that lands after a newer one.
+ * `ChartTile` is a `FigureTile` (figure_tile.js, 0.17.0): it answers
+ * `figure(data)` with the traces and layout `_plan` builds, and the base awaits
+ * Plotly, draws, discards a stale draw, purges on every state change, relayouts
+ * after a resize, downloads the PNG and opens Expand. What stays here is what a
+ * CHART is: the data shorthands, the chart types, the note under the figure.
  *
- * EVERY STATE CHANGE INVALIDATES THE FIGURE. `showEmpty`, `showLoading` and
- * `showError` replace the content with `innerHTML`, which detaches the Plotly div
- * without telling Plotly. So each of them here first purges the figure, drops the
- * reference, marks it not drawn, and bumps `_drawSeq` — and a draw still in
- * flight when `setData(empty)` arrives finds itself stale and purges its own
- * figure instead of marking it drawn.
- *
- * `scrollZoom` is off per call: a tile sits on a scrolling board, and the wheel
- * over a chart must scroll past it rather than zoom it.
+ * The menu is Download PNG alone, as 0.13.0 shipped it: `TileBase`'s two
+ * documentation entries belong to an application with documentation.
  */
 
 import { TileBase } from './tile_base.js';
+import { FigureTile } from './figure_tile.js';
 import { registerWidget, getWidget } from './tile_registry.js';
 import {
     buildTrace, buildXAxisLayout, buildYAxisLayout, buildLegendLayout,
     buildHistogramTrace, buildOverlayShapes,
 } from '../charts/chart_types.js';
-import {
-    createChart, resize as resizePlot, purge, ensurePlotly, getSeriesColor,
-} from '../charts/plotly_wrapper.js';
+import { getSeriesColor } from '../charts/plotly_wrapper.js';
 import { strideDownsampleShared } from '../charts/downsample.js';
 
 /** Part-of-whole types: one series, no axes. */
@@ -136,26 +129,13 @@ function pointCount(s) {
     return 0;
 }
 
-export class ChartTile extends TileBase {
+export class ChartTile extends FigureTile {
     static TYPE = 'flexdesk.chart';
     static TITLE = 'Chart';
     static ICON = 'insert_chart';
     static DESCRIPTION = 'Line, bar, area, pie, donut, funnel or histogram over series you supply.';
     static DEFAULT_SIZE = { w: 6, h: 4 };
     static SIZE_CONSTRAINTS = { minW: 3, minH: 3, maxW: 12, maxH: 10 };
-
-    /**
-     * @param {Object} options - TileBase's, plus:
-     * @param {Function} [options.onPointClick] - `({customdata, point, tile})`
-     *        on a click on a mark. Also assignable later as `tile.onPointClick`.
-     */
-    constructor(options = {}) {
-        super(options);
-        this.onPointClick = typeof options.onPointClick === 'function' ? options.onPointClick : null;
-        this._plotEl = null;
-        this._drawn = false;
-        this._drawSeq = 0;
-    }
 
     /** Pure and static-only — it runs inside `TileBase`'s constructor. */
     getDefaultConfig() {
@@ -177,12 +157,12 @@ export class ChartTile extends TileBase {
     getConfigSchema() {
         return {
             fields: [
-                { name: 'title', type: 'text', label: 'Tile title' },
-                { name: 'chart_type', type: 'select', label: 'Chart type',
+                { key: 'title', type: 'text', label: 'Tile title' },
+                { key: 'chart_type', type: 'select', label: 'Chart type',
                   options: CHART_TILE_TYPES.map((o) => ({ ...o })) },
-                { name: 'unit', type: 'text', label: 'Unit',
-                  help: 'Shown with the value axis title, e.g. "pts" or "h".' },
-                { name: 'legend', type: 'select', label: 'Legend',
+                { key: 'unit', type: 'text', label: 'Unit',
+                  description: 'Shown with the value axis title, e.g. "pts" or "h".' },
+                { key: 'legend', type: 'select', label: 'Legend',
                   visibleWhen: { field: 'chart_type', in: [...READS.legend] },
                   options: [
                       { value: 'bottom', label: 'Below' },
@@ -191,18 +171,18 @@ export class ChartTile extends TileBase {
                       { value: 'left', label: 'Left' },
                       { value: 'hidden', label: 'None' },
                   ] },
-                { name: 'x_title', type: 'text', label: 'X axis title',
+                { key: 'x_title', type: 'text', label: 'X axis title',
                   visibleWhen: { field: 'chart_type', in: [...READS.axis_titles] } },
-                { name: 'y_title', type: 'text', label: 'Y axis title',
+                { key: 'y_title', type: 'text', label: 'Y axis title',
                   visibleWhen: { field: 'chart_type', in: [...READS.axis_titles] } },
-                { name: 'y_scale', type: 'select', label: 'Y scale',
+                { key: 'y_scale', type: 'select', label: 'Y scale',
                   visibleWhen: { field: 'chart_type', in: [...READS.y_scale] },
                   options: [{ value: 'linear', label: 'Linear' }, { value: 'log', label: 'Logarithmic' }] },
-                { name: 'y_min', type: 'number', label: 'Y minimum',
+                { key: 'y_min', type: 'number', label: 'Y minimum',
                   visibleWhen: { field: 'chart_type', in: [...READS.y_range] } },
-                { name: 'y_max', type: 'number', label: 'Y maximum',
+                { key: 'y_max', type: 'number', label: 'Y maximum',
                   visibleWhen: { field: 'chart_type', in: [...READS.y_range] } },
-                { name: 'show_markers', type: 'checkbox', label: 'Show point markers',
+                { key: 'show_markers', type: 'checkbox', label: 'Show point markers',
                   visibleWhen: { field: 'chart_type', in: [...READS.show_markers] } },
             ],
         };
@@ -225,163 +205,31 @@ export class ChartTile extends TileBase {
         if (config) applyTitle(this);
     }
 
-    /**
-     * Hand this tile its series. Unlike `update()`, an empty or null value is
-     * drawn — as the empty state — rather than ignored.
-     */
-    setData(data) {
-        if (this._disposed) return;
-        this.data = data ?? null;
-        if (this.contentElement) this.render(this.data);
-    }
-
-    /**
-     * Kick off the draw and return. Deliberately not `async`: nothing awaits
-     * `render`, so a returned promise would be a rejection nobody catches.
-     */
-    render(data) {
-        this._draw(data);
-    }
-
-    /** One relayout when a resize settles; nothing while a draw is in flight. */
-    onResize() {
-        if (!this._plotEl || !this._drawn) return;
-        resizePlot(this._plotEl).catch(() => {});
-    }
-
-    menuItems() {
-        return [{ action: 'download-png', label: 'Download PNG', icon: 'image' }];
-    }
-
-    _onMenuAction(action) {
-        if (action === 'download-png') this._downloadPng();
-    }
-
-    // ── the three states: each one invalidates the figure ───────────────
-
-    showLoading() {
-        this._invalidate();
-        super.showLoading();
-    }
-
-    showEmpty(message) {
-        this._invalidate();
-        super.showEmpty(message);
-    }
-
-    showError(message) {
-        this._invalidate();
-        super.showError(message);
-    }
-
-    /** Release the figure BEFORE the element goes — `TileBase.dispose` nulls it. */
-    dispose() {
-        this._invalidate();
-        super.dispose();
-    }
-
-    /** Any draw in flight is now stale, and the figure on screen is released. */
-    _invalidate() {
-        this._drawSeq += 1;
-        this._releasePlot();
-    }
-
-    /** Hand the current figure back to Plotly and forget it. Idempotent, and
-     *  not awaited: a rejected purge (Plotly absent, already purged) must not
-     *  surface as an unhandled rejection. */
-    _releasePlot() {
-        const el = this._plotEl;
-        this._plotEl = null;
-        this._drawn = false;
-        if (el) purge(el).catch(() => {});
-    }
-
-    // ── the draw ────────────────────────────────────────────────────────
-
-    async _draw(data) {
-        this._drawSeq += 1;
-        const seq = this._drawSeq;
-        const content = this.contentElement;
-        if (!content) return;
-
-        // Every path below replaces the content, so the figure there now is
-        // about to be orphaned whichever way this goes.
-        this._releasePlot();
-
+    /** `null` (the empty state) when there is nothing to draw. */
+    figure(data) {
         const norm = normalizeChartData(data);
-        if (!norm) { this.showEmpty('No data to show.'); return; }
-
-        let plan;
-        try {
-            plan = this._plan(norm);
-        } catch (err) {
-            this._failed(err);
-            return;
-        }
-        if (!plan) return;                  // `_plan` has already said why
-
-        const host = document.createElement('div');
-        host.className = 'fd-chart-tile';
-        const parts = [host];
-        if (norm.note) {
-            const note = document.createElement('div');
-            note.className = 'fd-chart-tile__note';
-            note.setAttribute('role', 'note');
-            note.textContent = norm.note;
-            note.title = norm.note;
-            parts.push(note);
-        }
-        content.replaceChildren(...parts);
-        this._plotEl = host;
-        this._drawn = false;
-
-        try {
-            await createChart(host, plan.traces, plan.layout, {
-                scrollZoom: false,
-                displayModeBar: false,
-                responsive: true,
-            });
-        } catch (err) {
-            if (this._disposed || seq !== this._drawSeq) return;
-            this._failed(err);
-            return;
-        }
-        if (this._disposed || seq !== this._drawSeq) {
-            // A newer draw or a state change has already replaced the content;
-            // this figure is detached, and purging it releases its listeners.
-            purge(host).catch(() => {});
-            return;
-        }
-        this._drawn = true;
-        this._wireClick(host);
+        if (!norm) return null;
+        return { ...this._plan(norm), note: norm.note };
     }
 
-    /** Plotly's click, reduced to the point's own `customdata`. A pie's point
-     *  carries its slice index as `pointNumber` (older builds: `pointIndex`),
-     *  and its `customdata` is read off the trace by that index. */
-    _wireClick(host) {
-        if (typeof host.on !== 'function') return;
-        host.on('plotly_click', (ev) => {
-            const point = ev?.points?.[0];
-            if (!point || typeof this.onPointClick !== 'function') return;
-            const trace = point.data || {};
-            let customdata = point.customdata;
-            if (trace.type === 'pie' || customdata === undefined) {
-                const i = point.pointNumber ?? point.pointIndex;
-                if (Array.isArray(trace.customdata) && i != null) customdata = trace.customdata[i];
-            }
-            try {
-                this.onPointClick({ customdata, point, tile: this });
-            } catch (err) {
-                console.error('[ChartTile] onPointClick threw:', err);
-            }
-        });
+    /** Download PNG alone — see the header. */
+    menuItems() {
+        return this._figureMenuItems();
     }
 
-    /**
-     * Turn normalised data into `{traces, layout}`, or put the tile in the
-     * empty state and answer `null`.
-     */
+    /** The figure, and the note on its own line under it. */
+    _figureContent(plotEl, fig) {
+        plotEl.classList.add('fd-chart-tile');
+        if (!fig.note) return [plotEl];
+        const note = document.createElement('div');
+        note.className = 'fd-chart-tile__note';
+        note.setAttribute('role', 'note');
+        note.textContent = fig.note;
+        note.title = fig.note;
+        return [plotEl, note];
+    }
+
+    /** Turn normalised data into `{traces, layout}`. */
     _plan(norm) {
         const type = this.config.chart_type || 'line';
         const { series } = norm;
@@ -522,42 +370,6 @@ export class ChartTile extends TileBase {
         }
         return out;
     }
-
-    async _downloadPng() {
-        if (!this._plotEl || !this._drawn) return;
-        try {
-            const P = await ensurePlotly();
-            const uri = await P.toImage(this._plotEl, { format: 'png', scale: 2 });
-            const filename = `${slug(this.config.title || this.constructor.TITLE)}.png`;
-            // The native Save dialog when the host has one (a desktop window).
-            // `saveFile` answers null when there is no dialog behind it, which
-            // means "download it yourself", not a failed save.
-            const dialogs = this.host?.dialogs;
-            const result = dialogs
-                ? await dialogs.saveFile({ data: uri.split(',')[1], filename, kind: 'png' })
-                : null;
-            if (result) {
-                if (result.ok) this._notify('Download', `Chart saved to ${result.path}`, 'success');
-                else if (!result.cancelled) this._notify('Download failed', result.error || 'The image could not be saved', 'error');
-                return;
-            }
-            const a = document.createElement('a');
-            a.href = uri;
-            a.download = filename;
-            a.click();
-        } catch (err) {
-            this._notify('Download failed', `The image could not be made: ${err?.message || err}`, 'error');
-        }
-    }
-
-    _failed(err) {
-        if (this._disposed) return;
-        this.showError(`This chart could not be drawn: ${err?.message || err}`);
-        this.eventBus?.emit?.('tile:render-failed', {
-            tileId: this.id,
-            message: err?.message || String(err),
-        });
-    }
 }
 
 /**
@@ -599,10 +411,10 @@ export class KpiTile extends TileBase {
     getConfigSchema() {
         return {
             fields: [
-                { name: 'title', type: 'text', label: 'Tile title' },
-                { name: 'label', type: 'text', label: 'Label' },
-                { name: 'unit', type: 'text', label: 'Unit', help: 'Shown after the number, e.g. "pts".' },
-                { name: 'format', type: 'select', label: 'Format',
+                { key: 'title', type: 'text', label: 'Tile title' },
+                { key: 'label', type: 'text', label: 'Label' },
+                { key: 'unit', type: 'text', label: 'Unit', description: 'Shown after the number, e.g. "pts".' },
+                { key: 'format', type: 'select', label: 'Format',
                   options: [
                       { value: 'number', label: 'Number' },
                       { value: 'percent', label: 'Percentage (of a ratio)' },
@@ -610,15 +422,15 @@ export class KpiTile extends TileBase {
                       { value: 'duration', label: 'Duration (seconds)' },
                       { value: 'text', label: 'Text' },
                   ] },
-                { name: 'decimals', type: 'number', label: 'Decimals', min: 0, max: 6 },
-                { name: 'currency', type: 'text', label: 'Currency code',
-                  help: 'ISO 4217, e.g. EUR. Left empty, the number is shown without a symbol.' },
-                { name: 'prefix', type: 'text', label: 'Prefix' },
-                { name: 'suffix', type: 'text', label: 'Suffix' },
-                { name: 'delta_relative', type: 'checkbox', label: 'Show the change as a percentage' },
-                { name: 'invert_delta', type: 'checkbox', label: 'A fall is good',
-                  help: 'For a cost, a queue length or a latency: a smaller number is the better one.' },
-                { name: 'foot', type: 'text', label: 'Caption' },
+                { key: 'decimals', type: 'number', label: 'Decimals', min: 0, max: 6 },
+                { key: 'currency', type: 'text', label: 'Currency code',
+                  description: 'ISO 4217, e.g. EUR. Left empty, the number is shown without a symbol.' },
+                { key: 'prefix', type: 'text', label: 'Prefix' },
+                { key: 'suffix', type: 'text', label: 'Suffix' },
+                { key: 'delta_relative', type: 'checkbox', label: 'Show the change as a percentage' },
+                { key: 'invert_delta', type: 'checkbox', label: 'A fall is good',
+                  description: 'For a cost, a queue length or a latency: a smaller number is the better one.' },
+                { key: 'foot', type: 'text', label: 'Caption' },
             ],
         };
     }
@@ -833,8 +645,4 @@ function formatValue(value, { format = 'number', decimals = null, prefix = '', s
         }
     })();
     return `${prefix || ''}${body}${suffix || ''}`;
-}
-
-function slug(text) {
-    return String(text).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'chart';
 }

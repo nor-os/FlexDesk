@@ -6,7 +6,10 @@
  * the flow's own settings, *Insert a value*, and a status line.
  *
  * Everything here is the demo's own data in the demo's own words; the editor
- * names none of it. Nothing is saved: `onChange` only counts.
+ * names none of it. Nothing is saved: `onChange` and `onViewportChange` only
+ * count. The zoom buttons and the minimap are on; a double-click on a step's
+ * name renames it in place (`renameInPlace`), and an HTTP request's timeout is
+ * drawn on its node as well as in the panel (`inline`).
  * `window.__flowCanvas` is what `flow_canvas_probe.mjs` reads.
  */
 import {
@@ -16,7 +19,7 @@ import {
 const F = (name, direction, extra = {}) => ({ name, direction, port_type: 'FLOW', ...extra });
 const TYPES = [
     { type_id: 'start', label: 'Start', role: 'start', category: 'start', icon: 'play_arrow', ports: [F('out', 'output')] },
-    { type_id: 'http-request', label: 'HTTP request', category: 'integration', icon: 'public',
+    { type_id: 'http-request', label: 'HTTP request', category: 'integration', icon: 'public', inline: ['timeout_seconds'],
       description: 'Calls an address on the web and hands its answer to the steps after it.',
       ports: [F('in', 'input', { multiple: true }), F('out', 'output'), F('error', 'output', { label: 'Error' }),
               { name: 'response', direction: 'output', port_type: 'DATA', label: 'Response' }],
@@ -68,6 +71,7 @@ const refs = createReferenceSyntax({
 });
 
 let changes = 0;
+let views = 0;
 const host = document.getElementById('host');
 const editor = createCanvasEditor(host, {
     catalogue, references: { template: refs },
@@ -113,8 +117,15 @@ const editor = createCanvasEditor(host, {
     ],
     slots: { toolbarEnd: (box) => { const who = document.createElement('span'); who.className = 'demo__who'; who.textContent = 'Runs as its own identity'; box.appendChild(who); } },
     onChange: () => { changes += 1; editor.setStatus(`${changes} edit${changes === 1 ? '' : 's'} · nothing is saved: a demo`); },
+    zoomControls: true,
+    minimap: true,
+    renameInPlace: true,
+    onViewportChange: () => { views += 1; },
 });
 editor.load({ graph: GRAPH });
 editor.setStatus('nothing is saved: a demo');
 
-window.__flowCanvas = { editor, get changes() { return changes; }, ready: true };
+// The types and the catalogue factory too: the probe registers a type of its
+// own while the editor is open (`setCatalogue`).
+window.__flowCanvas = { editor, types: TYPES, categories: CATEGORIES, createStepCatalogue,
+                        get changes() { return changes; }, get views() { return views; }, ready: true };

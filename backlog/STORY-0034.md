@@ -2,10 +2,10 @@
 id: 34
 type: story
 title: "Panels can be offered or withheld per content kind, with the toggle showing why"
-status: in-progress
+status: review
 parent: 29
 phase:
-assignee: norman_agent
+assignee: norman
 reporter: norman
 due:
 points: 5
@@ -13,7 +13,7 @@ subsystem: shell
 labels: [shell, panels]
 links: []
 created: 2026-10-17
-updated: 2026-10-18T09:31Z
+updated: 2026-10-18T15:13Z
 ---
 
 ## Description
@@ -26,18 +26,20 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 
 ## Acceptance criteria
 
-- [ ] With the primary kind declaring bottom: {reason:'No console here'}, the bottom toggle is disabled with that tooltip
-- [ ] A shortcut an embedder binds to wm.togglePanel('bottom') and the palette chip do nothing while it is unavailable
-- [ ] A bottom panel open before switching to such a kind disappears and comes back when switching back
-- [ ] togglePanel('bottom') returns false while unavailable and changes no persisted state
-- [ ] With no declarations, every panel is available as today
-- [ ] A change of availability emits one notification embedders can subscribe to
+- [x] With the primary kind declaring bottom: {reason:'No console here'}, the bottom toggle is disabled with that tooltip
+- [x] A shortcut an embedder binds to wm.togglePanel('bottom') and the palette chip do nothing while it is unavailable
+- [x] A bottom panel open before switching to such a kind disappears and comes back when switching back
+- [x] togglePanel('bottom') returns false while unavailable and changes no persisted state
+- [x] With no declarations, every panel is available as today
+- [x] A change of availability emits one notification embedders can subscribe to
 
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
 - 2026-10-17 · norman_agent · status: refined -> in-progress
 - 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
+- 2026-10-18 · norman_agent · status: in-progress -> review
+- 2026-10-18 · norman_agent · assignee: norman_agent -> norman
 
 ## Comments
 
@@ -66,3 +68,19 @@ Branch: story-0034 @ fab9e70. Before closing: finish the full `node tests/run.mj
 ### 2026-10-18T09:31Z · norman_agent
 
 Criterion 2 amended by norman (Claude Code session, 2026-10-18), answering the question above: it means a shortcut the embedder binds to wm.togglePanel, not a new built-in key. FlexDesk adds no panel shortcut (its default keymap stays as it is). Old wording: "The bottom-panel shortcut and palette chip do nothing while it is unavailable".
+
+### 2026-10-18T15:13Z · norman_agent (status: in-progress -> review)
+
+Landed on main and handed back for review. This replaces the needs_owner note of 2026-10-17: the full suite is now green, and the criterion 2 question was answered by the amendment above.
+
+What was built (unchanged from the note above): KindDef.panels per kind ({left|right|bottom: true | false | {reason}}, a side not named is inherited from the top-nav kind, validated by createTaxonomy); wm.isPanelAvailable, getPanelAvailability, setPanelAvailability (null clears the runtime override) and onPanelAvailabilityChange; one announcement per change, also on the bus as 'wm:panels:availability' with {panels, changed}; withheld panels are left out of the layout while desktop.panels keeps the remembered open state; togglePanel returns false and changes nothing while withheld (true when it flips); the shell toggles and the palette chip get aria-disabled="true" with the reason as tooltip; PanelStateMachine, PANEL_STATES and PANEL_TRANSITIONS retired and removed from widgets.js; README section "Panels a page does not offer (0.17.0)". FlexDesk adds no built-in panel shortcut, as amended.
+
+Ticked: all six criteria. Each is driven against a real shell in tests/panel_availability.test.mjs (criterion 2 by an embedder-bound shortcut calling wm.togglePanel, plus the palette chip).
+
+Landing: rebased story-0034 onto origin/main (which had gained STORY-0036 and BUG-0027 code since the last merge). The rebase replayed the one feature commit and conflicted in README.md, src/tiling/kind_taxonomy.js, src/tiling/wm.js and widgets.js; I resolved them to the already-reviewed merge result of 9e8c46c plus main's newer changes (README keeps both sections; widgets.js keeps wizard.js and drops panel_state_machine.js). The rebased tree differs from 9e8c46c by exactly main's delta. Landed tip on main: 4a52761, fast-forward from 5dab00a. origin/story-0034 still holds the pre-rebase history (9e8c46c); it was not pushed again.
+
+Tests: full `node tests/run.mjs` (Linux node) on the rebased tip ran to the end: "FLEXDESK TESTS: GREEN — 141 suite(s)", exit 0, no ': SKIPPED' lines. `node build.mjs` exited 0; dist/ was restored, not committed.
+
+App check: none in the EcoSim app. EcoSim does not use panel availability yet (that is EcoSim STORY-0040/0041), so there is nothing there to observe; the behaviour was checked through the real FlexDesk shell in the test above.
+
+Heads-up: STORY-0035 also edits _canonicalize in src/tiling/wm.js, so it will probably conflict when it lands.

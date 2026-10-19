@@ -13,7 +13,7 @@ subsystem: charts
 labels: [charts]
 links: [blocked-by 62]
 created: 2026-10-17
-updated: 2026-10-18T10:40Z
+updated: 2026-10-19T20:45Z
 ---
 
 ## Description
@@ -33,7 +33,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - [ ] dispose() purges every figure
 - [ ] An overlay is drawn for every series that has `overlay` and data in `actuals`; `overlay.etlKey` is no longer required
 - [ ] On 'area-stacked' subplots, overlays are stacked with groupnorm 'fraction'
-- [ ] PlotPopoutWindow's chart cells are `div.twm-plot-grid__cell` inside `.twm-plot-grid` (no `div.plot-tile-chart`), and the 0.17.0 changelog names the class change
+- [ ] PlotPopoutWindow's chart cells are `div.twm-plot-grid__cell` inside `.twm-plot-grid` (no `div.plot-tile-chart`), and the README's 0.17.0 section names the class change
 - [ ] An empty figure is drawn only when all of a subplot's own series are hidden
 - [ ] With null results, every cell shows the empty message
 
@@ -94,3 +94,37 @@ Open questions for norman:
 - **The changelog.** Should I create CHANGELOG.md with an "0.17.0 (unreleased)" section listing the class change and drawing changes (a) to (e), or does the README's 0.17.0 section count as the changelog?
 
 Branch: story-0060 @ 6dc3959 (local only). Nothing landed. Waiting on norman.
+
+### 2026-10-18T12:40Z · norman_agent
+
+Status: needs_owner. The code is finished, pushed and green. One criterion is still open: there is no changelog to put the class change in, so norman has to decide where it goes.
+
+**The branch, without a force-push.** I reset the local story-0060 to the pushed origin/story-0060 (46e6633) and merged origin/main into it. That merge is d8c66ba. It had conflicts in plot_popout_window.js and README.md; I resolved them the same way the earlier rebase did, then added main's 37 README lines with a three-way merge. I then cherry-picked the reviewer fix 6dc3959 as 79129f8. The resulting tree fc3e240 is exactly the tree from `git merge-tree origin/main 6dc3959`, so nothing was lost. The push was a plain fast-forward (46e6633..efb07c4). `git merge-tree --write-tree origin/main HEAD` merges cleanly. The old rebased commit 6dc3959 is no longer on any branch (only in the worktree's reflog).
+
+**New fix (efb07c4).** The criterion "an empty figure only when ALL of a subplot's own series are hidden" was not quite met. renderPlotGrid also drew an empty figure when one series was hidden and another of the same subplot had no data, and it counted a hidden overlay as one of the subplot's own series. It now draws an empty figure only when every series of the subplot is hidden. Three new checks in §2 of tests/plot_grid.test.mjs cover this; with the old condition put back, one of them fails. README.md now describes the corrected rule and the null-results change.
+
+**Question for norman:** the criterion asks for "the 0.17.0 changelog". FlexDesk has no CHANGELOG file on main or on the branch. Its release notes are the "(0.17.0)" sections in README.md, and the release stories (STORY-0069) only say "the changelog". The README section "A plot config in any container: renderPlotGrid (0.17.0)" already names the change from div.plot-tile-chart to div.twm-plot-grid__cell, and changes (a) to (e). Does that README section count as the 0.17.0 changelog? Or should I create CHANGELOG.md with a "0.17.0 (unreleased)" section listing the class change and (a) to (e)?
+
+No record files were edited during the work. dist/ was rebuilt for the check and then restored, not committed.
+
+Branch: story-0060 @ efb07c4 (origin/story-0060, fast-forwards from 46e6633, can land on main without a force-push). Nothing landed. Waiting on norman.
+
+### 2026-10-19T13:44Z · norman_agent
+
+Status: needs_owner. No new commits this run; the only open item is the 2026-10-18T12:40Z question, which still has no answer.
+
+The code is finished, pushed and green, but one criterion asks for "the 0.17.0 changelog" and FlexDesk has no CHANGELOG file on main or on any branch. Its release notes are the "(0.17.0)" sections in README.md. On story-0060, the README section "A plot config in any container: renderPlotGrid (0.17.0)" already names the change from div.plot-tile-chart to div.twm-plot-grid__cell and the other drawing changes (a) to (e).
+
+**Question for norman, which do you want?**
+1. That README section counts as the 0.17.0 changelog, so I tick the criterion as it stands.
+2. I create CHANGELOG.md on the branch with a "0.17.0 (unreleased)" section listing the class change and (a) to (e).
+
+Branch state: story-0060 in /mnt/c/Users/Norman/repos/FlexDesk-story-0060 is at efb07c4 = origin/story-0060, worktree clean. origin/main is 40 commits ahead, but `git merge-tree --write-tree origin/main HEAD` still merges cleanly (tree 5a28a5a), so main was not merged in.
+
+Checks this run: `node tests/run.mjs` reported "FLEXDESK TESTS: GREEN — 139 suite(s)", exit 0, no SKIPPED lines; tests/plot_grid.test.mjs passes on its own; `node build.mjs` succeeded and dist/ was restored afterwards.
+
+Branch: story-0060 @ efb07c4 (origin/story-0060; merges cleanly into origin/main 0766642). Nothing landed. Waiting on norman.
+
+### 2026-10-19T20:45Z · norman_agent
+
+Criterion amended by norman (Claude Code session, 2026-10-19), answering the question above: each story's README section headed "(0.17.0)" is its changelog entry; STORY-0069 compiles them into CHANGELOG.md at release. Old wording: "and the 0.17.0 changelog names the class change".

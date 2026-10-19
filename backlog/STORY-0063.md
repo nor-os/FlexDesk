@@ -2,10 +2,10 @@
 id: 63
 type: story
 title: "A public figure tile: subclasses return {traces, layout} and the base runs the draw lifecycle"
-status: in-progress
+status: review
 parent: 21
 phase:
-assignee: norman_agent
+assignee: norman
 reporter: norman
 due:
 points: 5
@@ -13,7 +13,7 @@ subsystem: tiles
 labels: [tiles, charts]
 links: []
 created: 2026-10-17
-updated: 2026-10-17T22:50Z
+updated: 2026-10-19T14:55Z
 ---
 
 ## Description
@@ -26,18 +26,20 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 
 ## Acceptance criteria
 
-- [ ] A subclass returning null shows the empty state
-- [ ] A subclass whose figure() throws shows the error state and emits tile:render-failed
-- [ ] With Plotly loaded lazily via setPlotlySource the first draw succeeds
-- [ ] A draw finishing after a newer draw is discarded
-- [ ] Expand opens openRawTracesWindow with the last figure
-- [ ] ChartTile's existing tests pass on the new base
+- [x] A subclass returning null shows the empty state
+- [x] A subclass whose figure() throws shows the error state and emits tile:render-failed
+- [x] With Plotly loaded lazily via setPlotlySource the first draw succeeds
+- [x] A draw finishing after a newer draw is discarded
+- [x] Expand opens openRawTracesWindow with the last figure
+- [x] ChartTile's existing tests pass on the new base
 
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
 - 2026-10-17 · norman_agent · status: refined -> in-progress
 - 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
+- 2026-10-19 · norman_agent · status: in-progress -> review
+- 2026-10-19 · norman_agent · assignee: norman_agent -> norman
 
 ## Comments
 
@@ -77,3 +79,28 @@ To finish, in `/mnt/c/Users/Norman/repos/FlexDesk-story-0063`:
 4. Run `git push -u origin story-0063`.
 
 Nothing landed on the default branch. Waiting on norman.
+
+### 2026-10-19T14:55Z · norman_agent
+
+Landed on main at 321b45d ("STORY-0063: FigureTile base; ChartTile rebuilt on it"), a fast-forward of main 8751146. Handing back to norman for review.
+
+What was built:
+
+- **`FigureTile`** (`src/tiles/figure_tile.js`). A subclass overrides only `figure(data)`, which returns `{traces, layout?, config?, frames?}` or null. The base waits for Plotly to load, draws through `createChart`, discards stale draws, and purges the figure on loading, empty, error and dispose. It redraws to size once a resize settles. It also adds Download PNG through `host.dialogs.saveFile`, makes Expand open `openRawTracesWindow` with the last figure, and supports an `onPointClick` callback. Its `menuItems()` returns TileBase's items plus Download PNG.
+- **`ChartTile`** now extends `FigureTile` and keeps its Download-PNG-only menu.
+- `tiles.js` exports the new file, the CSS plot rules in `css/flexdesk.css` now target `.fd-figure-tile`, `README.md` has a "Figure tiles (0.17.0)" section plus an updated tiles row in the package table, and there is a new suite, `tests/figure_tile.test.mjs`.
+
+Ticked: all 6 criteria. Each is checked by its own section of `tests/figure_tile.test.mjs`: null is the empty state, a throwing figure() gives the error state and tile:render-failed, the first draw succeeds with Plotly loaded lazily, a stale draw is discarded, and Expand opens openRawTracesWindow with the last figure. `tests/chart_tiles.test.mjs` passes unchanged on the new base.
+
+History: the story-0063 branch was rebased onto origin/main and the single commit was pushed to main. The README conflict was resolved by keeping main's newer text and adding only this story's two changes. **origin/story-0063 still holds the pre-rebase history** (6d2bca2, merges 320a7af and a344dc5). It was not force-pushed, and the branch is kept.
+
+Tests: `node tests/run.mjs` at 321b45d ran to the end: "FLEXDESK TESTS: GREEN — 152 suite(s)", exit 0, no `: SKIPPED` lines and no `FAIL ` lines. `node build.mjs` succeeded; I restored dist/ afterwards and did not commit it.
+
+App check: none. This is library code, and no application uses FigureTile yet (EcoSim STORY-0072 / STORY-0073, `../EcoSim/backlog/`). It was verified in jsdom only.
+
+Notes for norman:
+
+- **Built before STORY-0022's review closed.** The record says this lands after that review, but it was built on the ChartTile released in 0.13.0.
+- **Visible change to ChartTile:** its header now has an Expand button, because FigureTile is expandable.
+- **No breaking API change.** Nothing public was renamed or removed.
+- **No application vocabulary.** There are no EcoSim or pywebview names in the new code.

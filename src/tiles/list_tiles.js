@@ -130,11 +130,11 @@ class RowsTile extends TileBase {
     getConfigSchema() {
         return {
             fields: [
-                { name: 'title', type: 'text', label: 'Tile title' },
-                { name: 'empty_text', type: 'text', label: 'When there is nothing',
-                  help: 'What the tile says when the list is empty, e.g. "Nothing is late."' },
-                { name: 'max_rows', type: 'number', label: 'Rows at most', min: 0,
-                  help: '0 shows them all; the tile scrolls.' },
+                { key: 'title', type: 'text', label: 'Tile title' },
+                { key: 'empty_text', type: 'text', label: 'When there is nothing',
+                  description: 'What the tile says when the list is empty, e.g. "Nothing is late."' },
+                { key: 'max_rows', type: 'number', label: 'Rows at most', min: 0,
+                  description: '0 shows them all; the tile scrolls.' },
             ],
         };
     }
@@ -367,8 +367,8 @@ export class PeopleTile extends RowsTile {
 
     getConfigSchema() {
         const { fields } = super.getConfigSchema();
-        return { fields: [...fields, { name: 'count_label', type: 'text', label: 'Count reads',
-            help: 'After each person\'s number, e.g. "open" for "3 open".' }] };
+        return { fields: [...fields, { key: 'count_label', type: 'text', label: 'Count reads',
+            description: 'After each person\'s number, e.g. "open" for "3 open".' }] };
     }
 
     _renderItem(p) {

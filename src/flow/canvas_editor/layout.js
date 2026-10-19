@@ -6,10 +6,13 @@
  *                    ARITHMETIC over these, never by measuring, so the
  *                    stylesheet must agree with them — `flow_canvas_css` reads
  *                    the sheet and holds it to them.
- *   portAnchor       where a port's line starts or ends
- *   nodeBottom       where a node's drawn box ends
+ *   nodeWidth        a node's width: its type's own `size.w`, else the box's
+ *   portAnchor       where a port's line starts or ends (a folded node's: its header)
+ *   nodeBottom       where a node's drawn box ends (a folded node's: its header)
  *   isReturnEdge     is this line a loop's body going back round?
  *   layoutGraph      ARRANGE: every step's place, left to right in run order
+ *   pathPoints       a drawn line's path, as the points along it
+ *   pathMidpoint     the point halfway along a drawn line, where its label sits
  */
 
 import { arrange } from '../../canvas/edge_router.js';
@@ -22,26 +25,42 @@ const FOOT = 12;
 const inputsOf = (catalogue, node) => (catalogue?.inputs ? catalogue.inputs(node?.type) : []);
 const outputsOf = (catalogue, node) => (catalogue?.outputs ? catalogue.outputs(node?.type) : []);
 const roleOf = (catalogue, node) => (catalogue?.role ? catalogue.role(node?.type) : 'step');
+const sizeOf = (catalogue, node) => (catalogue?.size ? catalogue.size(node?.type) : null);
+/** Is `node` drawn folded to its header? The box's own `folded(node)` decides
+ *  when it has one (the editor's, which folds only with `collapsible`); else
+ *  the node's `collapsed: true`. */
+const foldedOf = (node, box) => (typeof box?.folded === 'function' ? Boolean(box.folded(node))
+    : node?.collapsed === true);
+
+/** `node`'s width: its type's own `size.w` when it has one, else the box's. */
+export function nodeWidth(catalogue, node, box = CANVAS_NODE) {
+    return sizeOf(catalogue, node)?.w || box.width;
+}
 
 /**
  * The point a line meets `node`'s port `portName`: an input on the node's
  * left edge, an output on its right, one row of ports down from the header
  * per port before it — in the order the type DECLARES its ports, the order
  * they are drawn in. A port the type does not have anchors at the first row.
+ * A node folded to its header has its ports folded away: every line meets
+ * the header's middle, on its side.
  */
 export function portAnchor(catalogue, node, portName, direction, box = CANVAS_NODE) {
+    const x = node.position.x + (direction === 'input' ? 0 : nodeWidth(catalogue, node, box));
+    const side = direction === 'input' ? 'left' : 'right';
+    if (foldedOf(node, box)) return { x, y: node.position.y + box.header / 2, side };
     const list = direction === 'input' ? inputsOf(catalogue, node) : outputsOf(catalogue, node);
     const i = Math.max(0, list.findIndex((p) => p.name === portName));
-    return {
-        x: node.position.x + (direction === 'input' ? 0 : box.width),
-        y: node.position.y + box.header + box.row * i + box.row / 2,
-        side: direction === 'input' ? 'left' : 'right',
-    };
+    return { x, y: node.position.y + box.header + box.row * i + box.row / 2, side };
 }
 
 /** Where `node`'s drawn box ends — computed, because jsdom and a node not yet
- *  laid out both answer 0 for `offsetHeight`. */
+ *  laid out both answer 0 for `offsetHeight`. A type with its own `size.h` is
+ *  drawn exactly that tall; a node folded to its header, as tall as that. */
 export function nodeBottom(catalogue, node, box = CANVAS_NODE) {
+    if (foldedOf(node, box)) return node.position.y + box.header;
+    const h = sizeOf(catalogue, node)?.h;
+    if (h) return node.position.y + h;
     const rows = Math.max(inputsOf(catalogue, node).length, outputsOf(catalogue, node).length, 1);
     return node.position.y + box.header + box.row * rows + FOOT;
 }
@@ -74,13 +93,17 @@ export function isReturnEdge(connection, target, catalogue, loopEntry = 'in') {
  *    start step(s) that follows each step's outputs in the order its type
  *    declares them — so a condition's first arm sits above its second
  *    whatever the two steps are called.
+ *  - **each node's own box.** A type's `size` (or `heightOf(node)`, a height
+ *    the editor measured) is the node's height, a folded node's (`folded`, as
+ *    for `portAnchor`) is its header's, and the widest node sets the column
+ *    spacing; with neither, every node is the box's.
  *  - **a loop's return lines left out.** The line from a loop's body back into
  *    the loop is the loop, not a dependency; followed, it would pull the body
  *    left of the loop that runs it. Any other cycle is broken by `arrange`.
  */
 export function layoutGraph(graph, catalogue, { width = CANVAS_NODE.width, header = CANVAS_NODE.header,
                                                 row = CANVAS_NODE.row, gap = 96, rowGap = 40,
-                                                loopEntry = 'in' } = {}) {
+                                                loopEntry = 'in', heightOf = null, folded = undefined } = {}) {
     const nodes = graph?.nodes || [];
     const connections = graph?.connections || [];
     const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -109,10 +132,94 @@ export function layoutGraph(graph, catalogue, { width = CANVAS_NODE.width, heade
     for (const n of nodes) if (!order.has(n.id)) order.set(n.id, order.size);
 
     const rows = (n) => Math.max(inputsOf(catalogue, n).length, outputsOf(catalogue, n).length);
+    const box = { width, header, row, ...(folded !== undefined ? { folded } : {}) };
+    const height = (n) => {
+        if (foldedOf(n, box)) return header + 24;
+        const own = sizeOf(catalogue, n)?.h || (typeof heightOf === 'function' ? heightOf(n) : null);
+        return own ? own + 2 * FOOT : header + row * rows(n) + 24;
+    };
+    const widest = Math.max(width, ...nodes.map((n) => nodeWidth(catalogue, n, box)));
     return arrange(
-        nodes.map((n) => ({ id: n.id, label: String(order.get(n.id)).padStart(6, '0'),
-                            height: header + row * rows(n) + 24 })),
+        nodes.map((n) => ({ id: n.id, label: String(order.get(n.id)).padStart(6, '0'), height: height(n) })),
         connections.filter((c) => !isReturn(c)).map((c) => ({ from: c.target, to: c.source })),
-        { columnGap: width + gap, rowGap },
+        { columnGap: widest + gap, rowGap },
     );
+}
+
+/** Points per curve segment of a sampled path: enough that a label's place
+ *  and a crossing test agree with what the browser draws to within a pixel. */
+const CURVE_STEPS = 24;
+
+/**
+ * The points along an SVG path `d`, as the kernel writes them: absolute `M`,
+ * `L`, `C`, `S` and `Z`, numbers separated by spaces or commas. Each curve is
+ * sampled at `steps` points; a straight run is its two ends. Computed rather
+ * than asked of the browser (`getPointAtLength`), because jsdom has no
+ * geometry and a label must sit in the same place in both.
+ */
+export function pathPoints(d, { steps = CURVE_STEPS } = {}) {
+    const tokens = String(d || '').match(/-?\d*\.?\d+(?:[eE][-+]?\d+)?|[A-Za-z]/g) || [];
+    const points = [];
+    let at = null;
+    let lastControl = null;
+    let opened = null;
+    let i = 0;
+    const num = () => Number(tokens[i++]);
+    const cubic = (c1, c2, end) => {
+        for (let k = 1; k <= steps; k += 1) {
+            const t = k / steps;
+            const u = 1 - t;
+            points.push({
+                x: u * u * u * at.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * end.x,
+                y: u * u * u * at.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * end.y,
+            });
+        }
+        lastControl = c2;
+        at = end;
+    };
+    while (i < tokens.length) {
+        const command = tokens[i++];
+        if (command === 'M') {
+            at = { x: num(), y: num() };
+            opened = at;
+            points.push(at);
+            lastControl = null;
+        } else if (command === 'Z') {
+            at = opened;
+            points.push(at);
+            lastControl = null;
+        } else if (command === 'L') {
+            at = { x: num(), y: num() };
+            points.push(at);
+            lastControl = null;
+        } else if (command === 'C') {
+            const c1 = { x: num(), y: num() };
+            const c2 = { x: num(), y: num() };
+            cubic(c1, c2, { x: num(), y: num() });
+        } else if (command === 'S') {
+            const c1 = lastControl ? { x: 2 * at.x - lastControl.x, y: 2 * at.y - lastControl.y } : at;
+            const c2 = { x: num(), y: num() };
+            cubic(c1, c2, { x: num(), y: num() });
+        } else {
+            throw new Error(`pathPoints reads M, L, C, S and Z only, not "${command}".`);
+        }
+    }
+    return points;
+}
+
+/** The point halfway along `d`, by length. */
+export function pathMidpoint(d) {
+    const points = pathPoints(d);
+    if (points.length < 2) return points[0] ? { ...points[0] } : { x: 0, y: 0 };
+    const lengths = [0];
+    for (let k = 1; k < points.length; k += 1) {
+        lengths.push(lengths[k - 1] + Math.hypot(points[k].x - points[k - 1].x, points[k].y - points[k - 1].y));
+    }
+    const half = lengths[lengths.length - 1] / 2;
+    let k = 1;
+    while (k < lengths.length - 1 && lengths[k] < half) k += 1;
+    const span = lengths[k] - lengths[k - 1];
+    const t = span > 0 ? (half - lengths[k - 1]) / span : 0;
+    return { x: points[k - 1].x + (points[k].x - points[k - 1].x) * t,
+             y: points[k - 1].y + (points[k].y - points[k - 1].y) * t };
 }

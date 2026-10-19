@@ -9987,6 +9987,223 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 }
 /* ══ end TOGGLE ══ */
 
+/* ══ SETTINGS VIEW (STORY-0050) ══════════════════════════════════════
+ * SettingsView: a sidebar of categories with a filter box, beside the
+ * chosen category's settings in groups. Tokens only.
+ */
+.twm-settings {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    background: var(--surface-1);
+    color: var(--text-body);
+    font-size: var(--font-size-sm);
+}
+.twm-settings__sidebar {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 220px;
+    min-width: 0;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    border-right: 1px solid var(--border-subtle);
+    background: var(--surface-0);
+}
+.twm-settings__sidebar-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    color: var(--text-bright);
+    font-weight: var(--font-weight-semibold);
+}
+.twm-settings__search {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: 0 var(--space-sm);
+    min-height: var(--ea-row-h);
+    background: var(--ea-input-bg);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+}
+.twm-settings__search:focus-within { border-color: var(--accent-bright); }
+.twm-settings__search-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-body);
+    font: inherit;
+}
+.twm-settings__nav {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    gap: var(--space-xxs);
+}
+.twm-settings__cat {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    min-height: var(--ea-row-h);
+    padding: 0 var(--space-sm);
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.twm-settings__cat:hover { background: var(--state-hover); }
+.twm-settings__cat:focus-visible { outline: 1px solid var(--accent-bright); }
+.twm-settings__cat--active {
+    background: var(--state-selected);
+    color: var(--text-bright);
+}
+.twm-settings__cat .material-symbols-outlined,
+.twm-settings__reset-all .material-symbols-outlined,
+.twm-settings__reset-category .material-symbols-outlined {
+    font-size: var(--font-size-lg);
+}
+.twm-settings__cat-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.twm-settings__content {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-y: auto;
+    padding: var(--space-lg) var(--space-xl);
+}
+.twm-settings__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-lg);
+    margin-bottom: var(--space-lg);
+}
+.twm-settings__header-info {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.twm-settings__title {
+    margin: 0;
+    color: var(--text-bright);
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-semibold);
+}
+.twm-settings__description {
+    margin: var(--space-xs) 0 0;
+    color: var(--text-muted);
+}
+.twm-settings__group { margin-bottom: var(--space-xl); }
+.twm-settings__group-title {
+    margin: 0 0 var(--space-sm);
+    padding-bottom: var(--space-xs);
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.twm-settings__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-sm) var(--space-sm);
+    border-left: 2px solid transparent;
+    border-radius: var(--radius-sm);
+}
+.twm-settings__row:hover { background: var(--state-hover); }
+.twm-settings__row--modified { border-left-color: var(--accent-bright); }
+.twm-settings__info {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.twm-settings__label-line {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+.twm-settings__label { color: var(--text-primary); }
+.twm-settings__marker {
+    padding: 0 var(--space-xs);
+    border-radius: var(--radius-pill);
+    background: var(--surface-3);
+    color: var(--accent-bright);
+    font-size: var(--font-size-xs);
+}
+.twm-settings__marker[hidden],
+.twm-settings__reset[hidden] { display: none; }
+.twm-settings__row .twm-settings__description {
+    margin-top: var(--space-xxs);
+    font-size: var(--font-size-xs);
+}
+.twm-settings__path {
+    display: block;
+    margin-top: var(--space-xxs);
+    color: var(--text-dim);
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-xs);
+}
+.twm-settings__control {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    max-width: 50%;
+}
+.twm-settings__select,
+.twm-settings__number,
+.twm-settings__text {
+    min-height: var(--ea-row-h);
+    padding: 0 var(--space-sm);
+    background: var(--ea-input-bg);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    color: var(--text-body);
+    font: inherit;
+}
+.twm-settings__select:focus,
+.twm-settings__number:focus,
+.twm-settings__text:focus {
+    outline: none;
+    border-color: var(--accent-bright);
+}
+.twm-settings__number { width: 110px; }
+.twm-settings__text { width: 240px; }
+.twm-settings__readonly {
+    color: var(--text-muted);
+    font-family: var(--font-family-mono);
+}
+.twm-settings__reset {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--ea-row-h);
+    height: var(--ea-row-h);
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    cursor: pointer;
+}
+.twm-settings__reset:hover { background: var(--state-hover); color: var(--text-bright); }
+.twm-settings__reset .material-symbols-outlined { font-size: var(--font-size-lg); }
+.twm-settings__empty {
+    padding: var(--space-xl) 0;
+    color: var(--text-muted);
+}
+/* ══ end SETTINGS VIEW ══ */
+
 /* ══ DOCUMENT OUTLINE (0.17.0) ═══════════════════════════════════════
  * `createDocumentOutline` (src/ui/components/document_outline.js). No height
  * of its own: the host that holds it scrolls, if anything does. */
@@ -11469,6 +11686,21 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     color: var(--twm-flow-blue-fg);
     border-bottom: 1px solid var(--twm-flow-blue-line);
 }
+/* A host policy's offer: its sentence, Accept and Not now, on one line. */
+.twm-flow-graph__offer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+    padding: 4px 10px;
+    font-size: var(--font-size-xs);
+    background: var(--twm-flow-blue-bg);
+    color: var(--twm-flow-blue-fg);
+    border-bottom: 1px solid var(--twm-flow-blue-line);
+}
+.twm-flow-graph__offer-text { margin: 0; flex: 1 1 200px; min-width: 0; line-height: 1.4; }
+.twm-flow-graph__offer-accept,
+.twm-flow-graph__offer-dismiss { flex: 0 0 auto; }
 
 /* Three columns; the CANVAS is the one that flexes — `flex: 1 1 0px` AND
  * `min-width: 0`, or an open settings panel squeezes the palette instead. */
@@ -11540,6 +11772,8 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 }
 .twm-flow-graph__canvas { position: relative; flex: 1 1 0px; min-width: 0; min-height: 0; }
 .twm-flow-graph__canvas--drop { outline: 2px dashed var(--twm-flow-focus); outline-offset: -2px; }
+/* Where a dragged line was let go: what the step picker is anchored to. */
+.twm-flow-graph__drop-anchor { position: absolute; width: 1px; height: 1px; pointer-events: none; }
 .twm-flow-graph__aside {
     flex: 0 0 300px;
     min-width: 0;
@@ -11682,6 +11916,27 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 .twm-flow-graph__node--sized > .twm-flow-graph__node-head,
 .twm-flow-graph__node--sized > .twm-flow-graph__node-row { flex: none; }
 .twm-flow-graph__node--sized > .twm-flow-graph__node-body { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+/* EDITED ON THE NODE (`renameInPlace`, a type's `inline`). The title's box
+ * takes the title's place in the header, as tall as the name was; the inline
+ * settings sit under the ports, above a type's own body, and add height there
+ * only, so the lines' arithmetic stands. */
+.twm-flow-graph__node-title-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    box-sizing: border-box;
+    height: 22px;
+    padding: 0 4px;
+    background: var(--surface-1);
+    border: 1px solid var(--twm-flow-focus);
+    border-radius: 2px;
+    color: var(--text-body);
+    font: inherit;
+    cursor: text;
+    user-select: text;
+}
+.twm-flow-graph__node-title-input[aria-invalid="true"] { border-color: var(--twm-flow-error); }
+.twm-flow-graph__node-inline { box-sizing: border-box; display: grid; gap: 4px; padding: 4px 8px 6px; min-width: 0; cursor: default; }
+.twm-flow-graph__node--sized > .twm-flow-graph__node-inline { flex: none; }
 .twm-flow-graph__node[data-accent]::before {
     content: "";
     position: absolute;
@@ -11766,6 +12021,52 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     font: inherit;
     cursor: text;
 }
+/* LIVE VALUES (`setNodeValues`): a value on the header, before the step's id
+ * tag, and one beside a port. Neither element exists until there is a value. */
+.twm-flow-graph__node-badge {
+    flex: none;
+    max-width: 40%;
+    padding: 1px 5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-body);
+    background: rgba(127, 127, 127, 0.18);
+    border-radius: 2px;
+}
+.twm-flow-graph__node-badge[data-tone="violet"] { background: var(--twm-flow-violet-bg); color: var(--twm-flow-violet-fg); }
+.twm-flow-graph__node-badge[data-tone="teal"] { background: var(--twm-flow-teal-bg); color: var(--twm-flow-teal-fg); }
+.twm-flow-graph__node-badge[data-tone="amber"] { background: var(--twm-flow-amber-bg); color: var(--twm-flow-amber-fg); }
+.twm-flow-graph__node-badge[data-tone="grey"] { background: var(--twm-flow-grey-bg); color: var(--twm-flow-grey-fg); }
+.twm-flow-graph__node-badge[data-tone="blue"] { background: var(--twm-flow-blue-bg); color: var(--twm-flow-blue-fg); }
+.twm-flow-graph__node-badge[data-tone="indigo"] { background: var(--twm-flow-indigo-bg); color: var(--twm-flow-indigo-fg); }
+.twm-flow-graph__port-value { color: var(--twm-flow-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* FOLDED TO ITS HEADER (`collapsible`): everything under the header is hidden,
+ * and the lines meet the header's middle. */
+.twm-flow-graph__node-fold {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    background: none;
+    border: 0;
+    border-radius: 3px;
+    color: var(--twm-flow-muted);
+    cursor: pointer;
+}
+.twm-flow-graph__node-fold .material-symbols-outlined { font-size: 16px; }
+.twm-flow-graph__node-fold:hover:not(:disabled) { color: var(--text-body); background: rgba(127, 127, 127, 0.18); }
+.twm-flow-graph__node-fold:focus-visible { outline: 1px solid var(--twm-flow-focus); }
+.twm-flow-graph__node-fold:disabled { cursor: default; opacity: 0.5; }
+.twm-flow-graph__node--collapsed > :not(.twm-flow-graph__node-head) { display: none; }
+.twm-flow-graph__node--collapsed > .twm-flow-graph__node-head { border-bottom: 0; border-radius: 3px; }
 
 /* ── a port ─────────────────────────────────────────────────────────── */
 .twm-flow-graph__port {
@@ -11807,6 +12108,15 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 .twm-flow-graph__port--taken .twm-flow-graph__port-dot { border-color: var(--twm-flow-ok); background: var(--twm-flow-ok); }
 .twm-flow-graph__port--taken .twm-flow-graph__port-count { color: var(--twm-flow-ok); }
 .twm-flow-graph__port--untaken { opacity: 0.5; }
+/* Under `connections` only the inputs the line may end on are lit. */
+.twm-flow-graph--linking.twm-flow-graph--connecting .twm-flow-graph__port--in:not(.twm-flow-graph__port--can-drop) .twm-flow-graph__port-dot {
+    background: transparent;
+    box-shadow: none;
+}
+.twm-flow-graph__port--can-drop .twm-flow-graph__port-dot {
+    background: var(--twm-flow-focus);
+    box-shadow: 0 0 0 3px rgba(0, 122, 204, 0.35);
+}
 
 /* ── a line ─────────────────────────────────────────────────────────── */
 /* A consumer's `edgeStyle` sets a line's tone and width as the two custom
@@ -11820,6 +12130,8 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 .twm-flow-graph__edge--back { stroke-dasharray: 6 4; }
 .twm-flow-graph__edge--taken { stroke: var(--twm-flow-ok); }
 .twm-flow-graph__edge--untaken { opacity: 0.35; }
+/* The line a drag is drawing: dashed, and never what the release lands on. */
+.twm-flow-graph__edge--draft { stroke: var(--twm-flow-focus); stroke-dasharray: 4 3; pointer-events: none; }
 /* `edgeStyle`'s dash, and the lines of a hovered step or line (`hoverHighlight`). */
 .twm-flow-graph__edge--dashed { stroke-dasharray: 6 4; }
 .twm-flow-graph__edge--highlighted { stroke: var(--twm-flow-focus); stroke-width: calc(var(--twm-canvas-edge-width, 1.6) + 0.8); }

@@ -13,7 +13,7 @@ subsystem: charts
 labels: [charts]
 links: [blocked-by 62]
 created: 2026-10-17
-updated: 2026-10-19T13:44Z
+updated: 2026-10-19T20:45Z
 ---
 
 ## Description
@@ -33,7 +33,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - [ ] dispose() purges every figure
 - [ ] An overlay is drawn for every series that has `overlay` and data in `actuals`; `overlay.etlKey` is no longer required
 - [ ] On 'area-stacked' subplots, overlays are stacked with groupnorm 'fraction'
-- [ ] PlotPopoutWindow's chart cells are `div.twm-plot-grid__cell` inside `.twm-plot-grid` (no `div.plot-tile-chart`), and the 0.17.0 changelog names the class change
+- [ ] PlotPopoutWindow's chart cells are `div.twm-plot-grid__cell` inside `.twm-plot-grid` (no `div.plot-tile-chart`), and the README's 0.17.0 section names the class change
 - [ ] An empty figure is drawn only when all of a subplot's own series are hidden
 - [ ] With null results, every cell shows the empty message
 
@@ -124,3 +124,7 @@ Branch state: story-0060 in /mnt/c/Users/Norman/repos/FlexDesk-story-0060 is at 
 Checks this run: `node tests/run.mjs` reported "FLEXDESK TESTS: GREEN — 139 suite(s)", exit 0, no SKIPPED lines; tests/plot_grid.test.mjs passes on its own; `node build.mjs` succeeded and dist/ was restored afterwards.
 
 Branch: story-0060 @ efb07c4 (origin/story-0060; merges cleanly into origin/main 0766642). Nothing landed. Waiting on norman.
+
+### 2026-10-19T20:45Z · norman_agent
+
+Criterion amended by norman (Claude Code session, 2026-10-19), answering the question above: each story's README section headed "(0.17.0)" is its changelog entry; STORY-0069 compiles them into CHANGELOG.md at release. Old wording: "and the 0.17.0 changelog names the class change".

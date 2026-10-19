@@ -1394,7 +1394,7 @@ touches browser storage — and is shown to fail on a planted one.
 
 | Part | What it does |
 |---|---|
-| `createStepCatalogue(types, {categories, idBase})` | The step types the consumer passes in, read as they arrive (`type_id`, `label`, `category`, `role`, `description`, `icon`, `ports`, `config_schema`, `unavailable`; any other key is kept). `get`, `list`, `byCategory`, `role`, `tone`, `inputs(typeId, {flow})`, `outputs`, `port`, `idBase`, and `problems` — a broken type is listed there, never thrown. A type may also carry `render`, `update`, `size: {w, h}` and `accent` (a tone), which only the canvas editor reads ([Node bodies](#node-bodies-0170)); `size(typeId)`, `accent(typeId)` and `body(typeId)` answer them, `null` when a type has none, and a `size`, `accent` or hook of the wrong kind is a line in `problems` and is not used (0.17.0). **Ports keep their declared order**: a lane reads the first input as its own and an outline draws the other outputs as arms in order, so nothing sorts them |
+| `createStepCatalogue(types, {categories, idBase})` | The step types the consumer passes in, read as they arrive (`type_id`, `label`, `category`, `role`, `description`, `icon`, `ports`, `config_schema`, `unavailable`; any other key is kept). `get`, `list`, `byCategory`, `role`, `tone`, `inputs(typeId, {flow})`, `outputs`, `port`, `idBase`, and `problems` — a broken type is listed there, never thrown. A type may also carry `render`, `update`, `size: {w, h}` and `accent` (a tone), which only the canvas editor reads ([Node bodies](#node-bodies-0170)); `size(typeId)`, `accent(typeId)` and `body(typeId)` answer them, `null` when a type has none, and a `size`, `accent` or hook of the wrong kind is a line in `problems` and is not used (0.17.0). `inline: ['key', …]` names settings of its `config_schema` the canvas editor draws on the node ([Edited on the node](#edited-on-the-node-0170)); `inline(typeId)` answers the names the schema has, `[]` when none, and a name it lacks (or an `inline` that is not a list) is a line in `problems` and is not drawn (0.17.0). **Ports keep their declared order**: a lane reads the first input as its own and an outline draws the other outputs as arms in order, so nothing sorts them |
 | `checkSettingsSchema(schema)` | The JSON-Schema subset a step's settings may use: `type`, `enum`, `const`, `required`, `properties`, `additionalProperties` (a boolean), `items`, `minItems`/`maxItems`, `minimum`/`maximum`, `minLength`/`maxLength`, `format: "uuid"`, the annotations and any `x-` hint. Returns the first refusal as the server's own sentence, or `null`. `oneOf`, `anyOf`, `$ref` and `pattern` are refused. `tests/fixtures/flow_kit_settings_schema.json` holds 30 schemas and their verdicts. Tables' own `check_schema` gave the same 30 verdicts when the file was written, and is meant to read this file in a test of its own |
 | `createWidgetRegistry()` | The controls, by name. The ten generic widgets are registered already; `register(name, widget)` throws for a name that exists, and replacing one takes `{replace: true}`. A widget is `(spec, value, ctx) => {el, destroy?, focus?, caret?, restoreCaret?}` and reports with `ctx.set(value)`; `undefined` removes the setting |
 | `createSettingsPanel(options)` | One step's settings, or the flow's own, drawn from the schema (below) |
@@ -1406,7 +1406,7 @@ touches browser storage — and is shown to fail on a planted one.
 | `groupFindings(list)`, `createFindingsStrip({onGoTo, nameOf})` | The consumer's findings (`{code, message, severity, node_id?, field?}`) by step, and the strip: *"N things to fix before this can be published."*, a line each, *Go to it* |
 | `new FlowHistory({actions, restore, onState, limit, mergeMs})` | Undo and redo over whole snapshots. The editor passes its own list of actions and `commit` throws on any other, so an edit nobody named fails its first test. Loading and publishing are `baseline`s, never entries. Keyed commits within `mergeMs` merge (typing a name is one entry), never across an undo. `keep()` and `adopt(kept, state)` carry the stacks to a successor that loaded the same bytes |
 | `bindFlowKeys(root, handlers)`, `ownsUndo(target)` | An editor's keys, bound on its root, never on `window` (below) |
-| `emptyGraph`, `normalise`, `serialise`, `nextId`, `addNode`, `removeNode`, `connect`, `canConnect`, `disconnect`, `inputNamesOf` | A logic flow's graph — `{nodes: [{id, type, label?, config, position}], connections: [{source, target, sourcePort, targetPort}]}`, the shape the canvas and the outline both save. `serialise` is byte-stable: a graph opened and saved with no edit is the same text. It may also carry `groups: [{id, label?, tone?, nodes: [id, …]}]` and `notes: [{id, text, position, size?: {w?, h?}}]` (0.17.0), and only when it has some, so a graph without them is the same text as before. Groups are flat: `normalise` keeps a node in the first group that names it, leaves out ids that are not nodes, and drops a group with no member; `removeNode` takes the node out of its group, and the group with its last member |
+| `emptyGraph`, `normalise`, `serialise`, `nextId`, `addNode`, `removeNode`, `connect`, `addConnection`, `canConnect`, `disconnect`, `inputNamesOf` | A logic flow's graph — `{nodes: [{id, type, label?, config, position}], connections: [{source, target, sourcePort, targetPort}]}`, the shape the canvas and the outline both save. `serialise` is byte-stable: a graph opened and saved with no edit is the same text. `canConnect(graph, catalogue, edge, {strings, dataRead, dataPorts})` refuses only what an editor cannot draw; with `dataPorts: true` a data port connects to a data port, any number of lines out of one. `connect` adds the line when `canConnect` allows it; `addConnection(graph, edge)` adds it asking nothing, for a caller whose own rules already allowed it It may also carry `groups: [{id, label?, tone?, nodes: [id, …]}]` and `notes: [{id, text, position, size?: {w?, h?}}]` (0.17.0), and only when it has some, so a graph without them is the same text as before. Groups are flat: `normalise` keeps a node in the first group that names it, leaves out ids that are not nodes, and drops a group with no member; `removeNode` takes the node out of its group, and the group with its last member |
 | `createStrings(...layers)`, `FLOW_STRINGS` | Every word drawn, English and domain-free by default; an editor lays its own words over these, and the consumer lays its words over both |
 
 **The settings panel.**
@@ -1591,7 +1591,8 @@ editor.setRunOverlay({ steps, ports, banner });
 | `widgets`, `references`, `strings`, `services` | The kit's widget registry, the reference syntaxes by name, your words (`CANVAS_STRINGS` and the kit's), and your bag, handed to every widget unchanged |
 | `values` | *Insert a value*: called with `{graph, stepId, field, key, before, loops}`, where `before` is the steps that always run before this one (`alwaysBefore`, nearest first) and `loops` the loops around it. Returns groups, or `{groups, note}` |
 | `summarise(node, type)` | A line under a node's ports. `summariseReads(node, type)` is the panel's id line |
-| `dataPortRead(node, port)` | How a data port is read, in your syntax. It is shown on the port, which cannot be connected |
+| `dataPortRead(node, port)` | How a data port is read, in your syntax. It is shown on the port, which cannot be connected (unless `connections.dataPorts` is `'connect'`) |
+| `connections` | `{dataPorts: 'connect', policy(ctx)}`, absent by default, and then nothing below is drawn or bound. With it every line is asked, in order: what the canvas cannot draw (`canConnect` with `dataPorts`: a data port connects only to a data port, and a data output carries any number of lines); the kernel's `ConnectorRouter` over the catalogue ports, which take its descriptor keys (`disabled`, `disabledReason`, `maxConnections`, `allowMultiple`); the port types (an input's `accepts: ['number']` refuses an output whose `provides` names none of them, in a sentence); and your `policy(ctx)` — the router's context plus `connection` and a copy of the `graph` — which may refuse with a `reason`, allow, or answer `{ok: true, offer: {message, accept, apply(draft)}}`. An offer is shown with Accept and Not now: Accept makes the line and runs `apply` on a copy of the graph (change it in place or return a new one), as one undo entry. An output can also be dragged: while it is, the inputs it may end on carry `twm-flow-graph__port--can-drop`; released on one it connects; released on the empty canvas it opens the step picker with the types that have an input it may connect to, and the step picked is added with the line as one `flow:node:add` |
 | `flowSettings` | `{title, schema, value}` — the flow's own settings, edited as `flow:settings` |
 | `readOnly` | `false`, or `{reason}`, which is shown above the editor. Every verb is then refused with that reason, and no gesture writes |
 | `actions` | Your toolbar verbs, `[{id, label, icon, primary, danger, title, run(editor)}]`, after Undo, Redo, Arrange and Fit (and the zoom buttons, with `zoomControls`) |
@@ -1599,6 +1600,7 @@ editor.setRunOverlay({ steps, ports, banner });
 | `onChange`, `onSelect` | After every committed edit. An undo or a redo is a change too (`action: null`, `via: 'undo' \| 'redo'`), because you autosave what is undone. `onSelect({kind, id})`: `step`, `flow`, `connection` (with `connection`) or `null`; with `multiSelect`, two or more picked steps are `{kind: 'many', ids}`; with `notes`, a picked note is `{kind: 'note', id}` and a pick with notes in it `{kind: 'many', ids, notes}` |
 | `multiSelect` (0.17.0) | `true` makes the pick a set (below, *Many picked*). Without it none of it is bound or drawn |
 | `groups`, `notes` (0.17.0) | `true` draws the graph's groups as frames behind their steps and its notes as text on the canvas, and lets the reader make and edit them (below, *Groups and notes*). Without them none of it is bound or drawn, and a graph's groups and notes are kept as they are |
+| `clipboard`, `prepareCopy(node, {from, via})` (0.17.0) | `true` keeps what Ctrl/⌘+C copies inside the editor while it is open; `{read(), write(text)}` hands it to you: `write` hears the copied JSON and `read` (text, or a promise of it) supplies what Ctrl/⌘+V pastes. `prepareCopy` may change a copy's `config` and `label` before it is added (`via`: `'paste'` or `'duplicate'`). Unset, Ctrl/⌘+C, X, V and D are not the editor's (below, *Copy and paste*) |
 | `loop`, `waitsForAll` | The loop's port names (`{entry: 'in', next, body, done}`): a line into a loop-role step on any input but `entry` is its body going back round, drawn dashed under both steps. `waitsForAll(join)` goes to `alwaysBefore` |
 | `removable(node, type)` | Whether a step may be removed. By default every step except a start step |
 | `node` | `{width: 208, header: 34, row: 22}` (`CANVAS_NODE`). Lines are anchored by arithmetic over these numbers, and the stylesheet is held to them |
@@ -1608,6 +1610,8 @@ editor.setRunOverlay({ steps, ports, banner });
 | `history`, `gridSize`, `label` | `{limit, mergeMs}`, the snap grid, and the canvas's accessible name |
 | `viewport`, `onViewportChange(viewport)` | Where the reader looks, kept by you: the editor stores none of it. `viewport` (`{scale, tx, ty}`, as `getViewport()` gives it) is where the first `load` opens, instead of fitting. `onViewportChange` hears ONE report per finished gesture of the reader's (a pan's release, a run of wheel turns once the wheel has been still for 300 ms, Fit, Arrange, a zoom button, a minimap click, *Go to it*), never one per pointer move, never a gesture that ended where it began, and never what you set yourself (`load`, `setViewport`, `fit()`, `arrange()`). A wheel report still waiting is handed on by the next press and by `destroy` (0.17.0) |
 | `zoomControls` | `true` adds Zoom out, Zoom in and 100% after Fit. They step through 15%, 25%, 33%, 50%, 67%, 80%, 100%, 125%, 150%, 200%, 300% and 400%, about the centre of the view. At the kernel's limits the button is refused in place with its sentence. Off by default (0.17.0) |
+| `renameInPlace` | `true`: a double-click on a step's title edits its name on the node ([Edited on the node](#edited-on-the-node-0170)). Off by default, and then a double-click does nothing (0.17.0) |
+| `collapsible` | `true` puts a fold button on every step's header: it folds the step to its header and back, one `flow:node:collapse` entry each way (below, *Live values and folded steps*). Off by default, and then there is no button in the DOM and a `collapsed` flag in a graph is carried through untouched, the step drawn unfolded (0.17.0) |
 | `minimap` | `true` draws a small overview over the canvas's lower right corner, with the steps and the view's frame, redrawn when the canvas changes size as well as when the view moves. A click on it centres the view on that point, at the same scale. Off by default, and then there is no minimap in the DOM (0.17.0) |
 
 | Method | Does |
@@ -1616,12 +1620,15 @@ editor.setRunOverlay({ steps, ports, banner });
 | `getViewport()`, `setViewport({scale, tx, ty})` | The kernel's viewport, as a copy; and putting the view there, clamped to the kernel's limits. `setViewport` drops a fit still waiting for its frame, is not reported to `onViewportChange`, and answers `false` (changing nothing) for anything that is not three finite numbers with a scale above 0 (0.17.0) |
 | `getGraph()`, `serialise()`, `snapshot()`, `getFlowSettings()` | A copy of the graph; its byte-stable text; the text the history holds (graph and settings); the settings |
 | `setFindings(list)`, `setRunOverlay(overlay \| null)`, `setReadOnly(false \| {reason})` | — |
+| `setNodeValues({[id]: {badge, tone, ports: {[name]: text}}} \| null)` (0.17.0) | What you show on the steps right now, replacing what you showed before. Painted in place: no undo entry, no `onChange`, nothing rebuilt and the panel untouched (below) |
+| `setCollapsed(id, collapsed)` (0.17.0) | With `collapsible`: fold a step to its header (`true`) or unfold it, one `flow:node:collapse` entry. `false` when refused (no `collapsible`, read only, no such step, or no change) |
 | `setActionState(id, {disabled, reason, busy})`, `setStatus(text)`, `setMessage(text, tone)` | A verb refused in place, with its reason printed beside the toolbar; the status line; the gesture line |
 | `align(kind)`, `distribute(axis)` (0.17.0) | With `multiSelect`: line the picked steps up (`'left'`, `'center'`, `'right'`, `'top'`, `'middle'`, `'bottom'`; two or more picked) or give them equal gaps (`'horizontal'`, `'vertical'`; three or more), one `flow:nodes:align` entry. `false` when refused (too few picked, read only, or no `multiSelect`); an unknown kind or axis throws |
+| `copy()`, `cut()`, `paste(text?)`, `duplicate()` (0.17.0) | With `clipboard`: the keys' verbs from code. Each answers `{ok: true, ids}` (the steps copied, cut or made) or `{ok: false, reason}`, the reason also on the message line; `paste()` answers a promise when your `read` is async, and `paste(text)` pastes that text. Without `clipboard`: `{ok: false, reason: null}` |
 | `select(id \| [id, …] \| 'flow' \| null)`, `repaintPanel()`, `focus()`, `undo()`, `redo()`, `arrange()`, `fit({whole})` | `select([id, …])` (0.17.0, `multiSelect`) picks several steps at once (unknown ids are left out; one left is one step picked, none lets go) |
 | `group(ids?, {label, tone})`, `ungroup(groupIds?)`, `setGroup(id, {label, tone})`, `setGroupMembers(id, ids)` (0.17.0) | With `groups`: group these steps (by default the picked ones), each leaving the group it was in, and answer the new group's id (`group`, `group-2`, …) or `null`; remove these groups (by default the ones the picked steps are in), their steps staying put; a group's name and tone; exactly these members, none removing the group. One `flow:group:add`, `…:remove`, `…:label` or `…:members` entry each, `false`/`null` when refused (read only, nothing to do) |
 | `addNote({text, position, size})`, `editNote(id, text)`, `moveNote(id, {x, y})`, `removeNote(id)` (0.17.0) | With `notes`: a note at `position` (by default the centre of the view), answered as a copy (`note`, `note-2`, …) or `null`; its text; where it is; taking it away. One `flow:note:add`, `…:edit`, `…:move` or `…:remove` entry each |
-| `setCatalogue(catalogue \| types)` | Swaps the step types while the editor is open, for a type registered after `load`: the palette is redrawn and a node whose type's definition changed is rebuilt, so a node of a type that was unknown now draws. A definition is compared by what the node is drawn from (known or not, `icon`, `label`, tone, ports, `render` and `update`), not by object identity: a new catalogue of the same types plus one more rebuilds no node and calls no `render` again. The graph and the history are untouched (0.17.0) |
+| `setCatalogue(catalogue \| types)` | Swaps the step types while the editor is open, for a type registered after `load`: the palette is redrawn and a node whose type's definition changed is rebuilt, so a node of a type that was unknown now draws. A definition is compared by what the node is drawn from (known or not, `icon`, `label`, tone, ports, `render`, `update` and `inline`), not by object identity: a new catalogue of the same types plus one more rebuilds no node and calls no `render` again. Under the `connections` option the connection rules and the empty-drop picker judge by the new catalogue, and a pending offer is taken away. The graph and the history are untouched (0.17.0) |
 | `history`, `canvas` | The editor's `FlowHistory` (`keep()`, `adopt(kept, editor.snapshot())`, `baseline(editor.snapshot())` for your publish) and its `CanvasAdapter` |
 | `destroy()` | Removes every listener, the ghost of a drag, the minimap and any picker it opened. It saves nothing, because the editor holds nothing; a viewport report still waiting for the wheel to settle is handed to `onViewportChange` first |
 
@@ -1630,14 +1637,18 @@ Its edits are the closed list `CANVAS_ACTIONS`: `flow:node:add`,
 `flow:edge:disconnect`, `flow:node:label`, `flow:node:config`,
 `flow:settings`, `flow:arrange` (one entry for the whole layout), and with
 `multiSelect` `flow:nodes:move`, `flow:nodes:remove` and `flow:nodes:align`
-(0.17.0; one entry per gesture on several steps), and with `groups` and
-`notes` `flow:group:add`, `flow:group:remove`, `flow:group:label`,
+(0.17.0; one entry per gesture on several steps), with `clipboard`
+`flow:paste` and `flow:node:duplicate` (0.17.0; one entry per paste or
+duplicate, however many steps it makes), with `collapsible`
+`flow:node:collapse` (0.17.0), and with `groups` and `notes`
+`flow:group:add`, `flow:group:remove`, `flow:group:label`,
 `flow:group:members`, `flow:note:add`, `flow:note:remove`, `flow:note:edit` and
 `flow:note:move` (0.17.0). Typing a name
 or a setting is one entry. The geometry under it is exported as well, all of it
 pure: `CANVAS_NODE`, `arrangeCanvasGraph(graph, catalogue, {loopEntry})` (where
 Arrange puts each step: a Map of id → `{x, y}` from the origin),
-`canvasPortAnchor`, `canvasNodeBottom`, `canvasNodeWidth` (a type's own
+`canvasPortAnchor`, `canvasNodeBottom` (both fold a node with `collapsed: true`
+to its header, or as the box's `folded(node)` says; 0.17.0), `canvasNodeWidth` (a type's own
 `size.w`, else the box's; 0.17.0), `isCanvasReturnEdge`,
 `canvasPathPoints(d, {steps})` (the points along a drawn line's path `d`:
 absolute `M`, `L`, `C`, `S` and `Z`, each curve sampled at `steps` points) and
@@ -1672,7 +1683,9 @@ editor.setCatalogue(createStepCatalogue([...types, gauge], { categories }));   /
   own definition changed (its ports, `label`, `icon`, category tone, `render`
   or `update`): then the node is built again and `render` runs again. A new
   `size` or `accent` is applied in place.
-- **`ctx`** is `{setConfig(patch), readOnly, services}`. `setConfig` merges
+- **`ctx`** is `{setConfig(patch), readOnly, values, services}`. `values` is
+  what `setNodeValues` shows on this step now (`{badge, tone, ports}`, a copy),
+  or `null`. `setConfig` merges
   `patch` into the node's config (an `undefined` value removes the key) as one
   `flow:node:config` edit: one undo entry, and `onChange` is called. It is
   refused (answers `false`) while the editor is read only, from inside
@@ -1692,8 +1705,67 @@ editor.setCatalogue(createStepCatalogue([...types, gauge], { categories }));   /
 - A type without these keys is drawn exactly as before, with the same markup,
   and `serialise()` is unchanged.
 
+#### Edited on the node (0.17.0)
+
+```js
+const counter = { type_id: 'counter', label: 'Counter', ports, inline: ['count'],
+                  config_schema: { type: 'object', properties: { count: { type: 'number' } } } };
+const editor = createCanvasEditor(host, { catalogue: [counter], renameInPlace: true });
+```
+
+- **`renameInPlace: true`.** A double-click on a step's title puts a text box
+  in its place, the name selected. Enter, or leaving the box, is one
+  `flow:node:label` edit, and none when the name is unchanged. Escape puts the
+  name back and records nothing. An empty name is refused with a sentence on
+  the gesture line and the name stays: on Enter the box stays open
+  (`aria-invalid`), on leaving it the box closes. Read only, a double-click
+  opens nothing, and going read only closes an open box without writing. The
+  settings panel, if it is showing that step, shows the new name.
+- **A type's `inline` settings** are drawn under the node's ports, above its
+  own body, by the same widget registry as the panel (`widgets`), with the
+  same labels and controls. A change on the node is a `flow:node:config` edit,
+  and the panel shows it at once. A change in the panel, or an undo, redraws
+  the node's control. The control being typed in is never redrawn under the
+  reader; a focused control whose value changes elsewhere (an undo pressed
+  while it holds the focus) is redrawn with its focus and caret kept. Typing
+  on the node and then in the panel are two undo entries. Read only disables
+  the node's controls. A node with inline settings and no
+  `size.h` is as tall as it is drawn.
+- Without the option and the key nothing is bound or drawn: the same markup,
+  and `serialise()` is unchanged.
+
+#### Live values and folded steps (0.17.0)
+
+```js
+const editor = createCanvasEditor(host, { catalogue, collapsible: true });
+editor.setNodeValues({ mix: { badge: '0.42', tone: 'teal', ports: { out: '0.42' } } });   // as often as you like
+editor.setNodeValues(null);                                                               // none shown
+```
+
+- **`setNodeValues`** paints what you are showing right now: `badge` is drawn
+  on the step's header, before its id tag, in a tone of `TONES` when `tone`
+  names one, and each `ports[name]` beside that port. It replaces what the
+  last call showed, and a step it leaves out shows nothing. It extends the run
+  overlay: nothing is rebuilt or recorded, `onChange` is not called, and the
+  settings panel is not touched, so a field being typed into keeps its focus
+  and its selection however often you call it. A type with its own body reads
+  them as `ctx.values`, and its `update` runs for each step whose values
+  changed (a `setConfig` from there is refused, as from any `update`). The
+  badge and port-value elements exist only while there is a value to show;
+  the editor keeps nothing of them past the next call.
+- **`collapsible: true`** puts a fold button on each header. A folded step
+  shows its header only: its port rows, its body and what is drawn under them
+  are hidden, and its lines stay, meeting the middle of the header on its left
+  (lines in) and its right (lines out). Each fold or unfold is one
+  `flow:node:collapse` entry, so Ctrl+Z unfolds a step just folded. The graph
+  carries `collapsed: true` on a folded step, written last in its `serialise()`
+  text; an unfolded step has no `collapsed` key, so a graph that never folded
+  a step is the text it always was. Read only refuses it.
+
 **Gestures.** A node's header moves it. A connection is made by clicking an
-output and then an input, and Escape cancels one in progress. A line is picked
+output and then an input, and Escape cancels one in progress. Under the
+`connections` option an output can also be dragged to an input, or onto the
+empty canvas to pick a step that arrives connected. A line is picked
 by clicking it, and Delete removes it or the picked step. A palette step is
 added by clicking it (at the centre of the view) or by dragging it onto the
 canvas (where it is dropped). The drag uses pointer events and a ghost on
@@ -1741,6 +1813,24 @@ graph keeps them as `groups` and `notes` (see `normalise` above) and
 `serialise()` writes them after the connections; a graph without any is the
 same text as before.
 
+**Copy and paste** (`clipboard`, 0.17.0). Ctrl/⌘+C copies the picked steps
+and the lines among them; a line to a step left out of the pick is not copied,
+nor is a step whose type the palette does not offer (a start step) or that is
+`unavailable`. What is copied is the graph's own text, `{nodes, connections}`
+as `serialise()` writes it, so a graph from elsewhere pastes too. Ctrl/⌘+V
+gives every pasted step a fresh id (as a new step gets one), keeps the lines
+between them, sets the copy off two grid steps right and down (each further
+paste of the same text one more), picks it, and is one `flow:paste` entry. A
+paste right after Ctrl/⌘+X puts the steps back where they were; a cut is one
+remove entry. A step whose title the flow already has gets a derived label,
+`Title (copy)`, then `Title (copy 2)`, …, as the lanes editor's duplicate does.
+Ctrl/⌘+D does the same beside the pick without touching the clipboard, as one
+`flow:node:duplicate`. With nothing picked Ctrl/⌘+C, X and D are not the
+editor's. What is not steps, or names a type the flow does not have, is refused
+with its sentence on the message line. In read-only mode copying still works,
+and Paste, Cut and Duplicate are refused with the read-only reason and change
+nothing.
+
 **Keys** (bound on the editor's root): Ctrl/⌘+Z and Ctrl/⌘+Y or Ctrl/⌘+Shift+Z,
 stopped at the root even inside a text field; Delete; F2 renames the picked
 step; Enter on a focused node opens its settings; Escape; with `groups`,
@@ -1754,7 +1844,7 @@ part of the baseline and the first Ctrl+Z does not take it away.
 
 **Where each claim was checked.** `tests/canvas_adapter.test.mjs`,
 `canvas_edge_router`, `canvas_graph`, `flow_canvas_layout`, `flow_canvas_editor`,
-`flow_canvas_multiselect`, `flow_canvas_node_body`, `flow_canvas_groups_notes` and `flow_canvas_css` check the DOM, the events, the
+`flow_canvas_multiselect`, `flow_canvas_clipboard`, `flow_canvas_node_body`, `flow_canvas_live_values`, `flow_canvas_groups_notes` and `flow_canvas_css` check the DOM, the events, the
 geometry and the stylesheet as text. In headless Edge, `demo/flow_canvas_probe.mjs` drives
 `demo/flow_canvas.html` with real input:
 - `elementFromPoint` at the centre of Undo, Arrange, Fit, a consumer verb, a
@@ -1779,6 +1869,13 @@ geometry and the stylesheet as text. In headless Edge, `demo/flow_canvas_probe.m
   double-click opened a note for typing, real keys and Ctrl+Enter kept the
   text, a real drag moved it, and a real marquee picked the steps and the note
   together.
+- With `collapsible`, ten `setNodeValues` calls 100 ms apart each put their
+  value on the step's badge, inside its header, while real keys typed into a
+  settings field: the field kept the focus and every key, and the values made
+  no undo entry and no `onChange`. A real click on a header's fold button hid
+  every port row and left the step as tall as its header, with its lines
+  ending on the header's middle at its edges, within 1px; a real Ctrl+Z
+  unfolded it and its lines met their port dots again.
 - A type registered with `setCatalogue` after the page opened was in the
   palette. Its node was drawn at its 280×170 size, with its body below its
   ports and its accent. Every line into and out of it began and ended on its
@@ -2365,6 +2462,67 @@ In a form, `{ name, label, type: 'toggle', onText?, offText?, disabled?,
 compact? }` mounts one and submits a boolean, like a checkbox; `api.get` reads
 it as a boolean and `api.set` moves it. `tests/toggle_field.test.mjs` covers
 both.
+
+## A settings page: `SettingsView` (0.17.0)
+
+`new SettingsView({ store, eventBus })` (in `@flexdesk/widgets`) draws a
+settings store's schema as a page. `store` is a `createSettingsStore()` handle
+or the app-global binding's own, `getSettingsStore()` from `@flexdesk/core`
+(its `set` is the one `setSetting` calls); `eventBus` is the bus that store
+emits on (`registerSettingsEventBus(bus)` for the binding).
+
+```js
+import { getSettingsStore, registerSettingsEventBus } from '@flexdesk/core';
+import { SettingsView, settingsViewContent } from '@flexdesk/widgets';
+
+registerSettingsEventBus(bus);
+const view = new SettingsView({ store: getSettingsStore(), eventBus: bus });
+view.mount(host);
+view.selectCategory('window');
+view.setQuery('shadow');        // what the filter box does
+await view.resetAll();           // asks first; true when it reset
+view.dispose();
+
+// or as tile content (props.category picks the category shown first):
+createShell({ content: { settings: settingsViewContent({ store: getSettingsStore(), eventBus: bus }) } });
+```
+
+The sidebar holds a filter box, every category in `CategoryDef.order` and
+*Reset all*. Beside it the chosen category's settings are listed under its
+title, description and *Reset category*, grouped by `SettingDef.group` in
+schema order. A row shows the label, a *Modified* marker while the value
+differs from its default, the description, the path, its control and a reset
+button. Text in the filter searches every category's labels, descriptions and
+paths; the matches are listed under "Category › Group", and choosing a
+category clears it.
+
+| `type` | Control |
+| --- | --- |
+| `boolean` | a `ToggleField` |
+| `select` | a select over `options`; a value the options lack (stored, or set elsewhere while the view is open) is kept and shown as *value (not found)* |
+| `number` | a number box with `min`, `max` and `step`; a written value is always in the range and on the step grid (`min + k·step`, or `k·step` with no `min`): snapped to the nearest grid point, and one outside the range moved inward to the nearest grid point inside it (with `max` below `min` the range holds none, and the value is `min`); with no `step` it is only clamped; an empty or unreadable box goes back to the value |
+| `text` | a text box, written `textDebounceMs` (default `SETTINGS_TEXT_DEBOUNCE_MS`, 300) after the last keystroke, or at once on Enter or blur; emptied, it writes `null` when the default is `null` |
+| `colorList` | a `ColorListField`, written on each committed edit while every row holds a colour |
+
+A type it does not know shows the value as text, read only.
+
+The view is live both ways: a control writes with `store.set`, and the view
+listens for `settings:<path>:changed` on every schema path, `settings:changed`
+with a null path (the resets) and `settings:registered`, which the store now
+emits from `extend()` / `registerSettings()` with `{ paths, categories }`. So a
+`setSetting` made anywhere moves the open view, and a slice registered after
+mount adds its categories and rows without a remount. A row's reset button
+resets that one setting; *Reset category* and *Reset all* first ask
+`confirm({ title, message, confirmLabel, danger })` (default `openConfirm`) and
+change nothing unless it resolves true. Every label, description, category name
+and query is set as text, so markup in any of them is shown as typed.
+
+Options: `store`, `eventBus` (both required), `confirm`, `category`,
+`textDebounceMs`, `title` (the sidebar heading, and the content factory's tab
+title; default "Settings"). The markup is `.twm-settings` >
+`.twm-settings__sidebar` + `.twm-settings__content`, with rows
+`.twm-settings__row` (`--modified`); `flexdesk.css` styles it from tokens.
+`tests/settings_view.test.mjs` covers it in jsdom.
 
 ## A step wizard: `Wizard` (0.17.0)
 

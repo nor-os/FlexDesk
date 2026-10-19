@@ -40,11 +40,28 @@ export const CANVAS_STRINGS = Object.freeze({
     renderFailed: (name, why) => `${name} could not draw its body${why ? `: ${why}` : '.'}`,
     updateFailed: (name, why) => `${name} could not bring its body up to date${why ? `: ${why}` : '.'}`,
     stepId: (id) => `Step id: ${id}`,
+    // `renameInPlace`
+    nameEmpty: 'A step needs a name: the one it had is kept.',
+    // `collapsible`
+    collapseNode: 'Fold this step to its header',
+    expandNode: 'Show this step\'s ports again',
     connection: 'Connection',
     connectionLine: (e) => `${e.source} · ${e.sourcePort} → ${e.target} · ${e.targetPort}`,
     removeConnection: 'Remove connection',
     portCount: (n) => `×${n}`,
     portNotTaken: 'not taken',
+
+    // ── under the `connections` option ───────────────────────────────
+    connectTypes: ({ from, fromStep, to, toStep, accepts, provides }) => `${to} on ${toStep} takes `
+        + `${accepts.join(' or ')}, and ${from} on ${fromStep} gives ${provides.join(' or ')}.`,
+    connectRefused: 'These two cannot be connected.',
+    connectDrag: 'Drop it on an input to connect, or on the canvas to add a step there. Esc cancels.',
+    dropOnInput: 'Drop the line on an input to connect it.',
+    dropPickerTitle: 'Add a step and connect it',
+    dropNothingFits: 'No step has an input this output can connect to.',
+    offerAccept: 'Accept',
+    offerDismiss: 'Not now',
+
     // `multiSelect`
     alignLeft: 'Align left edges',
     alignCenter: 'Align centres',
@@ -77,5 +94,16 @@ export const CANVAS_STRINGS = Object.freeze({
     removeNote: 'Remove note',
     itemsPicked: (steps, notes) => `${steps === 1 ? '1 step' : `${steps} steps`} and ${notes === 1 ? '1 note' : `${notes} notes`} picked`,
     removeItems: (n) => (n === 1 ? 'Remove 1 item' : `Remove ${n} items`),
+    // `clipboard`
+    copyLabel: (title, n) => (n > 1 ? `${title} (copy ${n})` : `${title} (copy)`),
+    copied: (n) => (n === 1 ? 'Copied 1 step.' : `Copied ${n} steps.`),
+    cutDone: (n) => (n === 1 ? 'Cut 1 step.' : `Cut ${n} steps.`),
+    nothingPicked: 'Pick a step first.',
+    cannotCopy: 'None of the picked steps can be copied.',
+    cannotCut: 'None of the picked steps can be removed, so none can be cut.',
+    nothingToPaste: 'There is nothing to paste.',
+    pasteNotSteps: 'What is on the clipboard is not steps of a flow.',
+    notAddable: (name) => `‘${name}’ cannot be added to this flow.`,
+    clipboardFailed: 'The clipboard could not be reached.',
     routingFallback: (n) => `More than ${n} steps: the lines are drawn as plain curves, not routed round the steps.`,
 });

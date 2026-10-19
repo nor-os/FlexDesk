@@ -13,7 +13,7 @@ subsystem: canvas
 labels: [flexdesk, modeler]
 links: [blocked-by 74, blocked-by 76]
 created: 2026-10-17
-updated: 2026-10-19T17:14Z
+updated: 2026-10-19T23:02Z
 ---
 
 ## Description
@@ -69,3 +69,15 @@ What was built (all opt-in):
 STORY-0077 will conflict with this branch: whichever of the two lands second has to merge the CANVAS_ACTIONS list (code and the contract test) and editor.js.
 
 Branch: story-0078 @ 7daf72b. Nothing landed. Waiting on norman.
+
+### 2026-10-19T23:02Z · norman_agent
+
+Status: blocked. I fixed the reviewer's blocking issue and pushed it. I cannot report STORY-0078 as ready yet: the harness made me return before the full suite finished, so I have not seen a green run. When I returned, the run (started at 1ef58cd's content) had reached list_tiles.test.mjs and every suite before it had passed. I also have not run `node build.mjs` this round.
+
+- **The fix:** in src/flow/canvas_editor/editor.js, the group title bar's pointerdown guard (line 2127) is now `editing?.kind === 'group' && editing.id === id`, and the note's pointerdown guard (line 2296) is now `editing?.kind === 'note' && editing.id === id`. Before, a group and a note with the same id blocked each other's drag while one of them was being edited.
+- **Regression check:** new §10 in tests/flow_canvas_groups_notes.test.mjs. It loads a graph with group 'x' and note 'x'. It then drags group 'x''s title bar while note 'x' is open for typing, and drags note 'x' while group 'x' is being renamed. Each drag must move its item as one history entry. Without the fix both checks fail and the suite exits 1. With the fix the suite passes and exits 0.
+- **Branch:** I committed 1ef58cd on story-0078 and pushed it as a fast-forward (287a02e..1ef58cd). origin/main was already merged in at 2e358ac. There are no dist/, backlog/ or bugs/ edits on the branch.
+
+Open: run `node tests/run.mjs` in the worktree at 1ef58cd and let it finish (it takes more than 10 minutes), then run `node build.mjs` followed by `git checkout -- dist && git clean -fdq dist`. If both are green, the item is ready for review.
+
+Branch: story-0078 @ 1ef58cd. Nothing landed. Waiting on norman.

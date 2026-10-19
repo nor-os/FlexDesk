@@ -60,7 +60,9 @@
  * then submits nothing, and Esc — wherever focus is inside the view — or a
  * click on Cancel calls `onCancel`, once per busy period, however often it is
  * pressed. That Esc stops there: it never reaches a window or panel around
- * the view that would close on Escape.
+ * the view that would close on Escape. An Esc a handler inside the view has
+ * already consumed (`preventDefault`, say an inline popup or editor in the
+ * transcript closing itself) is left alone: it neither cancels nor is stopped.
  *
  * `destroy()` removes the view. Every listener sits on an element the view
  * created, so they go with it; none is on the host or the document.
@@ -375,10 +377,12 @@ export function mountConversationView(host, {
      * Esc while busy cancels wherever focus is inside the view, and it is the
      * view's alone: it goes no further, so a window or panel holding the view
      * that closes on Escape stays open — on the cancelling Esc and on any
-     * repeat in the same busy period.
+     * repeat in the same busy period. An Esc a handler inside the view
+     * already consumed (defaultPrevented) is that handler's: it neither
+     * cancels nor is stopped.
      */
     function onRootKey(e) {
-        if (e.isComposing || e.key !== 'Escape' || !busy) return;
+        if (e.isComposing || e.key !== 'Escape' || !busy || e.defaultPrevented) return;
         e.preventDefault();
         e.stopPropagation();
         cancel();

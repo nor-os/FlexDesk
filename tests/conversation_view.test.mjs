@@ -532,6 +532,32 @@ console.log('§5 setBusy(true) turns Send into Cancel; Esc anywhere in the view 
     t.view.setBusy(false);
     const idleEsc = key(t.send, 'Escape');
     ok('Esc on the button while idle is left alone', !idleEsc.defaultPrevented && cancels === 4);
+
+    // A widget of the caller's inside the view (here an input in a message's
+    // slot whose Escape closes its own popup) keeps the Esc it consumed.
+    const sid = t.view.append({ role: 'user', text: 'with widget' });
+    const widget = document.createElement('input');
+    let popupOpen = true;
+    let popupCloses = 0;
+    widget.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && popupOpen) { popupOpen = false; popupCloses++; e.preventDefault(); }
+    });
+    t.view.slot(sid).appendChild(widget);
+    let outerEscapes = 0;
+    const onHostKey = (e) => { if (e.key === 'Escape') outerEscapes++; };
+    t.host.addEventListener('keydown', onHostKey);
+    t.view.setBusy(true);
+    key(widget, 'Escape');
+    ok('busy: an Esc a slot widget preventDefault()s does not cancel',
+        cancels === 4 && popupCloses === 1);
+    ok('…and is not stopped: it reaches the host', outerEscapes === 1);
+    const plain = key(widget, 'Escape');
+    ok('…while a plain Esc from the same widget cancels once',
+        cancels === 5 && plain.defaultPrevented && outerEscapes === 1);
+    key(widget, 'Escape');
+    ok('…and only once per busy period', cancels === 5);
+    t.host.removeEventListener('keydown', onHostKey);
+    t.view.setBusy(false);
 }
 
 // The Esc that cancels is the view's alone: a document-level Escape listener
@@ -635,13 +661,6 @@ console.log('§7 replaceAll restores 100 messages and scrolls to the bottom');
     try { r.view.replaceAll([{ id: 'n1', text: 'a' }, { id: 'n2', text: 'b' }, { id: 'n1', text: 'c' }]); }
     catch { refused = true; }
     ok('replaceAll with a repeated id is refused', refused);
-
-    const z = fresh();
-    z.view.append({ role: 'user', text: 'gone' });
-    let zThrew = null;
-    try { z.view.replaceAll(null); } catch (e) { zThrew = e; }
-    ok('replaceAll(null) empties the transcript as clear() does', zThrew === null
-        && z.rows().length === 0 && z.view.messages().length === 0 && z.view.isPinned(), zThrew?.message);
     ok('…and changes nothing: messages, rows and slots as before',
         r.view.messages().map((m) => m.id).join() === keep.join()
         && r.rows().length === 8 && r.rows().every((row, i) => row === rowsBefore[i])
@@ -655,6 +674,13 @@ console.log('§7 replaceAll restores 100 messages and scrolls to the bottom');
     u.view.replaceAll([{ id: 'm1', role: 'user', text: 'a' }, { id: 'm2', role: 'user', text: 'b' }]);
     const fresh1 = u.view.append({ role: 'user', text: 'c' });
     ok('…even ones shaped like a generated id', !['m1', 'm2'].includes(fresh1) && u.rows().length === 3);
+
+    const z = fresh();
+    z.view.append({ role: 'user', text: 'gone' });
+    let zThrew = null;
+    try { z.view.replaceAll(null); } catch (e) { zThrew = e; }
+    ok('replaceAll(null) empties the transcript as clear() does', zThrew === null
+        && z.rows().length === 0 && z.view.messages().length === 0 && z.view.isPinned(), zThrew?.message);
 }
 
 console.log('§8 scroll position; destroy');

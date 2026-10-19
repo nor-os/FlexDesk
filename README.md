@@ -2397,7 +2397,9 @@ view.setBusy(false);
   nothing, and Esc (wherever focus is inside the view) or a click on Cancel
   calls `onCancel` once per busy period. That Esc goes no further
   (`stopPropagation`), so a `ManagedWindow` or panel holding the view that
-  closes on Escape stays open.
+  closes on Escape stays open. An Esc a handler inside the view has already
+  consumed (`preventDefault`, e.g. an inline popup in the transcript closing
+  itself) is left alone: it neither cancels nor is stopped.
 - **Ids are unique.** `append`, `beginStream` or `replaceAll` with an id already
   in the transcript (or repeated within the `replaceAll` list) throws, and the
   refused call changes nothing: no row, no open stream, the old transcript kept.

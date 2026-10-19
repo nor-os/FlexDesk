@@ -391,6 +391,71 @@ console.log('§3 scrolling up during streaming stops auto-scroll; Jump to latest
     t.view.endStream();
 }
 
+// A smooth wheel, ArrowUp or PageUp scroll reports its first frame only a few
+// px above the end, inside the threshold: that move up must still stop the
+// following, and the next chunk must not snap the reader back.
+{
+    const t = fresh();
+    for (let i = 0; i < 20; i++) t.view.append({ role: i % 2 ? 'assistant' : 'user', text: `m${i}` });
+    t.view.beginStream();
+    t.view.appendChunk('a');
+    ok('(smooth wheel) pinned at the bottom first', t.view.isPinned() && t.log.scrollTop === t.geo.max());
+    t.log.dispatchEvent(new dom.window.WheelEvent('wheel', { deltaY: -100 }));
+    ok('(smooth wheel) the wheel up stops following', !t.view.isPinned());
+    const frame = t.geo.max() - 15;
+    t.geo.userScroll(frame);                        // the animation's first frame, inside the threshold
+    ok('the first frame of the wheel scroll, 15px above the end, does not pin it again',
+        !t.view.isPinned() && !t.jump.hidden, `pinned ${t.view.isPinned()}`);
+    t.view.appendChunk('b');
+    ok('…and the next chunk leaves the reader 15px above the end, Jump shown',
+        !t.view.isPinned() && t.log.scrollTop === frame && !t.jump.hidden,
+        `pinned ${t.view.isPinned()}, scrollTop ${t.log.scrollTop}, expected ${frame}`);
+    t.geo.userScroll(frame - 40);                   // later frames keep going up
+    t.view.appendChunk('c');
+    ok('later frames of the scroll up stay unpinned', !t.view.isPinned() && t.log.scrollTop === frame - 40);
+    t.geo.userScroll(t.geo.max() - 5);
+    ok('a scroll back down to within the threshold follows again', t.view.isPinned() && t.jump.hidden);
+    t.view.appendChunk('d');
+    ok('…so the next chunk is followed', t.log.scrollTop === t.geo.max());
+    t.view.endStream();
+}
+{
+    const t = fresh();
+    for (let i = 0; i < 20; i++) t.view.append({ role: i % 2 ? 'assistant' : 'user', text: `m${i}` });
+    t.view.beginStream();
+    t.view.appendChunk('a');
+    ok('(smooth key) pinned at the bottom first', t.view.isPinned() && t.log.scrollTop === t.geo.max());
+    const frame = t.geo.max() - 15;
+    t.geo.userScroll(frame);                        // ArrowUp's first frame, no wheel
+    ok('a key scroll up 15px from the end stops following', !t.view.isPinned() && !t.jump.hidden);
+    t.view.appendChunk('b');
+    ok('…and the next chunk does not move the reader back to the bottom',
+        !t.view.isPinned() && t.log.scrollTop === frame,
+        `pinned ${t.view.isPinned()}, scrollTop ${t.log.scrollTop}, expected ${frame}`);
+    t.log.scrollTop = frame - 25;                   // moved again; its scroll event not yet dispatched
+    t.view.appendChunk('c');
+    ok('a small move up seen first by a chunk (no scroll event yet) is not snapped back either',
+        !t.view.isPinned() && t.log.scrollTop === frame - 25);
+    t.view.endStream();
+}
+{
+    const t = fresh();
+    for (let i = 0; i < 20; i++) t.view.append({ role: i % 2 ? 'assistant' : 'user', text: `m${i}` });
+    t.view.beginStream();
+    t.view.appendChunk('a');
+    t.rows()[t.rows().length - 1].classList.add('twm-chat__msg--tall');
+    t.view.appendChunk('b');
+    ok('(shrink) pinned at the bottom of a tall message', t.view.isPinned() && t.log.scrollTop === t.geo.max());
+    t.rows()[t.rows().length - 1].classList.remove('twm-chat__msg--tall');
+    t.geo.userScroll(t.log.scrollTop);              // the browser clamps scrollTop to the new, lower end
+    ok('content shrinking under a pinned view (scrollTop clamped to the end) keeps it following',
+        t.view.isPinned() && t.jump.hidden, `scrollTop ${t.log.scrollTop}, max ${t.geo.max()}`);
+    t.view.appendChunk('c');
+    t.view.append({ role: 'user', text: 'after' });
+    ok('…and the next chunk and message are followed', t.view.isPinned() && t.log.scrollTop === t.geo.max());
+    t.view.endStream();
+}
+
 console.log('§4 the composer: Enter submits and clears; Shift+Enter is left to the browser');
 {
     const submitted = [];

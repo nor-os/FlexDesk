@@ -2375,10 +2375,15 @@ view.setBusy(false);
   throws leaves that message as its plain text and the view carries on; the
   error goes to `onRenderError(error, message)`. Without `render`, every body
   is plain text (`textContent`, never markup).
-- **Pinned to the bottom.** Within `pinThreshold` px (32) of the end the
-  transcript follows new content. Scrolling up stops that and shows *Jump to
-  latest*; clicking it, or scrolling back to the end, follows again. Content
-  growing below never unpins it: only the reader scrolling up does. A wheel
+- **Pinned to the bottom.** The transcript starts out following new content.
+  Any scroll up, even a few px from the end (the first frame of a smooth wheel
+  or arrow-key scroll), stops that and shows *Jump to latest*, and later chunks
+  leave the reader where they are. It follows again only after a scroll down
+  that ends within `pinThreshold` px (32) of the end, a click on *Jump to
+  latest*, `scrollToBottom()`, `replaceAll()` / `clear()`, or a
+  `setScrollTop(px)` that lands within the threshold. Content growing below
+  never unpins it, nor does content shrinking under it (the browser moves
+  `scrollTop` back to the new end, which is not the reader scrolling). A wheel
   over a scroller nested in a body or a slot (a `<pre>`, a tool-output box)
   scrolls that scroller (or, at its top with `overscroll-behavior: contain`,
   keeps the wheel), and a wheel a handler in the transcript cancels, a

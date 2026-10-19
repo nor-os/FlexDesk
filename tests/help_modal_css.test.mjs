@@ -80,7 +80,7 @@ setHelpProvider({
     loadTopic: async (id) => {
         if (id === 'broken') throw new Error('no such topic');
         const x = TOPICS.find((y) => y.id === id);
-        return { ...x, html: '<h2>Heading</h2><p>Text <code>x</code></p><table><tr><td>1</td></tr></table>' };
+        return { ...x, html: '<h2>Heading</h2><p>Text <code>x</code></p><h3>More</h3><table><tr><td>1</td></tr></table>' };
     },
     searchTopics: (q) => TOPICS.filter((x) => x.title.toLowerCase().includes(q.toLowerCase())),
 }, { one: { label: 'One', icon: 'folder' }, two: { label: 'Two', icon: 'book' } });

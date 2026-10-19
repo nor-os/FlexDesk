@@ -7,9 +7,12 @@
  *   §3  setBadge: a count, coloured by level, gone at zero, 99+ above 99
  *   §4  `bottompanel:show {tab}` on the embedder's bus selects that tab
  *   §5  the remembered tab comes back — unless a caller chose first, or it is
- *       no longer offered
- *   §6  a click keeps its target while a tab is being selected
+ *       no longer offered; one already in front is shown again (onShow,
+ *       onSelect), as it always was, and is not written back
+ *   §6  a click keeps its target while a tab is being selected; a click on the
+ *       tab already in front is a select all the same (onShow, onSelect, write)
  *   §7  destroy: panes save, then go; the bus is let go
+ *   §7b a pane that throws; the api during construction (`root` set in `mount`)
  *   §8  the badge's CSS exists for every level setBadge writes
  *
  *     node tests/bottom_panel_tabs.test.mjs
@@ -199,6 +202,26 @@ console.log('§5 the remembered tab');
     await tick();
     d.select('sql');
     ok('a storage that throws costs nothing', d.active() === 'sql');
+
+    // The remembered tab is the one in front already: it is shown again, as
+    // it was before the panel was built on createTabs.
+    const log = [];
+    const e = createBottomPanelTabs(fresh(), { panes: recordingPanes(log),
+        remember: { read: () => 'alerts', write: (id) => log.push(`write ${id}`) },
+        onSelect: (id) => log.push(`onSelect ${id}`) });
+    await tick(); await tick();
+    ok('a remembered tab already in front: onShow and onSelect again, nothing written',
+       e.active() === 'alerts'
+       && log.join('|') === 'mount alerts|show alerts|onSelect alerts|show alerts|onSelect alerts', log.join('|'));
+    log.length = 0;
+    const f = createBottomPanelTabs(fresh(), { panes: recordingPanes(log),
+        remember: { read: () => 'sql', write: (id) => log.push(`write ${id}`) },
+        onSelect: (id) => log.push(`onSelect ${id}`) });
+    await tick(); await tick();
+    ok('a remembered tab behind: mounted, shown, onSelect, nothing written',
+       f.active() === 'sql'
+       && log.join('|') === 'mount alerts|show alerts|onSelect alerts|mount sql|show sql|onSelect sql', log.join('|'));
+    await e.destroy(); await f.destroy();
 }
 
 console.log('§6 a click keeps its target');
@@ -211,6 +234,29 @@ console.log('§6 a click keeps its target');
     ok('…on the same node: the strip is not rebuilt', host.querySelector('button[data-pane="sql"]') === button);
     realClick(button.querySelector('.twm-bp__badge'));
     ok('a click on the badge is the tab\'s', tabs.active() === 'sql');
+}
+{
+    const log = [];
+    const host = fresh();
+    const tabs = createBottomPanelTabs(host, {
+        panes: recordingPanes(log),
+        remember: { read: () => null, write: (id) => log.push(`write ${id}`) },
+        onSelect: (id) => log.push(`onSelect ${id}`),
+    });
+    await tick(); await tick();
+    log.length = 0;
+    realClick(host.querySelector('button[data-pane="alerts"]'));
+    ok('a click on the tab in front re-shows it, tells onSelect, and is remembered',
+       log.join('|') === 'show alerts|onSelect alerts|write alerts', log.join('|'));
+    log.length = 0;
+    tabs.select('alerts');
+    ok('…exactly as select() of the tab in front does',
+       log.join('|') === 'show alerts|onSelect alerts|write alerts', log.join('|'));
+    log.length = 0;
+    realClick(host.querySelector('button[data-pane="changes"]'));
+    ok('a click on another tab: mount, show, onSelect, write',
+       log.join('|') === 'mount changes|show changes|onSelect changes|write changes', log.join('|'));
+    await tabs.destroy();
 }
 
 console.log('§7 destroy');
@@ -231,15 +277,23 @@ console.log('§7 destroy');
 console.log('§7b a pane that throws, and the api during construction');
 {
     const host = fresh();
+    const roots = {};
     const err = console.error; console.error = () => {};
     const tabs = createBottomPanelTabs(host, { panes: [
-        { id: 'bad', label: 'Bad', mount() { throw new Error('boom'); } },
-        { id: 'alerts', label: 'Alerts', eager: true, mount(el, store, api) { api.setBadge('alerts', 2, 'alert'); return {}; } },
+        { id: 'bad', label: 'Bad', mount(el, store, api) { roots.bad = api.root; throw new Error('boom'); } },
+        { id: 'alerts', label: 'Alerts', eager: true, mount(el, store, api) {
+            roots.alerts = api.root; api.setBadge('alerts', 2, 'alert'); return {}; } },
+        { id: 'later', label: 'Later', mount(el, store, api) { roots.later = api.root; return {}; } },
     ] });
     console.error = err;
     ok('a pane that throws leaves the host working', tabs.active() === 'bad' && (tabs.select('alerts'), tabs.active()) === 'alerts');
     ok('an eager pane sets its badge through api, inside the call',
        host.querySelector('[data-pane="alerts"] .twm-bp__badge').textContent === '2');
+    const bp = host.querySelector(':scope > .twm-bp');
+    ok('api.root is the .twm-bp element inside an eager pane\'s mount', !!bp && roots.alerts === bp);
+    ok('…and inside the mount of the tab in front at creation', roots.bad === bp);
+    tabs.select('later');
+    ok('…and of a pane mounted later', roots.later === bp && tabs.root === bp);
 }
 
 console.log('§8 CSS');

@@ -2374,7 +2374,8 @@ tabs.setIndicator('inputs', 'info');
   ArrowLeft/ArrowRight (wrapping), Home, End; Delete (and a middle click) closes
   a closable tab. Only the tab in front is in the tab order. When an `update`
   removes the tab that has focus (Delete, then your `onClose` drops it), focus
-  moves to the tab now in front instead of falling to the page.
+  moves to the tab now in front instead of falling to the page. Focus that the
+  update put somewhere else (a pane that focuses itself in `onShow`) stays there.
 - **Overflow scrolls**, never wraps: a vertical wheel moves the strip sideways and
   the tab coming to the front is scrolled into view (`revealInStrip`,
   `wheelStripSideways`, shared with `NotebookTabBar`).

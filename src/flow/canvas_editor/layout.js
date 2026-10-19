@@ -10,6 +10,8 @@
  *   nodeBottom       where a node's drawn box ends
  *   isReturnEdge     is this line a loop's body going back round?
  *   layoutGraph      ARRANGE: every step's place, left to right in run order
+ *   pathPoints       a drawn line's path, as the points along it
+ *   pathMidpoint     the point halfway along a drawn line, where its label sits
  */
 
 import { arrange } from '../../canvas/edge_router.js';
@@ -115,4 +117,82 @@ export function layoutGraph(graph, catalogue, { width = CANVAS_NODE.width, heade
         connections.filter((c) => !isReturn(c)).map((c) => ({ from: c.target, to: c.source })),
         { columnGap: width + gap, rowGap },
     );
+}
+
+/** Points per curve segment of a sampled path: enough that a label's place
+ *  and a crossing test agree with what the browser draws to within a pixel. */
+const CURVE_STEPS = 24;
+
+/**
+ * The points along an SVG path `d`, as the kernel writes them: absolute `M`,
+ * `L`, `C`, `S` and `Z`, numbers separated by spaces or commas. Each curve is
+ * sampled at `steps` points; a straight run is its two ends. Computed rather
+ * than asked of the browser (`getPointAtLength`), because jsdom has no
+ * geometry and a label must sit in the same place in both.
+ */
+export function pathPoints(d, { steps = CURVE_STEPS } = {}) {
+    const tokens = String(d || '').match(/-?\d*\.?\d+(?:[eE][-+]?\d+)?|[A-Za-z]/g) || [];
+    const points = [];
+    let at = null;
+    let lastControl = null;
+    let opened = null;
+    let i = 0;
+    const num = () => Number(tokens[i++]);
+    const cubic = (c1, c2, end) => {
+        for (let k = 1; k <= steps; k += 1) {
+            const t = k / steps;
+            const u = 1 - t;
+            points.push({
+                x: u * u * u * at.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * end.x,
+                y: u * u * u * at.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * end.y,
+            });
+        }
+        lastControl = c2;
+        at = end;
+    };
+    while (i < tokens.length) {
+        const command = tokens[i++];
+        if (command === 'M') {
+            at = { x: num(), y: num() };
+            opened = at;
+            points.push(at);
+            lastControl = null;
+        } else if (command === 'Z') {
+            at = opened;
+            points.push(at);
+            lastControl = null;
+        } else if (command === 'L') {
+            at = { x: num(), y: num() };
+            points.push(at);
+            lastControl = null;
+        } else if (command === 'C') {
+            const c1 = { x: num(), y: num() };
+            const c2 = { x: num(), y: num() };
+            cubic(c1, c2, { x: num(), y: num() });
+        } else if (command === 'S') {
+            const c1 = lastControl ? { x: 2 * at.x - lastControl.x, y: 2 * at.y - lastControl.y } : at;
+            const c2 = { x: num(), y: num() };
+            cubic(c1, c2, { x: num(), y: num() });
+        } else {
+            throw new Error(`pathPoints reads M, L, C, S and Z only, not "${command}".`);
+        }
+    }
+    return points;
+}
+
+/** The point halfway along `d`, by length. */
+export function pathMidpoint(d) {
+    const points = pathPoints(d);
+    if (points.length < 2) return points[0] ? { ...points[0] } : { x: 0, y: 0 };
+    const lengths = [0];
+    for (let k = 1; k < points.length; k += 1) {
+        lengths.push(lengths[k - 1] + Math.hypot(points[k].x - points[k - 1].x, points[k].y - points[k - 1].y));
+    }
+    const half = lengths[lengths.length - 1] / 2;
+    let k = 1;
+    while (k < lengths.length - 1 && lengths[k] < half) k += 1;
+    const span = lengths[k] - lengths[k - 1];
+    const t = span > 0 ? (half - lengths[k - 1]) / span : 0;
+    return { x: points[k - 1].x + (points[k].x - points[k - 1].x) * t,
+             y: points[k - 1].y + (points[k].y - points[k - 1].y) * t };
 }

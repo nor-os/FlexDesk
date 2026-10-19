@@ -40,6 +40,8 @@ export const CANVAS_STRINGS = Object.freeze({
     renderFailed: (name, why) => `${name} could not draw its body${why ? `: ${why}` : '.'}`,
     updateFailed: (name, why) => `${name} could not bring its body up to date${why ? `: ${why}` : '.'}`,
     stepId: (id) => `Step id: ${id}`,
+    // `renameInPlace`
+    nameEmpty: 'A step needs a name: the one it had is kept.',
     // `collapsible`
     collapseNode: 'Fold this step to its header',
     expandNode: 'Show this step\'s ports again',

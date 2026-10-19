@@ -2432,7 +2432,7 @@ category clears it.
 | --- | --- |
 | `boolean` | a `ToggleField` |
 | `select` | a select over `options`; a value the options lack (stored, or set elsewhere while the view is open) is kept and shown as *value (not found)* |
-| `number` | a number box with `min`, `max` and `step`; a written value is snapped to the step (counted from `min`) and clamped to the range; an empty or unreadable box goes back to the value |
+| `number` | a number box with `min`, `max` and `step`; a written value is always in the range and on the step grid (`min + k·step`, or `k·step` with no `min`): snapped to the nearest grid point, and one outside the range moved inward to the nearest grid point inside it (with `max` below `min` the range holds none, and the value is `min`); with no `step` it is only clamped; an empty or unreadable box goes back to the value |
 | `text` | a text box, written `textDebounceMs` (default `SETTINGS_TEXT_DEBOUNCE_MS`, 300) after the last keystroke, or at once on Enter or blur; emptied, it writes `null` when the default is `null` |
 | `colorList` | a `ColorListField`, written on each committed edit while every row holds a colour |
 

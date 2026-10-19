@@ -8,12 +8,13 @@
  *   §1  THE CATEGORIES: every registered category in its `order`, and a
  *       chosen one lists its settings under their groups, in schema order.
  *   §2  A NUMBER: a change writes through setSetting (the binding's store),
- *       snapped to the step and clamped to min/max, and the row is marked
+ *       always in min/max and on the step grid (a range end off the grid
+ *       steps inward to the nearest grid point), and the row is marked
  *       modified; an unreadable entry writes nothing.
  *   §3  LIVE: a setSetting made elsewhere moves the open view's control and
  *       marker, for every control type (a select set to a value its options
  *       lack shows it as a fresh mount does, "(not found)"); the view's own
- *       controls write back.
+ *       controls write back, and a select redraws as a fresh mount does.
  *   §4  SEARCH across every category's label, description and path; a query
  *       holding markup is shown as typed and makes no element; schema text
  *       holding markup is shown as text too.
@@ -251,6 +252,54 @@ section('§2 a number setting writes via setSetting, snapped and clamped, and is
     sub.dispose();
     view.dispose();
 }
+{
+    // A range whose ends are off the step grid: a written value stays on it.
+    const bus = new EventBus();
+    const store = createSettingsStore({
+        eventBus: bus,
+        defaults: { g: { odd: 3, tenth: 0.5, none: 4, bad: 6 } },
+        categories: [{ id: 'grid', label: 'Grid', icon: 'tune', description: 'Grid', order: 1 }],
+        schema: {
+            'g.odd':   { type: 'number', category: 'grid', group: 'G', label: 'Odd', description: 'Odd.',
+                         defaultValue: 3, min: 1, max: 10, step: 2 },
+            'g.tenth': { type: 'number', category: 'grid', group: 'G', label: 'Tenth', description: 'Tenth.',
+                         defaultValue: 0.5, max: 0.35, step: 0.1 },
+            'g.none':  { type: 'number', category: 'grid', group: 'G', label: 'None', description: 'None.',
+                         defaultValue: 4, min: 2, max: 7.5 },
+            'g.bad':   { type: 'number', category: 'grid', group: 'G', label: 'Bad', description: 'Bad.',
+                         defaultValue: 6, min: 5, max: 4, step: 1 },
+        },
+    });
+    const written = [];
+    const sub = bus.on('settings:g.odd:changed', (p) => written.push(['g.odd', p.value]));
+    const { view, row } = mount({ store, eventBus: bus, category: 'grid' });
+    const odd = row('g.odd').querySelector('input[type=number]');
+    odd.value = '10';
+    fire(odd, 'change');
+    check('a max off the grid: the value steps inward to the last grid point', written.at(-1), ['g.odd', 9]);
+    check('…the box shows it', odd.value, '9');
+    ok('…which is in range and on the 1, 3, 5, 7, 9 grid', (store.get('g.odd') - 1) % 2 === 0 && store.get('g.odd') <= 10);
+    odd.value = '-4';
+    fire(odd, 'change');
+    check('under min: min itself, a grid point', store.get('g.odd'), 1);
+    odd.value = '6';
+    fire(odd, 'change');
+    check('inside the range, the nearest grid point', store.get('g.odd'), 7);
+    const tenth = row('g.tenth').querySelector('input[type=number]');
+    tenth.value = '0.9';
+    fire(tenth, 'change');
+    check('no min, max 0.35, step 0.1: the last grid point under max, exactly', store.get('g.tenth'), 0.3);
+    const none = row('g.none').querySelector('input[type=number]');
+    none.value = '9';
+    fire(none, 'change');
+    check('no step: only clamped', store.get('g.none'), 7.5);
+    const bad = row('g.bad').querySelector('input[type=number]');
+    bad.value = '4';
+    fire(bad, 'change');
+    check('max below min holds no grid point: the value is min', store.get('g.bad'), 5);
+    sub.dispose();
+    view.dispose();
+}
 
 // ── §3 ──────────────────────────────────────────────────────────────────
 section('§3 a setSetting call made elsewhere updates the open view');
@@ -322,6 +371,8 @@ section('§3 a setSetting call made elsewhere updates the open view');
     ms.value = 'x';
     fire(ms, 'change');
     check('choosing an offered value in the box writes it', store.get('a.mode'), 'x');
+    check('…and the stray entry goes, as for a value set elsewhere', shown(),
+          { value: 'x', text: 'X', options: ['X', 'Y'] });
     ok('…and the marker goes', !isModified(v2.row('a.mode')));
     v2.view.selectCategory('mid');
     store.set('a.pal', ['#aabbcc', '#ddeeff']);

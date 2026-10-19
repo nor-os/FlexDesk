@@ -337,5 +337,71 @@ section('§7 a redraw waits for the editor');
     table.dispose();
     ok('dispose with an editor open leaves nothing behind', !host.querySelector('.twm-dt-editor'));
 }
+{
+    // A commit that settles while the NEXT editor is open in the same row —
+    // save, Tab, type: the spreadsheet's own rhythm. The settle must not
+    // rebuild the row out from under the open editor.
+    const settle = [];
+    const commits = [];
+    const { host, table, rows } = edit({
+        onCellCommit: (c) => {
+            commits.push(c);
+            return new Promise((resolve) => settle.push(resolve));
+        },
+    });
+    click(cellAt(host, 0, 1));
+    key(tbl(), 'F2');
+    const first = editorIn(host);
+    first.value = 'NEW';
+    key(first, 'Tab');
+    check('Tab moved the cursor right', focusOf(table), [0, 2]);
+    ok('the first commit is out', cellAt(host, 0, 1).classList.contains('twm-dt-cell--pending'));
+    key(tbl(), 'F2');
+    const second = editorIn(host);
+    second.value = 'typing';
+    settle.shift()({ ok: true });
+    await tick();
+    ok('the first commit settling leaves the open editor in the document',
+        second.isConnected && editorIn(host) === second);
+    check('…with its text', second.value, 'typing');
+    ok('…while the settled cell loses its pending mark', !cellAt(host, 0, 1).classList.contains('twm-dt-cell--pending'));
+    check('…and the value is in the row', rows[0][1], 'NEW');
+    key(second, 'Enter');
+    check('the open editor commits once, its own cell', commits.slice(1),
+        [{ rowIdx: 0, colIdx: 2, value: 'typing', previous: 'red' }]);
+    settle.shift()({ ok: true });
+    await tick();
+    check('both cells drawn', [cellAt(host, 0, 1).textContent, cellAt(host, 0, 2).textContent], ['NEW', 'typing']);
+    ok('no mark left', !host.querySelector('.twm-dt-cell--pending, .twm-dt-cell--error'));
+    ok('the table is not left editing', !table.isEditing());
+    table.setData({ rows: fresh() });
+    check('…and still draws new rows', cellAt(host, 0, 1).textContent, '3');
+    table.dispose();
+}
+{
+    // Refused while the next editor is open in the row: the mark is painted
+    // on the refused cell at once, and the editor stays.
+    let settle = null;
+    const { host, table } = edit({
+        onCellCommit: () => new Promise((resolve) => { settle = resolve; }),
+    });
+    click(cellAt(host, 1, 0));
+    key(tbl(), 'F2');
+    const first = editorIn(host);
+    first.value = 'bad';
+    key(first, 'Tab');
+    key(tbl(), 'F2');
+    const second = editorIn(host);
+    second.value = 'keep';
+    settle({ ok: false, error: 'Nope' });
+    await tick();
+    ok('a refusal settling leaves the open editor in place', second.isConnected && second.value === 'keep');
+    check('…and marks the refused cell now', cellAt(host, 1, 0).getAttribute('data-error'), 'Nope');
+    key(second, 'Escape');
+    check('after the cancel the row is drawn, the mark still on',
+        [cellAt(host, 1, 0).textContent, cellAt(host, 1, 0).getAttribute('data-error'), cellAt(host, 1, 1).textContent],
+        ['bad', 'Nope', '5']);
+    table.dispose();
+}
 
 done();

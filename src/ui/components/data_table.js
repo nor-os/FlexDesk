@@ -25,7 +25,7 @@ import {
 } from './table_values.js';
 import { isRowActivation, isRowControl } from './row_activation.js';
 import { createChipsFilter } from './table_filter_chips.js';
-import { CellGrid } from './cell_selection.js';
+import { CellGrid } from './cell_grid.js';
 
 // 0.7.0: the built-in chips filter control, for a consumer that wants to build
 // one outside a table (the same control `filterKinds: {kind: 'chips'}` draws).
@@ -406,7 +406,7 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {boolean} [persistPage=false] - With `persistKey`: the client page is saved with the sort and the filters, and opened again on mount (on the last page, if the rows have shrunk since). OFF by default: a key shared by DIFFERENT row sets (ad-hoc filters, search results) must not reopen on a page of the last list. A sort under `resetPageOnSort` and a new filter save the first page, as they show it. A server's page (`onPageChange`, `dataSource`) is the consumer's and is not kept.
  *
  * ── STORY-0003, every one of them off unless asked for ─────────────────────
- * @property {'rows'|'cells'} [selectionMode='rows'] - 'cells': CELL MODE (cell_selection.js). A click selects one cell and puts the CURSOR on it, Shift+click selects the range from the anchor to it; every cell of the range is drawn `twm-dt-cell--selected` and the cursor `twm-dt-cell--cursor` (rows are not lit). On the focused table the arrows move the cursor (Shift extends), Ctrl+arrow jumps to the edge of the block of filled cells, Home/End go to the row's ends (Ctrl: the page's corners), Tab moves right and wraps to the next row (Shift+Tab back), Ctrl+A selects every cell of the page and Escape collapses the range onto the cursor. The cursor stays on the page drawn and is scrolled into view (under `virtualize` its row is drawn). `getSelection()` still answers ROWS — the original indices the range touches — and Ctrl+C copies those rows as before. A cell is `{row, col}`: `row` the position in the order shown (`getDisplayedRows()`), `col` the data column. Fixed for the table's life; `selectToggle`, `selectMode` and `keyboardNav` beside it are ignored with a console warning. See `getCellSelection`, `setCellSelection`.
+ * @property {'rows'|'cells'} [selectionMode='rows'] - 'cells': CELL MODE (cell_grid.js, over cell_selection.js). A click selects one cell and puts the CURSOR on it, Shift+click selects the range from the anchor to it; every cell of the range is drawn `twm-dt-cell--selected` and the cursor `twm-dt-cell--cursor` (rows are not lit). On the focused table the arrows move the cursor (Shift extends), Ctrl+arrow jumps to the edge of the block of filled cells, Home/End go to the row's ends (Ctrl: the page's corners), Tab moves right and wraps to the next row (Shift+Tab back), Ctrl+A selects every cell of the page and Escape collapses the range onto the cursor. The cursor stays on the page drawn and is scrolled into view (under `virtualize` its row is drawn). `getSelection()` still answers ROWS — the original indices the range touches — and Ctrl+C copies those rows as before. A cell is `{row, col}`: `row` the position in the order shown (`getDisplayedRows()`), `col` the data column. Fixed for the table's life; `selectToggle`, `selectMode` and `keyboardNav` beside it are ignored with a console warning. See `getCellSelection`, `setCellSelection`.
  * @property {boolean|number[]|Function} [editable=false] - Cell mode only (a warning, and ignored, without it). Which cells open an EDITOR: `true` every one, an array of data column indices, or `(colIdx, row, rowIdx) => boolean`. F2, Enter, a double-click or a printable key (which the editor starts with) opens it on the cursor cell; in it Enter commits and moves down, Tab commits and moves right, Escape restores the cell and calls nothing, and the focus leaving commits. While it is open a `render()` (a `setData` included) waits, and runs when it closes; its row leaving the virtual window commits it.
  * @property {Object} [editors] - `{[colIdx|type]: factory}`, the editor for a column (by index first, then by its type: `columnTypes`' or the detected 'num'/'text'). A factory is `({value, row, rowIdx, colIdx, column: {index, header, type}, initialText, commit(value), cancel()}) => Element | {el, getValue?, focus?, destroy?}`; an input, select or textarea returned as it is commits its `value`. Absent: a text box (cell_editor_host.js `createTextEditor`), which commits the value unchanged when left as it was.
  * @property {Function} [onCellCommit] - `({rowIdx, colIdx, value, previous}) => void | {ok, error?} | Promise<…>`, once per commit (not for a value left unchanged). Resolving `{ok: false, error}`, rejecting or throwing leaves the typed value in the cell drawn `twm-dt-cell--error` with the message as its `title` and `data-error`; until it settles the cell is `twm-dt-cell--pending`. Otherwise the value is written into the row (`rows[rowIdx][colIdx]`) and drawn. New rows (`setData({rows})`) drop the marks.
@@ -1257,7 +1257,7 @@ export class DataTable {
     }
 
     // ─────────────────────────────────────────────────────────────────
-    // STORY-0003 — cell mode (`selectionMode: 'cells'`), see cell_selection.js
+    // STORY-0003 — cell mode (`selectionMode: 'cells'`), see cell_grid.js
     // ─────────────────────────────────────────────────────────────────
 
     /**

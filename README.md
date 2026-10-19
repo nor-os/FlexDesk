@@ -1295,12 +1295,14 @@ grid.getCellSelection();   // { anchor, focus, range }
 | `editable` | Which cells open an editor: `true`, an array of data column indices, or `(colIdx, row, rowIdx) => boolean`. Needs cell mode. F2, Enter, a double-click or a printable key opens it on the cursor cell (a printable key replaces the value with that character). In the editor Enter commits and moves down, Tab commits and moves right (Shift: up, left), Escape restores the cell and calls nothing; the focus leaving it commits without moving. `editCell(row, col)` opens one from code; `isEditing()` says whether one is open. |
 | `editors: {[colIdx \| type]: factory}` | The editor for a column, looked up by column index and then by type (`columnTypes`, else the detected `num`/`text`). A factory gets `{value, row, rowIdx, colIdx, column: {index, header, type}, initialText, commit(value), cancel()}` and returns an element or `{el, getValue?, focus?, destroy?}`. An input, select or textarea commits its `value` on Enter and Tab; any other editor calls `commit(value)` itself. The default is a text box (`createTextEditor`). |
 | `onCellCommit({rowIdx, colIdx, value, previous})` | Called exactly once per commit; a value left unchanged is no commit. Return nothing or `{ok: true}` (or a Promise of it) and the value is written into the row (`rows[rowIdx][colIdx]`) and drawn. `{ok: false, error}`, a rejection or a throw leaves the typed value in the cell, drawn `twm-dt-cell--error` with the message as its `title` and `data-error`, until a later commit of that cell succeeds or new rows arrive. While the Promise is out the cell is `twm-dt-cell--pending`. |
-| While an editor is open | `render()`, and so `setData`, a sort or a page, waits and runs when the editor closes, so what is being typed is never thrown away. A row that scrolls out of the virtual window commits its editor first. |
+| While an editor is open | `render()`, and so `setData`, a sort or a page, waits and runs when the editor closes, so what is being typed is never thrown away. A commit that settles while another editor is open in its row marks its cell at once and draws the row when that editor closes. A row that scrolls out of the virtual window commits its editor first. |
 | `headerMenu(colIdx, ctx) => items` | Items for the header's right-click menu, asked for the data column right-clicked (`ctx` is `{colIdx, header, hiddenColumns, table}`). Items are `{label, action, icon?, disabled?, danger?, title?}` or `{separator: true}`. Choosing one calls `onHeaderMenuAction(action, colIdx)`. With `columnChooser` the chooser's items follow behind a separator. `[]` or `null` shows only what would show without the hook: the chooser, or the page's own menu. Works in either selection mode. |
 
 The two modules behind cell mode are exported for a consumer that builds its
 own grid: `CellSelection` (the anchor, the cursor and every key's move, with no
-DOM) and `CellEditorHost` (one cell's editor, opened and closed exactly once).
+DOM), `CellEditorHost` (one cell's editor, opened and closed exactly once) and
+`createTextEditor` (the default text box). The table's own half of cell mode
+is internal.
 
 ### Scrollbars
 

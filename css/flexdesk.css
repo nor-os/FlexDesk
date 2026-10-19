@@ -7659,6 +7659,14 @@ body.twm-dragging * { user-select: none; }
     border-color: var(--accent-bright);
     color: var(--text-bright);
 }
+.twm-chip[aria-disabled="true"] {
+    color: var(--text-dim);
+    cursor: not-allowed;
+}
+.twm-chip[aria-disabled="true"]:hover {
+    background: var(--surface-2);
+    color: var(--text-dim);
+}
 .twm-cmdpal__list {
     max-height: 40vh;
     overflow: auto;
@@ -9916,6 +9924,139 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     pointer-events: none;
 }
 /* ══ end WIZARD ══ */
+
+/* ══ SECTION STACK ═══════════════════════════════════════════════════════
+ * `createSectionStack` (ui/components/section_stack.js, STORY-0036): titled
+ * sections in a column, built on the tree's `.twm-collapsible-*` primitive.
+ *
+ * THE STACK IS A COLUMN AS TALL AS ITS CONTAINER. A section is as tall as its
+ * content, except the FILL section, which takes what the others leave
+ * (`flex: 1 1 0`) — and only while it is open, so a closed one is a header.
+ * Its body is the one that scrolls: `min-height: 0` on the box and the body is
+ * what lets a flex child shrink below its content, without which a long
+ * conversation grows the section, and the panel, past the window. If the
+ * fixed sections alone outgrow the stack, the stack itself scrolls; the open
+ * fill box then stops at its header's height (`min-height: 26px`, the header
+ * rule's `height`) so its header never lands on the next section's, and only
+ * its body shrinks away.
+ *
+ * `[hidden]` needs its own rule: the box is `display: flex`, and an author
+ * `display` beats the UA's `[hidden] { display: none }`. */
+.twm-section-stack {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+.twm-section-stack > .twm-section-stack__section {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 auto;
+    min-height: 0;
+}
+.twm-section-stack > .twm-section-stack__section[hidden] {
+    display: none;
+}
+.twm-section-stack > .twm-section-stack__section--fill.twm-section-stack__section--expanded {
+    flex: 1 1 0;
+    min-height: 26px;
+}
+.twm-section-stack__section--fill > .twm-collapsible-content.visible {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+}
+.twm-section-stack__header {
+    gap: var(--space-xxs);
+    height: 26px;
+    padding: 0 var(--space-xs) 0 0;
+    box-sizing: border-box;
+    flex-shrink: 0;
+    color: var(--text-secondary);
+}
+.twm-section-stack__header:hover {
+    background: var(--state-hover);
+}
+/* A real button, so Enter and Space toggle without re-implementing them; the
+ * first declarations are the reset that keeps the UA's own button off it. */
+.twm-section-stack__toggle {
+    appearance: none;
+    background: none;
+    border: 0;
+    color: inherit;
+    font: inherit;
+    text-transform: inherit;
+    text-align: left;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    padding: 0 0 0 var(--space-xs);
+}
+.twm-section-stack__toggle:focus-visible,
+.twm-section-stack__action:focus-visible {
+    outline: 2px solid var(--accent-bright);
+    outline-offset: -2px;
+}
+/* The arrow points down while open (`.twm-collapsible-arrow`) and right while
+ * closed — the class `paint()` sets on it. A fixed, clipped box: without the
+ * icon font the glyph is the word `expand_more`, and that word turned on its
+ * side stood taller than the header and made the whole stack scroll. */
+.twm-section-stack .twm-collapsible-arrow {
+    flex-shrink: 0;
+    width: 12px;
+    height: 12px;
+    line-height: 12px;
+    overflow: hidden;
+}
+.twm-section-stack .twm-collapsible-arrow.collapsed {
+    transform: rotate(-90deg);
+}
+.twm-section-stack__icon.material-symbols-outlined {
+    font-size: var(--font-size-md);
+    line-height: 1;
+}
+.twm-section-stack__title {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.twm-section-stack__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xxs);
+    flex-shrink: 0;
+}
+.twm-section-stack__action {
+    appearance: none;
+    background: none;
+    border: 0;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border-radius: var(--radius-sm);
+}
+.twm-section-stack__action:hover {
+    color: var(--text-primary);
+    background: var(--state-active);
+}
+.twm-section-stack__action .material-symbols-outlined {
+    font-size: var(--font-size-md);
+    line-height: 1;
+}
+/* ══ end SECTION STACK ══ */
 
 /* ══ FLOW · KIT ═══════════════════════════════════════════════════════ */
 /* The shared flow-editor kit (36 §3, §3.12): the settings panel and its

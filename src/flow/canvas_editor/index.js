@@ -12,5 +12,6 @@ export { createCanvasEditor, CANVAS_ACTIONS } from './editor.js';
 export { CANVAS_STRINGS } from './strings.js';
 export {
     CANVAS_NODE, layoutGraph as arrangeCanvasGraph, portAnchor as canvasPortAnchor, nodeBottom as canvasNodeBottom,
+    nodeWidth as canvasNodeWidth,
     isReturnEdge as isCanvasReturnEdge, pathPoints as canvasPathPoints, pathMidpoint as canvasPathMidpoint,
 } from './layout.js';

@@ -8188,6 +8188,33 @@ button.twm-about-dialog__btn--close:focus {
 .twm-flow-graph__node-run[data-state="skipped"],
 .twm-flow-graph__node-run[data-state="cancelled"],
 .twm-flow-graph__node-run[data-state="not-reached"] { font-style: italic; }
+/* A TYPE'S OWN BODY, below its ports (a catalogue type's `render`). It adds
+ * height under the rows and moves nothing above them, so the lines' arithmetic
+ * stands. A type with `size.h` is exactly that tall: its body takes what is
+ * left and clips (the node itself never does: its port dots stand out of it).
+ * An `accent` is a stripe over the header, drawn on top of the box so it takes
+ * no height. */
+.twm-flow-graph__node-body { box-sizing: border-box; padding: 4px 8px 6px; min-width: 0; }
+.twm-flow-graph__node--sized { display: flex; flex-direction: column; }
+.twm-flow-graph__node--sized > .twm-flow-graph__node-head,
+.twm-flow-graph__node--sized > .twm-flow-graph__node-row { flex: none; }
+.twm-flow-graph__node--sized > .twm-flow-graph__node-body { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.twm-flow-graph__node[data-accent]::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    border-radius: 3px 3px 0 0;
+    pointer-events: none;
+}
+.twm-flow-graph__node[data-accent="violet"]::before { background: var(--twm-flow-violet-fg); }
+.twm-flow-graph__node[data-accent="teal"]::before { background: var(--twm-flow-teal-fg); }
+.twm-flow-graph__node[data-accent="amber"]::before { background: var(--twm-flow-amber-fg); }
+.twm-flow-graph__node[data-accent="grey"]::before { background: var(--twm-flow-grey-fg); }
+.twm-flow-graph__node[data-accent="blue"]::before { background: var(--twm-flow-blue-fg); }
+.twm-flow-graph__node[data-accent="indigo"]::before { background: var(--twm-flow-indigo-fg); }
 
 /* ── a port ─────────────────────────────────────────────────────────── */
 .twm-flow-graph__port {

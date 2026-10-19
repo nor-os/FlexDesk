@@ -208,6 +208,9 @@ section('§3 every literal data key FlexDesk writes passes the defaults');
     const WRITE_DATASET = /\.dataset\.([A-Za-z_$][\w$]*)\s*=(?!=)/g;
     const DELETE_DATASET = /delete\s+[\w$.?]+\.dataset\.([A-Za-z_$][\w$]*)/g;
     const ATTR_CALL = /\.(?:setAttribute|removeAttribute|toggleAttribute)\(\s*(?:['"`](data-[a-z0-9-]+)['"`]|([A-Z_][A-Z0-9_]*)\s*[,)])/g;
+    // A widget that writes `data-{dataKey}` (createTabs) names the key as an
+    // option: its default (`dataKey = 'tab-id'`) and each caller's value.
+    const DATA_KEY_OPTION = /\bdataKey\s*[:=]\s*['"]([a-z0-9-]+)['"]/g;
     for (const file of files) {
         const text = readFileSync(file, 'utf8');
         const consts = new Map([...text.matchAll(CONST)].map((m) => [m[1], m[2]]));
@@ -218,6 +221,7 @@ section('§3 every literal data key FlexDesk writes passes the defaults');
                 const attr = m[1] ?? consts.get(m[2]);
                 if (attr) note(attr, file, i + 1);
             }
+            for (const m of line.matchAll(DATA_KEY_OPTION)) note(`data-${m[1]}`, file, i + 1);
         });
     }
     ok('the scan finds the keys the record names',

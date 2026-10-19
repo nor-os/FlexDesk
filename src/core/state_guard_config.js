@@ -150,10 +150,12 @@ const DEFAULT_ALLOWED_DATASET_KEYS = Object.freeze([
     // FlexDesk widgets: every literal data key written under src/ is listed
     // here (tests/state_guard_defaults.test.mjs scans for them), so the
     // shell, dialogs, forms, tooltips and editors pass a strict guard.
+    'accent',
     'act',
     'action-idx',
     'action-value',
     'add',
+    'category',
     'code',
     'data',
     'direction',

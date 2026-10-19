@@ -201,7 +201,8 @@ function coerce(field, raw) {
  *   or colour control is checked and committed: on every keystroke, or once the
  *   edit is finished.
  * @returns {{getValues(): Object, setValues(config: Object): void,
- *   isValid(): boolean, flush(): void, dispose(): void}}
+ *   isValid(): boolean, focusFirstInvalid(): boolean, flush(): void,
+ *   dispose(): void}}
  */
 export function mountTileConfigForm(host, {
     schema, config = {}, data = null, onChange = null, renderers = {}, commitOn = 'input',

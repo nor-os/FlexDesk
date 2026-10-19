@@ -113,6 +113,22 @@
  * report waits until the wheel has been still for `WHEEL_SETTLE_MS`; the next
  * press, the next gesture and `destroy` each hand a waiting one on at once.
  * That is the editor's only timer, and it writes nothing: it tells.
+ *
+ * ══ COPY, CUT, PASTE, DUPLICATE, ONLY WHEN ASKED (`clipboard`) ══════════
+ *
+ * `clipboard: true` keeps what is copied in the editor, for as long as it is
+ * open; `clipboard: {read, write}` hands it to the consumer — `write(text)`
+ * hears the copied JSON (the graph's own `{nodes, connections}` text: the
+ * picked steps and the lines among them, never a line to a step left out) and
+ * `read()` supplies what Ctrl+V pastes, as text or a promise of it. A paste
+ * gives every step a fresh id (`nextId`), takes the lines between them along,
+ * sets the copy off from where it was copied (one more step off at each paste
+ * of the same text, none for the first paste after a cut), picks it and is ONE
+ * `flow:paste` entry; Ctrl+D is the same without the clipboard, as one
+ * `flow:node:duplicate`. A label the flow already has is derived (`Title
+ * (copy)`, `(copy 2)`, …), and `prepareCopy(node, {from, via})` may change a
+ * copy's config and label before it is added. Read only, copy still copies
+ * and the rest are refused with the reason on the message line.
  */
 
 import { CanvasAdapter } from '../../canvas/canvas_adapter.js';
@@ -128,7 +144,7 @@ import { alwaysBefore, enclosingArms, enclosingLoops, DEFAULT_LOOP_PORTS } from 
 import { createFindingsStrip, findingsList, groupFindings } from '../kit/findings.js';
 import { FlowHistory } from '../kit/history.js';
 import { bindFlowKeys } from '../kit/keys.js';
-import { addNode, connect, disconnect, emptyGraph, normalise, removeNode, sameEdge, serialise } from '../kit/logic_graph.js';
+import { addNode, connect, disconnect, emptyGraph, nextId, normalise, removeNode, sameEdge, serialise } from '../kit/logic_graph.js';
 import { CANVAS_STRINGS } from './strings.js';
 import { CANVAS_NODE, isReturnEdge, layoutGraph, nodeBottom, nodeWidth, pathMidpoint, portAnchor } from './layout.js';
 
@@ -146,6 +162,8 @@ export const CANVAS_ACTIONS = Object.freeze([
     'flow:nodes:move',
     'flow:nodes:remove',
     'flow:nodes:align',
+    'flow:paste',
+    'flow:node:duplicate',
 ]);
 
 /** `editor.align(kind)` and the toolbar's align verbs, in toolbar order. */
@@ -156,6 +174,8 @@ const ALIGN_ICON = Object.freeze({ left: 'align_horizontal_left', center: 'align
 /** `editor.distribute(axis)`. */
 const DISTRIBUTE = Object.freeze(['horizontal', 'vertical']);
 const DISTRIBUTE_ICON = Object.freeze({ horizontal: 'horizontal_distribute', vertical: 'vertical_distribute' });
+/** A paste or a duplicate is set off from what it copies by this many grid steps, right and down. */
+const COPY_OFFSET = 2;
 /** Shift+arrow nudges this many grid steps. */
 const NUDGE_FAR = 10;
 
@@ -227,11 +247,18 @@ export function createCanvasEditor(host, options = {}) {
         multiSelect = false,
         edgeStyle = null, routing = 'simple', hoverHighlight = false,
         onViewportChange = null, zoomControls = false, minimap = false, renameInPlace = false,
+        clipboard = null, prepareCopy = null,
     } = options;
     const multi = Boolean(multiSelect);
     if (!ROUTINGS.includes(routing)) {
         throw new Error(`createCanvasEditor: routing is ${ROUTINGS.map((r) => `'${r}'`).join(' or ')}, not '${routing}'.`);
     }
+    if (clipboard && clipboard !== true
+        && (typeof clipboard.read !== 'function' || typeof clipboard.write !== 'function')) {
+        throw new Error('createCanvasEditor: clipboard is true or {read(), write(text)}.');
+    }
+    /** `'memory'`: what is copied stays in the editor; else the consumer's `{read, write}`; null: off. */
+    const clip = clipboard === true ? 'memory' : clipboard || null;
     const styled = typeof edgeStyle === 'function';
     let catalogue = toCatalogue(options.catalogue, 'createCanvasEditor');
     const S = createStrings(CANVAS_STRINGS, strings);
@@ -326,6 +353,10 @@ export function createCanvasEditor(host, options = {}) {
     let pressEnd = null;
     let zoomLimit = '';
     let miniMap = null;
+    /** What `clipboard: true` holds: the last copied text. */
+    let copiedText = null;
+    /** The text pasted last and how many times, so each paste of it is set off one step more. */
+    let pasteRun = { text: null, times: 0 };
 
     const canvas = new CanvasAdapter({ container: canvasHost, gridSize });
     if (startView) canvas.setViewport(startView);
@@ -1842,6 +1873,181 @@ export function createCanvasEditor(host, options = {}) {
         window.addEventListener('pointercancel', pressLetGo, true);
     }
 
+    // ── copy, cut, paste, duplicate (`clipboard`) ───────────────────────
+
+    /** What a method answers without the `clipboard` option: nothing done, nothing said. */
+    const CLIPBOARD_OFF = Object.freeze({ ok: false, reason: null });
+
+    /** A refusal, said on the message line and handed back. */
+    function refused(reason) {
+        setMessage(reason, 'warning');
+        return { ok: false, reason };
+    }
+
+    const roRefusal = () => refused(readOnlyReason() || say(S, 'readOnlyRefusal'));
+    const titleOf = (n) => n.label || typeOf(n)?.label || n.type;
+
+    /** May a step of this type be added again: a type the palette offers, and available here. */
+    const addable = (type) => Boolean(type) && !type.unavailable && offered(type);
+
+    /** The picked steps a copy is made of, in graph order. */
+    const copyRows = () => {
+        const picks = pickedSet();
+        return graph.nodes.filter((n) => picks.has(n.id) && addable(typeOf(n)));
+    };
+
+    /** The steps and the lines among them as the graph's own text; a line to a step left out is not copied. */
+    function copyText(rows) {
+        const ids = new Set(rows.map((n) => n.id));
+        return serialise({ nodes: rows,
+                           connections: graph.connections.filter((c) => ids.has(c.source) && ids.has(c.target)) });
+    }
+
+    /** Onto the clipboard: the editor's own, or the consumer's `write`. */
+    function writeClipboard(text, times) {
+        pasteRun = { text, times };
+        if (clip === 'memory') { copiedText = text; return true; }
+        const failed = () => setMessage(say(S, 'clipboardFailed'), 'warning');
+        try {
+            const done = clip.write(text);
+            if (done && typeof done.then === 'function') done.then(null, failed);
+        } catch {
+            failed();
+            return false;
+        }
+        return true;
+    }
+
+    /** COPY: the picked steps and the lines among them onto the clipboard. Read only, too. */
+    function copyNodes() {
+        if (!clip) return CLIPBOARD_OFF;
+        if (!pickedIds().length) return refused(say(S, 'nothingPicked'));
+        const rows = copyRows();
+        if (!rows.length) return refused(say(S, 'cannotCopy'));
+        if (!writeClipboard(copyText(rows), 0)) return { ok: false, reason: say(S, 'clipboardFailed') };
+        setMessage(say(S, 'copied', rows.length), 'ok');
+        return { ok: true, ids: rows.map((n) => n.id) };
+    }
+
+    /** CUT: a copy, then the copied steps removed with their lines — one remove entry. */
+    function cutNodes() {
+        if (!clip) return CLIPBOARD_OFF;
+        if (isReadOnly()) return roRefusal();
+        if (!pickedIds().length) return refused(say(S, 'nothingPicked'));
+        const rows = copyRows().filter((n) => canRemove(n, typeOf(n)));
+        if (!rows.length) return refused(say(S, 'cannotCut'));
+        // The first paste after a cut puts the steps back where they were.
+        if (!writeClipboard(copyText(rows), -1)) return { ok: false, reason: say(S, 'clipboardFailed') };
+        for (const n of rows) removeNode(graph, n.id);
+        findingsBy = groupFindings(allFindings(), { graph });
+        select(null);
+        paintNodes();
+        commit(rows.length > 1 ? 'flow:nodes:remove' : 'flow:node:remove');
+        setMessage(say(S, 'cutDone', rows.length), 'ok');
+        keepFocus();
+        return { ok: true, ids: rows.map((n) => n.id) };
+    }
+
+    /** What is on the clipboard, read as steps: the graph text, or a refusal. */
+    function stepsOf(text) {
+        if (typeof text !== 'string' || !text.trim()) return { reason: say(S, 'nothingToPaste') };
+        let raw;
+        try { raw = JSON.parse(text); } catch { return { reason: say(S, 'pasteNotSteps') }; }
+        if (!raw || !Array.isArray(raw.nodes) || !raw.nodes.length
+            || raw.nodes.some((n) => !n || typeof n !== 'object' || !n.id || !n.type)) {
+            return { reason: say(S, 'pasteNotSteps') };
+        }
+        const g = normalise(raw);
+        const odd = g.nodes.find((n) => !addable(typeOf(n)));
+        if (odd) return { reason: typeOf(odd) ? say(S, 'notAddable', titleOf(odd)) : say(S, 'unknownType', odd.type) };
+        return { g };
+    }
+
+    /**
+     * The copies into the graph, `offset` grid steps off: fresh ids, a label
+     * derived when the flow already has it, `prepareCopy`, the lines among
+     * them, then picked — ONE `action` entry. Nothing is written until every
+     * copy is made, so a `prepareCopy` that throws changes nothing.
+     */
+    function addCopies(g, offset, via, action) {
+        const step = (canvas.gridSize || CANVAS_NODE.row) * offset;
+        const titles = new Set(graph.nodes.map(titleOf));
+        const made = [];
+        const idOf = new Map();
+        for (const from of g.nodes) {
+            const id = nextId({ nodes: [...graph.nodes, ...made] }, from.type, { catalogue });
+            const title = titleOf(from);
+            let label = from.label || null;
+            if (titles.has(title)) {
+                let i = 1;
+                label = say(S, 'copyLabel', title, i);
+                while (titles.has(label)) { i += 1; label = say(S, 'copyLabel', title, i); }
+                titles.add(label);
+            }
+            const copy = { id, type: from.type, ...(label ? { label } : {}), config: structuredClone(from.config),
+                           position: { x: from.position.x + step, y: from.position.y + step } };
+            if (typeof prepareCopy === 'function') prepareCopy(copy, { from: from.id, via });
+            const [clean] = normalise({ nodes: [{ ...copy, id, type: from.type, position: { ...copy.position } }],
+                                        connections: [] }).nodes;
+            made.push(clean);
+            idOf.set(from.id, id);
+        }
+        graph.nodes.push(...made);
+        for (const c of g.connections) {
+            const source = idOf.get(c.source);
+            const target = idOf.get(c.target);
+            if (source && target) connect(graph, catalogue, { ...c, source, target }, { strings: S });
+        }
+        const ids = made.map((n) => n.id);
+        if (connecting) cancelConnect();
+        paintNodes();
+        if (multi) pickNodes(ids); else select({ kind: 'node', id: ids[0] });
+        commit(action);
+        setMessage('');
+        return { ok: true, ids };
+    }
+
+    /** PASTE `text` — or, without it, what the clipboard holds (a promise of
+     *  the answer when the consumer's `read` is one). */
+    function pasteNodes(text) {
+        if (!clip) return CLIPBOARD_OFF;
+        if (isReadOnly()) return roRefusal();
+        const settle = (t) => {
+            if (destroyed) return CLIPBOARD_OFF;
+            if (isReadOnly()) return roRefusal();
+            const { g, reason } = stepsOf(t);
+            if (!g) return refused(reason);
+            const times = pasteRun.text === t ? pasteRun.times + 1 : 1;
+            pasteRun = { text: t, times };
+            return addCopies(g, COPY_OFFSET * times, 'paste', 'flow:paste');
+        };
+        if (text !== undefined) return settle(text);
+        if (clip === 'memory') return settle(copiedText);
+        let got;
+        try { got = clip.read(); } catch { return refused(say(S, 'clipboardFailed')); }
+        if (got && typeof got.then === 'function') {
+            return got.then(settle, () => (destroyed ? CLIPBOARD_OFF : refused(say(S, 'clipboardFailed'))));
+        }
+        return settle(got);
+    }
+
+    /** DUPLICATE: a copy of the picked steps beside them, the clipboard untouched. */
+    function duplicateNodes() {
+        if (!clip) return CLIPBOARD_OFF;
+        if (isReadOnly()) return roRefusal();
+        if (!pickedIds().length) return refused(say(S, 'nothingPicked'));
+        const rows = copyRows();
+        if (!rows.length) return refused(say(S, 'cannotCopy'));
+        return addCopies(JSON.parse(copyText(rows)), COPY_OFFSET, 'duplicate', 'flow:node:duplicate');
+    }
+
+    /** A clipboard key: with nothing picked, Ctrl+C, X and D are not the editor's. */
+    const clipKey = (run, needsPick = true) => () => {
+        if (!clip || (needsPick && !pickedIds().length)) return false;
+        run();
+        return undefined;
+    };
+
     // ── keys ────────────────────────────────────────────────────────────
 
     const unbindKeys = bindFlowKeys(root, {
@@ -1877,6 +2083,10 @@ export function createCanvasEditor(host, options = {}) {
             setMessage('');
             return undefined;
         },
+        copy: clipKey(copyNodes),
+        cut: clipKey(cutNodes),
+        paste: clipKey(() => pasteNodes(), false),
+        duplicate: clipKey(duplicateNodes),
         selectAll: () => {
             if (!multi) return false;
             pickNodes(graph.nodes.map((x) => x.id));
@@ -2031,6 +2241,14 @@ export function createCanvasEditor(host, options = {}) {
         /** `multiSelect`: equal gaps, horizontal or vertical (three or more). */
         distribute: (axis) => (multi ? distributeNodes(axis) : false),
         fit: (opts) => { fit(opts); viewportBaseline(); },
+        /** `clipboard`: copy the picked steps and the lines among them; `{ok, ids}` or `{ok: false, reason}`. */
+        copy: () => copyNodes(),
+        /** `clipboard`: copy, then remove what was copied (one remove entry). Refused read only. */
+        cut: () => cutNodes(),
+        /** `clipboard`: paste `text`, or what the clipboard holds — a promise when the consumer's `read` is async. */
+        paste: (text) => pasteNodes(text),
+        /** `clipboard`: a copy of the picked steps beside them, one `flow:node:duplicate` entry. */
+        duplicate: () => duplicateNodes(),
         destroy() {
             if (destroyed) return;
             // A wheel's report still waiting is handed on: the reader did zoom.

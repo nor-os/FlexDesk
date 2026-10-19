@@ -29,9 +29,11 @@ import { ruleBody, stripComments } from './css_rules.mjs';
 
 const t = await flowEnv('flow canvas — edge styles');
 const { window: w } = t;
-const { createCanvasEditor, createStepCatalogue, CANVAS_NODE, canvasPortAnchor, canvasNodeBottom } = await import('../flow.js');
+const {
+    createCanvasEditor, createStepCatalogue, CANVAS_NODE, canvasPortAnchor, canvasNodeBottom,
+    canvasPathPoints: pathPoints, canvasPathMidpoint: pathMidpoint,
+} = await import('../flow.js');
 const { routeEdge, OBSTACLE_ROUTING_NODE_LIMIT } = await import('../canvas.js');
-const { pathPoints, pathMidpoint } = await import('../src/flow/canvas_editor/layout.js');
 
 const sheet = stripComments(t.css('flexdesk.css'));
 
@@ -212,24 +214,33 @@ t.section('§6 hover highlights the attached lines');
 {
     const m = mount({ hoverHighlight: true });
     const lit = () => lines(m).map((l) => l.classList.contains('twm-flow-graph__edge--highlighted'));
+    // The lines as painted, taken before any hover: a hover that repainted the
+    // edge layer would leave other elements in their place.
+    let painted = lines(m);
+    const same = () => lines(m).length === painted.length && painted.every((l, i) => l === lines(m)[i]);
     t.check('nothing is highlighted at first', lit(), [false, false]);
     enter(nodeEl(m, 'a'));
     t.check('entering a node highlights its lines', lit(), [true, false]);
+    t.ok('in place: entering a node rebuilt no line', same());
     leave(nodeEl(m, 'a'));
     t.check('leaving it takes the highlight away', lit(), [false, false]);
+    t.ok('in place: leaving a node rebuilt no line', same());
     enter(nodeEl(m, 'b'));
     t.check('a node with two lines highlights both', lit(), [true, true]);
-    const before = lines(m);
-    t.ok('in place: no line was rebuilt', before.every((l, i) => l === lines(m)[i]));
+    t.ok('in place: entering a second node rebuilt no line', same());
     m.editor.select('c');
     t.check('a repaint keeps the highlight while the pointer is there', lit(), [true, true]);
+    painted = lines(m);
     leave(nodeEl(m, 'b'));
     t.check('and leaving takes it away', lit(), [false, false]);
+    t.ok('in place: leaving after a repaint rebuilt no line', same());
     const hits = [...m.el.querySelectorAll('.twm-flow-graph__edge-hit')];
     enter(hits[1]);
     t.check('entering a line highlights that line', lit(), [false, true]);
+    t.ok('in place: entering a line rebuilt no line', same());
     leave(hits[1]);
     t.check('and leaving it takes it away', lit(), [false, false]);
+    t.ok('in place: leaving a line rebuilt no line', same());
     t.ok('the sheet draws the highlight',
          /stroke:\s*var\(--twm-flow-focus\)/.test(ruleBody(sheet, '.twm-flow-graph__edge--highlighted') || ''));
 }

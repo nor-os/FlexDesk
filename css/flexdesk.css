@@ -5863,6 +5863,26 @@ button.twm-about-dialog__btn--close:focus {
 .twm-managed-window--modal .twm-picker__btn .material-symbols-outlined {
     font-size: 15px;
 }
+/* An option that cannot be chosen, and why — drawn by choice_controls.js
+ * for openForm's select, checklist and radio (and the flow kit's widgets). */
+.twm-choice--disabled { cursor: default; opacity: 0.7; }
+.twm-choice__reason {
+    font-size: var(--font-size-xs);
+    font-style: italic;
+    color: var(--ea-text-dim);
+}
+.twm-flow-togglechip > .twm-choice__reason { margin-left: 4px; }
+/* A group's heading over its chips or radio rows (a select's is its optgroup). */
+.twm-choice__group {
+    flex-basis: 100%;
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ea-text-dim);
+}
+.twm-choice__group:not(:first-child) { margin-top: 4px; }
+.twm-flow-togglechip > .twm-choice__reason::before { content: '— '; }
 /* A row (or named section) hidden by openForm's `setVisible`. `[hidden]`
  * carries only the UA sheet's `display: none`, which the grid and flex rules
  * on `.twm-modal__row` / `.twm-modal__section` beat — so a hidden row stayed

@@ -6578,6 +6578,7 @@ button.twm-about-dialog__btn--close:focus {
     background: var(--surface-3);
 }
 /* ══ end MENU BAR ══ */
+
 /* ══ TOGGLE ══════════════════════════════════════════════════════════
  * ToggleField: a track and a knob drawn over a real checkbox with
  * role="switch". The input sits on top of the track, transparent, so the

@@ -150,10 +150,11 @@ async function mountShell(store) {
 }
 
 /** A real mouse drag on the splitter of the split that holds `side`'s panel:
- *  mousedown on the splitter, one mousemove of `deltaPx`, mouseup. The split
+ *  mousedown on the splitter, one mousemove of `deltaPx` along the split's
+ *  axis (and `acrossPx` across it), mouseup. The split
  *  container is given `sizePx` along the split's axis, since jsdom lays
  *  nothing out. */
-function mouseDrag({ wm, root }, side, sizePx, deltaPx) {
+function mouseDrag({ wm, root }, side, sizePx, deltaPx, acrossPx = 0) {
     const tree = wm._tree();
     const split = tree.get(panelLeaf(tree, side).parentId);
     const splitter = root.querySelector(`.twm-splitter[data-split-id="${split.id}"]`);
@@ -163,11 +164,13 @@ function mouseDrag({ wm, root }, side, sizePx, deltaPx) {
         width: horizontal ? sizePx : 100, height: horizontal ? 100 : sizePx,
         right: horizontal ? sizePx : 100, bottom: horizontal ? 100 : sizePx,
     });
-    const at = (v) => (horizontal ? { clientX: v, clientY: 0 } : { clientX: 0, clientY: v });
-    const opts = (v) => ({ bubbles: true, cancelable: true, button: 0, ...at(v) });
+    const at = (v, w) => (horizontal ? { clientX: v, clientY: w } : { clientX: w, clientY: v });
+    const opts = (v, w = 0) => ({ bubbles: true, cancelable: true, button: 0, ...at(v, w) });
     splitter.dispatchEvent(new dom.window.MouseEvent('mousedown', opts(500)));
-    if (deltaPx) dom.window.document.dispatchEvent(new dom.window.MouseEvent('mousemove', opts(500 + deltaPx)));
-    dom.window.document.dispatchEvent(new dom.window.MouseEvent('mouseup', opts(500 + deltaPx)));
+    if (deltaPx || acrossPx) {
+        dom.window.document.dispatchEvent(new dom.window.MouseEvent('mousemove', opts(500 + deltaPx, acrossPx)));
+    }
+    dom.window.document.dispatchEvent(new dom.window.MouseEvent('mouseup', opts(500 + deltaPx, acrossPx)));
 }
 
 // ── §1 A Navigator dragged to 40% width is 40% after a reload ───────────
@@ -185,6 +188,19 @@ function mouseDrag({ wm, root }, side, sizePx, deltaPx) {
     mouseDrag(s1, 'left', 1004, 0);
     await sleep(SETTLE_MS);
     check('a splitter clicked without dragging saves nothing', s1.host.writes, before);
+
+    // A move ACROSS the splitter only (pointer jitter during a click) leaves
+    // the sizes where they were, and saves nothing either.
+    {
+        const t = s1.wm._tree();
+        const split = t.get(panelLeaf(t, 'left').parentId);
+        const sizesBefore = split.sizes.slice();
+        mouseDrag(s1, 'left', 1004, 0, 7);
+        await sleep(SETTLE_MS);
+        check('(setup) a move across the splitter leaves the sizes alone',
+              t.get(split.id).sizes, sizesBefore);
+        check('a splitter moved across but not along saves nothing', s1.host.writes, before);
+    }
 
     // The right panel first: its splitter moves the Navigator's width too
     // (the Navigator sits inside the right panel's split). Each split is

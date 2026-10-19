@@ -129,6 +129,27 @@
  * (copy)`, `(copy 2)`, …), and `prepareCopy(node, {from, via})` may change a
  * copy's config and label before it is added. Read only, copy still copies
  * and the rest are refused with the reason on the message line.
+ *
+ * ══ LIVE VALUES ARE PAINTED, NEVER EDITED ═══════════════════════════════
+ *
+ * `setNodeValues({[id]: {badge, tone, ports: {[name]: text}}})` is what the
+ * host is showing right now — a value on a node's header, a value beside a
+ * port — and it extends the run overlay: no node is rebuilt, nothing is
+ * recorded, `onChange` is not called and the panel is not touched, so a
+ * field being typed into keeps its focus however often the host paints. The
+ * values reach a type's own body through `ctx.values`, and its `update` runs
+ * for each node whose values changed. Their elements exist only while there
+ * is a value to show.
+ *
+ * ══ A NODE FOLDS TO ITS HEADER, ONLY WHEN ASKED (`collapsible: true`) ═══
+ *
+ * A button on each header folds its node away to the header and back, one
+ * `flow:node:collapse` entry each way. Its port rows, its body and what is
+ * drawn under them are hidden; its lines stay, meeting the header's middle on
+ * its two sides (as a kernel node's `collapsedPorts` stand in for the ports a
+ * folded node hides). A folded node is `collapsed: true` in the graph; an unfolded one has no such
+ * key. Without the option a `collapsed` flag is carried through untouched and
+ * the node is drawn unfolded.
  */
 
 import { CanvasAdapter } from '../../canvas/canvas_adapter.js';
@@ -164,6 +185,7 @@ export const CANVAS_ACTIONS = Object.freeze([
     'flow:nodes:align',
     'flow:paste',
     'flow:node:duplicate',
+    'flow:node:collapse',
 ]);
 
 /** `editor.align(kind)` and the toolbar's align verbs, in toolbar order. */
@@ -247,8 +269,9 @@ export function createCanvasEditor(host, options = {}) {
         multiSelect = false,
         edgeStyle = null, routing = 'simple', hoverHighlight = false,
         onViewportChange = null, zoomControls = false, minimap = false, renameInPlace = false,
-        clipboard = null, prepareCopy = null,
+        clipboard = null, prepareCopy = null, collapsible = false,
     } = options;
+    const folding = Boolean(collapsible);
     const multi = Boolean(multiSelect);
     if (!ROUTINGS.includes(routing)) {
         throw new Error(`createCanvasEditor: routing is ${ROUTINGS.map((r) => `'${r}'`).join(' or ')}, not '${routing}'.`);
@@ -266,6 +289,8 @@ export function createCanvasEditor(host, options = {}) {
         width: Number(nodeOptions.width) || CANVAS_NODE.width,
         header: Number(nodeOptions.header) || CANVAS_NODE.header,
         row: Number(nodeOptions.row) || CANVAS_NODE.row,
+        /** Is this node drawn folded to its header? Only with `collapsible`. */
+        folded: (n) => folding && n?.collapsed === true,
     });
     const loopPorts = Object.freeze({ ...DEFAULT_LOOP_PORTS, ...plainObject(loop) });
     const canRemove = typeof removable === 'function' ? removable
@@ -308,6 +333,8 @@ export function createCanvasEditor(host, options = {}) {
     let findings = [];
     let findingsBy = new Map();
     let overlay = null;
+    /** What the host shows on each node now (`setNodeValues`), by node id: {badge, tone, ports}. */
+    let liveValues = new Map();
     /** {kind: 'flow'} | {kind: 'node', id} | {kind: 'many', ids} (two or more, `multiSelect`)
      *  | {kind: 'edge', edge} | null */
     let selected = null;
@@ -841,7 +868,7 @@ export function createCanvasEditor(host, options = {}) {
     /** A node with its own body and no `size.h` is as tall as it is drawn,
      *  measured (so is one with `inline` settings); jsdom (and a node not yet laid out) answers 0, and then the
      *  arithmetic box stands. */
-    const measured = (n) => ((bodies.has(n.id) || inlines.has(n.id)) && !catalogue.size?.(n.type)?.h
+    const measured = (n) => ((bodies.has(n.id) || inlines.has(n.id)) && !catalogue.size?.(n.type)?.h && !BOX.folded(n)
         ? nodeEls.get(n.id)?.offsetHeight || 0 : 0);
     const bottomOf = (n) => Math.max(nodeBottom(catalogue, n, BOX), n.position.y + measured(n));
     const isReturn = (c, target) => isReturnEdge(c, target, catalogue, loopPorts.entry);
@@ -904,6 +931,7 @@ export function createCanvasEditor(host, options = {}) {
         const tag = el('span', 'twm-flow-graph__node-tag', nodeRow.id);
         tag.title = say(S, 'stepId', nodeRow.id);
         header.append(chip, title, tag);
+        if (folding) header.appendChild(foldButton(nodeRow.id));
         header.addEventListener('pointerdown', (ev) => startMove(ev, nodeRow.id));
         n.appendChild(header);
         const inputs = catalogue.inputs(nodeRow.type);
@@ -1125,6 +1153,8 @@ export function createCanvasEditor(host, options = {}) {
         const box = el('div', 'twm-flow-graph__node-body');
         const ctx = Object.freeze({
             get readOnly() { return isReadOnly(); },
+            /** What the host shows on this node now (`setNodeValues`), a copy; null when nothing. */
+            get values() { return valuesCopy(id); },
             services,
             setConfig: (patch) => setNodeConfig(id, patch),
         });
@@ -1168,6 +1198,94 @@ export function createCanvasEditor(host, options = {}) {
         if (selected?.kind === 'node' && selected.id === id) paintPanel();
         commit('flow:node:config', `${from}:${id}:${keys.join(',')}`);
         return true;
+    }
+
+    /** The header's fold button (`collapsible`): its press is its own, never a drag. */
+    function foldButton(id) {
+        const b = el('button', 'twm-flow-graph__node-fold');
+        b.type = 'button';
+        b.appendChild(icon('expand_less'));
+        b.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+        b.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            const nodeRow = nodeOf(id);
+            if (nodeRow) setCollapsed(id, nodeRow.collapsed !== true);
+        });
+        return b;
+    }
+
+    /** Fold a node to its header, or unfold it: ONE `flow:node:collapse` entry.
+     *  False when refused: no `collapsible`, read only, no such node, no change. */
+    function setCollapsed(id, collapsed) {
+        if (!folding || destroyed || isReadOnly()) return false;
+        const nodeRow = nodeOf(id);
+        if (!nodeRow || (nodeRow.collapsed === true) === Boolean(collapsed)) return false;
+        if (collapsed) nodeRow.collapsed = true; else delete nodeRow.collapsed;
+        if (connecting?.source === id) cancelConnect();
+        paintNodes();
+        commit('flow:node:collapse');
+        return true;
+    }
+
+    /** One node's entry of `setNodeValues`, read into what is drawn; null when it shows nothing. */
+    function valueEntry(v) {
+        if (!v || typeof v !== 'object') return null;
+        const text = (x) => (x === undefined || x === null || x === '' ? null : String(x));
+        const ports = {};
+        for (const [name, x] of Object.entries(plainObject(v.ports))) {
+            const shown = text(x);
+            if (shown !== null) ports[name] = shown;
+        }
+        const badge = text(v.badge);
+        if (badge === null && !Object.keys(ports).length) return null;
+        return Object.freeze({ badge, tone: TONES.includes(v.tone) ? v.tone : null, ports: Object.freeze(ports) });
+    }
+
+    const valuesCopy = (id) => {
+        const v = liveValues.get(id);
+        return v ? { badge: v.badge, tone: v.tone, ports: { ...v.ports } } : null;
+    };
+
+    /** A node's live values onto its header and its ports, in place. An
+     *  element is there only while it has a value to show. */
+    function paintValues(n, nodeRow) {
+        const v = liveValues.get(nodeRow.id) || null;
+        const header = n.querySelector('.twm-flow-graph__node-head');
+        let badge = header.querySelector('.twm-flow-graph__node-badge');
+        if (v?.badge !== null && v?.badge !== undefined) {
+            if (!badge) {
+                badge = el('span', 'twm-flow-graph__node-badge');
+                header.insertBefore(badge, header.querySelector('.twm-flow-graph__node-tag'));
+            }
+            if (badge.textContent !== v.badge) badge.textContent = badge.title = v.badge;
+            if (v.tone) badge.dataset.tone = v.tone; else delete badge.dataset.tone;
+        } else badge?.remove();
+        for (const b of n.querySelectorAll('.twm-flow-graph__port')) {
+            const shown = v && Object.hasOwn(v.ports, b.dataset.port) ? v.ports[b.dataset.port] : null;
+            let tag = b.querySelector('.twm-flow-graph__port-value');
+            if (shown === null) { tag?.remove(); continue; }
+            if (!tag) {
+                tag = el('span', 'twm-flow-graph__port-value');
+                b.insertBefore(tag, b.querySelector('.twm-flow-graph__port-count'));
+            }
+            if (tag.textContent !== shown) tag.textContent = shown;
+        }
+    }
+
+    /** A node's own `update`, onto its body; true when its body's findings changed. */
+    function runUpdate(nodeRow) {
+        const own = bodies.get(nodeRow.id);
+        if (typeof own?.update !== 'function') return false;
+        try {
+            own.update(own.el, nodeCopy(nodeRow), own.ctx);
+            if (bodyFindings.get(nodeRow.id)?.code !== 'node-update') return false;
+            bodyFindings.delete(nodeRow.id);
+            return true;
+        } catch (err) {
+            const before = bodyFindings.get(nodeRow.id)?.message;
+            bodyFailed(nodeRow, 'update', err);
+            return before !== bodyFindings.get(nodeRow.id).message;
+        }
     }
 
     function port(nodeRow, p) {
@@ -1371,27 +1489,19 @@ export function createCanvasEditor(host, options = {}) {
             n = fresh;
             if (focused) fresh.focus({ preventScroll: true });
         } else paintInline(nodeRow);
-        const own = bodies.get(nodeRow.id);
-        if (typeof own?.update === 'function') {
-            try {
-                own.update(own.el, nodeCopy(nodeRow), own.ctx);
-                if (bodyFindings.get(nodeRow.id)?.code === 'node-update') {
-                    bodyFindings.delete(nodeRow.id);
-                    bodyChanged = true;
-                }
-            } catch (err) {
-                const before = bodyFindings.get(nodeRow.id)?.message;
-                bodyFailed(nodeRow, 'update', err);
-                bodyChanged = bodyChanged || before !== bodyFindings.get(nodeRow.id).message;
-            }
-        }
+        bodyChanged = runUpdate(nodeRow) || bodyChanged;
         if (bodyChanged) findingsBy = groupFindings(allFindings(), { graph });
         n.style.left = `${nodeRow.position.x}px`;
         n.style.top = `${nodeRow.position.y}px`;
         n.style.width = `${widthOf(nodeRow)}px`;
-        const h = catalogue.size?.(nodeRow.type)?.h;
+        const folded = BOX.folded(nodeRow);
+        const h = folded ? null : catalogue.size?.(nodeRow.type)?.h;
         if (h) n.style.height = `${h}px`; else n.style.removeProperty('height');
         n.classList.toggle('twm-flow-graph__node--sized', Boolean(h));
+        if (folding) paintFold(n, folded);
+        if (liveValues.size || n.querySelector('.twm-flow-graph__node-badge, .twm-flow-graph__port-value')) {
+            paintValues(n, nodeRow);
+        }
         const accent = catalogue.accent?.(nodeRow.type) || null;
         if (accent) n.dataset.accent = accent; else delete n.dataset.accent;
         const picked = picks.has(nodeRow.id);
@@ -1424,6 +1534,20 @@ export function createCanvasEditor(host, options = {}) {
                 ? say(S, 'portCount', mark.count) : mark && !mark.taken ? say(S, 'portNotTaken') : '';
         }
         return bodyChanged;
+    }
+
+    /** A node folded or not (`collapsible`): its class and its button's state, in place. */
+    function paintFold(n, folded) {
+        n.classList.toggle('twm-flow-graph__node--collapsed', folded);
+        const b = n.querySelector('.twm-flow-graph__node-fold');
+        if (!b) return;
+        b.disabled = isReadOnly();
+        b.setAttribute('aria-expanded', String(!folded));
+        b.title = say(S, folded ? 'expandNode' : 'collapseNode');
+        b.setAttribute('aria-label', b.title);
+        const glyph = b.querySelector('.material-symbols-outlined');
+        const name = folded ? 'expand_more' : 'expand_less';
+        if (glyph && glyph.textContent !== name) glyph.textContent = name;
     }
 
     function paintEdges() {
@@ -2196,6 +2320,48 @@ export function createCanvasEditor(host, options = {}) {
             paintNodes();
             panel.setFindings(allFindings());
         },
+        /**
+         * What the host shows on the nodes now — `{[id]: {badge, tone, ports:
+         * {[name]: text}}}`, or null for none — replacing what it showed
+         * before. Painted in place: nothing is rebuilt or recorded, `onChange`
+         * is not called and the panel is not touched. A type's own `update`
+         * runs for each node whose values changed, and reads them as `ctx.values`.
+         */
+        setNodeValues(next) {
+            if (destroyed) return;
+            const fresh = new Map();
+            for (const [id, v] of Object.entries(plainObject(next))) {
+                const entry = valueEntry(v);
+                if (entry) fresh.set(String(id), entry);
+            }
+            const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+            const changed = [...new Set([...liveValues.keys(), ...fresh.keys()])]
+                .filter((id) => !same(liveValues.get(id), fresh.get(id)));
+            liveValues = fresh;
+            let bodyChanged = false;
+            painting = true;
+            try {
+                for (const id of changed) {
+                    const nodeRow = nodeOf(id);
+                    const n = nodeEls.get(id);
+                    if (!nodeRow || !n) continue;
+                    paintValues(n, nodeRow);
+                    bodyChanged = runUpdate(nodeRow) || bodyChanged;
+                }
+            } finally {
+                painting = false;
+            }
+            // A body's `update` that started or stopped throwing: its finding is drawn.
+            if (bodyChanged) {
+                findingsBy = groupFindings(allFindings(), { graph });
+                paintNodes();
+                paintStrip();
+                panel.setFindings(allFindings());
+            }
+        },
+        /** `collapsible`: fold a node to its header (true) or unfold it, one
+         *  `flow:node:collapse` entry; false when refused or nothing changes. */
+        setCollapsed: (id, collapsed) => setCollapsed(String(id), collapsed),
         /** Draw a run on the canvas — never changes the graph and rebuilds no field. */
         setRunOverlay(next) {
             overlay = next && typeof next === 'object' ? next : null;

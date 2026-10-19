@@ -145,7 +145,8 @@ const snap = (v) => Math.round(v / 16) * 16;
 t.section('§0 the action list is the contract\'s');
 t.check('CANVAS_ACTIONS', [...CANVAS_ACTIONS], ['flow:node:add', 'flow:node:remove', 'flow:node:move', 'flow:edge:connect',
     'flow:edge:disconnect', 'flow:node:label', 'flow:node:config', 'flow:settings', 'flow:arrange',
-    'flow:nodes:move', 'flow:nodes:remove', 'flow:nodes:align', 'flow:paste', 'flow:node:duplicate']);
+    'flow:nodes:move', 'flow:nodes:remove', 'flow:nodes:align', 'flow:paste', 'flow:node:duplicate',
+    'flow:node:collapse']);
 t.ok('frozen, and the editor\'s history holds exactly it', Object.isFrozen(CANVAS_ACTIONS)
      && JSON.stringify(mount().editor.history.actions) === JSON.stringify(CANVAS_ACTIONS));
 

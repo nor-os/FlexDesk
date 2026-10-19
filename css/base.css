@@ -8220,6 +8220,53 @@ button.twm-about-dialog__btn--close:focus {
 .twm-flow-graph__node[data-accent="blue"]::before { background: var(--twm-flow-blue-fg); }
 .twm-flow-graph__node[data-accent="indigo"]::before { background: var(--twm-flow-indigo-fg); }
 
+/* LIVE VALUES (`setNodeValues`): a value on the header, before the step's id
+ * tag, and one beside a port. Neither element exists until there is a value. */
+.twm-flow-graph__node-badge {
+    flex: none;
+    max-width: 40%;
+    padding: 1px 5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-body);
+    background: rgba(127, 127, 127, 0.18);
+    border-radius: 2px;
+}
+.twm-flow-graph__node-badge[data-tone="violet"] { background: var(--twm-flow-violet-bg); color: var(--twm-flow-violet-fg); }
+.twm-flow-graph__node-badge[data-tone="teal"] { background: var(--twm-flow-teal-bg); color: var(--twm-flow-teal-fg); }
+.twm-flow-graph__node-badge[data-tone="amber"] { background: var(--twm-flow-amber-bg); color: var(--twm-flow-amber-fg); }
+.twm-flow-graph__node-badge[data-tone="grey"] { background: var(--twm-flow-grey-bg); color: var(--twm-flow-grey-fg); }
+.twm-flow-graph__node-badge[data-tone="blue"] { background: var(--twm-flow-blue-bg); color: var(--twm-flow-blue-fg); }
+.twm-flow-graph__node-badge[data-tone="indigo"] { background: var(--twm-flow-indigo-bg); color: var(--twm-flow-indigo-fg); }
+.twm-flow-graph__port-value { color: var(--twm-flow-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* FOLDED TO ITS HEADER (`collapsible`): everything under the header is hidden,
+ * and the lines meet the header's middle. */
+.twm-flow-graph__node-fold {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    background: none;
+    border: 0;
+    border-radius: 3px;
+    color: var(--twm-flow-muted);
+    cursor: pointer;
+}
+.twm-flow-graph__node-fold .material-symbols-outlined { font-size: 16px; }
+.twm-flow-graph__node-fold:hover:not(:disabled) { color: var(--text-body); background: rgba(127, 127, 127, 0.18); }
+.twm-flow-graph__node-fold:focus-visible { outline: 1px solid var(--twm-flow-focus); }
+.twm-flow-graph__node-fold:disabled { cursor: default; opacity: 0.5; }
+.twm-flow-graph__node--collapsed > :not(.twm-flow-graph__node-head) { display: none; }
+.twm-flow-graph__node--collapsed > .twm-flow-graph__node-head { border-bottom: 0; border-radius: 3px; }
+
 /* ── a port ─────────────────────────────────────────────────────────── */
 .twm-flow-graph__port {
     display: flex;

@@ -42,6 +42,9 @@ export const CANVAS_STRINGS = Object.freeze({
     stepId: (id) => `Step id: ${id}`,
     // `renameInPlace`
     nameEmpty: 'A step needs a name: the one it had is kept.',
+    // `collapsible`
+    collapseNode: 'Fold this step to its header',
+    expandNode: 'Show this step\'s ports again',
     connection: 'Connection',
     connectionLine: (e) => `${e.source} · ${e.sourcePort} → ${e.target} · ${e.targetPort}`,
     removeConnection: 'Remove connection',

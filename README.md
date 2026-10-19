@@ -1609,6 +1609,7 @@ editor.setRunOverlay({ steps, ports, banner });
 | `viewport`, `onViewportChange(viewport)` | Where the reader looks, kept by you: the editor stores none of it. `viewport` (`{scale, tx, ty}`, as `getViewport()` gives it) is where the first `load` opens, instead of fitting. `onViewportChange` hears ONE report per finished gesture of the reader's (a pan's release, a run of wheel turns once the wheel has been still for 300 ms, Fit, Arrange, a zoom button, a minimap click, *Go to it*), never one per pointer move, never a gesture that ended where it began, and never what you set yourself (`load`, `setViewport`, `fit()`, `arrange()`). A wheel report still waiting is handed on by the next press and by `destroy` (0.17.0) |
 | `zoomControls` | `true` adds Zoom out, Zoom in and 100% after Fit. They step through 15%, 25%, 33%, 50%, 67%, 80%, 100%, 125%, 150%, 200%, 300% and 400%, about the centre of the view. At the kernel's limits the button is refused in place with its sentence. Off by default (0.17.0) |
 | `renameInPlace` | `true`: a double-click on a step's title edits its name on the node ([Edited on the node](#edited-on-the-node-0170)). Off by default, and then a double-click does nothing (0.17.0) |
+| `collapsible` | `true` puts a fold button on every step's header: it folds the step to its header and back, one `flow:node:collapse` entry each way (below, *Live values and folded steps*). Off by default, and then there is no button in the DOM and a `collapsed` flag in a graph is carried through untouched, the step drawn unfolded (0.17.0) |
 | `minimap` | `true` draws a small overview over the canvas's lower right corner, with the steps and the view's frame, redrawn when the canvas changes size as well as when the view moves. A click on it centres the view on that point, at the same scale. Off by default, and then there is no minimap in the DOM (0.17.0) |
 
 | Method | Does |
@@ -1617,6 +1618,8 @@ editor.setRunOverlay({ steps, ports, banner });
 | `getViewport()`, `setViewport({scale, tx, ty})` | The kernel's viewport, as a copy; and putting the view there, clamped to the kernel's limits. `setViewport` drops a fit still waiting for its frame, is not reported to `onViewportChange`, and answers `false` (changing nothing) for anything that is not three finite numbers with a scale above 0 (0.17.0) |
 | `getGraph()`, `serialise()`, `snapshot()`, `getFlowSettings()` | A copy of the graph; its byte-stable text; the text the history holds (graph and settings); the settings |
 | `setFindings(list)`, `setRunOverlay(overlay \| null)`, `setReadOnly(false \| {reason})` | — |
+| `setNodeValues({[id]: {badge, tone, ports: {[name]: text}}} \| null)` (0.17.0) | What you show on the steps right now, replacing what you showed before. Painted in place: no undo entry, no `onChange`, nothing rebuilt and the panel untouched (below) |
+| `setCollapsed(id, collapsed)` (0.17.0) | With `collapsible`: fold a step to its header (`true`) or unfold it, one `flow:node:collapse` entry. `false` when refused (no `collapsible`, read only, no such step, or no change) |
 | `setActionState(id, {disabled, reason, busy})`, `setStatus(text)`, `setMessage(text, tone)` | A verb refused in place, with its reason printed beside the toolbar; the status line; the gesture line |
 | `align(kind)`, `distribute(axis)` (0.17.0) | With `multiSelect`: line the picked steps up (`'left'`, `'center'`, `'right'`, `'top'`, `'middle'`, `'bottom'`; two or more picked) or give them equal gaps (`'horizontal'`, `'vertical'`; three or more), one `flow:nodes:align` entry. `false` when refused (too few picked, read only, or no `multiSelect`); an unknown kind or axis throws |
 | `copy()`, `cut()`, `paste(text?)`, `duplicate()` (0.17.0) | With `clipboard`: the keys' verbs from code. Each answers `{ok: true, ids}` (the steps copied, cut or made) or `{ok: false, reason}`, the reason also on the message line; `paste()` answers a promise when your `read` is async, and `paste(text)` pastes that text. Without `clipboard`: `{ok: false, reason: null}` |
@@ -1630,13 +1633,15 @@ Its edits are the closed list `CANVAS_ACTIONS`: `flow:node:add`,
 `flow:edge:disconnect`, `flow:node:label`, `flow:node:config`,
 `flow:settings`, `flow:arrange` (one entry for the whole layout), and with
 `multiSelect` `flow:nodes:move`, `flow:nodes:remove` and `flow:nodes:align`
-(0.17.0; one entry per gesture on several steps), and with `clipboard`
+(0.17.0; one entry per gesture on several steps), with `clipboard`
 `flow:paste` and `flow:node:duplicate` (0.17.0; one entry per paste or
-duplicate, however many steps it makes). Typing a name
+duplicate, however many steps it makes), and with `collapsible`
+`flow:node:collapse` (0.17.0). Typing a name
 or a setting is one entry. The geometry under it is exported as well, all of it
 pure: `CANVAS_NODE`, `arrangeCanvasGraph(graph, catalogue, {loopEntry})` (where
 Arrange puts each step: a Map of id → `{x, y}` from the origin),
-`canvasPortAnchor`, `canvasNodeBottom`, `canvasNodeWidth` (a type's own
+`canvasPortAnchor`, `canvasNodeBottom` (both fold a node with `collapsed: true`
+to its header, or as the box's `folded(node)` says; 0.17.0), `canvasNodeWidth` (a type's own
 `size.w`, else the box's; 0.17.0), `isCanvasReturnEdge`,
 `canvasPathPoints(d, {steps})` (the points along a drawn line's path `d`:
 absolute `M`, `L`, `C`, `S` and `Z`, each curve sampled at `steps` points) and
@@ -1671,7 +1676,9 @@ editor.setCatalogue(createStepCatalogue([...types, gauge], { categories }));   /
   own definition changed (its ports, `label`, `icon`, category tone, `render`
   or `update`): then the node is built again and `render` runs again. A new
   `size` or `accent` is applied in place.
-- **`ctx`** is `{setConfig(patch), readOnly, services}`. `setConfig` merges
+- **`ctx`** is `{setConfig(patch), readOnly, values, services}`. `values` is
+  what `setNodeValues` shows on this step now (`{badge, tone, ports}`, a copy),
+  or `null`. `setConfig` merges
   `patch` into the node's config (an `undefined` value removes the key) as one
   `flow:node:config` edit: one undo entry, and `onChange` is called. It is
   refused (answers `false`) while the editor is read only, from inside
@@ -1712,11 +1719,41 @@ const editor = createCanvasEditor(host, { catalogue: [counter], renameInPlace: t
   same labels and controls. A change on the node is a `flow:node:config` edit,
   and the panel shows it at once. A change in the panel, or an undo, redraws
   the node's control. The control being typed in is never redrawn under the
-  reader. Typing on the node and then in the panel are two undo entries. Read
-  only disables the node's controls. A node with inline settings and no
+  reader; a focused control whose value changes elsewhere (an undo pressed
+  while it holds the focus) is redrawn with its focus and caret kept. Typing
+  on the node and then in the panel are two undo entries. Read only disables
+  the node's controls. A node with inline settings and no
   `size.h` is as tall as it is drawn.
 - Without the option and the key nothing is bound or drawn: the same markup,
   and `serialise()` is unchanged.
+
+#### Live values and folded steps (0.17.0)
+
+```js
+const editor = createCanvasEditor(host, { catalogue, collapsible: true });
+editor.setNodeValues({ mix: { badge: '0.42', tone: 'teal', ports: { out: '0.42' } } });   // as often as you like
+editor.setNodeValues(null);                                                               // none shown
+```
+
+- **`setNodeValues`** paints what you are showing right now: `badge` is drawn
+  on the step's header, before its id tag, in a tone of `TONES` when `tone`
+  names one, and each `ports[name]` beside that port. It replaces what the
+  last call showed, and a step it leaves out shows nothing. It extends the run
+  overlay: nothing is rebuilt or recorded, `onChange` is not called, and the
+  settings panel is not touched, so a field being typed into keeps its focus
+  and its selection however often you call it. A type with its own body reads
+  them as `ctx.values`, and its `update` runs for each step whose values
+  changed (a `setConfig` from there is refused, as from any `update`). The
+  badge and port-value elements exist only while there is a value to show;
+  the editor keeps nothing of them past the next call.
+- **`collapsible: true`** puts a fold button on each header. A folded step
+  shows its header only: its port rows, its body and what is drawn under them
+  are hidden, and its lines stay, meeting the middle of the header on its left
+  (lines in) and its right (lines out). Each fold or unfold is one
+  `flow:node:collapse` entry, so Ctrl+Z unfolds a step just folded. The graph
+  carries `collapsed: true` on a folded step, written last in its `serialise()`
+  text; an unfolded step has no `collapsed` key, so a graph that never folded
+  a step is the text it always was. Read only refuses it.
 
 **Gestures.** A node's header moves it. A connection is made by clicking an
 output and then an input, and Escape cancels one in progress. A line is picked
@@ -1777,7 +1814,7 @@ part of the baseline and the first Ctrl+Z does not take it away.
 
 **Where each claim was checked.** `tests/canvas_adapter.test.mjs`,
 `canvas_edge_router`, `canvas_graph`, `flow_canvas_layout`, `flow_canvas_editor`,
-`flow_canvas_multiselect`, `flow_canvas_clipboard`, `flow_canvas_node_body` and `flow_canvas_css` check the DOM, the events, the
+`flow_canvas_multiselect`, `flow_canvas_clipboard`, `flow_canvas_node_body`, `flow_canvas_live_values` and `flow_canvas_css` check the DOM, the events, the
 geometry and the stylesheet as text. In headless Edge, `demo/flow_canvas_probe.mjs` drives
 `demo/flow_canvas.html` with real input:
 - `elementFromPoint` at the centre of Undo, Arrange, Fit, a consumer verb, a
@@ -1794,6 +1831,13 @@ geometry and the stylesheet as text. In headless Edge, `demo/flow_canvas_probe.m
 - On a 300-step graph with `multiSelect`, a real marquee picked three steps, a
   real drag of one moved all three and one real Ctrl+Z put them back; a move
   of 50 picked steps and its undo each finished in under 100 ms.
+- With `collapsible`, ten `setNodeValues` calls 100 ms apart each put their
+  value on the step's badge, inside its header, while real keys typed into a
+  settings field: the field kept the focus and every key, and the values made
+  no undo entry and no `onChange`. A real click on a header's fold button hid
+  every port row and left the step as tall as its header, with its lines
+  ending on the header's middle at its edges, within 1px; a real Ctrl+Z
+  unfolded it and its lines met their port dots again.
 - A type registered with `setCatalogue` after the page opened was in the
   palette. Its node was drawn at its 280×170 size, with its body below its
   ports and its accent. Every line into and out of it began and ended on its

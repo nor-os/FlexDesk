@@ -227,8 +227,10 @@ export function createCanvasEditor(host, options = {}) {
     /** The `connections` option: absent, the editor draws and binds exactly what it did without it. */
     const linking = linkOptions && typeof linkOptions === 'object' ? linkOptions : null;
     const dataConnect = linking?.dataPorts === 'connect';
-    const verdictOf = linking
-        ? connectionRules({ catalogue, policy: linking.policy, dataPorts: dataConnect, strings: S }) : null;
+    /** The connection rules over the current catalogue: `setCatalogue` builds them again. */
+    const rulesFor = (types) => (linking
+        ? connectionRules({ catalogue: types, policy: linking.policy, dataPorts: dataConnect, strings: S }) : null);
+    let verdictOf = rulesFor(catalogue);
 
     // ── the frame ───────────────────────────────────────────────────────
     const root = el('div', 'twm-flow-graph');
@@ -919,7 +921,7 @@ export function createCanvasEditor(host, options = {}) {
         }
         held.after?.(made);
         prunePick();
-        findingsBy = groupFindings(findings, { graph });
+        findingsBy = groupFindings(allFindings(), { graph });
         paintNodes();
         paintPanel();
         announceSelection();
@@ -1523,7 +1525,7 @@ export function createCanvasEditor(host, options = {}) {
             const doomed = removableOf(selected.ids);
             if (!doomed.length) return false;
             for (const id of doomed) removeNode(graph, id);
-            findingsBy = groupFindings(findings, { graph });
+            findingsBy = groupFindings(allFindings(), { graph });
             select(null);
             paintNodes();
             commit('flow:nodes:remove');
@@ -1826,7 +1828,9 @@ export function createCanvasEditor(host, options = {}) {
         setCatalogue(next) {
             if (destroyed) return;
             catalogue = toCatalogue(next, 'setCatalogue');
+            verdictOf = rulesFor(catalogue);
             if (connecting) cancelConnect();
+            if (pendingOffer) clearOffer();
             paintPalette();
             paintNodes();
             paintPanel();

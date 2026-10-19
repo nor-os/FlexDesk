@@ -26,6 +26,11 @@
  *       nothing until Accept, which adds the step, the line and the offer's
  *       change as one undo entry with the new step picked
  *   §7  read only: no drag starts
+ *   §8  a type registered by `setCatalogue` after load is judged by the rules
+ *       over the new catalogue: its input gets can-drop, connects, and is
+ *       offered by the empty-drop picker; `setCatalogue` takes a pending offer
+ *       away
+ *   §9  Accept keeps the mark of a node whose body threw
  *
  *     node tests/flow_canvas_connections.test.mjs
  */
@@ -371,6 +376,58 @@ t.section('§7 read only');
     t.ok('no drag starts', !m.el.querySelector('.twm-flow-graph__edge--draft') && canDrop(m).length === 0);
     releaseOn(m.el.querySelector('.twm-canvas'));
     t.ok('and no picker opens', openFlowPopover() === null && lines(m).length === 0);
+}
+
+t.section('§8 a type registered after load');
+{
+    const early = createStepCatalogue(TYPES.filter((x) => x.type_id === 'source'));
+    const later = createStepCatalogue(TYPES.filter((x) => x.type_id === 'source' || x.type_id === 'gate'));
+    const graph = { nodes: [{ id: 's', type: 'source', config: {}, position: { x: 0, y: 0 } },
+                            { id: 'g', type: 'gate', config: {}, position: { x: 400, y: 0 } }], connections: [] };
+    const m = mount({ ...LINK, catalogue: early }, graph);
+    m.editor.setCatalogue(later);
+    portOf(m, 's', 'value', 'output').click();
+    t.check('its input carries can-drop', canDrop(m), ['g.level']);
+    portOf(m, 'g', 'level', 'input').click();
+    t.check('and connects', lines(m), ['s.value>g.level']);
+    t.check('without a refusal', message(m).textContent, '');
+    undo(m);
+    await t.tick();
+
+    dragFrom(m, 's', 'value');
+    releaseOn(m.el.querySelector('.twm-canvas'));
+    const pop = openFlowPopover();
+    t.check('the empty-drop picker offers it', pop ? [...pop.querySelectorAll('[role="option"]')].map((o) => o.dataset.entry) : [],
+            ['gate']);
+    if (pop) t.key(pop.querySelector('input'), 'Escape');
+    await t.tick();
+
+    const policy = (ctx) => (ctx.toNode.type === 'gate' ? { ok: true, offer: { message: 'Turn it on as well?' } } : null);
+    const o = mount({ connections: { dataPorts: 'connect', policy } });
+    connectPorts(o, 'src', 'value', 'g', 'level');
+    t.ok('(an offer is pending)', !offerBox(o).hidden);
+    o.editor.setCatalogue(catalogue);
+    t.ok('setCatalogue takes a pending offer away', offerBox(o).hidden && offerBox(o).childElementCount === 0);
+    t.ok('and nothing was connected', lines(o).length === 0 && o.changes.length === 0);
+}
+
+t.section('§9 Accept keeps a body\'s finding');
+{
+    const broken = { type_id: 'broken', label: 'Broken', category: 'show',
+                     ports: [D('level', 'input', { label: 'Level', accepts: ['number'] })],
+                     render() { throw new Error('no canvas'); } };
+    const withBroken = createStepCatalogue([...TYPES, broken]);
+    const graph = { nodes: [...GRAPH.nodes, { id: 'b', type: 'broken', config: {}, position: { x: 700, y: 300 } }], connections: [] };
+    const policy = (ctx) => (ctx.toNode.type === 'gate' ? { ok: true, offer: { message: 'Turn it on as well?' } } : null);
+    const m = mount({ catalogue: withBroken, connections: { dataPorts: 'connect', policy } }, graph);
+    const marked = () => nodeEl(m, 'b').classList.contains('twm-flow-graph__node--error')
+        && nodeEl(m, 'b').querySelector('.twm-flow-graph__node-findings').textContent.includes('no canvas');
+    t.ok('(the node whose body threw is marked)', marked());
+    connectPorts(m, 'src', 'value', 'g', 'level');
+    offerBox(m).querySelector('[data-action="accept-offer"]').click();
+    t.check('(the offer was accepted)', lines(m), ['src.value>g.level']);
+    t.ok('after Accept it is still marked', marked());
+    t.ok('and the strip still says so', m.el.querySelector('.twm-flow-strip').textContent.includes('no canvas'));
 }
 
 for (const ed of mounted) ed.destroy();

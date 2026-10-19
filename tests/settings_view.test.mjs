@@ -11,7 +11,9 @@
  *       snapped to the step and clamped to min/max, and the row is marked
  *       modified; an unreadable entry writes nothing.
  *   §3  LIVE: a setSetting made elsewhere moves the open view's control and
- *       marker, for every control type; the view's own controls write back.
+ *       marker, for every control type (a select set to a value its options
+ *       lack shows it as a fresh mount does, "(not found)"); the view's own
+ *       controls write back.
  *   §4  SEARCH across every category's label, description and path; a query
  *       holding markup is shown as typed and makes no element; schema text
  *       holding markup is shown as text too.
@@ -286,6 +288,42 @@ section('§3 a setSetting call made elsewhere updates the open view');
     // A colorList, on a private store.
     const { bus, store } = fixture();
     const v2 = mount({ store, eventBus: bus, category: 'mid' });
+
+    // A select set elsewhere to a value its options lack shows what a fresh
+    // mount shows for that value: its '(not found)' entry.
+    v2.view.selectCategory('first');
+    const shown = () => {
+        const s = v2.row('a.mode').querySelector('select');
+        return { value: s.value, text: s.options[s.selectedIndex]?.textContent,
+                 options: [...s.options].map((o) => o.textContent) };
+    };
+    store.set('a.mode', 'z');
+    check('an unoffered value set elsewhere shows as not found', shown(),
+          { value: 'z', text: 'z (not found)', options: ['X', 'Y', 'z (not found)'] });
+    ok('…marked', isModified(v2.row('a.mode')));
+    {
+        const fresh = mount({ store, eventBus: bus, category: 'first' });
+        const fs = fresh.row('a.mode').querySelector('select');
+        check('…as a fresh mount shows it',
+              { value: fs.value, text: fs.options[fs.selectedIndex]?.textContent,
+                options: [...fs.options].map((o) => o.textContent) }, shown());
+        fresh.view.dispose();
+    }
+    store.set('a.mode', 'y');
+    check('switched back to an offered value, the stray entry goes', shown(),
+          { value: 'y', text: 'Y', options: ['X', 'Y'] });
+    store.set('a.mode', 'z');
+    check('set to the unoffered value again, it shows as not found again', shown(),
+          { value: 'z', text: 'z (not found)', options: ['X', 'Y', 'z (not found)'] });
+    store.set('a.mode', 'q');
+    check('another unoffered value replaces the stray entry', shown(),
+          { value: 'q', text: 'q (not found)', options: ['X', 'Y', 'q (not found)'] });
+    const ms = v2.row('a.mode').querySelector('select');
+    ms.value = 'x';
+    fire(ms, 'change');
+    check('choosing an offered value in the box writes it', store.get('a.mode'), 'x');
+    ok('…and the marker goes', !isModified(v2.row('a.mode')));
+    v2.view.selectCategory('mid');
     store.set('a.pal', ['#aabbcc', '#ddeeff']);
     check('a colour list follows',
           [...v2.row('a.pal').querySelectorAll('.twm-color-field__hex')].map((i) => i.value),

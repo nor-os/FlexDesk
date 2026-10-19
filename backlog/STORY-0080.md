@@ -13,7 +13,7 @@ subsystem: canvas
 labels: [flexdesk, modeler]
 links: []
 created: 2026-10-17
-updated: 2026-10-18T09:42Z
+updated: 2026-10-18T13:07Z
 ---
 
 ## Description
@@ -40,3 +40,13 @@ Canvas Arrange is flow-specific (orders from start-role steps), and the kernel `
 ### 2026-10-17T21:20Z · norman_agent (status: draft -> refined)
 
 Refined: 6 acceptance criteria, 5 points, parented to EPIC-0073. Criteria drafted from the legacy modeler (../EcoSim_legacy) and the current canvas editor code, with norman's 2026-10-17 decisions applied; correct them before anything is built against them.
+
+### 2026-10-18T13:07Z · norman_agent
+
+Where this stands: built and pushed on branch `story-0080` (tip e1bdee8, merges cleanly into origin/main). Nothing has landed on main. Status stays as it is.
+
+Built: a pure `layeredLayout(nodes, edges, {rank, sizeOf, columnGap, rowGap, componentGap, passes})` in `src/canvas/layered_layout.js`, exported from canvas.js. It lays out components separately and stacks them largest first, breaks cycles, assigns longest-path columns, honours 'source'/'sink' rank hints, runs barycentre sweeps that keep the order with the fewest crossings, and sizes columns from the measured node sizes. The kernel `arrange` is unchanged. The editor has a new option `layout: 'flow' | 'layered' | fn(graph, ctx) -> Map`. The default is 'flow', so a consumer that does not set it sees no change. Any other value throws at construction. `editor.arrange({ids})` lays out only the named steps and the lines between them; only those move, as one `flow:arrange` undo entry. There is a new string `arrangeLayeredTitle` and README rows for all of it.
+
+Open, for norman: criterion 5 ("With two nodes selected, Arrange moves only those two, as one undo entry") needs multi-selection. That is STORY-0076, which is in progress with nothing pushed, so two nodes cannot be selected on main. I tested the subset behaviour through `editor.arrange({ids: [a, b]})`: only those two move, and one Ctrl+Z takes it back. Criterion 5 is not ticked. I did not build a set selection here because that is 0076's scope. Which do you want?
+1. Accept criterion 5 on the `arrange({ids})` API. STORY-0076 then wires the toolbar: when the selection is `{kind:'many', ids}`, Arrange calls `arrangeGraph({ids})`. That is one line, and the refusal for fewer than two steps already covers the subset.
+2. Keep this story open until 0076 lands, then add that wiring here.

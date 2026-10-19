@@ -33,6 +33,15 @@
  *              click on a step's box in it centres the view on that step, at
  *              the same scale, with one viewport report; a real click on −
  *              zooms out one step
+ *   in place   (`renameInPlace`) a real double-click on a step's name opens a
+ *              text box over it, focused, the whole name selected; real keys
+ *              replace it and a real click on the empty canvas (the box's
+ *              blur) commits ONE `flow:node:label` entry that a real Ctrl+Z
+ *              takes back; (`inline`) the request's timeout drawn on its node
+ *              takes real keys, the panel shows each value, focus stays on
+ *              the node's control, the panel's own box writes back to the
+ *              node, and `editor.undo()` with the node's control focused
+ *              redraws it with the restored value
  *   narrow     at 700px the canvas takes the editor's whole width (the
  *              container query), and the minimap's frame takes the canvas's
  *              new shape (its ResizeObserver)
@@ -46,7 +55,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { centre, click, drag, key, launchBrowser, openPage, startServer } from './flow_cdp.mjs';
+import { centre, click, dblclick, drag, key, launchBrowser, openPage, startServer, type } from './flow_cdp.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = resolve(process.argv[2] || join(tmpdir(), 'flow-canvas-probe'));
@@ -428,6 +437,94 @@ try {
     check('a real click on Zoom out makes the scale smaller', outScale < centred.scale, `${centred.scale} → ${outScale}`);
     await page.screenshot(join(OUT, '7-minimap.png'));
 
+    console.log('\nin place — a name and a setting edited on the node');
+    await page.evaluate('window.__flowCanvas.editor.fit(), true');
+    await sleep(120);
+    const named = await centre(page, '.twm-flow-graph__node[data-node-id="save"] .twm-flow-graph__node-title');
+    check('the step\'s name is the element at its centre', named?.hit, JSON.stringify(named));
+    await dblclick(page, named.x, named.y);
+    await sleep(60);
+    const box = await page.evaluate(`(() => {
+        const b = document.querySelector('.twm-flow-graph__node[data-node-id="save"] .twm-flow-graph__node-title-input');
+        const t = document.querySelector('.twm-flow-graph__node[data-node-id="save"] .twm-flow-graph__node-title');
+        return b && { value: b.value, focused: document.activeElement === b, start: b.selectionStart, end: b.selectionEnd,
+                      titleHidden: t.hidden, depth: window.__flowCanvas.editor.history.depth };
+    })()`);
+    check('a real double-click opens a text box holding the name', box?.value === 'Save the applications' && box.titleHidden,
+          JSON.stringify(box));
+    check('focused, the whole name selected', box?.focused && box.start === 0 && box.end === 'Save the applications'.length,
+          JSON.stringify(box));
+    await type(page, 'Stored');
+    // The empty canvas: a point inside it that no step, line or control is drawn at.
+    const empty = await page.evaluate(`(() => {
+        const c = document.querySelector('.twm-flow-graph__canvas').getBoundingClientRect();
+        for (let y = c.top + 40; y < c.bottom - 40; y += 24) for (let x = c.left + 40; x < c.right - 40; x += 24) {
+            const hit = document.elementFromPoint(x, y);
+            if (hit && hit.closest('.twm-flow-graph__canvas') && !hit.closest('.twm-flow-graph__node, .twm-flow-graph__minimap, button')
+                && !hit.closest('path')) return { x, y };
+        }
+        return null;
+    })()`);
+    check('the canvas has an empty point to click', Boolean(empty));
+    if (empty) await click(page, empty.x, empty.y);
+    await sleep(60);
+    const renamed = await page.evaluate(`(() => {
+        const ed = window.__flowCanvas.editor;
+        const n = document.querySelector('.twm-flow-graph__node[data-node-id="save"]');
+        return { label: ed.getGraph().nodes.find((x) => x.id === 'save').label, open: Boolean(n.querySelector('.twm-flow-graph__node-title-input')),
+                 title: n.querySelector('.twm-flow-graph__node-title').textContent, depth: ed.history.depth, action: ed.history.undoAction };
+    })()`);
+    check('real keys replace the selected name, a real click away commits it', renamed.label === 'Stored' && !renamed.open
+          && renamed.title === 'Stored', JSON.stringify(renamed));
+    check('as ONE flow:node:label entry', renamed.depth === box.depth + 1 && renamed.action === 'flow:node:label',
+          JSON.stringify({ before: box.depth, renamed }));
+    await key(page, 'z', { mods: ['ctrl'] });
+    await sleep(60);
+    const unnamed = await page.evaluate(`window.__flowCanvas.editor.getGraph().nodes.find((x) => x.id === 'save').label`);
+    check('a real Ctrl+Z puts the name back', unnamed === 'Save the applications', String(unnamed));
+
+    const requestHead = await centre(page, '.twm-flow-graph__node[data-node-id="fetch"] .twm-flow-graph__node-head');
+    await click(page, requestHead.x, requestHead.y);
+    await sleep(60);
+    const INLINE = '.twm-flow-graph__node[data-node-id="fetch"] .twm-flow-graph__node-inline [data-field="timeout_seconds"] input';
+    const PANEL = '.twm-flow-graph__aside [data-field="timeout_seconds"] input';
+    const control = await centre(page, INLINE);
+    check('the timeout is drawn on the request\'s node, and is the element at its centre', control?.hit, JSON.stringify(control));
+    await click(page, control.x, control.y);
+    await key(page, 'a', { mods: ['ctrl'], commands: ['selectAll'] });
+    await type(page, '45');
+    await sleep(60);
+    const typed = await page.evaluate(`(() => {
+        const ed = window.__flowCanvas.editor;
+        const i = document.querySelector(${JSON.stringify(INLINE)});
+        return { value: ed.getGraph().nodes.find((x) => x.id === 'fetch').config.timeout_seconds,
+                 panel: document.querySelector(${JSON.stringify(PANEL)})?.value, focused: document.activeElement === i,
+                 action: ed.history.undoAction };
+    })()`);
+    check('real keys on the node\'s control: the graph holds the value', typed.value === 45, JSON.stringify(typed));
+    check('the panel shows it, and the node\'s control keeps the focus', typed.panel === '45' && typed.focused,
+          JSON.stringify(typed));
+    check('as a flow:node:config entry', typed.action === 'flow:node:config', JSON.stringify(typed));
+    const panelBox = await centre(page, PANEL);
+    await click(page, panelBox.x, panelBox.y);
+    await key(page, 'a', { mods: ['ctrl'], commands: ['selectAll'] });
+    await type(page, '60');
+    await sleep(60);
+    const fromPanel = await page.evaluate(`document.querySelector(${JSON.stringify(INLINE)}).value`);
+    check('real keys in the panel: the node\'s control shows them', fromPanel === '60', String(fromPanel));
+    await click(page, control.x, control.y);
+    const undone = await page.evaluate(`(() => {
+        const ed = window.__flowCanvas.editor;
+        ed.undo();
+        const i = document.querySelector(${JSON.stringify(INLINE)});
+        return { value: ed.getGraph().nodes.find((x) => x.id === 'fetch').config.timeout_seconds, shown: i.value,
+                 panel: document.querySelector(${JSON.stringify(PANEL)})?.value, focused: document.activeElement === i };
+    })()`);
+    check('editor.undo() with the node\'s control focused: the node shows the restored value',
+          undone.value === 45 && undone.shown === '45' && undone.panel === '45', JSON.stringify(undone));
+    check('and the node\'s control keeps the focus', undone.focused, JSON.stringify(undone));
+    await page.screenshot(join(OUT, '8-in-place.png'));
+
     console.log('\nnarrow — the container query');
     await page.send('Emulation.setDeviceMetricsOverride', { width: 700, height: 900, deviceScaleFactor: 1, mobile: false });
     await sleep(200);
@@ -446,7 +543,7 @@ try {
     })()`);
     check('the minimap\'s frame took the resized canvas\'s shape, with no pan', Math.abs(shape.frame - shape.canvas) < 0.02,
           JSON.stringify(shape));
-    await page.screenshot(join(OUT, '8-narrow.png'));
+    await page.screenshot(join(OUT, '9-narrow.png'));
 } finally {
     page?.close();
     await browser.close();

@@ -3398,9 +3398,10 @@ and logs one warning; a `list` that throws does the same. Until 0.17.0 it
 called one application's bridge method.
 
 **`PlotPopoutWindow({ streamEvents })`** names the bus events a live data
-source emits, next to `refreshEvent`: `{ delta, complete }`, defaulting to
-`'streaming:delta'` and `'streaming:complete'`. The window redraws on each
-while live update is on; a name given as `null` is not listened for.
+source emits, next to `refreshEvent`: `{ delta, complete }`. The window
+redraws on each while live update is on. There are no default names: without
+`streamEvents`, or for a name left out or given as `null`, nothing is listened
+for, and the window updates through `refreshEvent` and explicit calls only.
 
 ```js
 openPlotPopoutWindow({ id, title, plotConfig, getResults, services,

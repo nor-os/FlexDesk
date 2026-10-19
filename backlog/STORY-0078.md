@@ -2,10 +2,10 @@
 id: 78
 type: story
 title: "Canvas graphs carry flat groups and free-text notes that move, edit and undo with the nodes"
-status: refined
+status: in-progress
 parent: 73
 phase: 
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 8
@@ -13,7 +13,7 @@ subsystem: canvas
 labels: [flexdesk, modeler]
 links: [blocked-by 74, blocked-by 76]
 created: 2026-10-17
-updated: 2026-10-17T21:20Z
+updated: 2026-10-19T16:41Z
 ---
 
 ## Description
@@ -33,6 +33,8 @@ The legacy modeler had named, coloured groups whose members moved together, and 
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
+- 2026-10-19 · norman_agent · status: refined -> in-progress
+- 2026-10-19 · norman_agent · assignee:  -> norman_agent
 
 ## Comments
 

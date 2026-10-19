@@ -125,10 +125,11 @@ const optionText = (o) => (o.disabled && o.reason ? `${o.label} — ${o.reason}`
  * `.value = 'b'` picks option `'b'`). The value READ BACK is the option's own
  * either way.
  *
- * Returns `{ box, valueOf(), entry(), select(value), setOptions(options) }`:
+ * Returns `{ box, valueOf(), entry(), select(value), setOptions(options, value?) }`:
  * `select` re-selects by value (true when the value is offered and enabled);
- * `setOptions` redraws the list and keeps the current value when the new list
- * still offers it.
+ * `setOptions` redraws the list and places `value` (default: the current
+ * value) the way the first draw places one, so with `keepMissing` a value the
+ * list lacks shows as its own not-found entry.
  */
 export function selectBox(options, value, {
     empty = null, label = '', notFound = (v) => `${v} (not found)`, keepMissing = true,
@@ -200,7 +201,7 @@ export function selectBox(options, value, {
         valueOf,
         entry,
         select,
-        setOptions(opts) { fill(opts, valueOf()); },
+        setOptions(opts, v = valueOf()) { fill(opts, v); },
     };
 }
 

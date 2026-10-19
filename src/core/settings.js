@@ -7,7 +7,8 @@
  * SCHEMA. The store knows nothing about any particular application's settings:
  * it ships the *shell's* own namespaces (workspace, window, logging, data,
  * notebook, ai, …) and an embedder PUSHES its own namespace in at boot with
- * `registerSettings()`. The Settings page renders whatever is in the schema.
+ * `registerSettings()`. The settings page — `SettingsView` in
+ * `src/ui/components/settings_view.js` — renders whatever is in the schema.
  *
  * Two doors, on purpose
  * ---------------------
@@ -574,19 +575,26 @@ export function createSettingsStore({
      * namespace is registered would garbage-collect that namespace's saved
      * values. Registering at the top of bootstrap satisfies this trivially.
      *
+     * Listeners hear `settings:registered` with `{ paths, categories }` — the
+     * slice's schema paths and the ids of the categories it added — so a view
+     * that is already open (the settings view) can draw the new rows.
+     *
      * @param {SettingsSlice} slice
      */
     const extend = ({ defaults: d = {}, schema: s = {}, categories: c = [] } = {}) => {
         _deepMerge(_defaults, d);
         _deepMerge(_values, d);
         Object.assign(_schema, s);
+        const added = [];
         for (const cat of c) {
             if (!cat?.id) continue;
             if (_categories.some(x => x.id === cat.id)) continue;
             _categories.push({ ...cat });
+            added.push(cat.id);
         }
         _sortCategories();
         _load();   // idempotent: overlays only paths it finds in storage
+        if (_bus) _bus.emit('settings:registered', { paths: Object.keys(s), categories: added });
     };
 
     /**
@@ -743,6 +751,19 @@ function _binding() {
         _store.setStorageKey(_bindingKey, { notify: false });
     }
     return _store;
+}
+
+/**
+ * The app-global binding's store itself — the handle `createSettingsStore()`
+ * returns — for code that takes a store, such as the settings view
+ * (`new SettingsView({ store: getSettingsStore(), eventBus })`). Its `set` is
+ * the one `setSetting()` calls. Like `getSetting()`, it attaches the binding
+ * to its storage key, so call `configureSettings()` first.
+ *
+ * @returns {object}
+ */
+export function getSettingsStore() {
+    return _binding();
 }
 
 /**

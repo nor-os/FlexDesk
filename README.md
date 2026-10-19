@@ -43,9 +43,9 @@ manager, and neither of them should drag in a plotting engine or a code editor.
 | `@flexdesk/core` | 30 kB | Event bus, settings store, logging, state machine, state guard |
 | `@flexdesk/host` | 5 kB | The host port (below) |
 | `@flexdesk/wm` | 166 kB | Tiling window manager: tabs, splits, desktops, command palette, taxonomy, `createShell()` |
-| `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus, a document outline, progress |
+| `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus, menu bars, a document outline, progress, a conversation view |
 | `@flexdesk/charts` | 26 kB | Plotly wrapper, chart types, subplot layouts, downsampling, plot windows, injected series transforms |
-| `@flexdesk/tiles` | 67 kB | Draggable/resizable widget grid, tile base class, widget registry, layout persistence, chart and KPI tiles |
+| `@flexdesk/tiles` | 67 kB | Draggable/resizable widget grid, tile base class, widget registry, layout persistence, figure, chart and KPI tiles |
 | `@flexdesk/editor` | 62 kB | Monaco loader + factory, multi-file tab bar, search, split panes, undo manager |
 | `@flexdesk/canvas` | 14 kB | The canvas kernel: a pannable, zoomable surface, the edge router, a generic graph layer ([Flow editors](#flow-editors)) |
 | `@flexdesk/flow` | 381 kB | The flow-editor kit and the canvas, outline and lane editors ([Flow editors](#flow-editors)) |
@@ -129,6 +129,74 @@ await createShell({
     },
 });
 ```
+
+### A menu bar: `createMenuBar` (0.17.0)
+
+File / Edit / View menus from one declarative model, instead of hand-built
+buttons and `showContextMenu` calls. A menu is `{ id, label, items }`; an item
+is `{ id, label, shortcut?, disabled?, checked?, radio?, submenu? }` or
+`{ separator: true }`:
+
+```js
+import { createMenuBar, MenuBar } from '@flexdesk/widgets';
+
+const bar = createMenuBar(document.getElementById('menus'), {
+    menus: [
+        { id: 'file', label: 'File', items: [
+            { id: 'open',   label: 'Open…',       shortcut: 'Ctrl+O' },
+            { id: 'recent', label: 'Open recent', submenu: () => recentItems() },  // rebuilt on every open
+            { separator: true },
+            { id: 'save',   label: 'Save',        shortcut: 'Ctrl+S', disabled: true },
+        ] },
+        { id: 'view', label: 'View', items: [
+            { id: 'grid',  label: 'Show grid', checked: true },                // a check item
+            { id: 'light', label: 'Light', radio: 'theme', checked: true },    // a radio group
+            { id: 'dark',  label: 'Dark',  radio: 'theme', checked: false },
+        ] },
+    ],
+    onAction: (id, { checked }) => run(id, checked),
+});
+bar.setEnabled('save', true);     // patches an open menu in place
+bar.setChecked('dark', true);     // …and unchecks the rest of the radio group
+```
+
+`createMenuBar(el, opts)` returns a `MenuBar` (also exported, for
+`instanceof`). Its methods: `open(menuId, { focusItem })`, `close()`,
+`focus()`, `isOpen()`, `isEnabled(id)`, `isChecked(id)`, `setEnabled(id, on)`,
+`setChecked(id, on)`, `commands()` and `dispose()`.
+
+- **Pointer.** Clicking a title opens its menu; while one is open, hovering
+  another title switches to it. Hovering an item with a submenu opens it.
+- **Keyboard.** Alt (on its own) or F10 focuses the bar. Left/Right move across
+  menus, Up/Down/Home/End within one, Right opens a submenu and Left closes it,
+  Enter/Space activate. Esc closes one level; the last Esc gives focus back to
+  what had it. Disabled items and separators are skipped, and never reach
+  `onAction`.
+- **Roles.** The WAI-ARIA menubar pattern: `menubar`, `menu`, `menuitem`,
+  `menuitemcheckbox`, `menuitemradio`, with `aria-checked`, `aria-disabled`
+  and `aria-expanded`.
+- `shortcut` is a label: the bar binds no key for it.
+- `bar.commands()` returns the model as palette rows (`{ id, label, shortcut,
+  context: 'File › Open recent', action }`), so the palette and the bar list the
+  same verbs.
+
+In a shell, pass the model as `menuBar` and the element as `chrome.menuBar`
+(each needs the other; either alone throws at boot);
+`shell.chrome.menuBar` is that `MenuBar`, and its enabled items follow the palette's
+own `commands` unless `menuBar.palette` is `false`:
+
+```js
+const shell = await createShell({
+    // …
+    menuBar: { menus, onAction },
+    chrome:  { menuBar: document.getElementById('menus') },
+});
+shell.chrome.menuBar.setEnabled('save', dirty);
+```
+
+The bar is `.twm-menubar` (not the older `.twm-menu-bar` icon strip).
+`tests/menu_bar.test.mjs` drives it in jsdom; `tests/menu_bar_css.test.mjs`
+holds its stylesheet.
 
 ### A kind that exists once: `single` (0.17.0)
 
@@ -234,6 +302,20 @@ offers is now said once, in the taxonomy.
 
 `tests/panel_availability.test.mjs` drives all of it against a real shell.
 
+### Panels keep the size you dragged them to (0.17.0)
+
+Each desktop remembers every panel's share of the window-manager area along
+its axis (width for left and right, height for bottom), taken when a splitter
+drag ends, and saves it with the layout as `panelShares`. A reload, a switch to
+another desktop and back, and toggling one panel all rebuild the panels at
+those shares, and a closed panel comes back at the size it had. Only a panel
+that has never been sized on that desktop opens at the default 1:4. No split is
+built tighter than a drag allows (`TileRenderer.MIN_SLOT_FRACTION` of it per
+slot). A `TileRenderer` built by hand takes `onSplitResized(splitId)`, called
+once when a drag that changed a split's sizes ends.
+
+`tests/panel_sizes_kept.test.mjs` covers each of these.
+
 ### A navigation panel you drive yourself: `mountNavPanel` (0.17.0)
 
 `mountNavPanel(hostEl, { modes })` (from `@flexdesk/wm`) builds a mode strip, a
@@ -262,6 +344,39 @@ pane is never handed a query; the next mode with a filter shows its own saved
 text again. `showFilter: false` renders no filter box at all. All three options
 default to the old behaviour, so a panel built without them renders exactly as
 before.
+
+### Buttons that change with the pane: `ctx.setChromeActions` (0.17.0)
+
+A factory may return `chromeActions` — `[{icon, title, onClick}]`, drawn in the
+pane's chrome left of the split/float/close buttons — but those are read once.
+`ctx.setChromeActions(specs)` replaces them at any time, the way `setTitle`
+replaces the title: called during the mount it wins over the returned list, the
+later call wins, the list survives repaints, `null` or `[]` clears it, and a
+call from content whose pane has since been rebuilt does nothing. The content is
+never re-mounted.
+
+```js
+content: {
+    page: (hostEl, props, ctx) => {
+        let wide = false;
+        const paint = () => ctx.setChromeActions([
+            { icon: wide ? 'width_normal' : 'width_wide', title: 'Page width',
+              pressed: wide, onClick: () => { wide = !wide; paint(); } },
+            { separator: true },
+            { icon: 'add', label: 'New', title: 'Add a page', onClick: addPage },
+            { icon: 'publish', title: 'Nothing to publish yet', disabled: true },
+        ]);
+        paint();
+        return { destroy() {} };
+    },
+},
+```
+
+A spec may add **`label`** (text beside the glyph, or instead of it),
+**`pressed`** (`aria-pressed`, plus a pressed style; leave it out for a button
+that is not a toggle), **`disabled`** (greyed and inert, with its tooltip kept —
+it is `aria-disabled`, not the `disabled` attribute) and **`{separator: true}`**
+(a divider). A spec with none of them renders exactly as before.
 
 ### Your desktops beside the app's (0.10.0)
 
@@ -1279,7 +1394,7 @@ touches browser storage — and is shown to fail on a planted one.
 
 | Part | What it does |
 |---|---|
-| `createStepCatalogue(types, {categories, idBase})` | The step types the consumer passes in, read as they arrive (`type_id`, `label`, `category`, `role`, `description`, `icon`, `ports`, `config_schema`, `unavailable`; any other key is kept). `get`, `list`, `byCategory`, `role`, `tone`, `inputs(typeId, {flow})`, `outputs`, `port`, `idBase`, and `problems` — a broken type is listed there, never thrown. **Ports keep their declared order**: a lane reads the first input as its own and an outline draws the other outputs as arms in order, so nothing sorts them |
+| `createStepCatalogue(types, {categories, idBase})` | The step types the consumer passes in, read as they arrive (`type_id`, `label`, `category`, `role`, `description`, `icon`, `ports`, `config_schema`, `unavailable`; any other key is kept). `get`, `list`, `byCategory`, `role`, `tone`, `inputs(typeId, {flow})`, `outputs`, `port`, `idBase`, and `problems` — a broken type is listed there, never thrown. A type may also carry `render`, `update`, `size: {w, h}` and `accent` (a tone), which only the canvas editor reads ([Node bodies](#node-bodies-0170)); `size(typeId)`, `accent(typeId)` and `body(typeId)` answer them, `null` when a type has none, and a `size`, `accent` or hook of the wrong kind is a line in `problems` and is not used (0.17.0). `inline: ['key', …]` names settings of its `config_schema` the canvas editor draws on the node ([Edited on the node](#edited-on-the-node-0170)); `inline(typeId)` answers the names the schema has, `[]` when none, and a name it lacks (or an `inline` that is not a list) is a line in `problems` and is not drawn (0.17.0). **Ports keep their declared order**: a lane reads the first input as its own and an outline draws the other outputs as arms in order, so nothing sorts them |
 | `checkSettingsSchema(schema)` | The JSON-Schema subset a step's settings may use: `type`, `enum`, `const`, `required`, `properties`, `additionalProperties` (a boolean), `items`, `minItems`/`maxItems`, `minimum`/`maximum`, `minLength`/`maxLength`, `format: "uuid"`, the annotations and any `x-` hint. Returns the first refusal as the server's own sentence, or `null`. `oneOf`, `anyOf`, `$ref` and `pattern` are refused. `tests/fixtures/flow_kit_settings_schema.json` holds 30 schemas and their verdicts. Tables' own `check_schema` gave the same 30 verdicts when the file was written, and is meant to read this file in a test of its own |
 | `createWidgetRegistry()` | The controls, by name. The ten generic widgets are registered already; `register(name, widget)` throws for a name that exists, and replacing one takes `{replace: true}`. A widget is `(spec, value, ctx) => {el, destroy?, focus?, caret?, restoreCaret?}` and reports with `ctx.set(value)`; `undefined` removes the setting |
 | `createSettingsPanel(options)` | One step's settings, or the flow's own, drawn from the schema (below) |
@@ -1291,7 +1406,7 @@ touches browser storage — and is shown to fail on a planted one.
 | `groupFindings(list)`, `createFindingsStrip({onGoTo, nameOf})` | The consumer's findings (`{code, message, severity, node_id?, field?}`) by step, and the strip: *"N things to fix before this can be published."*, a line each, *Go to it* |
 | `new FlowHistory({actions, restore, onState, limit, mergeMs})` | Undo and redo over whole snapshots. The editor passes its own list of actions and `commit` throws on any other, so an edit nobody named fails its first test. Loading and publishing are `baseline`s, never entries. Keyed commits within `mergeMs` merge (typing a name is one entry), never across an undo. `keep()` and `adopt(kept, state)` carry the stacks to a successor that loaded the same bytes |
 | `bindFlowKeys(root, handlers)`, `ownsUndo(target)` | An editor's keys, bound on its root, never on `window` (below) |
-| `emptyGraph`, `normalise`, `serialise`, `nextId`, `addNode`, `removeNode`, `connect`, `canConnect`, `disconnect`, `inputNamesOf` | A logic flow's graph — `{nodes: [{id, type, label?, config, position}], connections: [{source, target, sourcePort, targetPort}]}`, the shape the canvas and the outline both save. `serialise` is byte-stable: a graph opened and saved with no edit is the same text |
+| `emptyGraph`, `normalise`, `serialise`, `nextId`, `addNode`, `removeNode`, `connect`, `addConnection`, `canConnect`, `disconnect`, `inputNamesOf` | A logic flow's graph — `{nodes: [{id, type, label?, config, position}], connections: [{source, target, sourcePort, targetPort}]}`, the shape the canvas and the outline both save. `serialise` is byte-stable: a graph opened and saved with no edit is the same text. `canConnect(graph, catalogue, edge, {strings, dataRead, dataPorts})` refuses only what an editor cannot draw; with `dataPorts: true` a data port connects to a data port, any number of lines out of one. `connect` adds the line when `canConnect` allows it; `addConnection(graph, edge)` adds it asking nothing, for a caller whose own rules already allowed it |
 | `createStrings(...layers)`, `FLOW_STRINGS` | Every word drawn, English and domain-free by default; an editor lays its own words over these, and the consumer lays its words over both |
 
 **The settings panel.**
@@ -1378,7 +1493,7 @@ configured renames nothing.
 
 **Keys.** `bindFlowKeys(root, handlers)` binds Ctrl/⌘+Z (`undo`), Ctrl/⌘+Y and
 Ctrl/⌘+Shift+Z (`redo`), Delete (`remove`), Ctrl/⌘+D, C, X and V (`duplicate`,
-`copy`, `cut`, `paste`), F2 (`rename`), Alt+↑, Alt+↓ and Alt+← (`moveUp`,
+`copy`, `cut`, `paste`), Ctrl/⌘+A (`selectAll`, 0.17.0), F2 (`rename`), Alt+↑, Alt+↓ and Alt+← (`moveUp`,
 `moveDown`, `moveOut`), the arrows (`up`, `down`, `left`, `right`), Enter
 (`open`) and Escape (`escape`), and returns an unbind. A key whose handler is
 absent, or returns `false`, is not taken. An editor's own row or card marks
@@ -1426,7 +1541,7 @@ the settings of whatever is picked, under a toolbar. It stands on the
 
 | Part | What it does |
 |---|---|
-| `new CanvasAdapter({container, gridSize = 16, onViewportChange, onBackgroundMenu, nodeSelector})` | A surface you put nodes and lines on: right-, middle- or Shift-drag pans, Ctrl + the wheel zooms about the pointer, a left press on the background draws a marquee (`onMarquee(box)`, `onSelectionChange(selection)`). Fields `root`, `surface`, `edgeLayer` (an SVG), `nodeLayer`, `marquee`, `selection`, `scale`, `tx`, `ty`, `gridSize`. Methods `clientToCanvas`, `canvasToClient`, `snap`, `setViewport`, `viewport`, `zoomAt`, `fit`, `visibleBox`, `contains`, `bringIntoView` (pans and never zooms, and does nothing when the box is already in view), `consumeRightDrag`, `clear`, `destroy`. **A node is whatever you put in `nodeLayer`**: a press inside one starts no pan and no marquee, and a right-click on one keeps your menu (or the browser's). Pass `nodeSelector` when the node layer holds other things too. `onViewportChange` fires once, synchronously, from the constructor, so declare what it reads before you build the adapter |
+| `new CanvasAdapter({container, gridSize = 16, onViewportChange, onBackgroundMenu, nodeSelector})` | A surface you put nodes and lines on: right-, middle- or Shift-drag pans, Ctrl + the wheel zooms about the pointer, a left press on the background draws a marquee (`onMarquee(box)`, `onSelectionChange(selection)`). Fields `root`, `surface`, `edgeLayer` (an SVG), `nodeLayer`, `marquee`, `selection`, `scale`, `tx`, `ty`, `gridSize`. Methods `clientToCanvas`, `canvasToClient`, `snap`, `setViewport`, `viewport`, `zoomAt`, `fit`, `visibleBox`, `contains`, `bringIntoView` (pans and never zooms, and does nothing when the box is already in view), `consumeRightDrag`, `clear`, `destroy`. **A node is whatever you put in `nodeLayer`**: a press inside one starts no pan and no marquee, and a right-click on one keeps your menu (or the browser's). Pass `nodeSelector` when the node layer holds other things too. `onViewportChange` fires once, synchronously, from the constructor, so declare what it reads before you build the adapter. `CanvasAdapter.MIN_SCALE` (0.15) and `CanvasAdapter.MAX_SCALE` (4) are the limits every zoom clamps to (0.17.0) |
 | `routeEdge(from, to, {obstacles, simple})`, `selfLoop`, `returnEdge(from, to, {floor})` | SVG path data between two anchors `{x, y, side}`: a line with horizontal lead-outs (bent round obstacles up to `OBSTACLE_ROUTING_NODE_LIMIT` nodes), a node's line to itself, and a loop's line back, which runs under both nodes |
 | `crowsFoot(point, side, kind)`, `footAnchor(point, side, kind)`, `cardinality({kind, optional})` | Crow's-foot ends (`many`, `one`, `zero-or-many`, `one-or-many`, `zero-or-one`, `exactly-one`) as an SVG group `twm-edge__marker twm-edge__marker--<kind>`, where the line should start so it meets the mark, and the two ends a reference implies |
 | `arrange(nodes, edges, {columnGap, rowGap})` | A layered layout. **Two quirks, kept on purpose:** an edge points from child to parent (a node sits one column right of what it points at), and each column is sorted by `label`, which every node must have |
@@ -1476,38 +1591,175 @@ editor.setRunOverlay({ steps, ports, banner });
 | `widgets`, `references`, `strings`, `services` | The kit's widget registry, the reference syntaxes by name, your words (`CANVAS_STRINGS` and the kit's), and your bag, handed to every widget unchanged |
 | `values` | *Insert a value*: called with `{graph, stepId, field, key, before, loops}`, where `before` is the steps that always run before this one (`alwaysBefore`, nearest first) and `loops` the loops around it. Returns groups, or `{groups, note}` |
 | `summarise(node, type)` | A line under a node's ports. `summariseReads(node, type)` is the panel's id line |
-| `dataPortRead(node, port)` | How a data port is read, in your syntax. It is shown on the port, which cannot be connected |
+| `dataPortRead(node, port)` | How a data port is read, in your syntax. It is shown on the port, which cannot be connected (unless `connections.dataPorts` is `'connect'`) |
+| `connections` | `{dataPorts: 'connect', policy(ctx)}`, absent by default, and then nothing below is drawn or bound. With it every line is asked, in order: what the canvas cannot draw (`canConnect` with `dataPorts`: a data port connects only to a data port, and a data output carries any number of lines); the kernel's `ConnectorRouter` over the catalogue ports, which take its descriptor keys (`disabled`, `disabledReason`, `maxConnections`, `allowMultiple`); the port types (an input's `accepts: ['number']` refuses an output whose `provides` names none of them, in a sentence); and your `policy(ctx)` — the router's context plus `connection` and a copy of the `graph` — which may refuse with a `reason`, allow, or answer `{ok: true, offer: {message, accept, apply(draft)}}`. An offer is shown with Accept and Not now: Accept makes the line and runs `apply` on a copy of the graph (change it in place or return a new one), as one undo entry. An output can also be dragged: while it is, the inputs it may end on carry `twm-flow-graph__port--can-drop`; released on one it connects; released on the empty canvas it opens the step picker with the types that have an input it may connect to, and the step picked is added with the line as one `flow:node:add` |
 | `flowSettings` | `{title, schema, value}` — the flow's own settings, edited as `flow:settings` |
 | `readOnly` | `false`, or `{reason}`, which is shown above the editor. Every verb is then refused with that reason, and no gesture writes |
-| `actions` | Your toolbar verbs, `[{id, label, icon, primary, danger, title, run(editor)}]`, after Undo, Redo, Arrange and Fit |
+| `actions` | Your toolbar verbs, `[{id, label, icon, primary, danger, title, run(editor)}]`, after Undo, Redo, Arrange and Fit (and the zoom buttons, with `zoomControls`) |
 | `slots` | `toolbarEnd(el)`, `flowPanel(el, editor)` and `stepPanel(el, node, editor)`, drawn by you; `setRunOverlay` redraws the panel slots and nothing else |
-| `onChange`, `onSelect` | After every committed edit. An undo or a redo is a change too (`action: null`, `via: 'undo' \| 'redo'`), because you autosave what is undone. `onSelect({kind, id})`: `step`, `flow`, `connection` (with `connection`) or `null` |
+| `onChange`, `onSelect` | After every committed edit. An undo or a redo is a change too (`action: null`, `via: 'undo' \| 'redo'`), because you autosave what is undone. `onSelect({kind, id})`: `step`, `flow`, `connection` (with `connection`) or `null`; with `multiSelect`, two or more picked steps are `{kind: 'many', ids}` |
+| `multiSelect` (0.17.0) | `true` makes the pick a set (below, *Many picked*). Without it none of it is bound or drawn |
+| `clipboard`, `prepareCopy(node, {from, via})` (0.17.0) | `true` keeps what Ctrl/⌘+C copies inside the editor while it is open; `{read(), write(text)}` hands it to you: `write` hears the copied JSON and `read` (text, or a promise of it) supplies what Ctrl/⌘+V pastes. `prepareCopy` may change a copy's `config` and `label` before it is added (`via`: `'paste'` or `'duplicate'`). Unset, Ctrl/⌘+C, X, V and D are not the editor's (below, *Copy and paste*) |
 | `loop`, `waitsForAll` | The loop's port names (`{entry: 'in', next, body, done}`): a line into a loop-role step on any input but `entry` is its body going back round, drawn dashed under both steps. `waitsForAll(join)` goes to `alwaysBefore` |
 | `removable(node, type)` | Whether a step may be removed. By default every step except a start step |
 | `node` | `{width: 208, header: 34, row: 22}` (`CANVAS_NODE`). Lines are anchored by arithmetic over these numbers, and the stylesheet is held to them |
+| `edgeStyle(connection, {source, target, back})` | How a line is drawn, asked for each line on every paint with copies of its two steps (`back`: it is a loop's line back). Returns `null` or `{tone, dashed, width, marker, label}`: `tone` is one of `TONES`, `width` a stroke width, `marker` `'arrow'` or a crow's-foot kind (`'many'`, `'one'`, `'zero-or-many'`, `'one-or-many'`, `'zero-or-one'`, `'exactly-one'`) drawn at the input end, and `label` text drawn at the line's midpoint, above the steps (a press on it picks the line). A picked or highlighted line still shows as one. Unset, the lines are drawn exactly as before |
+| `routing` | `'simple'` (the default: direct curves) or `'obstacles'`: each line is bent round the steps between its ends by the kernel's `routeEdge`, up to `OBSTACLE_ROUTING_NODE_LIMIT` steps. Above that the lines are direct curves and the findings strip says so (code `canvas-routing-simple`) |
+| `hoverHighlight` | `true`: the pointer over a step gives its lines `twm-flow-graph__edge--highlighted`, and over a line that line; leaving takes it away |
 | `history`, `gridSize`, `label` | `{limit, mergeMs}`, the snap grid, and the canvas's accessible name |
+| `viewport`, `onViewportChange(viewport)` | Where the reader looks, kept by you: the editor stores none of it. `viewport` (`{scale, tx, ty}`, as `getViewport()` gives it) is where the first `load` opens, instead of fitting. `onViewportChange` hears ONE report per finished gesture of the reader's (a pan's release, a run of wheel turns once the wheel has been still for 300 ms, Fit, Arrange, a zoom button, a minimap click, *Go to it*), never one per pointer move, never a gesture that ended where it began, and never what you set yourself (`load`, `setViewport`, `fit()`, `arrange()`). A wheel report still waiting is handed on by the next press and by `destroy` (0.17.0) |
+| `zoomControls` | `true` adds Zoom out, Zoom in and 100% after Fit. They step through 15%, 25%, 33%, 50%, 67%, 80%, 100%, 125%, 150%, 200%, 300% and 400%, about the centre of the view. At the kernel's limits the button is refused in place with its sentence. Off by default (0.17.0) |
+| `renameInPlace` | `true`: a double-click on a step's title edits its name on the node ([Edited on the node](#edited-on-the-node-0170)). Off by default, and then a double-click does nothing (0.17.0) |
+| `collapsible` | `true` puts a fold button on every step's header: it folds the step to its header and back, one `flow:node:collapse` entry each way (below, *Live values and folded steps*). Off by default, and then there is no button in the DOM and a `collapsed` flag in a graph is carried through untouched, the step drawn unfolded (0.17.0) |
+| `minimap` | `true` draws a small overview over the canvas's lower right corner, with the steps and the view's frame, redrawn when the canvas changes size as well as when the view moves. A click on it centres the view on that point, at the same scale. Off by default, and then there is no minimap in the DOM (0.17.0) |
 
 | Method | Does |
 |---|---|
-| `load({graph, flowSettings}, {baseline = true, fit = true})` | Replaces the content. A baseline clears both stacks. With `baseline: false` the stacks are kept, and the loaded content becomes the present they undo from |
+| `load({graph, flowSettings}, {baseline = true, fit = true, viewport})` | Replaces the content. A baseline clears both stacks. With `baseline: false` the stacks are kept, and the loaded content becomes the present they undo from. With `viewport` it opens there and does not fit |
+| `getViewport()`, `setViewport({scale, tx, ty})` | The kernel's viewport, as a copy; and putting the view there, clamped to the kernel's limits. `setViewport` drops a fit still waiting for its frame, is not reported to `onViewportChange`, and answers `false` (changing nothing) for anything that is not three finite numbers with a scale above 0 (0.17.0) |
 | `getGraph()`, `serialise()`, `snapshot()`, `getFlowSettings()` | A copy of the graph; its byte-stable text; the text the history holds (graph and settings); the settings |
 | `setFindings(list)`, `setRunOverlay(overlay \| null)`, `setReadOnly(false \| {reason})` | — |
+| `setNodeValues({[id]: {badge, tone, ports: {[name]: text}}} \| null)` (0.17.0) | What you show on the steps right now, replacing what you showed before. Painted in place: no undo entry, no `onChange`, nothing rebuilt and the panel untouched (below) |
+| `setCollapsed(id, collapsed)` (0.17.0) | With `collapsible`: fold a step to its header (`true`) or unfold it, one `flow:node:collapse` entry. `false` when refused (no `collapsible`, read only, no such step, or no change) |
 | `setActionState(id, {disabled, reason, busy})`, `setStatus(text)`, `setMessage(text, tone)` | A verb refused in place, with its reason printed beside the toolbar; the status line; the gesture line |
-| `select(id \| 'flow' \| null)`, `repaintPanel()`, `focus()`, `undo()`, `redo()`, `arrange()`, `fit({whole})` | — |
+| `align(kind)`, `distribute(axis)` (0.17.0) | With `multiSelect`: line the picked steps up (`'left'`, `'center'`, `'right'`, `'top'`, `'middle'`, `'bottom'`; two or more picked) or give them equal gaps (`'horizontal'`, `'vertical'`; three or more), one `flow:nodes:align` entry. `false` when refused (too few picked, read only, or no `multiSelect`); an unknown kind or axis throws |
+| `copy()`, `cut()`, `paste(text?)`, `duplicate()` (0.17.0) | With `clipboard`: the keys' verbs from code. Each answers `{ok: true, ids}` (the steps copied, cut or made) or `{ok: false, reason}`, the reason also on the message line; `paste()` answers a promise when your `read` is async, and `paste(text)` pastes that text. Without `clipboard`: `{ok: false, reason: null}` |
+| `select(id \| [id, …] \| 'flow' \| null)`, `repaintPanel()`, `focus()`, `undo()`, `redo()`, `arrange()`, `fit({whole})` | `select([id, …])` (0.17.0, `multiSelect`) picks several steps at once (unknown ids are left out; one left is one step picked, none lets go) |
+| `setCatalogue(catalogue \| types)` | Swaps the step types while the editor is open, for a type registered after `load`: the palette is redrawn and a node whose type's definition changed is rebuilt, so a node of a type that was unknown now draws. A definition is compared by what the node is drawn from (known or not, `icon`, `label`, tone, ports, `render`, `update` and `inline`), not by object identity: a new catalogue of the same types plus one more rebuilds no node and calls no `render` again. Under the `connections` option the connection rules and the empty-drop picker judge by the new catalogue, and a pending offer is taken away. The graph and the history are untouched (0.17.0) |
 | `history`, `canvas` | The editor's `FlowHistory` (`keep()`, `adopt(kept, editor.snapshot())`, `baseline(editor.snapshot())` for your publish) and its `CanvasAdapter` |
-| `destroy()` | Removes every listener, the ghost of a drag and any picker it opened. It saves nothing, because the editor holds nothing |
+| `destroy()` | Removes every listener, the ghost of a drag, the minimap and any picker it opened. It saves nothing, because the editor holds nothing; a viewport report still waiting for the wheel to settle is handed to `onViewportChange` first |
 
 Its edits are the closed list `CANVAS_ACTIONS`: `flow:node:add`,
 `flow:node:remove`, `flow:node:move` (one per drag), `flow:edge:connect`,
 `flow:edge:disconnect`, `flow:node:label`, `flow:node:config`,
-`flow:settings`, `flow:arrange` (one entry for the whole layout). Typing a name
+`flow:settings`, `flow:arrange` (one entry for the whole layout), and with
+`multiSelect` `flow:nodes:move`, `flow:nodes:remove` and `flow:nodes:align`
+(0.17.0; one entry per gesture on several steps), with `clipboard`
+`flow:paste` and `flow:node:duplicate` (0.17.0; one entry per paste or
+duplicate, however many steps it makes), and with `collapsible`
+`flow:node:collapse` (0.17.0). Typing a name
 or a setting is one entry. The geometry under it is exported as well, all of it
 pure: `CANVAS_NODE`, `arrangeCanvasGraph(graph, catalogue, {loopEntry})` (where
 Arrange puts each step: a Map of id → `{x, y}` from the origin),
-`canvasPortAnchor`, `canvasNodeBottom` and `isCanvasReturnEdge`.
+`canvasPortAnchor`, `canvasNodeBottom` (both fold a node with `collapsed: true`
+to its header, or as the box's `folded(node)` says; 0.17.0), `canvasNodeWidth` (a type's own
+`size.w`, else the box's; 0.17.0), `isCanvasReturnEdge`,
+`canvasPathPoints(d, {steps})` (the points along a drawn line's path `d`:
+absolute `M`, `L`, `C`, `S` and `Z`, each curve sampled at `steps` points) and
+`canvasPathMidpoint(d)` (the point halfway along it by length, where a style's
+`label` sits).
+
+#### Node bodies (0.17.0)
+
+A catalogue type can draw its own controls and values inside its node:
+
+```js
+const gauge = {
+    type_id: 'gauge', label: 'Gauge', ports, size: { w: 280, h: 170 }, accent: 'teal',
+    render(body, node, ctx) {                 // once, when the node is built
+        const range = document.createElement('input');
+        range.type = 'range';
+        range.addEventListener('change', () => ctx.setConfig({ level: Number(range.value) }));
+        body.append(range);
+    },
+    update(body, node, ctx) {                 // after render, and on every repaint
+        body.querySelector('input').value = node.config.level ?? 50;
+        body.querySelector('input').disabled = ctx.readOnly;
+    },
+};
+editor.setCatalogue(createStepCatalogue([...types, gauge], { categories }));   // after load too
+```
+
+- **The body sits below the ports** and is built once with the node. `update`
+  runs on the same element on every repaint, so a control inside it keeps its
+  focus and what was typed into it. `node` is a copy: the body writes only
+  through `ctx`. A later `setCatalogue` keeps that body too, unless the type's
+  own definition changed (its ports, `label`, `icon`, category tone, `render`
+  or `update`): then the node is built again and `render` runs again. A new
+  `size` or `accent` is applied in place.
+- **`ctx`** is `{setConfig(patch), readOnly, values, services}`. `values` is
+  what `setNodeValues` shows on this step now (`{badge, tone, ports}`, a copy),
+  or `null`. `setConfig` merges
+  `patch` into the node's config (an `undefined` value removes the key) as one
+  `flow:node:config` edit: one undo entry, and `onChange` is called. It is
+  refused (answers `false`) while the editor is read only, from inside
+  `render` or `update`, and when a value in `patch` cannot be cloned (a
+  function, a DOM node): then nothing is written. `services` is the editor's `services` option.
+- **`size: {w, h}`** is the node's box in pixels; either may be left out. Lines
+  leave a node's outputs at its own width, and a node with `h` is exactly that
+  tall, its body taking what is left. A body node without `h` is as tall as
+  it is drawn. Arrange spaces its columns by the widest node.
+- **`accent`** is a tone (`violet`, `teal`, `amber`, `grey`, `blue`, `indigo`),
+  drawn as a stripe over the node's header.
+- **A `render` that throws** leaves that node drawn as a type without a body
+  is, and what it threw is one of the editor's own findings: on the node and
+  in the strip, beside yours from `setFindings`. An `update` that throws keeps
+  the body and says so the same way until it succeeds. No other node is
+  affected.
+- A type without these keys is drawn exactly as before, with the same markup,
+  and `serialise()` is unchanged.
+
+#### Edited on the node (0.17.0)
+
+```js
+const counter = { type_id: 'counter', label: 'Counter', ports, inline: ['count'],
+                  config_schema: { type: 'object', properties: { count: { type: 'number' } } } };
+const editor = createCanvasEditor(host, { catalogue: [counter], renameInPlace: true });
+```
+
+- **`renameInPlace: true`.** A double-click on a step's title puts a text box
+  in its place, the name selected. Enter, or leaving the box, is one
+  `flow:node:label` edit, and none when the name is unchanged. Escape puts the
+  name back and records nothing. An empty name is refused with a sentence on
+  the gesture line and the name stays: on Enter the box stays open
+  (`aria-invalid`), on leaving it the box closes. Read only, a double-click
+  opens nothing, and going read only closes an open box without writing. The
+  settings panel, if it is showing that step, shows the new name.
+- **A type's `inline` settings** are drawn under the node's ports, above its
+  own body, by the same widget registry as the panel (`widgets`), with the
+  same labels and controls. A change on the node is a `flow:node:config` edit,
+  and the panel shows it at once. A change in the panel, or an undo, redraws
+  the node's control. The control being typed in is never redrawn under the
+  reader; a focused control whose value changes elsewhere (an undo pressed
+  while it holds the focus) is redrawn with its focus and caret kept. Typing
+  on the node and then in the panel are two undo entries. Read only disables
+  the node's controls. A node with inline settings and no
+  `size.h` is as tall as it is drawn.
+- Without the option and the key nothing is bound or drawn: the same markup,
+  and `serialise()` is unchanged.
+
+#### Live values and folded steps (0.17.0)
+
+```js
+const editor = createCanvasEditor(host, { catalogue, collapsible: true });
+editor.setNodeValues({ mix: { badge: '0.42', tone: 'teal', ports: { out: '0.42' } } });   // as often as you like
+editor.setNodeValues(null);                                                               // none shown
+```
+
+- **`setNodeValues`** paints what you are showing right now: `badge` is drawn
+  on the step's header, before its id tag, in a tone of `TONES` when `tone`
+  names one, and each `ports[name]` beside that port. It replaces what the
+  last call showed, and a step it leaves out shows nothing. It extends the run
+  overlay: nothing is rebuilt or recorded, `onChange` is not called, and the
+  settings panel is not touched, so a field being typed into keeps its focus
+  and its selection however often you call it. A type with its own body reads
+  them as `ctx.values`, and its `update` runs for each step whose values
+  changed (a `setConfig` from there is refused, as from any `update`). The
+  badge and port-value elements exist only while there is a value to show;
+  the editor keeps nothing of them past the next call.
+- **`collapsible: true`** puts a fold button on each header. A folded step
+  shows its header only: its port rows, its body and what is drawn under them
+  are hidden, and its lines stay, meeting the middle of the header on its left
+  (lines in) and its right (lines out). Each fold or unfold is one
+  `flow:node:collapse` entry, so Ctrl+Z unfolds a step just folded. The graph
+  carries `collapsed: true` on a folded step, written last in its `serialise()`
+  text; an unfolded step has no `collapsed` key, so a graph that never folded
+  a step is the text it always was. Read only refuses it.
 
 **Gestures.** A node's header moves it. A connection is made by clicking an
-output and then an input, and Escape cancels one in progress. A line is picked
+output and then an input, and Escape cancels one in progress. Under the
+`connections` option an output can also be dragged to an input, or onto the
+empty canvas to pick a step that arrives connected. A line is picked
 by clicking it, and Delete removes it or the picked step. A palette step is
 added by clicking it (at the centre of the view) or by dragging it onto the
 canvas (where it is dropped). The drag uses pointer events and a ghost on
@@ -1517,6 +1769,40 @@ a second click, to the palette button. No press rebuilds a node, so a click land
 on the node it went down on. Arrange lays the run out left to right, a branch's
 arms in their declared order, from the graph's own top-left corner. Fit frames
 the graph at natural size or smaller; pressing Fit frames all of it.
+
+**Many picked** (`multiSelect: true`, 0.17.0). A left drag on the empty canvas
+draws a marquee and picks every step it touches; Shift-, Ctrl- or ⌘-click on
+a step adds it to the pick or takes it away; Ctrl/⌘+A picks every step and
+Escape lets go. `select([id, …])` picks several from code. Dragging any picked
+step moves them all (`flow:nodes:move`), Delete removes every one that may be
+removed, with their lines (`flow:nodes:remove`; a start step stays), and the
+panel says how many are picked, with their Remove. On the canvas the arrow
+keys nudge the pick one grid step (`gridSize`), ten with Shift; a held arrow is
+one entry. Eight icon verbs after Fit align the pick's left edges, centres,
+right edges, tops, middles and bottoms, and distribute it horizontally and
+vertically, each refused in place with fewer than two (three) picked. Tab and
+Shift+Tab move the focus from step to step in graph order, and past either end
+Tab is the browser's again, so the keyboard can leave the canvas. Every one of
+these is a single undo entry. In read-only mode a marquee still picks, and no
+gesture writes.
+
+**Copy and paste** (`clipboard`, 0.17.0). Ctrl/⌘+C copies the picked steps
+and the lines among them; a line to a step left out of the pick is not copied,
+nor is a step whose type the palette does not offer (a start step) or that is
+`unavailable`. What is copied is the graph's own text, `{nodes, connections}`
+as `serialise()` writes it, so a graph from elsewhere pastes too. Ctrl/⌘+V
+gives every pasted step a fresh id (as a new step gets one), keeps the lines
+between them, sets the copy off two grid steps right and down (each further
+paste of the same text one more), picks it, and is one `flow:paste` entry. A
+paste right after Ctrl/⌘+X puts the steps back where they were; a cut is one
+remove entry. A step whose title the flow already has gets a derived label,
+`Title (copy)`, then `Title (copy 2)`, …, as the lanes editor's duplicate does.
+Ctrl/⌘+D does the same beside the pick without touching the clipboard, as one
+`flow:node:duplicate`. With nothing picked Ctrl/⌘+C, X and D are not the
+editor's. What is not steps, or names a type the flow does not have, is refused
+with its sentence on the message line. In read-only mode copying still works,
+and Paste, Cut and Duplicate are refused with the read-only reason and change
+nothing.
 
 **Keys** (bound on the editor's root): Ctrl/⌘+Z and Ctrl/⌘+Y or Ctrl/⌘+Shift+Z,
 stopped at the root even inside a text field; Delete; F2 renames the picked
@@ -1530,9 +1816,9 @@ flow opens on a start step adds that step to the graph before `load`, so it is
 part of the baseline and the first Ctrl+Z does not take it away.
 
 **Where each claim was checked.** `tests/canvas_adapter.test.mjs`,
-`canvas_edge_router`, `canvas_graph`, `flow_canvas_layout`, `flow_canvas_editor`
-and `flow_canvas_css` check the DOM, the events, the geometry and the stylesheet
-as text. In headless Edge, `demo/flow_canvas_probe.mjs` drives
+`canvas_edge_router`, `canvas_graph`, `flow_canvas_layout`, `flow_canvas_editor`,
+`flow_canvas_multiselect`, `flow_canvas_clipboard`, `flow_canvas_node_body`, `flow_canvas_live_values` and `flow_canvas_css` check the DOM, the events, the
+geometry and the stylesheet as text. In headless Edge, `demo/flow_canvas_probe.mjs` drives
 `demo/flow_canvas.html` with real input:
 - `elementFromPoint` at the centre of Undo, Arrange, Fit, a consumer verb, a
   palette item, a node's header, a port, and the panel's name box, first field
@@ -1545,7 +1831,34 @@ as text. In headless Edge, `demo/flow_canvas_probe.mjs` drives
 - A real click-then-click connected two steps.
 - A header drag moved its node, and a real Ctrl+Z put it back. Backspace removed
   nothing, Delete removed the step, and the focus stayed on the canvas.
+- On a 300-step graph with `multiSelect`, a real marquee picked three steps, a
+  real drag of one moved all three and one real Ctrl+Z put them back; a move
+  of 50 picked steps and its undo each finished in under 100 ms.
+- With `collapsible`, ten `setNodeValues` calls 100 ms apart each put their
+  value on the step's badge, inside its header, while real keys typed into a
+  settings field: the field kept the focus and every key, and the values made
+  no undo entry and no `onChange`. A real click on a header's fold button hid
+  every port row and left the step as tall as its header, with its lines
+  ending on the header's middle at its edges, within 1px; a real Ctrl+Z
+  unfolded it and its lines met their port dots again.
+- A type registered with `setCatalogue` after the page opened was in the
+  palette. Its node was drawn at its 280×170 size, with its body below its
+  ports and its accent. Every line into and out of it began and ended on its
+  port dots, within 1px.
 - At 700px the canvas took the editor's whole width.
+
+`tests/flow_canvas_edge_style.test.mjs` checks `edgeStyle`, `routing` and
+`hoverHighlight` in the DOM, and `demo/flow_canvas_edges_probe.mjs` in headless
+Edge:
+- A dashed line had a computed dash pattern, and an unstyled line kept its old
+  stroke and width.
+- An arrowhead's tip sat on the input port's centre line, and the line ended at
+  its base.
+- A label sat on its line's midpoint over a step, and `elementFromPoint` there
+  returned the label.
+- With `routing: 'obstacles'`, no point of a line lay inside the drawn box of
+  the step between its ends. Above the node limit the strip said so.
+- A real pointer over a step highlighted its lines, and moving off cleared them.
 
 ### The outline editor
 
@@ -1887,9 +2200,11 @@ keystrokes ask the preview once.
 `openForm({ title, fields, defaults, submitLabel })` (in `@flexdesk/widgets`)
 opens a modal form and resolves with `{ [name]: value }`, or `null` when it is
 cancelled. Fields are `text`, `number`, `password`, `select`, `textarea`,
-`checkbox`, `toggle`, `picker`, `checklist` and `radio`; `{ section: 'Label' }`
-entries are headings and `{ row: [...] }` entries put fields side by side. The additions below are opt-in, with one change every form
-sees, even one that uses none of them: a `select` or `radio` comes back with
+`checkbox`, `toggle`, `picker`, `checklist`, `radio`, `color` and `colorList`;
+`{ section: 'Label' }` entries are headings and `{ row: [...] }` entries put
+fields side by side. The additions below are opt-in, with one change every
+form sees, even one that uses none of them: a `select` or `radio` comes back
+with
 its option's OWN value and type (a numeric option submits `2`, not `'2'`; an
 option whose value is `null` submits `null`), a default of that type selects
 its option (`defaults: { s: 2 }` selects the option whose value is `2`), and an
@@ -2043,6 +2358,45 @@ a form and a settings panel cannot drift apart. In a form they are classed
 
 `tests/open_form_choices.test.mjs` covers each of these in jsdom.
 
+### Colours: `type: 'color'` and `type: 'colorList'` (0.17.0)
+
+```js
+openForm({
+    fields: [
+        { name: 'accent', label: 'Accent', type: 'color', default: 'rgb(31,119,180)',
+          presets: ['#1f77b4', '#ff7f0e', '#2ca02c'] },
+        { name: 'palette', label: 'Palette', type: 'colorList', default: ['#1f77b4', '#ff7f0e'] },
+    ],
+});
+// -> { accent: '#1f77b4', palette: ['#1f77b4', '#ff7f0e'] }
+```
+
+A `color` row is a swatch that opens the native picker, a hex box kept in step
+with it (picking writes the box; typing a valid hex moves the swatch), and,
+with `presets`, a strip of preset swatches. It submits lowercase `#rrggbb`, or
+`''` when left empty. A `colorList` row is an ordered list of such fields: add,
+remove, and reorder by drag or by the up / down buttons; `presets` are offered
+on every row, and it submits the colours in their current order as an array of
+`#rrggbb`. An `rgb()` / `rgba()` default (or `api.set` value) is shown as its
+hex; alpha is dropped, because the native picker has none. A box that does not
+hold `#rgb` or `#rrggbb` is a field error ("Not a hex colour", with the row
+numbers for a list) and the form does not resolve; `required` on either is
+checked by the form. `api.get` reads a `color` as its box text and a
+`colorList` as the array of its rows' text.
+
+Both are also components of their own in `@flexdesk/widgets`:
+`new ColorField({ value, presets, name, label, onChange })` and
+`new ColorListField({ value, presets, newColor, addLabel, name, onChange })`,
+each with `render()`, `getValue()` (null while something typed is not a
+colour), `setValue()`, `focus()` and `dispose()`; `onChange(value, { commit })`
+reports every edit and, with `commit: true`, every committed one.
+`normalizeHex(value)` (`#rgb`, `#rrggbb`, `rgb()` -> `#rrggbb` or null) and
+`isHexColor(value)` are exported with them, and `validateField` (in
+`@flexdesk/tiles`) now rejects a `FieldTypes.COLOR` value that is not a hex
+colour. The markup is `.twm-color-field` > `.twm-color-field__swatch` +
+`.twm-color-field__hex` (+ `.twm-color-field__presets`), and `.twm-color-list`
+rows are `.twm-color-list__row`. `tests/color_field.test.mjs` covers all of it.
+
 ### Number bounds and fields side by side: `min`, `max` and `{ row }` (0.17.0)
 
 ```js
@@ -2111,6 +2465,67 @@ In a form, `{ name, label, type: 'toggle', onText?, offText?, disabled?,
 compact? }` mounts one and submits a boolean, like a checkbox; `api.get` reads
 it as a boolean and `api.set` moves it. `tests/toggle_field.test.mjs` covers
 both.
+
+## A settings page: `SettingsView` (0.17.0)
+
+`new SettingsView({ store, eventBus })` (in `@flexdesk/widgets`) draws a
+settings store's schema as a page. `store` is a `createSettingsStore()` handle
+or the app-global binding's own, `getSettingsStore()` from `@flexdesk/core`
+(its `set` is the one `setSetting` calls); `eventBus` is the bus that store
+emits on (`registerSettingsEventBus(bus)` for the binding).
+
+```js
+import { getSettingsStore, registerSettingsEventBus } from '@flexdesk/core';
+import { SettingsView, settingsViewContent } from '@flexdesk/widgets';
+
+registerSettingsEventBus(bus);
+const view = new SettingsView({ store: getSettingsStore(), eventBus: bus });
+view.mount(host);
+view.selectCategory('window');
+view.setQuery('shadow');        // what the filter box does
+await view.resetAll();           // asks first; true when it reset
+view.dispose();
+
+// or as tile content (props.category picks the category shown first):
+createShell({ content: { settings: settingsViewContent({ store: getSettingsStore(), eventBus: bus }) } });
+```
+
+The sidebar holds a filter box, every category in `CategoryDef.order` and
+*Reset all*. Beside it the chosen category's settings are listed under its
+title, description and *Reset category*, grouped by `SettingDef.group` in
+schema order. A row shows the label, a *Modified* marker while the value
+differs from its default, the description, the path, its control and a reset
+button. Text in the filter searches every category's labels, descriptions and
+paths; the matches are listed under "Category › Group", and choosing a
+category clears it.
+
+| `type` | Control |
+| --- | --- |
+| `boolean` | a `ToggleField` |
+| `select` | a select over `options`; a value the options lack (stored, or set elsewhere while the view is open) is kept and shown as *value (not found)* |
+| `number` | a number box with `min`, `max` and `step`; a written value is always in the range and on the step grid (`min + k·step`, or `k·step` with no `min`): snapped to the nearest grid point, and one outside the range moved inward to the nearest grid point inside it (with `max` below `min` the range holds none, and the value is `min`); with no `step` it is only clamped; an empty or unreadable box goes back to the value |
+| `text` | a text box, written `textDebounceMs` (default `SETTINGS_TEXT_DEBOUNCE_MS`, 300) after the last keystroke, or at once on Enter or blur; emptied, it writes `null` when the default is `null` |
+| `colorList` | a `ColorListField`, written on each committed edit while every row holds a colour |
+
+A type it does not know shows the value as text, read only.
+
+The view is live both ways: a control writes with `store.set`, and the view
+listens for `settings:<path>:changed` on every schema path, `settings:changed`
+with a null path (the resets) and `settings:registered`, which the store now
+emits from `extend()` / `registerSettings()` with `{ paths, categories }`. So a
+`setSetting` made anywhere moves the open view, and a slice registered after
+mount adds its categories and rows without a remount. A row's reset button
+resets that one setting; *Reset category* and *Reset all* first ask
+`confirm({ title, message, confirmLabel, danger })` (default `openConfirm`) and
+change nothing unless it resolves true. Every label, description, category name
+and query is set as text, so markup in any of them is shown as typed.
+
+Options: `store`, `eventBus` (both required), `confirm`, `category`,
+`textDebounceMs`, `title` (the sidebar heading, and the content factory's tab
+title; default "Settings"). The markup is `.twm-settings` >
+`.twm-settings__sidebar` + `.twm-settings__content`, with rows
+`.twm-settings__row` (`--modified`); `flexdesk.css` styles it from tokens.
+`tests/settings_view.test.mjs` covers it in jsdom.
 
 ## A step wizard: `Wizard` (0.17.0)
 
@@ -2227,6 +2642,16 @@ checks jsdom has nothing to repair.
 `{ title, markdown }`; the modal renders it with `renderMarkdown` and the
 provider's optional `markdownOptions`. `{ title, html }` is unchanged:
 pre-rendered, **trusted** HTML, inserted as it is.
+
+**A table of contents for a help topic.** A topic with two or more headings,
+markdown or html, gets its contents between the breadcrumb and the article: a
+`createDocumentOutline` (below) of its `h1`–`h6`, numbered, the one in view
+marked as the content pane scrolls, a click that scrolls to its heading. The
+outline points at the heading elements themselves, so your markup needs no
+ids and the modal adds none; a topic with one heading or none shows no
+contents (the empty `.help-content__toc` is `hidden`). Until now the modal's
+documentation promised this and drew nothing. `tests/help_modal_toc.test.mjs`
+drives it in jsdom (BUG-0010).
 
 ## A document outline: `createDocumentOutline` (0.17.0)
 
@@ -2534,6 +2959,73 @@ before it returns. Reach the host through `mount`'s `api` argument, not the
 variable being assigned. Without `alertLog` and `mountPoint`, `NotificationHistory`
 is the bell it was.
 
+## A conversation: `mountConversationView` (0.17.0)
+
+A transcript of role-tagged messages above a composer, in `@flexdesk/widgets`.
+It has no markdown and no model in it: you draw a message's body, and it tells
+you when the user submits or cancels.
+
+```js
+const view = mountConversationView(el, {
+    render:   (message, bodyEl, { streaming }) => { bodyEl.innerHTML = toHtml(message.text); },
+    onSubmit: (text) => { view.append({ role: 'user', text }); view.setBusy(true); ask(text); },
+    onCancel: () => abort(),
+    placeholder: 'Ask anything',
+});
+view.beginStream({ role: 'assistant' });
+for await (const chunk of reply) view.appendChunk(chunk);  // re-renders this message only
+view.endStream();
+view.setBusy(false);
+```
+
+| Method | Does |
+|---|---|
+| `append({ id?, role, text, meta? })` → id | Adds a message; `role` becomes `twm-chat__msg--<role>` |
+| `replaceAll(messages)`, `clear()` | Restores a transcript (and scrolls to its end), or empties it |
+| `beginStream(message?)` → id, `appendChunk(text)`, `endStream()` | A message that grows; each chunk re-renders that message's body and nothing else |
+| `slot(id)` | The element below a message's body, yours to fill (tool output, buttons); a re-render leaves it alone |
+| `messages()`, `streamingId()` | Copies of the messages; the one streaming |
+| `getScrollTop()`, `setScrollTop(px)`, `scrollToBottom()`, `isPinned()` | The transcript's scroll position, to keep across a remount |
+| `setBusy(bool)`, `isBusy()` | `true` turns Send into Cancel |
+| `getText()`, `setText(text)`, `focus()`, `destroy()` | The composer, and teardown |
+
+- **`render(message, bodyEl, { streaming })`** fills an emptied body. One that
+  throws leaves that message as its plain text and the view carries on; the
+  error goes to `onRenderError(error, message)`. Without `render`, every body
+  is plain text (`textContent`, never markup).
+- **Pinned to the bottom.** The transcript starts out following new content.
+  Any scroll up, even a few px from the end (the first frame of a smooth wheel
+  or arrow-key scroll), stops that and shows *Jump to latest*, and later chunks
+  leave the reader where they are. It follows again only after a scroll down
+  that ends within `pinThreshold` px (32) of the end, a click on *Jump to
+  latest*, `scrollToBottom()`, `replaceAll()` / `clear()`, or a
+  `setScrollTop(px)` that lands within the threshold. Content growing below
+  never unpins it, nor does content shrinking under it (the browser moves
+  `scrollTop` back to the new end, which is not the reader scrolling). A wheel
+  over a scroller nested in a body or a slot (a `<pre>`, a tool-output box)
+  scrolls that scroller (or, at its top with `overscroll-behavior: contain`,
+  keeps the wheel), and a wheel a handler in the transcript cancels, a
+  Ctrl+wheel (page zoom, or a trackpad pinch) and a wheel up over a transcript
+  already at its top move nothing, so in all these cases the transcript keeps
+  following.
+- **The composer** grows with its text up to `composerMaxHeight` (200 px).
+  Enter submits and clears it (blank text is ignored, and so is Enter during
+  IME composition); Shift+Enter is left to the browser, which inserts the
+  newline (so undo and `input` listeners see it). While busy, Enter submits
+  nothing, and Esc (wherever focus is inside the view) or a click on Cancel
+  calls `onCancel` once per busy period. That Esc goes no further
+  (`stopPropagation`), so a `ManagedWindow` or panel holding the view that
+  closes on Escape stays open. An Esc a handler inside the view has already
+  consumed (`preventDefault`, e.g. an inline popup in the transcript closing
+  itself) is left alone: it neither cancels nor is stopped.
+- **Ids are unique.** `append`, `beginStream` or `replaceAll` with an id already
+  in the transcript (or repeated within the `replaceAll` list) throws, and the
+  refused call changes nothing: no row, no open stream, the old transcript kept.
+- `labels: { send, cancel, jump, input }` replaces the four texts.
+
+`tests/conversation_view.test.mjs` drives all of it in jsdom with a fake
+scroll geometry.
+
 ## The host port
 
 FlexDesk never touches `pywebview`, `fetch`, `localStorage` or the filesystem. It
@@ -2738,6 +3230,23 @@ an attempt failed.
 
 If you already load Plotly yourself (a `<script>` tag that sets `window.Plotly`),
 the chart loader short-circuits and you can skip `setPlotlySource`.
+
+### Auto-height editors: `maxHeight` (0.17.0)
+
+`createEditor()` sizes its container to the content (80px at least, see
+`setMinHeight`). Cap it with `maxHeight`, in px; `Infinity`, the default, is
+no cap. Past the cap Monaco scrolls internally and takes the mouse wheel;
+below it the wheel reaches whatever scrolls around the editor.
+
+```js
+const h = factory.createEditor(el, source, { maxHeight: 400 });
+h.setMaxHeight(Infinity);   // applies at once: grows to the content
+```
+
+A non-positive or non-number cap throws a `RangeError`. With `noAutoHeight`
+the container's own layout decides the size and `setMaxHeight` has no effect.
+Before 0.17.0 the cap was a fixed 400px, switched on by `data-code-max-height="true"`
+on a `.notebook-editor-container` ancestor; that attribute is no longer read.
 
 ## Storage keys and names are yours (0.17.0)
 
@@ -2951,6 +3460,45 @@ A chart tile's **Download PNG** (0.14.1) goes through the grid's `host`
 toasts where the file went, a cancel says nothing — and with no host, or a
 `saveFile` that answers null, the browser download it always was.
 
+### Figure tiles: one override, the draw is the base's (0.17.0)
+
+`FigureTile` is the base every Plotly tile draws through — `ChartTile` is one.
+A subclass overrides **one** method, `figure(data)`, answering
+`{traces, layout?, config?, frames?}` or `null`, synchronously:
+
+```js
+import { FigureTile, registerWidget } from '@flexdesk/tiles';
+import { buildHistogramTrace } from '@flexdesk/charts';
+
+class SpreadTile extends FigureTile {
+    static TYPE = 'myapp.spread';
+    static TITLE = 'Spread';
+    figure(data) {
+        if (!data?.values?.length) return null;          // the empty state
+        return { traces: [buildHistogramTrace({ x: data.values })], layout: { margin: { t: 8 } } };
+    }
+}
+registerWidget(SpreadTile);
+```
+
+The base awaits `ensurePlotly()` (so a page using `setPlotlySource` draws on
+first view, and data that changes while Plotly loads draws once), draws through
+`createChart` with `scrollZoom` and the mode bar off (`config` goes over that),
+adds `frames`, and discards a draw that lands after a newer one. `null` is the
+empty state with `static EMPTY_MESSAGE` — call `this.showEmpty(why)` yourself
+first to say why. A `figure()` that throws, or a draw that fails, is the error
+state plus `tile:render-failed {tileId, message}`. Loading, empty, error and
+`dispose()` purge the figure; a resize that settles relayouts it once. The ⋯
+menu is `TileBase`'s entries plus **Download PNG** (through `host.dialogs`, as
+above); extend it with `[...super.menuItems(), …]` and route your actions
+through `_onMenuAction`, calling `super` for the rest. **Expand** opens
+`openRawTracesWindow` with the last figure drawn (`getExpandData()`), and
+`onPointClick({customdata, point, tile})` — an option or a property — hears a
+click on a mark. `setData(data)` feeds one tile; `null` clears it.
+
+`ChartTile` is now a `FigureTile`: its menu stays Download PNG alone, and its
+header gains the Expand button.
+
 ### List and people tiles, and one scope for the board (0.16.1)
 
 Two more widgets, registered by `registerListTiles()` (idempotent, nothing at
@@ -2994,6 +3542,59 @@ is a row of buttons, one pressed. `grid.setScope(value)` (or
 `tile.scope` and `tile.onScopeChange(scope)`, a tile added later starts with
 it, a grid with a data source reloads its tiles, and the grid's `onScopeChange`
 is told. What a scope means is yours; it is not part of the layout.
+
+### A tile's settings as a form: `mountTileConfigForm` (0.17.0)
+
+`getConfigSchema()` answers `{fields}`; `mountTileConfigForm` draws them, so a
+config panel is no longer a control written by hand per field:
+
+```js
+import { mountTileConfigForm, openTileConfig } from '@flexdesk/tiles';
+const form = mountTileConfigForm(host, {
+    schema: tile.getConfigSchema(),
+    config: tile.config,                       // defaults filled by mergeWithDefaults
+    data,                                      // what getFieldOptions reads for dynamic options
+    onChange: (key, value, config) => tile.update(undefined, config),
+    renderers: { variable: ({ field, value, data, readonly, commit }) => myPicker(...) },
+});
+form.getValues(); form.setValues(next); form.isValid(); form.focusFirstInvalid();
+form.flush(); form.dispose();
+```
+
+- A field is `{key, type, label?, description?, default?, required?, readonly?,
+  min?, max?, step?, options?, visibleWhen?}`. Without a `label` the field is
+  called by its `key`, on its label and in its error messages. Every `FieldTypes` entry has a
+  control (text, number, checkbox, select, multiselect, color, range); any other
+  `type` needs a renderer, which answers an element or
+  `{element, setValue?, dispose?}` and calls `commit(value)` on an edit.
+- An edit is checked by `validateField`. An invalid one shows its error under the
+  field and is **not applied**; a valid one calls `onChange` with the field's key.
+  `isValid()` is false while a shown row has an error; `focusFirstInvalid()`
+  focuses the first such row's control (a renderer's element, or the first
+  focusable element inside it) and answers whether there was one.
+- `commitOn: 'input'` (the default) checks text, number, range and colour
+  controls on every keystroke; `commitOn: 'change'` checks them once the edit is
+  finished (blur, Enter, a released slider), for an `onChange` that is expensive.
+  `flush()` commits an edit typed but not yet finished.
+- `visibleWhen: {field, in: [...]}` (or `{field, equals}`) hides the row, never
+  rebuilds the form, so the control being typed into keeps its focus.
+- A field with no `key` throws. **The built-in tiles' schemas now use `key` and
+  `description`** (they said `name` and `help`, which `validateConfig` and
+  `mergeWithDefaults` never read: BUG-0021). A consumer that read `field.name`
+  or `field.help` from them reads `field.key` and `field.description`.
+
+The grid's cogwheel emits `grid:config-modal-show`, which now also carries the
+grid's `data`. Nothing listens unless you ask:
+`openTileConfig(eventBus, {mode: 'slide-out', host})` shows the form in a
+`SlideOutPanel` over `host` and saves every finished, valid edit (it runs the
+form with `commitOn: 'change'`, so typing a title is one save, not one per
+keystroke; closing the panel saves an edit still being typed);
+`{mode: 'modal'}` (the default) saves on Save, and refuses Save while a field
+shows an error (the modal stays open and the first invalid field is focused). A request that arrives while a
+modal is open is ignored. It answers a function that unsubscribes and closes the
+slide-out; an open modal is left to the user, keeps its form and still saves on
+Save. A renderer's `commit` on a `readonly` field applies nothing and answers
+`{valid: false, error}`.
 
 ## Styling
 

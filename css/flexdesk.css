@@ -3838,10 +3838,12 @@ body.twm-window-maximized .twm-resize-handle {
     font-size: 32px;
 }
 
-/* ── the chart and KPI tiles (0.13.0, src/tiles/chart_tiles.js) ──────── */
-/* The figure flexes into what `.tile-content`'s column leaves; the note takes
-   its own line BELOW it, so the height chain above is untouched. */
-.fd-chart-tile {
+/* ── the figure, chart and KPI tiles (0.13.0, src/tiles/chart_tiles.js;
+      0.17.0, src/tiles/figure_tile.js) ─────────────────────────────── */
+/* A figure tile's plot (a chart tile's too: it is one) flexes into what
+   `.tile-content`'s column leaves; a chart's note takes its own line BELOW it,
+   so the height chain above is untouched. */
+.fd-figure-tile {
     display: flex;
     flex-direction: column;
     flex: 1 1 auto;
@@ -3853,7 +3855,7 @@ body.twm-window-maximized .twm-resize-handle {
 /* Plotly puts `.js-plotly-plot` on the figure itself, and the rule above makes
    that `height: 100% !important` — which, beside a note, pushes the note out of
    the tile. Here the flex column sizes the figure instead. */
-.tile-content .fd-chart-tile.js-plotly-plot {
+.tile-content .fd-figure-tile.js-plotly-plot {
     height: auto !important;
 }
 
@@ -4066,6 +4068,60 @@ body.twm-window-maximized .twm-resize-handle {
 .fd-scope-picker__btn--on,
 .fd-scope-picker__btn--on:hover { background: var(--accent); color: #fff; }
 .fd-scope-picker__btn:focus-visible { outline: 1px solid var(--accent-bright); outline-offset: -2px; }
+
+/* ── the tile config form (0.17.0, tile_config_form.js) ──────────────────
+   One row per schema field: the label, the control, the description, the
+   inline error. A hidden row (visibleWhen) is `hidden`, never rebuilt. */
+.fd-tile-config {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    padding: var(--space-sm);
+    font-size: var(--font-size-sm);
+}
+.fd-tile-config__row {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+.fd-tile-config__row[hidden] { display: none; }
+.fd-tile-config__row--checkbox {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-xs);
+}
+.fd-tile-config__row--checkbox .fd-tile-config__help,
+.fd-tile-config__row--checkbox .fd-tile-config__error { flex-basis: 100%; }
+.fd-tile-config__label { color: var(--text-secondary); font-size: var(--font-size-xs); }
+.fd-tile-config__input,
+.fd-tile-config__select {
+    width: 100%;
+    box-sizing: border-box;
+    padding: var(--ea-input-pad, 4px 6px);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    background: var(--ea-input-bg, transparent);
+    color: var(--text-bright);
+    font: inherit;
+}
+.fd-tile-config__input:focus,
+.fd-tile-config__select:focus { outline: none; border-color: var(--accent-bright); }
+.fd-tile-config__input:disabled,
+.fd-tile-config__select:disabled,
+.fd-tile-config__checkbox:disabled,
+.fd-tile-config__color:disabled,
+.fd-tile-config__range:disabled { opacity: 0.6; cursor: default; }
+.fd-tile-config__row--invalid .fd-tile-config__input,
+.fd-tile-config__row--invalid .fd-tile-config__select { border-color: var(--color-danger); }
+.fd-tile-config__range-wrap { display: flex; align-items: center; gap: var(--space-sm); }
+.fd-tile-config__range { flex: 1 1 auto; }
+.fd-tile-config__range-value { min-width: 3ch; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.fd-tile-config__color { width: 48px; height: 24px; padding: 0; border: 1px solid var(--border-subtle); background: transparent; }
+.fd-tile-config__help { color: var(--text-muted); font-size: var(--font-size-xs); line-height: 1.4; }
+.fd-tile-config__error { color: var(--color-danger); font-size: var(--font-size-xs); line-height: 1.4; }
+.fd-tile-config__error[hidden] { display: none; }
 
 /* ===================================================================
    REUSABLE ACTION DROPDOWN COMPONENT
@@ -5863,6 +5919,84 @@ button.twm-about-dialog__btn--close:focus {
 .twm-managed-window--modal .twm-picker__btn .material-symbols-outlined {
     font-size: 15px;
 }
+/* Colour field: swatch (native picker) + hex box + optional preset strip.
+ * The hex box takes the field-well styling of the text inputs above. */
+.twm-color-field {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+.twm-color-field__swatch {
+    flex: 0 0 auto;
+    width: 28px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid #3a3a3a;
+    border-radius: 0;
+    background: transparent;
+    cursor: pointer;
+}
+.twm-color-field__hex {
+    flex: 1 1 90px;
+    min-width: 0;
+    font-family: 'Consolas', 'Monaco', monospace;
+}
+.twm-color-field--invalid .twm-color-field__hex {
+    border-color: #b03a3a;
+}
+.twm-color-field__presets {
+    flex: 1 0 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+}
+.twm-color-field__preset {
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 2px;
+    cursor: pointer;
+}
+.twm-color-field__preset:hover,
+.twm-color-field__preset:focus-visible {
+    outline: 1px solid var(--ea-accent, #569cd6);
+    outline-offset: 1px;
+}
+/* Colour list: a SortableList whose rows are a colour field + move buttons. */
+.twm-color-list {
+    min-width: 0;
+}
+.twm-color-list__row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+}
+.twm-color-list__row > .twm-color-field {
+    flex: 1 1 auto;
+}
+.twm-color-list__move {
+    display: flex;
+    align-items: center;
+    padding: 2px;
+    background: transparent;
+    border: none;
+    color: #8c8c8c;
+    cursor: pointer;
+}
+.twm-color-list__move:hover:not(:disabled) {
+    color: var(--ea-accent, #569cd6);
+}
+.twm-color-list__move:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+.twm-color-list__move .material-symbols-outlined {
+    font-size: 15px;
+}
 /* An option that cannot be chosen, and why — drawn by choice_controls.js
  * for openForm's select, checklist and radio (and the flow kit's widgets). */
 .twm-choice--disabled { cursor: default; opacity: 0.7; }
@@ -6615,7 +6749,7 @@ body.twm-dragging * { user-select: none; }
      * size (24) draws strokes too heavy to read as a small control. */
     font-variation-settings: 'opsz' 20, 'wght' 400;
 }
-.twm-leaf__btn:hover:not(:disabled) { background: var(--state-hover); color: var(--text-primary); }
+.twm-leaf__btn:hover:not(:disabled):not(.twm-leaf__btn--disabled) { background: var(--state-hover); color: var(--text-primary); }
 /* C20. A verb that applies to this kind of pane but not right now — greyed and
  * explained by its tooltip, rather than removed. `:disabled` alone would still
  * take the hover highlight above, which reads as clickable. */
@@ -6623,6 +6757,34 @@ body.twm-dragging * { user-select: none; }
 .twm-leaf__btn:disabled {
     opacity: 0.35;
     cursor: default;
+}
+
+/* C42. A content action that is a toggle, and on: `aria-pressed="true"`. The
+ * selected tint the rest of the shell uses, so "on" reads the same everywhere. */
+.twm-leaf__btn--pressed {
+    background: var(--state-selected);
+    color: var(--text-primary);
+}
+
+/* C42. A content action with a text label: the 18px square is for a glyph, so
+ * a labelled button grows to its text. */
+.twm-leaf__btn--labelled {
+    width: auto;
+    gap: 2px;
+    padding: 0 4px;
+}
+.twm-leaf__btn-label {
+    font-size: 11px;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+/* C42. `{separator: true}` between groups of content actions. */
+.twm-leaf__sep {
+    align-self: stretch;
+    width: 1px;
+    margin: 3px 2px;
+    background: var(--border-subtle);
 }
 .twm-leaf__body {
     flex: 1 1 auto;
@@ -9462,6 +9624,15 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     color: var(--text-secondary);
     font-size: var(--font-size-md);
 }
+/* A topic's table of contents (a `createDocumentOutline`), between the
+ * breadcrumb and the article; drawn only for two headings or more. */
+.help-content__toc {
+    margin-bottom: var(--space-xl);
+    padding: var(--space-md) 0;
+    border-left: 2px solid var(--surface-3);
+    font-size: var(--font-size-md);
+}
+.help-content__toc[hidden] { display: none; }
 .help-index h1 {
     margin: 0 0 var(--space-md);
     color: var(--text-primary);
@@ -9644,6 +9815,117 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 }
 /* ══ end HELP MODAL ══ */
 
+/* ══ MENU BAR ════════════════════════════════════════════════════════
+ *
+ * `MenuBar` (src/ui/components/menu_bar.js, STORY-0030): a row of titles,
+ * each opening a menu that may fly out submenus. Not `.twm-menu-bar`, which
+ * is the older strip of 25px icon buttons and keeps its meaning. A menu is
+ * `position: fixed` (the JS places it), so a bar inside a clipped chrome strip
+ * still drops its menus over the page. Same surface, border and shadow as
+ * `.twm-context-menu`: two menus that look different read as two systems.
+ * tests/menu_bar_css.test.mjs holds every class the bar sets to a rule here,
+ * both ways, and base.css to the same text. */
+.twm-menubar {
+    display: flex;
+    align-items: stretch;
+    gap: 1px;
+    min-height: 24px;
+    font-size: var(--font-size-md);
+    color: var(--text-body);
+    user-select: none;
+}
+.twm-menubar__entry {
+    position: relative;
+    display: flex;
+}
+.twm-menubar__title {
+    appearance: none;
+    background: none;
+    border: 0;
+    border-radius: var(--radius-sm);
+    color: inherit;
+    font: inherit;
+    padding: var(--space-xxs) var(--space-md);
+    cursor: default;
+}
+.twm-menubar__title:hover,
+.twm-menubar__title:focus-visible,
+.twm-menubar__title[aria-expanded="true"] {
+    background: var(--state-active);
+    color: var(--text-bright);
+    outline: none;
+}
+.twm-menubar__menu {
+    position: fixed;
+    z-index: var(--z-over-windows);
+    display: flex;
+    flex-direction: column;
+    min-width: 200px;
+    max-height: calc(100vh - 8px);
+    overflow-y: auto;
+    padding: var(--space-xs) 0;
+    background: var(--surface-0);
+    color: var(--text-body);
+    border: 1px solid var(--surface-3);
+    border-radius: var(--radius-md);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+}
+.twm-menubar__cell {
+    display: flex;
+}
+.twm-menubar__item {
+    appearance: none;
+    background: none;
+    border: 0;
+    width: 100%;
+    text-align: left;
+    color: inherit;
+    font: inherit;
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-xs) var(--space-lg) var(--space-xs) var(--space-xs);
+    cursor: default;
+    white-space: nowrap;
+}
+.twm-menubar__item:focus,
+.twm-menubar__item:hover:not(.twm-menubar__item--disabled),
+.twm-menubar__item[aria-expanded="true"] {
+    background: var(--state-selected);
+    outline: none;
+}
+.twm-menubar__item--submenu {
+    padding-right: var(--space-md);
+}
+.twm-menubar__item--disabled {
+    opacity: 0.4;
+    color: var(--text-muted);
+}
+.twm-menubar__check {
+    flex: 0 0 16px;
+    text-align: center;
+}
+.twm-menubar__item--check[aria-checked="true"] .twm-menubar__check::before { content: "\2713"; }
+.twm-menubar__item--radio[aria-checked="true"] .twm-menubar__check::before { content: "\2022"; }
+.twm-menubar__label {
+    flex: 1 1 auto;
+}
+.twm-menubar__shortcut {
+    margin-left: var(--space-2xl);
+    color: var(--text-muted);
+    font-size: var(--font-size-sm);
+}
+.twm-menubar__arrow::before {
+    content: "\25B8";
+    color: var(--text-muted);
+}
+.twm-menubar__separator {
+    height: 1px;
+    margin: var(--space-xs) var(--space-md);
+    background: var(--surface-3);
+}
+/* ══ end MENU BAR ══ */
+
 /* ══ TOGGLE ══════════════════════════════════════════════════════════
  * ToggleField: a track and a knob drawn over a real checkbox with
  * role="switch". The input sits on top of the track, transparent, so the
@@ -9741,6 +10023,223 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     min-height: var(--ea-row-h);
 }
 /* ══ end TOGGLE ══ */
+
+/* ══ SETTINGS VIEW (STORY-0050) ══════════════════════════════════════
+ * SettingsView: a sidebar of categories with a filter box, beside the
+ * chosen category's settings in groups. Tokens only.
+ */
+.twm-settings {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    background: var(--surface-1);
+    color: var(--text-body);
+    font-size: var(--font-size-sm);
+}
+.twm-settings__sidebar {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 220px;
+    min-width: 0;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    border-right: 1px solid var(--border-subtle);
+    background: var(--surface-0);
+}
+.twm-settings__sidebar-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    color: var(--text-bright);
+    font-weight: var(--font-weight-semibold);
+}
+.twm-settings__search {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: 0 var(--space-sm);
+    min-height: var(--ea-row-h);
+    background: var(--ea-input-bg);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+}
+.twm-settings__search:focus-within { border-color: var(--accent-bright); }
+.twm-settings__search-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-body);
+    font: inherit;
+}
+.twm-settings__nav {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    gap: var(--space-xxs);
+}
+.twm-settings__cat {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    min-height: var(--ea-row-h);
+    padding: 0 var(--space-sm);
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.twm-settings__cat:hover { background: var(--state-hover); }
+.twm-settings__cat:focus-visible { outline: 1px solid var(--accent-bright); }
+.twm-settings__cat--active {
+    background: var(--state-selected);
+    color: var(--text-bright);
+}
+.twm-settings__cat .material-symbols-outlined,
+.twm-settings__reset-all .material-symbols-outlined,
+.twm-settings__reset-category .material-symbols-outlined {
+    font-size: var(--font-size-lg);
+}
+.twm-settings__cat-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.twm-settings__content {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-y: auto;
+    padding: var(--space-lg) var(--space-xl);
+}
+.twm-settings__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-lg);
+    margin-bottom: var(--space-lg);
+}
+.twm-settings__header-info {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.twm-settings__title {
+    margin: 0;
+    color: var(--text-bright);
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-semibold);
+}
+.twm-settings__description {
+    margin: var(--space-xs) 0 0;
+    color: var(--text-muted);
+}
+.twm-settings__group { margin-bottom: var(--space-xl); }
+.twm-settings__group-title {
+    margin: 0 0 var(--space-sm);
+    padding-bottom: var(--space-xs);
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.twm-settings__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-sm) var(--space-sm);
+    border-left: 2px solid transparent;
+    border-radius: var(--radius-sm);
+}
+.twm-settings__row:hover { background: var(--state-hover); }
+.twm-settings__row--modified { border-left-color: var(--accent-bright); }
+.twm-settings__info {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.twm-settings__label-line {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+.twm-settings__label { color: var(--text-primary); }
+.twm-settings__marker {
+    padding: 0 var(--space-xs);
+    border-radius: var(--radius-pill);
+    background: var(--surface-3);
+    color: var(--accent-bright);
+    font-size: var(--font-size-xs);
+}
+.twm-settings__marker[hidden],
+.twm-settings__reset[hidden] { display: none; }
+.twm-settings__row .twm-settings__description {
+    margin-top: var(--space-xxs);
+    font-size: var(--font-size-xs);
+}
+.twm-settings__path {
+    display: block;
+    margin-top: var(--space-xxs);
+    color: var(--text-dim);
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-xs);
+}
+.twm-settings__control {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    max-width: 50%;
+}
+.twm-settings__select,
+.twm-settings__number,
+.twm-settings__text {
+    min-height: var(--ea-row-h);
+    padding: 0 var(--space-sm);
+    background: var(--ea-input-bg);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    color: var(--text-body);
+    font: inherit;
+}
+.twm-settings__select:focus,
+.twm-settings__number:focus,
+.twm-settings__text:focus {
+    outline: none;
+    border-color: var(--accent-bright);
+}
+.twm-settings__number { width: 110px; }
+.twm-settings__text { width: 240px; }
+.twm-settings__readonly {
+    color: var(--text-muted);
+    font-family: var(--font-family-mono);
+}
+.twm-settings__reset {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--ea-row-h);
+    height: var(--ea-row-h);
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    cursor: pointer;
+}
+.twm-settings__reset:hover { background: var(--state-hover); color: var(--text-bright); }
+.twm-settings__reset .material-symbols-outlined { font-size: var(--font-size-lg); }
+.twm-settings__empty {
+    padding: var(--space-xl) 0;
+    color: var(--text-muted);
+}
+/* ══ end SETTINGS VIEW ══ */
 
 /* ══ DOCUMENT OUTLINE (0.17.0) ═══════════════════════════════════════
  * `createDocumentOutline` (src/ui/components/document_outline.js). No height
@@ -10206,6 +10705,33 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     line-height: 1;
 }
 /* ══ end SECTION STACK ══ */
+
+/* ── The conversation view (conversation_view.js, STORY-0057) ─────────────
+ * A transcript of role-tagged messages above a growing composer. The view
+ * fills its host; the transcript scrolls, the composer stays at the foot. */
+.twm-chat { display: flex; flex-direction: column; height: 100%; min-height: 0; font-size: var(--font-size-sm); color: var(--text-body); }
+.twm-chat .material-symbols-outlined { font-size: 18px; line-height: 1; }
+.twm-chat__viewport { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.twm-chat__log { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--space-md); display: flex; flex-direction: column; gap: var(--space-sm); }
+.twm-chat__msg { max-width: 85%; padding: var(--space-sm) var(--space-md); border-radius: var(--radius-md); background: var(--surface-1); line-height: var(--line-height-relaxed); overflow-wrap: anywhere; }
+.twm-chat__msg--user { align-self: flex-end; background: var(--state-selected); }
+.twm-chat__msg--assistant { align-self: flex-start; }
+.twm-chat__msg--system { align-self: center; background: none; color: var(--text-muted); font-size: var(--font-size-xs); }
+.twm-chat__msg--streaming .twm-chat__body::after { content: '\258D'; margin-left: 1px; color: var(--text-muted); }
+.twm-chat__body--plain { white-space: pre-wrap; }
+.twm-chat__extra:empty { display: none; }
+.twm-chat__extra { margin-top: var(--space-sm); }
+.twm-chat__jump { position: absolute; left: 50%; bottom: var(--space-md); transform: translateX(-50%); display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 12px; border: 1px solid var(--border-default); border-radius: var(--radius-pill); background: var(--surface-2); color: var(--text-body); font: inherit; font-size: var(--font-size-xs); box-shadow: var(--shadow-md); cursor: pointer; }
+.twm-chat__jump:hover { background: var(--state-hover); }
+.twm-chat__jump[hidden] { display: none; }
+.twm-chat__composer { flex: 0 0 auto; display: flex; align-items: flex-end; gap: var(--space-sm); padding: var(--space-sm) var(--space-md); border-top: 1px solid var(--border-subtle); }
+.twm-chat__input { flex: 1 1 auto; min-height: 30px; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--surface-3); border-radius: var(--radius-sm); background: var(--surface-1); color: var(--text-body); font: inherit; line-height: var(--line-height-normal); resize: none; overflow-y: hidden; }
+.twm-chat__input:focus { outline: none; border-color: var(--accent-bright); }
+.twm-chat__send { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 0; border-radius: var(--radius-sm); background: var(--accent); color: var(--text-bright); cursor: pointer; }
+.twm-chat__send:hover { background: var(--accent-hover); }
+.twm-chat__send--cancel { background: var(--color-danger); }
+.twm-chat__send--cancel:hover { background: var(--color-danger-hover); }
+.twm-chat--busy .twm-chat__input { border-color: var(--border-default); }
 
 /* ══ FLOW · KIT ═══════════════════════════════════════════════════════ */
 /* The shared flow-editor kit (36 §3, §3.12): the settings panel and its
@@ -11197,6 +11723,21 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     color: var(--twm-flow-blue-fg);
     border-bottom: 1px solid var(--twm-flow-blue-line);
 }
+/* A host policy's offer: its sentence, Accept and Not now, on one line. */
+.twm-flow-graph__offer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+    padding: 4px 10px;
+    font-size: var(--font-size-xs);
+    background: var(--twm-flow-blue-bg);
+    color: var(--twm-flow-blue-fg);
+    border-bottom: 1px solid var(--twm-flow-blue-line);
+}
+.twm-flow-graph__offer-text { margin: 0; flex: 1 1 200px; min-width: 0; line-height: 1.4; }
+.twm-flow-graph__offer-accept,
+.twm-flow-graph__offer-dismiss { flex: 0 0 auto; }
 
 /* Three columns; the CANVAS is the one that flexes — `flex: 1 1 0px` AND
  * `min-width: 0`, or an open settings panel squeezes the palette instead. */
@@ -11268,6 +11809,8 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 }
 .twm-flow-graph__canvas { position: relative; flex: 1 1 0px; min-width: 0; min-height: 0; }
 .twm-flow-graph__canvas--drop { outline: 2px dashed var(--twm-flow-focus); outline-offset: -2px; }
+/* Where a dragged line was let go: what the step picker is anchored to. */
+.twm-flow-graph__drop-anchor { position: absolute; width: 1px; height: 1px; pointer-events: none; }
 .twm-flow-graph__aside {
     flex: 0 0 300px;
     min-width: 0;
@@ -11399,6 +11942,101 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 .twm-flow-graph__node-run[data-state="skipped"],
 .twm-flow-graph__node-run[data-state="cancelled"],
 .twm-flow-graph__node-run[data-state="not-reached"] { font-style: italic; }
+/* A TYPE'S OWN BODY, below its ports (a catalogue type's `render`). It adds
+ * height under the rows and moves nothing above them, so the lines' arithmetic
+ * stands. A type with `size.h` is exactly that tall: its body takes what is
+ * left and clips (the node itself never does: its port dots stand out of it).
+ * An `accent` is a stripe over the header, drawn on top of the box so it takes
+ * no height. */
+.twm-flow-graph__node-body { box-sizing: border-box; padding: 4px 8px 6px; min-width: 0; }
+.twm-flow-graph__node--sized { display: flex; flex-direction: column; }
+.twm-flow-graph__node--sized > .twm-flow-graph__node-head,
+.twm-flow-graph__node--sized > .twm-flow-graph__node-row { flex: none; }
+.twm-flow-graph__node--sized > .twm-flow-graph__node-body { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+/* EDITED ON THE NODE (`renameInPlace`, a type's `inline`). The title's box
+ * takes the title's place in the header, as tall as the name was; the inline
+ * settings sit under the ports, above a type's own body, and add height there
+ * only, so the lines' arithmetic stands. */
+.twm-flow-graph__node-title-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    box-sizing: border-box;
+    height: 22px;
+    padding: 0 4px;
+    background: var(--surface-1);
+    border: 1px solid var(--twm-flow-focus);
+    border-radius: 2px;
+    color: var(--text-body);
+    font: inherit;
+    cursor: text;
+    user-select: text;
+}
+.twm-flow-graph__node-title-input[aria-invalid="true"] { border-color: var(--twm-flow-error); }
+.twm-flow-graph__node-inline { box-sizing: border-box; display: grid; gap: 4px; padding: 4px 8px 6px; min-width: 0; cursor: default; }
+.twm-flow-graph__node--sized > .twm-flow-graph__node-inline { flex: none; }
+.twm-flow-graph__node[data-accent]::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    border-radius: 3px 3px 0 0;
+    pointer-events: none;
+}
+.twm-flow-graph__node[data-accent="violet"]::before { background: var(--twm-flow-violet-fg); }
+.twm-flow-graph__node[data-accent="teal"]::before { background: var(--twm-flow-teal-fg); }
+.twm-flow-graph__node[data-accent="amber"]::before { background: var(--twm-flow-amber-fg); }
+.twm-flow-graph__node[data-accent="grey"]::before { background: var(--twm-flow-grey-fg); }
+.twm-flow-graph__node[data-accent="blue"]::before { background: var(--twm-flow-blue-fg); }
+.twm-flow-graph__node[data-accent="indigo"]::before { background: var(--twm-flow-indigo-fg); }
+
+/* LIVE VALUES (`setNodeValues`): a value on the header, before the step's id
+ * tag, and one beside a port. Neither element exists until there is a value. */
+.twm-flow-graph__node-badge {
+    flex: none;
+    max-width: 40%;
+    padding: 1px 5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-body);
+    background: rgba(127, 127, 127, 0.18);
+    border-radius: 2px;
+}
+.twm-flow-graph__node-badge[data-tone="violet"] { background: var(--twm-flow-violet-bg); color: var(--twm-flow-violet-fg); }
+.twm-flow-graph__node-badge[data-tone="teal"] { background: var(--twm-flow-teal-bg); color: var(--twm-flow-teal-fg); }
+.twm-flow-graph__node-badge[data-tone="amber"] { background: var(--twm-flow-amber-bg); color: var(--twm-flow-amber-fg); }
+.twm-flow-graph__node-badge[data-tone="grey"] { background: var(--twm-flow-grey-bg); color: var(--twm-flow-grey-fg); }
+.twm-flow-graph__node-badge[data-tone="blue"] { background: var(--twm-flow-blue-bg); color: var(--twm-flow-blue-fg); }
+.twm-flow-graph__node-badge[data-tone="indigo"] { background: var(--twm-flow-indigo-bg); color: var(--twm-flow-indigo-fg); }
+.twm-flow-graph__port-value { color: var(--twm-flow-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* FOLDED TO ITS HEADER (`collapsible`): everything under the header is hidden,
+ * and the lines meet the header's middle. */
+.twm-flow-graph__node-fold {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    background: none;
+    border: 0;
+    border-radius: 3px;
+    color: var(--twm-flow-muted);
+    cursor: pointer;
+}
+.twm-flow-graph__node-fold .material-symbols-outlined { font-size: 16px; }
+.twm-flow-graph__node-fold:hover:not(:disabled) { color: var(--text-body); background: rgba(127, 127, 127, 0.18); }
+.twm-flow-graph__node-fold:focus-visible { outline: 1px solid var(--twm-flow-focus); }
+.twm-flow-graph__node-fold:disabled { cursor: default; opacity: 0.5; }
+.twm-flow-graph__node--collapsed > :not(.twm-flow-graph__node-head) { display: none; }
+.twm-flow-graph__node--collapsed > .twm-flow-graph__node-head { border-bottom: 0; border-radius: 3px; }
 
 /* ── a port ─────────────────────────────────────────────────────────── */
 .twm-flow-graph__port {
@@ -11440,16 +12078,53 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 .twm-flow-graph__port--taken .twm-flow-graph__port-dot { border-color: var(--twm-flow-ok); background: var(--twm-flow-ok); }
 .twm-flow-graph__port--taken .twm-flow-graph__port-count { color: var(--twm-flow-ok); }
 .twm-flow-graph__port--untaken { opacity: 0.5; }
+/* Under `connections` only the inputs the line may end on are lit. */
+.twm-flow-graph--linking.twm-flow-graph--connecting .twm-flow-graph__port--in:not(.twm-flow-graph__port--can-drop) .twm-flow-graph__port-dot {
+    background: transparent;
+    box-shadow: none;
+}
+.twm-flow-graph__port--can-drop .twm-flow-graph__port-dot {
+    background: var(--twm-flow-focus);
+    box-shadow: 0 0 0 3px rgba(0, 122, 204, 0.35);
+}
 
 /* ── a line ─────────────────────────────────────────────────────────── */
-.twm-flow-graph__edge { fill: none; stroke: #8fb4d8; stroke-width: 1.6; }
-.twm-flow-graph__edge--picked { stroke: var(--twm-flow-focus); stroke-width: 2.4; }
+/* A consumer's `edgeStyle` sets a line's tone and width as the two custom
+ * properties below (unset, the line is drawn as it always was); a picked or
+ * highlighted line still wins over them. */
+.twm-flow-graph__edge { fill: none; stroke: var(--twm-canvas-edge-stroke, #8fb4d8); stroke-width: var(--twm-canvas-edge-width, 1.6); }
+.twm-flow-graph__edge--picked { stroke: var(--twm-flow-focus); stroke-width: calc(var(--twm-canvas-edge-width, 1.6) + 0.8); }
 /* A loop's body handing back to the loop: DASHED, and routed under both steps
  * by the kernel's `returnEdge`, so it reads as "round again", not as one more
  * step forward. */
 .twm-flow-graph__edge--back { stroke-dasharray: 6 4; }
 .twm-flow-graph__edge--taken { stroke: var(--twm-flow-ok); }
 .twm-flow-graph__edge--untaken { opacity: 0.35; }
+/* The line a drag is drawing: dashed, and never what the release lands on. */
+.twm-flow-graph__edge--draft { stroke: var(--twm-flow-focus); stroke-dasharray: 4 3; pointer-events: none; }
+/* `edgeStyle`'s dash, and the lines of a hovered step or line (`hoverHighlight`). */
+.twm-flow-graph__edge--dashed { stroke-dasharray: 6 4; }
+.twm-flow-graph__edge--highlighted { stroke: var(--twm-flow-focus); stroke-width: calc(var(--twm-canvas-edge-width, 1.6) + 0.8); }
+/* `edgeStyle`'s marker at the input end: an arrowhead, or the kernel's crow's
+ * foot in the line's own tone. */
+.twm-flow-graph__edge-arrow { fill: var(--twm-canvas-edge-stroke, #8fb4d8); stroke: none; }
+.twm-flow-graph__edge-foot line, .twm-flow-graph__edge-foot circle { stroke: var(--twm-canvas-edge-stroke, #8fb4d8); }
+/* `edgeStyle`'s label, centred on the line's midpoint. Its layer sits in the
+ * node layer and is stacked ABOVE every node, so a step never hides it. */
+.twm-flow-graph__edge-labels { position: absolute; left: 0; top: 0; z-index: 1; }
+.twm-flow-graph__edge-label {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    padding: 1px 6px;
+    border: 1px solid var(--twm-canvas-edge-stroke, #8fb4d8);
+    border-radius: 8px;
+    background: var(--surface-2);
+    color: var(--text-body);
+    font-size: var(--font-size-xs);
+    line-height: 1.4;
+    white-space: nowrap;
+    cursor: pointer;
+}
 /* The 14px target a 1.6px line cannot be. It opts back into the pointer the
  * edge layer turns off. */
 .twm-flow-graph__edge-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
@@ -11476,6 +12151,26 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 }
 .twm-flow-graph__ghost .material-symbols-outlined { font-size: 16px; }
 .twm-flow-graph__ghost-label { white-space: nowrap; }
+/* ── the minimap (`minimap: true`) ──────────────────────────────────── */
+/* Over the canvas's lower right corner, a sibling of the kernel's surface, so a
+ * press on it starts no pan and no marquee. The steps are drawn as boxes and
+ * the view as a frame; a click centres the view there. */
+.twm-flow-graph__minimap {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    z-index: 1;
+    line-height: 0;
+    background: var(--surface-1);
+    border: 1px solid var(--border-default);
+    border-radius: 4px;
+    box-shadow: var(--shadow-md);
+    cursor: pointer;
+    opacity: 0.92;
+}
+.twm-flow-graph__minimap-map { display: block; }
+.twm-flow-graph__minimap-node { fill: var(--border-strong); }
+.twm-flow-graph__minimap-view { fill: none; stroke: var(--twm-flow-focus); stroke-width: 1.5px; }
 /* ══ end FLOW · CANVAS ══ */
 
 

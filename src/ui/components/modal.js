@@ -14,7 +14,8 @@
  *     onText?, offText?, disabled?, compact? }
  *
  *   - type: 'text' | 'number' | 'password' | 'select' | 'textarea' |
- *           'checkbox' | 'toggle' | 'picker' | 'checklist' | 'radio'
+ *           'checkbox' | 'toggle' | 'picker' | 'checklist' | 'radio' |
+ *           'color' | 'colorList'
  *   - hint: small dim help line rendered under the field
  *   - validator: fn(value, allValues) => string | null    (inline error)
  *   - min / max: a `number` field's bounds — the input's own `min` / `max`
@@ -91,10 +92,24 @@
  * create, so there is no "will create" hint either. A bare `true` used to
  * reach `f.create.onCreate(v)` and fail the submit with "onCreate is not a
  * function", blaming the user for typing their own name.
+ *
+ * Colours — `type: 'color'` is a `ColorField` (swatch + native picker, a hex
+ * box kept in step, `presets?` as swatch buttons) and submits lowercase
+ * `#rrggbb`, or `''` when left empty. `type: 'colorList'` is a
+ * `ColorListField` (add, remove, reorder; `presets?` on every row) and submits
+ * an ordered array of `#rrggbb`. An `rgb()` default is shown as its hex. A box
+ * that holds no hex colour is a field error and the form does not resolve;
+ * `required` on either is checked by the form, not the browser:
+ *
+ *   { name: 'accent', label: 'Accent', type: 'color', default: 'rgb(31,119,180)',
+ *     presets: ['#1f77b4', '#ff7f0e'] }
+ *   { name: 'palette', label: 'Palette', type: 'colorList', default: ['#1f77b4'] }
  */
 
 import { ManagedWindow } from '../../ui/components/managed_window.js';
 import { ToggleField } from '../../ui/components/toggle_field.js';
+import { ColorField } from './color_field.js';
+import { ColorListField } from './color_list_field.js';
 import { choiceList, findChoice, flatChoices, selectBox, toggleChips } from './choice_controls.js';
 
 /**
@@ -133,7 +148,8 @@ let _modalSeq = 1;
  *   option's own value — a select with no option selected as '', a radio
  *   with none as null — a combobox as the value of the option its text names,
  *   exactly as it submits, or as its text when it names none — a checklist as
- *   the array of chosen values, everything else as its string). An option
+ *   the array of chosen values, a colorList as the array of its rows' text,
+ *   everything else — a colour too — as its string). An option
  *   whose value IS the given one wins over one that only has its text, here,
  *   in `set` and in defaults. `set` writes it (a value a select or radio does not
  *   offer, or offers only disabled, clears it; so does a disabled option's
@@ -240,9 +256,9 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
             if (errEl) { errEl.textContent = msg; errEl.hidden = false; }
         };
         // Fields that are components, not markup — toggles, selects,
-        // checklists and radios — are mounted into the slot their row left
-        // (`_mountControl`) and read back through it: a toggle as a boolean, a
-        // choice as its option's own value. `onChoice` is what a checklist or
+        // checklists, radios and colours — are mounted into the slot their
+        // row left (`_mountControl`) and read back through it: a toggle as a
+        // boolean, a choice as its option's own value, a colour as its hex. `onChoice` is what a checklist or
         // radio calls when the reader changes it (a toggle or select is a
         // named control and is heard by the loops below).
         let onChoice = (name) => clearFieldError(name);
@@ -380,7 +396,8 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                 if (!control && !el) continue;
                 let v;
                 if (control) {
-                    v = control.read();
+                    // A colour reads as its text but submits as its hex.
+                    v = control.submit ? control.submit() : control.read();
                     // An option with no value submits '', as an empty select does.
                     if (v === undefined) v = f.type === 'select' ? '' : null;
                 } else if (f.type === 'checkbox') {
@@ -436,6 +453,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                     const reason = unavailable(f, v);
                     if (reason != null) msg = reason ? `Not available: ${reason}` : 'Not available.';
                 }
+                if (!msg) msg = controls.get(f.name)?.error?.() ?? null;
                 if (!msg && typeof f.validator === 'function') {
                     try { msg = f.validator(v, data); } catch (err) { msg = err?.message || String(err); }
                 }
@@ -871,6 +889,11 @@ function _estimateHeight(fields) {
         const hint = f.hint ? 16 : 0;
         if (f.type === 'textarea') return 32 + (Number(f.rows) || 4) * 18 + hint;
         if (f.type === 'checkbox' || f.type === 'toggle') return 32 + hint;
+        if (f.type === 'colorList') {
+            const n = Array.isArray(f.default) ? f.default.length : 0;
+            return 46 + Math.max(n, 1) * 40 + 40 + hint;
+        }
+        if (f.type === 'color') return 46 + (Array.isArray(f.presets) && f.presets.length ? 28 : 0) + hint;
         if (f.type === 'radio') {
             const opts = flatChoices(f.options);
             return 12 + opts.reduce((h, o) => h + 22 + (o.description || o.reason ? 16 : 0), 0) + hint;
@@ -887,10 +910,10 @@ function _estimateHeight(fields) {
 }
 
 function _estimateWidth(fields) {
-    // Forms with a textarea, a section divider or a row of fields get the
-    // wider layout so multi-line content + grouped fields breathe; otherwise
-    // 480 px is enough for label + single-line input pairs.
-    const wide = fields.some((f) => f && (f.type === 'textarea' || f.section || Array.isArray(f.row)));
+    // Forms with a textarea, a colour list, a section divider or a row of
+    // fields get the wider layout so multi-line content + grouped fields
+    // breathe; otherwise 480 px is enough for label + single-line input pairs.
+    const wide = fields.some((f) => f && (f.type === 'textarea' || f.type === 'colorList' || f.section || Array.isArray(f.row)));
     return wide ? 640 : 480;
 }
 
@@ -926,12 +949,16 @@ function _datalistOptions(options) {
 }
 
 /**
- * Mount a field that is a component rather than markup — a `toggle`, or a
+ * Mount a field that is a component rather than markup — a `toggle`, a
  * `select` (not a combobox), `checklist` or `radio` drawn by
- * `choice_controls.js` — into the `data-control-slot` its row left, and hand
- * back what the form needs of it: `{ read(), write(v), focus(), unavailable(),
+ * `choice_controls.js`, or a `color` / `colorList` — into the
+ * `data-control-slot` its row left, and hand back what the form needs of it:
+ * `{ read(), write(v), focus(), unavailable(), submit?(), error?(),
  * setOptions?(options), dispose?() }`. `unavailable()` is the reason (or '')
- * when the selected option is disabled, else null. `onChange(name)` hears the
+ * when the selected option is disabled, else null. `submit()`, where given,
+ * is the value submitted when it differs from what `read()` shows (a colour's
+ * hex, null while its box holds none), and `error()` is the field's own
+ * message for a value it cannot submit, else null. `onChange(name)` hears the
  * reader's choice on a checklist or radio; a toggle or select is a named
  * control, heard as one. Null for any other field.
  */
@@ -957,6 +984,29 @@ function _mountControl(host, f, value, onChange) {
             focus: () => toggle.input?.focus(),
             unavailable: () => null,
             dispose: () => toggle.dispose(),
+        };
+    }
+    if (f.type === 'color' || f.type === 'colorList') {
+        // Read as their text as it stands (a list as its rows' text), submitted
+        // as hex: `getValue()` is null while a box holds no hex colour.
+        const c = f.type === 'color'
+            ? new ColorField({ name: f.name, value: value ?? '', presets: f.presets, label: f.label })
+            : new ColorListField({ name: f.name, value: value ?? [], presets: f.presets });
+        slot.replaceWith(c.render());
+        const list = f.type === 'colorList';
+        return {
+            read: () => (list ? c.getTexts() : c.getText()),
+            submit: () => c.getValue(),
+            write: (v) => c.setValue(v),
+            focus: () => c.focus(),
+            unavailable: () => null,
+            error: () => {
+                if (c.getValue() !== null) return null;
+                if (!list) return 'Not a hex colour: use #rgb or #rrggbb.';
+                const bad = c.invalidIndexes().map((i) => i + 1).join(', ');
+                return `Not a hex colour (row ${bad}): use #rgb or #rrggbb.`;
+            },
+            dispose: () => c.dispose(),
         };
     }
     const common = { keepMissing: false, loose: true };
@@ -1008,6 +1058,9 @@ function _missing(f, v) {
     if (f.type === 'picker') return !v;
     if (f.type === 'checklist') return !Array.isArray(v) || v.length === 0;
     if (f.type === 'radio') return v == null;
+    // A colour that is not a hex (null) is its own error, not a missing one.
+    if (f.type === 'color') return v === '';
+    if (f.type === 'colorList') return Array.isArray(v) && v.length === 0;
     return false;
 }
 
@@ -1152,6 +1205,20 @@ function _renderField(f, value) {
         return wrap(`<textarea name="${f.name}" ${rows} ${placeholder} ${required}>${_esc(v)}</textarea>`);
     }
 
+    if (f.type === 'color' || f.type === 'colorList') {
+        // The component is mounted into the slot by `_mountControl`. A list
+        // is a group of controls, so its row is not a <label>: a label would
+        // hand every click on it to the first row's swatch.
+        if (f.type === 'color') return wrap(slot);
+        return `
+            <div class="twm-modal__row twm-modal__row--multiline" data-field-row="${f.name}" role="group" aria-label="${_esc(f.label || '')}">
+                <span>${_esc(f.label || '')}</span>
+                ${slot}
+                ${hintHtml}
+                ${errHtml}
+            </div>
+        `;
+    }
     const v = value == null ? '' : String(value);
     if (f.type === 'picker') {
         // The display text and the stored value are different things (an id

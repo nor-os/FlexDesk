@@ -5,6 +5,8 @@
  * Defines field types, validation rules, and default values.
  */
 
+import { isHexColor } from '../ui/components/color_field.js';
+
 /**
  * Field type definitions for widget configuration.
  */
@@ -51,6 +53,12 @@ export function validateField(value, field) {
         case FieldTypes.SELECT:
             if (field.required && !value) {
                 return { valid: false, error: `${field.label} must be selected` };
+            }
+            break;
+
+        case FieldTypes.COLOR:
+            if (value != null && value !== '' && !isHexColor(value)) {
+                return { valid: false, error: `${field.label} must be a hex colour (#rgb or #rrggbb)` };
             }
             break;
 

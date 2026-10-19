@@ -22,6 +22,12 @@
  *              over three steps picks those three; a real drag of one moves
  *              all three and one real Ctrl+Z puts them back; a bulk move of
  *              50 picked steps, and its undo, each finish in under 100 ms
+ *   live       (`collapsible`, on a small graph of its own) ten `setNodeValues`
+ *              a second while real keys type into a settings field: the badge
+ *              shows each value and the field keeps the focus and every key;
+ *              a real click on a header's fold button hides its ports (computed
+ *              style) and its lines end on the header's middle, measured; a
+ *              real Ctrl+Z unfolds it and its lines are back on their dots
  *   bodies     a type registered while the editor is open (`setCatalogue`)
  *              with its own body, a 280×170 box and an accent: it is in the
  *              palette, its node is drawn that size with its body below its
@@ -46,7 +52,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { centre, click, drag, key, launchBrowser, openPage, startServer } from './flow_cdp.mjs';
+import { centre, click, drag, key, launchBrowser, openPage, startServer, type } from './flow_cdp.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = resolve(process.argv[2] || join(tmpdir(), 'flow-canvas-probe'));
@@ -313,6 +319,107 @@ try {
     await page.screenshot(join(OUT, '5-many.png'));
     await page.evaluate('(() => { window.__many.editor.destroy(); window.__many.host.remove(); return true; })()');
 
+    console.log('\nlive — live values at ten a second, and a step folded to its header');
+    await page.evaluate(`(async () => {
+        const { createCanvasEditor, createStepCatalogue } = await import('/flow.js');
+        const F = (name, direction) => ({ name, direction, port_type: 'FLOW' });
+        const catalogue = createStepCatalogue([{ type_id: 'task', label: 'Task', category: 'work',
+            ports: [F('in', 'input'), F('out', 'output'), F('spare', 'output')],
+            config_schema: { type: 'object', properties: { note: { type: 'string', title: 'Note' } } } }],
+            { categories: [{ id: 'work', label: 'Work' }] });
+        const at = (id, x) => ({ id, type: 'task', config: {}, position: { x, y: 160 } });
+        const host = document.createElement('div');
+        host.style.cssText = 'position:fixed;inset:0;z-index:50;display:flex;background:var(--twm-surface, #fff)';
+        document.body.appendChild(host);
+        window.__liveChanges = [];
+        const editor = createCanvasEditor(host, { catalogue, collapsible: true,
+                                                  onChange: (c) => { window.__liveChanges.push(c.action); } });
+        editor.el.style.flex = '1';
+        editor.load({ graph: { nodes: [at('a', 64), at('b', 400), at('c', 736)],
+                               connections: [{ source: 'a', sourcePort: 'out', target: 'b', targetPort: 'in' },
+                                             { source: 'b', sourcePort: 'spare', target: 'c', targetPort: 'in' }] } }, { fit: false });
+        editor.canvas.setViewport({ scale: 1, tx: 0, ty: 0 });
+        window.__live = { editor, host };
+        return true;
+    })()`);
+    await sleep(100);
+    const title = await centre(page, '.twm-flow-graph__node[data-node-id="b"] .twm-flow-graph__node-title');
+    await click(page, title.x, title.y);
+    await sleep(60);
+    const box = await centre(page, '.twm-flow-panel [data-field="note"] input');
+    await click(page, box.x, box.y);
+    await type(page, 'abc');
+    await page.evaluate(`(() => {
+        window.__liveSeen = [];
+        let i = 0;
+        const tick = setInterval(() => {
+            i += 1;
+            window.__live.editor.setNodeValues({ b: { badge: 'v' + i, tone: 'teal', ports: { out: i } } });
+            const input = document.querySelector('.twm-flow-panel [data-field="note"] input');
+            window.__liveSeen.push({ badge: document.querySelector('[data-node-id="b"] .twm-flow-graph__node-badge')?.textContent,
+                                     focused: document.activeElement === input });
+            if (i === 10) clearInterval(tick);
+        }, 100);
+        return true;
+    })()`);
+    for (const ch of 'defghij') { await key(page, ch); await sleep(140); }
+    await sleep(300);
+    const live = await page.evaluate(`(() => {
+        const input = document.querySelector('.twm-flow-panel [data-field="note"] input');
+        const badge = document.querySelector('[data-node-id="b"] .twm-flow-graph__node-badge');
+        const head = document.querySelector('[data-node-id="b"] .twm-flow-graph__node-head').getBoundingClientRect();
+        const b = badge.getBoundingClientRect();
+        return { seen: window.__liveSeen, focused: document.activeElement === input, value: input.value,
+                 inHead: b.top >= head.top && b.bottom <= head.bottom && b.width > 0,
+                 depth: window.__live.editor.history.depth, changes: window.__liveChanges };
+    })()`);
+    check('ten setNodeValues, about 100 ms apart, each put its value on the badge',
+          live.seen.length === 10 && live.seen.every((x, i) => x.badge === 'v' + (i + 1)), JSON.stringify(live));
+    check('the settings field had the focus after every one', live.seen.every((x) => x.focused) && live.focused,
+          JSON.stringify(live));
+    check('and every real key typed meanwhile landed in it', live.value === 'abcdefghij', JSON.stringify(live));
+    check('the badge is drawn inside the header', live.inHead, JSON.stringify(live));
+    // Each typed key is one onChange, merged into one undo entry; the values add none.
+    check('the values made no undo entry and no onChange: only the ten typed keys did', live.depth === 1
+          && live.changes.length === 10 && live.changes.every((a) => a === 'flow:node:config'), JSON.stringify(live));
+    const FOLD_LINES = `(() => {
+        const n = document.querySelector('[data-node-id="b"]');
+        const head = n.querySelector('.twm-flow-graph__node-head').getBoundingClientRect();
+        const rows = [...n.querySelectorAll('.twm-flow-graph__node-row')];
+        const paths = [...window.__live.host.querySelectorAll('path.twm-flow-graph__edge')];
+        const ends = paths.map((p) => { const m = p.getScreenCTM();
+            const at = (len) => { const q = p.getPointAtLength(len); return { x: m.a * q.x + m.c * q.y + m.e, y: m.b * q.x + m.d * q.y + m.f }; };
+            return { s: at(0), e: at(p.getTotalLength()) }; });
+        const dot = (port, dir) => { const d = n.querySelector('.twm-flow-graph__port[data-port="' + port + '"][data-direction="' + dir + '"] .twm-flow-graph__port-dot');
+            const r = d.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width }; };
+        const r = n.getBoundingClientRect();
+        return { collapsed: n.classList.contains('twm-flow-graph__node--collapsed'),
+                 rowsShown: rows.filter((x) => getComputedStyle(x).display !== 'none').length,
+                 height: r.height, headH: head.height, left: r.left, right: r.right, mid: head.top + head.height / 2,
+                 into: ends[0].e, outOf: ends[1].s, dots: rows.length && getComputedStyle(rows[0]).display !== 'none'
+                     ? { in: dot('in', 'input'), spare: dot('spare', 'output') } : null };
+    })()`;
+    const fold = await centre(page, '.twm-flow-graph__node[data-node-id="b"] .twm-flow-graph__node-fold');
+    check('the fold button is the element at its own centre', fold && fold.hit, JSON.stringify(fold));
+    await click(page, fold.x, fold.y);
+    await sleep(60);
+    const folded = await page.evaluate(FOLD_LINES);
+    check('a real click on it folds the step: no port row is shown', folded.collapsed && folded.rowsShown === 0,
+          JSON.stringify(folded));
+    check('the step is as tall as its header', Math.abs(folded.height - folded.headH) <= 2, JSON.stringify(folded));
+    check('the line in ends on the header\'s middle, at its left edge (within 1px)',
+          Math.abs(folded.into.y - folded.mid) <= 1 && Math.abs(folded.into.x - folded.left) <= 1, JSON.stringify(folded));
+    check('the line out starts on the header\'s middle, at its right edge (within 1px)',
+          Math.abs(folded.outOf.y - folded.mid) <= 1 && Math.abs(folded.outOf.x - folded.right) <= 1, JSON.stringify(folded));
+    await page.screenshot(join(OUT, '6-folded.png'));
+    await key(page, 'z', { mods: ['ctrl'] });
+    await sleep(60);
+    const open = await page.evaluate(FOLD_LINES);
+    check('a real Ctrl+Z unfolds it, its port rows shown again', !open.collapsed && open.rowsShown === 2, JSON.stringify(open));
+    check('…and its lines end on their port dots again (within 1px)', open.dots
+          && Math.abs(open.into.y - open.dots.in.y) <= 1 && Math.abs(open.outOf.y - open.dots.spare.y) <= 1, JSON.stringify(open));
+    await page.evaluate('(() => { window.__live.editor.destroy(); window.__live.host.remove(); return true; })()');
+
     console.log('\nbodies — a type registered while open, with its own body, box and accent');
     const bodies = await page.evaluate(`(() => {
         const fc = window.__flowCanvas;
@@ -360,7 +467,7 @@ try {
     check('…at the node\'s edge, beside the dot (within 8px)', sized.every((a) => a.startX <= 8 && a.endX <= 8), JSON.stringify(sized));
     check('every line end meets its port dot (within 1px of the dot)', sized.every((a) => a.startOff <= 1 && a.endOff <= 1),
           JSON.stringify(sized));
-    await page.screenshot(join(OUT, '6-bodies.png'));
+    await page.screenshot(join(OUT, '7-bodies.png'));
     console.log('\nviewport — the minimap and the zoom buttons');
     const placed = await page.evaluate(`(() => {
         const m = document.querySelector('.twm-flow-graph__minimap').getBoundingClientRect();
@@ -426,7 +533,7 @@ try {
     await sleep(60);
     const outScale = await page.evaluate('window.__flowCanvas.editor.canvas.scale');
     check('a real click on Zoom out makes the scale smaller', outScale < centred.scale, `${centred.scale} → ${outScale}`);
-    await page.screenshot(join(OUT, '7-minimap.png'));
+    await page.screenshot(join(OUT, '8-minimap.png'));
 
     console.log('\nnarrow — the container query');
     await page.send('Emulation.setDeviceMetricsOverride', { width: 700, height: 900, deviceScaleFactor: 1, mobile: false });
@@ -446,7 +553,7 @@ try {
     })()`);
     check('the minimap\'s frame took the resized canvas\'s shape, with no pan', Math.abs(shape.frame - shape.canvas) < 0.02,
           JSON.stringify(shape));
-    await page.screenshot(join(OUT, '8-narrow.png'));
+    await page.screenshot(join(OUT, '9-narrow.png'));
 } finally {
     page?.close();
     await browser.close();

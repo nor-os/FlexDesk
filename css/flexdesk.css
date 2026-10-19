@@ -5863,6 +5863,84 @@ button.twm-about-dialog__btn--close:focus {
 .twm-managed-window--modal .twm-picker__btn .material-symbols-outlined {
     font-size: 15px;
 }
+/* Colour field: swatch (native picker) + hex box + optional preset strip.
+ * The hex box takes the field-well styling of the text inputs above. */
+.twm-color-field {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+.twm-color-field__swatch {
+    flex: 0 0 auto;
+    width: 28px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid #3a3a3a;
+    border-radius: 0;
+    background: transparent;
+    cursor: pointer;
+}
+.twm-color-field__hex {
+    flex: 1 1 90px;
+    min-width: 0;
+    font-family: 'Consolas', 'Monaco', monospace;
+}
+.twm-color-field--invalid .twm-color-field__hex {
+    border-color: #b03a3a;
+}
+.twm-color-field__presets {
+    flex: 1 0 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+}
+.twm-color-field__preset {
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 2px;
+    cursor: pointer;
+}
+.twm-color-field__preset:hover,
+.twm-color-field__preset:focus-visible {
+    outline: 1px solid var(--ea-accent, #569cd6);
+    outline-offset: 1px;
+}
+/* Colour list: a SortableList whose rows are a colour field + move buttons. */
+.twm-color-list {
+    min-width: 0;
+}
+.twm-color-list__row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+}
+.twm-color-list__row > .twm-color-field {
+    flex: 1 1 auto;
+}
+.twm-color-list__move {
+    display: flex;
+    align-items: center;
+    padding: 2px;
+    background: transparent;
+    border: none;
+    color: #8c8c8c;
+    cursor: pointer;
+}
+.twm-color-list__move:hover:not(:disabled) {
+    color: var(--ea-accent, #569cd6);
+}
+.twm-color-list__move:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+.twm-color-list__move .material-symbols-outlined {
+    font-size: 15px;
+}
 /* An option that cannot be chosen, and why — drawn by choice_controls.js
  * for openForm's select, checklist and radio (and the flow kit's widgets). */
 .twm-choice--disabled { cursor: default; opacity: 0.7; }
@@ -6578,7 +6656,7 @@ body.twm-dragging * { user-select: none; }
      * size (24) draws strokes too heavy to read as a small control. */
     font-variation-settings: 'opsz' 20, 'wght' 400;
 }
-.twm-leaf__btn:hover:not(:disabled) { background: var(--state-hover); color: var(--text-primary); }
+.twm-leaf__btn:hover:not(:disabled):not(.twm-leaf__btn--disabled) { background: var(--state-hover); color: var(--text-primary); }
 /* C20. A verb that applies to this kind of pane but not right now — greyed and
  * explained by its tooltip, rather than removed. `:disabled` alone would still
  * take the hover highlight above, which reads as clickable. */
@@ -6586,6 +6664,34 @@ body.twm-dragging * { user-select: none; }
 .twm-leaf__btn:disabled {
     opacity: 0.35;
     cursor: default;
+}
+
+/* C42. A content action that is a toggle, and on: `aria-pressed="true"`. The
+ * selected tint the rest of the shell uses, so "on" reads the same everywhere. */
+.twm-leaf__btn--pressed {
+    background: var(--state-selected);
+    color: var(--text-primary);
+}
+
+/* C42. A content action with a text label: the 18px square is for a glyph, so
+ * a labelled button grows to its text. */
+.twm-leaf__btn--labelled {
+    width: auto;
+    gap: 2px;
+    padding: 0 4px;
+}
+.twm-leaf__btn-label {
+    font-size: 11px;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+/* C42. `{separator: true}` between groups of content actions. */
+.twm-leaf__sep {
+    align-self: stretch;
+    width: 1px;
+    margin: 3px 2px;
+    background: var(--border-subtle);
 }
 .twm-leaf__body {
     flex: 1 1 auto;

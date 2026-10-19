@@ -25,6 +25,7 @@ import {
 } from './table_values.js';
 import { isRowActivation, isRowControl } from './row_activation.js';
 import { createChipsFilter } from './table_filter_chips.js';
+import { CellGrid } from './cell_selection.js';
 
 // 0.7.0: the built-in chips filter control, for a consumer that wants to build
 // one outside a table (the same control `filterKinds: {kind: 'chips'}` draws).
@@ -403,6 +404,15 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {Function} [onSelectModeChange] - STORY-0016. `(on) => void`, after every change of the mode (the toggle, Escape, `setSelectMode`).
  * @property {Function} [onColumnsChange] - STORY-0012. `(hidden) => void` with the hidden columns' indices, ascending, after every change of the set (the chooser, `setColumnVisible`, `setData({hiddenColumns})`).
  * @property {boolean} [persistPage=false] - With `persistKey`: the client page is saved with the sort and the filters, and opened again on mount (on the last page, if the rows have shrunk since). OFF by default: a key shared by DIFFERENT row sets (ad-hoc filters, search results) must not reopen on a page of the last list. A sort under `resetPageOnSort` and a new filter save the first page, as they show it. A server's page (`onPageChange`, `dataSource`) is the consumer's and is not kept.
+ *
+ * ── STORY-0003, every one of them off unless asked for ─────────────────────
+ * @property {'rows'|'cells'} [selectionMode='rows'] - 'cells': CELL MODE (cell_selection.js). A click selects one cell and puts the CURSOR on it, Shift+click selects the range from the anchor to it; every cell of the range is drawn `twm-dt-cell--selected` and the cursor `twm-dt-cell--cursor` (rows are not lit). On the focused table the arrows move the cursor (Shift extends), Ctrl+arrow jumps to the edge of the block of filled cells, Home/End go to the row's ends (Ctrl: the page's corners), Tab moves right and wraps to the next row (Shift+Tab back), Ctrl+A selects every cell of the page and Escape collapses the range onto the cursor. The cursor stays on the page drawn and is scrolled into view (under `virtualize` its row is drawn). `getSelection()` still answers ROWS — the original indices the range touches — and Ctrl+C copies those rows as before. A cell is `{row, col}`: `row` the position in the order shown (`getDisplayedRows()`), `col` the data column. Fixed for the table's life; `selectToggle`, `selectMode` and `keyboardNav` beside it are ignored with a console warning. See `getCellSelection`, `setCellSelection`.
+ * @property {boolean|number[]|Function} [editable=false] - Cell mode only (a warning, and ignored, without it). Which cells open an EDITOR: `true` every one, an array of data column indices, or `(colIdx, row, rowIdx) => boolean`. F2, Enter, a double-click or a printable key (which the editor starts with) opens it on the cursor cell; in it Enter commits and moves down, Tab commits and moves right, Escape restores the cell and calls nothing, and the focus leaving commits. While it is open a `render()` (a `setData` included) waits, and runs when it closes; its row leaving the virtual window commits it.
+ * @property {Object} [editors] - `{[colIdx|type]: factory}`, the editor for a column (by index first, then by its type: `columnTypes`' or the detected 'num'/'text'). A factory is `({value, row, rowIdx, colIdx, column: {index, header, type}, initialText, commit(value), cancel()}) => Element | {el, getValue?, focus?, destroy?}`; an input, select or textarea returned as it is commits its `value`. Absent: a text box (cell_editor_host.js `createTextEditor`), which commits the value unchanged when left as it was.
+ * @property {Function} [onCellCommit] - `({rowIdx, colIdx, value, previous}) => void | {ok, error?} | Promise<…>`, once per commit (not for a value left unchanged). Resolving `{ok: false, error}`, rejecting or throwing leaves the typed value in the cell drawn `twm-dt-cell--error` with the message as its `title` and `data-error`; until it settles the cell is `twm-dt-cell--pending`. Otherwise the value is written into the row (`rows[rowIdx][colIdx]`) and drawn. New rows (`setData({rows})`) drop the marks.
+ * @property {Function} [onCellSelectionChange] - `(getCellSelection()) => void`, after every change of the cells selected.
+ * @property {Function} [headerMenu] - `(colIdx, {colIdx, header, hiddenColumns, table}) => items`, asked on a right-click on a data column's header (or its filter cell). The items (`{label, action, icon?, disabled?, danger?, title?}` or `{separator: true}`) open the table's menu; with `columnChooser` the chooser's items follow behind a separator. `[]` or `null` shows what would show without the hook: the chooser, or the page's own menu.
+ * @property {Function} [onHeaderMenuAction] - `(action, colIdx) => void`, when one of `headerMenu`'s items is chosen; the menu is hidden first.
  */
 
 /** C10. When the scroll box has no layout — mounted hidden, or a DOM with no
@@ -552,8 +562,31 @@ export class DataTable {
             selectToggle: false,
             selectMode: false,
             onSelectModeChange: null,
+            // STORY-0003. Off — rows selected as in 0.16, no editing — until
+            // set. The typedef says what each does.
+            selectionMode: 'rows',
+            editable: false,
+            editors: null,
+            onCellCommit: null,
+            onCellSelectionChange: null,
+            headerMenu: null,
+            onHeaderMenuAction: null,
             ...config,
         };
+
+        // STORY-0003. Cell mode is the table's for its whole life. The row
+        // modes it replaces are ignored beside it, out loud.
+        this._cellGrid = null;
+        if (this.config.selectionMode === 'cells') {
+            const clash = ['selectToggle', 'selectMode', 'keyboardNav'].filter((k) => !!this.config[k]);
+            if (clash.length) {
+                console.warn(`[DataTable] ${clash.join('/')} cannot be combined with selectionMode: 'cells'; ignored.`);
+                for (const k of clash) this.config[k] = false;
+            }
+            this._cellGrid = new CellGrid(this);
+        } else if (this.config.editable) {
+            console.warn("[DataTable] `editable` needs selectionMode: 'cells'; ignored.");
+        }
 
         // STORY-0016. The select column is drawn for the table's whole life or
         // not at all, so the drawn column indices (and the widths kept by them)
@@ -897,9 +930,14 @@ export class DataTable {
     /** `columnChooser`: the header's right-click menu, one checkable item a
      *  column. */
     _showColumnChooser(clientX, clientY) {
+        this._showContextMenu(clientX, clientY, { ctx: null, items: this._columnChooserItems(), copy: false });
+    }
+
+    /** `columnChooser`'s items: one checkable item a column. */
+    _columnChooserItems() {
         const headers = this.config.headers || [];
         const lastShown = headers.length - this._hidden.size <= 1;
-        const items = headers.map((h, c) => {
+        return headers.map((h, c) => {
             const shown = !this._isHidden(c);
             return {
                 label: String(h ?? ''),
@@ -910,7 +948,57 @@ export class DataTable {
                 onChoose: () => this.setColumnVisible(c, !shown),
             };
         });
-        this._showContextMenu(clientX, clientY, { ctx: null, items, copy: false });
+    }
+
+    /**
+     * STORY-0003. The header's right-click menu for a press on `target`: the
+     * consumer's `headerMenu` items for the data column under it, then — with
+     * `columnChooser` — the chooser's items behind a separator. Empty when
+     * there is nothing to show.
+     */
+    _headerMenuItems(target) {
+        const items = [];
+        const hook = this.config.headerMenu;
+        const colIdx = this._headerColumnAt(target);
+        if (typeof hook === 'function' && colIdx !== null) {
+            let asked = null;
+            try {
+                asked = hook(colIdx, {
+                    colIdx,
+                    header: this.config.headers?.[colIdx],
+                    hiddenColumns: this.getHiddenColumns(),
+                    table: this,
+                });
+            } catch (err) {
+                console.error('[DataTable] headerMenu threw', err);
+            }
+            for (const item of Array.isArray(asked) ? asked.filter(Boolean) : []) {
+                if (item.separator) { items.push({ separator: true }); continue; }
+                items.push({
+                    ...item,
+                    onChoose: () => {
+                        try { this.config.onHeaderMenuAction?.(item.action, colIdx); } catch (err) {
+                            console.error('[DataTable] onHeaderMenuAction threw', err);
+                        }
+                    },
+                });
+            }
+        }
+        if (this.config.columnChooser) {
+            if (items.length) items.push({ separator: true });
+            items.push(...this._columnChooserItems());
+        }
+        return items;
+    }
+
+    /** The data column of a header cell (the header row, or the filter row
+     *  under it), or null off one — the row number, the select column. */
+    _headerColumnAt(target) {
+        const cell = target?.closest?.('th, td');
+        const tr = cell?.parentNode;
+        if (!tr || tr.parentNode?.tagName !== 'THEAD') return null;
+        if (tr.children.length !== this._domColCount()) return null;
+        return this._dataIdxOfDom(Array.prototype.indexOf.call(tr.children, cell));
     }
 
     /** STORY-0010 `persistPage`: the client page changed, so save it. */
@@ -976,6 +1064,7 @@ export class DataTable {
         if (updates.rows) {
             this._state.selected.clear();
             this._state.anchorIndex = null;
+            this._cellGrid?.newRows();
             if (this._state.offset >= updates.rows.length) {
                 this._state.offset = 0;
             }
@@ -1061,6 +1150,12 @@ export class DataTable {
      * @param {number[]} indices - Row indices to select
      */
     setSelection(indices) {
+        // STORY-0003. In cell mode, the cells of those rows: one range from the
+        // first of them to the last, as shown, across every column shown.
+        if (this._cellGrid) {
+            this._cellGrid.selectRows(indices);
+            return;
+        }
         this._state.selected.clear();
         for (const idx of indices) {
             if (idx >= 0 && idx < this.config.rows.length) {
@@ -1151,10 +1246,54 @@ export class DataTable {
      * Clear selection
      */
     clearSelection() {
+        if (this._cellGrid) {
+            this._cellGrid.clear();
+            return;
+        }
         this._state.selected.clear();
         this._state.anchorIndex = null;
         this._updateRowSelection();
         this._notifySelectionChange();
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // STORY-0003 — cell mode (`selectionMode: 'cells'`), see cell_selection.js
+    // ─────────────────────────────────────────────────────────────────
+
+    /**
+     * The cell selection: `{anchor, focus, range}`. `anchor` and `focus` (the
+     * cursor) are `{row, col, rowIdx}` — `row` the position in the order
+     * shown, `col` the data column, `rowIdx` the original row index — and
+     * `range` is `{top, bottom, left, right, rows, columns}`: positions,
+     * data columns at its edges, and the original row indices and data
+     * columns it covers. All null with nothing selected. Null outside cell
+     * mode.
+     */
+    getCellSelection() {
+        return this._cellGrid ? this._cellGrid.get() : null;
+    }
+
+    /**
+     * Put the cursor on a cell (`row` a position in the order shown, `col` a
+     * data column) — with `anchor`, select the range from there. `null`
+     * clears. The row is brought into view. A no-op outside cell mode.
+     *
+     * @param {{row:number, col:number}|null} focus
+     * @param {{row:number, col:number}} [anchor]
+     */
+    setCellSelection(focus, anchor = null) {
+        this._cellGrid?.set(focus, anchor);
+    }
+
+    /** Open the editor on a cell (position, data column), as F2 would.
+     *  Returns whether one opened. */
+    editCell(row, col) {
+        return !!this._cellGrid?.open(row, col);
+    }
+
+    /** Whether a cell editor is open. */
+    isEditing() {
+        return !!this._cellGrid?.isEditing();
     }
 
     /**
@@ -1310,6 +1449,12 @@ export class DataTable {
      * Render the table
      */
     render() {
+        // STORY-0003. An open cell editor is not torn down by a redraw: the
+        // render waits for its commit or cancel, and runs then.
+        if (this._cellGrid?.isEditing()) {
+            this._cellGrid.renderWaiting = true;
+            return;
+        }
         // Capture active filter input before re-render
         const activeFilterColIdx = this._getActiveFilterColIdx();
         // KEYBOARD FOCUS SURVIVES A RE-RENDER. Rendering replaces the table
@@ -1515,13 +1660,17 @@ export class DataTable {
         }
 
         this._tableWrapEl = tableWrap;
-        // STORY-0012 `columnChooser`: the header's right-click.
-        if (this.config.columnChooser && this._headerTableEl) {
+        // STORY-0012 `columnChooser` and STORY-0003 `headerMenu`: the header's
+        // right-click. With neither item to show, the page's own menu.
+        if ((this.config.columnChooser || typeof this.config.headerMenu === 'function') && this._headerTableEl) {
             const head = this._headerTableEl;
             const onHeadMenu = (ev) => {
+                const items = this._headerMenuItems(ev.target);
+                if (!items.length) return;
                 ev.preventDefault();
                 ev.stopPropagation();
-                setTimeout(() => this._showColumnChooser(ev.clientX, ev.clientY), 0);
+                setTimeout(() => this._showContextMenu(ev.clientX, ev.clientY,
+                                                       { ctx: null, items, copy: false }), 0);
             };
             head.addEventListener('contextmenu', onHeadMenu);
             this._disposers.push(() => head.removeEventListener('contextmenu', onHeadMenu));
@@ -1618,7 +1767,8 @@ export class DataTable {
         if (rows.length > 0 && (this.config.selectable || this.config.copyable || !this.config.readonly
                                 || typeof this.config.onRowActivate === 'function'
                                 || typeof this.config.rowDetail === 'function'
-                                || typeof this.config.onRowKeyDown === 'function')) {
+                                || typeof this.config.onRowKeyDown === 'function'
+                                || this._cellGrid)) {
             this._installInteractions();
         }
 
@@ -1783,6 +1933,8 @@ export class DataTable {
     }
 
     _teardown(emptyHost) {
+        // STORY-0003. An open editor goes, committing nothing.
+        this._cellGrid?.dispose();
         autoDisposeUnwatch(this);
         this._autoSeen = false;
         // 0.7.0. A grace still running, the follow timer, a request still out
@@ -3081,6 +3233,11 @@ export class DataTable {
         // hundred of a thousand.
         const pageRows = isServerSide || !this.config.pagination || this._pagingConfig()
             ? processedRows : processedRows.slice(offset, offset + pageSize);
+        // STORY-0003. Where the rows drawn stand in the order shown.
+        this._pageSpan = {
+            start: pageRows === processedRows ? 0 : offset,
+            count: pageRows.length,
+        };
 
         const table = document.createElement('table');
         table.className = this._tableClassName();
@@ -3217,8 +3374,11 @@ export class DataTable {
         // 0.5.0. The row's place in the order shown (for 'position' numbers).
         tr.__position = (this._positionBase || 0) + localIdx;
         tr.className = 'data-preview-row';
+        // STORY-0003. The row's position in the order shown, for cell mode.
+        if (this._cellGrid) tr.__cellPos = (this._pageSpan?.start || 0) + localIdx;
 
-        if (this._state.selected.has(globalIdx)) {
+        // STORY-0003. In cell mode the CELLS are lit, not the rows.
+        if (this._state.selected.has(globalIdx) && !this._cellGrid) {
             tr.classList.add('selected');
         }
         // 0.5.0. The consumer's row classes and attributes, and the open mark.
@@ -3532,6 +3692,7 @@ export class DataTable {
         const wanted = new Set(want);
         for (const [i, tr] of v.map) {
             if (!wanted.has(i)) {
+                this._cellGrid?.rowLeaving(tr);   // STORY-0003: an open editor commits
                 tr.remove();
                 this._removeDetailPieces(tr);   // 0.7.0: its detail goes with it
                 v.map.delete(i);
@@ -3763,6 +3924,7 @@ export class DataTable {
             if (this._isHidden(colIdx)) continue;
             const td = document.createElement('td');
             td.className = this._columnTypes[colIdx] || 'text';
+            if (this._cellGrid) td.__colIdx = colIdx;   // STORY-0003
 
             // Use custom cell renderer if provided
             const value = row[colIdx];
@@ -3813,6 +3975,8 @@ export class DataTable {
 
             tr.appendChild(td);
         }
+        // STORY-0003. The selection, and a commit's pending or refused mark.
+        this._cellGrid?.decorateRow(tr);
     }
 
     /** Re-render ONE row in place, preserving everything around it.
@@ -3913,7 +4077,7 @@ export class DataTable {
             });
         }
 
-        tr.classList.toggle('selected', this._state?.selected?.has(index) === true);
+        tr.classList.toggle('selected', this._state?.selected?.has(index) === true && !this._cellGrid);
         // 0.5.0. The row's data changed, so its classes, attributes, key and
         // open mark are asked again (a key paused, a delivery that died).
         this._decorateRow(tr, row, index);
@@ -5101,6 +5265,8 @@ export class DataTable {
         // STORY-0016. The select column, and whether the mode is on.
         if (this._gutter) names.push('twm-dt--select');
         if (this._selecting) names.push('twm-dt--selecting');
+        // STORY-0003.
+        if (this._cellGrid) names.push('twm-dt--cells');
         return names.join(' ');
     }
 
@@ -6265,7 +6431,12 @@ export class DataTable {
         const tbody = this._tbodyEl;
         const table = this._tableEl;
 
-        if (selectable) {
+        // STORY-0003. Cell mode: the cells' own pointer and keys, bound before
+        // the activation, detail and copy listeners so a key it takes stops.
+        // The row click below is not cell mode's.
+        if (this._cellGrid) this._cellGrid.install(tbody, table);
+
+        if (selectable && !this._cellGrid) {
             const handleRowClick = (event) => {
                 const rowEl = event.target.closest('tr');
                 if (!rowEl || rowEl.__rowIndex === undefined) return;
@@ -6537,7 +6708,7 @@ export class DataTable {
             const idx = tr.__rowIndex;
             if (idx !== undefined) {
                 const on = this._state.selected.has(idx);
-                tr.classList.toggle('selected', on);
+                tr.classList.toggle('selected', on && !this._cellGrid);
                 // STORY-0016.
                 const box = this._gutter ? tr.querySelector(':scope > td.twm-dt-select-cell > input') : null;
                 if (box) box.checked = on;

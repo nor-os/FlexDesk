@@ -828,6 +828,45 @@ body.twm-dt-col-resizing {
     opacity: 1;
     outline: 1px solid var(--accent-bright, #007acc);
 }
+/* STORY-0003 `selectionMode: 'cells'` — the range is a tint on its cells, the
+ * cursor a ring inside its cell (inset, so it moves no column by a pixel). A
+ * cell being edited gives its padding to the editor; a commit still out is
+ * dimmed, and a refused one carries a red ring and its message as the title. */
+.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--selected {
+    background: var(--state-selected, rgba(0, 122, 204, 0.15));
+}
+.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--cursor {
+    box-shadow: inset 0 0 0 2px var(--accent-bright, #007acc);
+}
+.twm-preview-table.twm-dt--cells:focus {
+    outline: none;
+}
+.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--editing {
+    padding: 0;
+}
+.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--editing .twm-dt-editor {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 2px 6px;
+    border: 0;
+    outline: 2px solid var(--accent-bright, #007acc);
+    outline-offset: -2px;
+    background: var(--surface-well, #1e1e1e);
+    color: inherit;
+    font: inherit;
+}
+.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--pending {
+    opacity: 0.6;
+    font-style: italic;
+}
+.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--error {
+    box-shadow: inset 0 0 0 1px var(--color-danger, #f14c4c);
+}
+.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--error.twm-dt-cell--cursor {
+    box-shadow: inset 0 0 0 2px var(--color-danger, #f14c4c);
+}
 /* In the mode a click ticks: a pointer on every row, and the keyboard's row
  * (the arrows move it, Space ticks it) drawn as an outline. */
 .twm-preview-table.twm-dt--selecting tbody tr:not(.twm-dt-spacer):not(.data-table__empty-row) {

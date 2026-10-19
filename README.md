@@ -1257,6 +1257,51 @@ The select column is not a data column: it is not in a copy, a CSV,
 table's whole life, so remembered widths stay on their columns when the mode
 flips, and widths saved by a table without it land on the same columns.
 
+### DataTable: a grid of cells you can edit (0.17.0)
+
+`selectionMode: 'cells'` turns a table into a grid: a click selects a cell, the
+keyboard moves a cursor over cells, and with `editable` a cell opens an editor
+in place. A table that sets none of these options selects rows and behaves as
+in 0.16.
+
+```js
+const grid = DataTable.mount(host, {
+    headers: ['Item', 'Qty', 'Note'],
+    rows,
+    pagination: false,
+    virtualize: true,
+    selectionMode: 'cells',
+    editable: [1, 2],                       // or true, or (colIdx, row, rowIdx) => boolean
+    editors: { num: myNumberEditor },       // by column index or by type
+    onCellCommit: async ({ rowIdx, colIdx, value, previous }) => {
+        const r = await api.save(rowIdx, colIdx, value);
+        return r.ok ? { ok: true } : { ok: false, error: r.message };
+    },
+    headerMenu: (colIdx, ctx) => [{ label: `Sort by ${ctx.header}`, action: 'sort', icon: 'sort' }],
+    onHeaderMenuAction: (action, colIdx) => { if (action === 'sort') grid.sortBy(colIdx); },
+    columnChooser: true,
+});
+grid.getCellSelection();   // { anchor, focus, range }
+```
+
+| Option | What it does |
+|---|---|
+| `selectionMode: 'cells'` | Cell mode. A click selects one cell and puts the cursor on it; Shift+click selects the range from the anchor to it. Every cell of the range is drawn `twm-dt-cell--selected`, the cursor `twm-dt-cell--cursor`; rows are not lit. Combined with `selectToggle`, `selectMode` or `keyboardNav` those are ignored, with a console warning. |
+| The keys (focused table) | Arrows move the cursor (Shift extends the range). Ctrl+arrow jumps to the edge of the block of filled cells, as a spreadsheet does. Home/End go to the row's first and last cell (Ctrl: the page's first and last cell). Tab moves right and wraps to the next row (Shift+Tab back). ArrowDown on the last row stays put. Ctrl+A selects every cell of the page; Escape collapses the range onto the cursor. The cursor stays on the page drawn and is scrolled into view; under `virtualize` its row is drawn. |
+| `getCellSelection()` | `{anchor, focus, range}`. A cell is `{row, col, rowIdx}`: `row` is the position in the order shown (as `getDisplayedRows()` lists them, after sort and filter), `col` the data column, `rowIdx` the original row index. `range` is `{top, bottom, left, right, rows, columns}`: positions, the data columns at its edges, and the original row indices and data columns it covers (a hidden column inside it is not one of them). Null outside cell mode. |
+| `setCellSelection(focus, anchor?)` | Puts the cursor on `{row, col}`, or selects from `anchor` to it; `null` clears. The row is brought into view. |
+| `getSelection()`, `setSelection()`, Ctrl+C | Still about rows: `getSelection()` returns the rows the range touches, `onSelectionChange` hears them, and Ctrl+C and the copy menu copy them. `setSelection(indices)` selects the cells of those rows, first to last as shown. |
+| `onCellSelectionChange(sel)` | Called with `getCellSelection()` after every change. |
+| `editable` | Which cells open an editor: `true`, an array of data column indices, or `(colIdx, row, rowIdx) => boolean`. Needs cell mode. F2, Enter, a double-click or a printable key opens it on the cursor cell (a printable key replaces the value with that character). In the editor Enter commits and moves down, Tab commits and moves right (Shift: up, left), Escape restores the cell and calls nothing; the focus leaving it commits without moving. `editCell(row, col)` opens one from code; `isEditing()` says whether one is open. |
+| `editors: {[colIdx \| type]: factory}` | The editor for a column, looked up by column index and then by type (`columnTypes`, else the detected `num`/`text`). A factory gets `{value, row, rowIdx, colIdx, column: {index, header, type}, initialText, commit(value), cancel()}` and returns an element or `{el, getValue?, focus?, destroy?}`. An input, select or textarea commits its `value` on Enter and Tab; any other editor calls `commit(value)` itself. The default is a text box (`createTextEditor`). |
+| `onCellCommit({rowIdx, colIdx, value, previous})` | Called exactly once per commit; a value left unchanged is no commit. Return nothing or `{ok: true}` (or a Promise of it) and the value is written into the row (`rows[rowIdx][colIdx]`) and drawn. `{ok: false, error}`, a rejection or a throw leaves the typed value in the cell, drawn `twm-dt-cell--error` with the message as its `title` and `data-error`, until a later commit of that cell succeeds or new rows arrive. While the Promise is out the cell is `twm-dt-cell--pending`. |
+| While an editor is open | `render()`, and so `setData`, a sort or a page, waits and runs when the editor closes, so what is being typed is never thrown away. A row that scrolls out of the virtual window commits its editor first. |
+| `headerMenu(colIdx, ctx) => items` | Items for the header's right-click menu, asked for the data column right-clicked (`ctx` is `{colIdx, header, hiddenColumns, table}`). Items are `{label, action, icon?, disabled?, danger?, title?}` or `{separator: true}`. Choosing one calls `onHeaderMenuAction(action, colIdx)`. With `columnChooser` the chooser's items follow behind a separator. `[]` or `null` shows only what would show without the hook: the chooser, or the page's own menu. Works in either selection mode. |
+
+The two modules behind cell mode are exported for a consumer that builds its
+own grid: `CellSelection` (the anchor, the cursor and every key's move, with no
+DOM) and `CellEditorHost` (one cell's editor, opened and closed exactly once).
+
 ### Scrollbars
 
 `installAutoScrollbars(root)` (from `@flexdesk/widgets`) replaces the browser's

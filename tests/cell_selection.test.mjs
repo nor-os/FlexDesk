@@ -23,7 +23,8 @@ import { dataTableEnv } from './dt_env.mjs';
 
 const T = await dataTableEnv('cell selection');
 const { check, ok, section, mount, bodyRows, click, key, done } = T;
-const { CellSelection, isFilledValue } = await import('../src/ui/components/cell_selection.js');
+const { CellSelection } = await import('../src/ui/components/cell_selection.js');
+const { isFilledValue } = await import('../src/ui/components/cell_grid.js');
 
 const headers = ['A', 'B', 'C', 'D', 'E'];
 const rows = [

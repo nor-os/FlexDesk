@@ -913,8 +913,7 @@ function _estimateWidth(fields) {
     // Forms with a textarea, a colour list, a section divider or a row of
     // fields get the wider layout so multi-line content + grouped fields
     // breathe; otherwise 480 px is enough for label + single-line input pairs.
-    const wide = fields.some((f) => f && (f.type === 'textarea' || f.type === 'colorList' || f.section || Array.isArray(f.row)))
-        || _formFields(fields).some((f) => f.type === 'textarea' || f.type === 'colorList');
+    const wide = fields.some((f) => f && (f.type === 'textarea' || f.type === 'colorList' || f.section || Array.isArray(f.row)));
     return wide ? 640 : 480;
 }
 

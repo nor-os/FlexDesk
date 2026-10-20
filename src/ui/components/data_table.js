@@ -406,7 +406,7 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {Function} [onSelectModeChange] - STORY-0016. `(on) => void`, after every change of the mode (the toggle, Escape, `setSelectMode`).
  * @property {Function} [onColumnsChange] - STORY-0012. `(hidden, {hidden, order}) => void` with the hidden columns' indices, ascending, after every change of the set (the chooser, `setColumnVisible`, `setData({hiddenColumns})`) — and (STORY-0086) of the order (a drag, `moveColumn`, `setData({columnOrder})`); `order` is `getColumnOrder()`.
  * @property {boolean} [reorderable=false] - STORY-0086. Data columns can be dragged into a new order by their headers (a press on a resize grip resizes instead), and the header's right-click offers Move left / Move right. The row-number and select columns stay first: they do not move and nothing is dropped in front of them. The order is kept by data index, so `hiddenColumns`, the sort and the filters stay on their columns; copies and the CSV follow the order shown. With `persistKey` it is saved, and a saved order wins over `columnOrder` — unless it is no order of today's columns (another column count), when it is ignored and `columnOrder` is drawn, or the natural order when there is none. The same holds when the saved order arrives before the headers do.
- * @property {number[]} [columnOrder] - STORY-0086. Every data index, in the order to draw them (`[0, 3, 1, 2]`). Not a permutation of the columns: ignored, natural order. Works without `reorderable` (then only code moves columns). See `moveColumn`, `getColumnOrder`.
+ * @property {number[]} [columnOrder] - STORY-0086. Every data index, in the order to draw them (`[0, 3, 1, 2]`). Not a permutation of the columns: ignored with a console warning, natural order (with no headers yet, checked and warned once when `setData` brings them). Works without `reorderable` (then only code moves columns). See `moveColumn`, `getColumnOrder`.
  * @property {boolean} [persistPage=false] - With `persistKey`: the client page is saved with the sort and the filters, and opened again on mount (on the last page, if the rows have shrunk since). OFF by default: a key shared by DIFFERENT row sets (ad-hoc filters, search results) must not reopen on a page of the last list. A sort under `resetPageOnSort` and a new filter save the first page, as they show it. A server's page (`onPageChange`, `dataSource`) is the consumer's and is not kept.
  *
  * ── STORY-0003, every one of them off unless asked for ─────────────────────
@@ -628,6 +628,7 @@ export class DataTable {
         // below, which may replace it with the remembered one.
         this._order = null;
         this._askedOrder = null;
+        this._askedUnchecked = false;
         if (!this._setOrder(this.config.columnOrder, true)) {
             console.warn('[DataTable] columnOrder is not an order of the columns; ignored.');
         }
@@ -980,13 +981,29 @@ export class DataTable {
     /** Take `list` as the order (`asked`: it is `columnOrder`, kept apart as
      *  the fallback). Refused (false, nothing changed) when it is no
      *  permutation of the columns; a table with no headers yet keeps it for
-     *  the headers `setData` brings, and `_columnOrder` checks it then. */
+     *  the headers `setData` brings, and `_checkAskedOrder` checks it then. */
     _setOrder(list, asked = false) {
         const n = this.config.headers?.length || 0;
         if (list != null && (!Array.isArray(list) || (n && !isColumnOrder(list, n)))) return false;
         this._order = list == null ? null : list.map(Number);
-        if (asked) this._askedOrder = this._order;
+        if (asked) {
+            this._askedOrder = this._order;
+            this._askedUnchecked = !!this._order && !n;
+        }
         return true;
+    }
+
+    /** The first headers have come: a `columnOrder` taken before them, unchecked,
+     *  that is no order of them is dropped with the same warning a table with
+     *  headers gives at once — once, as the check is made once. */
+    _checkAskedOrder() {
+        const n = this.config.headers?.length || 0;
+        if (!this._askedUnchecked || !n) return;
+        this._askedUnchecked = false;
+        if (isColumnOrder(this._askedOrder, n)) return;
+        console.warn('[DataTable] columnOrder is not an order of the columns; ignored.');
+        if (this._order === this._askedOrder) this._order = null;
+        this._askedOrder = null;
     }
 
     /** The order in force, or null for the natural one. One rule, whether the
@@ -1181,6 +1198,8 @@ export class DataTable {
                 this._savePersisted();
                 this._columnsChanged();
             }
+        } else if (updates.headers) {
+            this._checkAskedOrder();
         }
 
         // Reset state if rows changed

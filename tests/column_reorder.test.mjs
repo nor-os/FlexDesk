@@ -5,7 +5,8 @@
  *   §0  without the options: the natural order, and the saved blob is 0.16's
  *   §1  dragging header 3 onto header 1 draws 0,3,1,2, body cells to match;
  *       moveColumn, getColumnOrder and columnOrder do the same from code, and
- *       onColumnsChange hears every change
+ *       onColumnsChange hears every change; a columnOrder that is no order of
+ *       the columns warns once, also when the headers come later
  *   §2  the order is kept by data index: hiddenColumns, the sort, the filters,
  *       renderCell's colIdx and the cell mode's columns stay on their columns
  *   §3  persistKey saves and restores the order; a saved order for another
@@ -126,6 +127,25 @@ section('§1 by drag and from code');
     const { host, table } = mount({ headers, rows, columnOrder: [0, 1] });
     console.warn = warn;
     ok('a columnOrder of the wrong length: natural, with a warning', warned === 1 && heads(host).join() === 'A,B,C,D');
+    table.dispose();
+}
+for (const order of [[0, 0], [0, 1]]) {
+    const warn = console.warn; let warned = 0; console.warn = () => { warned++; };
+    const { host, table } = mount({ headers: [], rows: [], columnOrder: order });
+    const before = warned;
+    table.setData({ headers, rows });
+    table.setData({ headers, rows });
+    console.warn = warn;
+    ok(`columnOrder ${JSON.stringify(order)} before any headers: no warning yet`, before === 0);
+    ok('…the headers it does not fit: natural, with one warning', warned === 1 && heads(host).join() === 'A,B,C,D');
+    table.dispose();
+}
+{
+    const warn = console.warn; let warned = 0; console.warn = () => { warned++; };
+    const { host, table } = mount({ headers: [], rows: [], columnOrder: [0, 3, 1, 2] });
+    table.setData({ headers, rows });
+    console.warn = warn;
+    ok('columnOrder before the headers it fits: drawn, no warning', warned === 0 && heads(host).join() === 'A,D,B,C');
     table.dispose();
 }
 

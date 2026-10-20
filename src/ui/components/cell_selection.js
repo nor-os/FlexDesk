@@ -159,6 +159,16 @@ export class CellSelection {
         return this.setCursor(row, this.cols[ord]);
     }
 
+    /** Whether Tab (Shift+Tab with `back`) has nowhere to go: the cursor is
+     *  on the grid's last cell (its first, going back). The grid then lets
+     *  the key move focus on, out of the table. */
+    tabEnds(back = false) {
+        if (!this.focus || this.isEmptyGrid()) return false;
+        const col = back ? this.cols[0] : this.cols[this.cols.length - 1];
+        const row = back ? this.first : this.last;
+        return this.focus.row === row && this.focus.col === col;
+    }
+
     /** Every cell of the grid: from its first cell to its last, which is
      *  where the cursor goes. */
     selectAll() {

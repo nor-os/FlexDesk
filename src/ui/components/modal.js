@@ -9,7 +9,7 @@
  * / a boolean (confirm).
  *
  * Field schema:
- *   { name, label, type='text', default, step?, options?, required?,
+ *   { name, label, type='text', default, step?, min?, max?, options?, required?,
  *     placeholder?, hint?, validator?, rows?, create?, pick?, displayFor?,
  *     onText?, offText?, disabled?, compact? }
  *
@@ -18,6 +18,10 @@
  *           'color' | 'colorList'
  *   - hint: small dim help line rendered under the field
  *   - validator: fn(value, allValues) => string | null    (inline error)
+ *   - min / max: a `number` field's bounds — the input's own `min` / `max`
+ *     attributes, and on submit a value outside them is refused with a field
+ *     error under that field ("Must be between 2 and 200."), not the browser's
+ *     bubble. An empty, non-required field is not out of range.
  *   - rows: number of textarea rows (only used for type='textarea')
  *   - toggle: a `ToggleField` switch, submitted as a boolean like a checkbox;
  *     `onText` / `offText` label its state, `disabled` and `compact` pass
@@ -48,6 +52,12 @@
  * rendered as a small uppercase heading that groups the fields below
  * them. Useful for longer forms. A section that also carries a `name`
  * can be hidden and shown by `onFieldChange`'s `setVisible`.
+ *
+ * Rows — an entry of the form `{ row: [field, field, ...] }` puts its fields
+ * side by side (a min and a max, say). Each is an ordinary field: its own
+ * label, hint, error, `setVisible`, value and submitted key — the row is
+ * layout only and has no name. The row stacks its fields when the form is
+ * narrower than 360px (a container query on `.twm-modal__form`).
  *
  * Picker — a value the user LOOKS UP rather than types (an id chosen in a
  * search dialog, say). The row shows a read-only box and a search button;
@@ -173,7 +183,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
         body.innerHTML = `
             <form class="twm-modal__form">
                 <div class="twm-modal__fields">
-                    ${fields.map((f) => _renderEntry(f, defaults[f.name] ?? f.default)).join('')}
+                    ${fields.map((f) => _renderEntry(f, defaults)).join('')}
                 </div>
                 <div class="twm-modal__error" data-role="form-error" hidden></div>
                 <div class="twm-modal__actions">
@@ -219,7 +229,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
         };
         body.querySelector('[data-action="cancel"]')?.addEventListener('click', () => close(null));
 
-        const formFields = fields.filter((f) => !f.section);
+        const formFields = _formFields(fields);
         // The options each field offers NOW — `setOptions` replaces them, the
         // caller's field object is never written to.
         const optionsOf = new Map(formFields.map((f) => [f.name, f.options]));
@@ -280,6 +290,16 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
             const el = body.querySelector(`[name="${f.name}"]`);
             el?.addEventListener('input', () => clearFieldError(f.name));
             el?.addEventListener('change', () => clearFieldError(f.name));
+            // The browser refuses a number outside its min / max before the
+            // submit handler runs; its bubble is replaced by the field error
+            // the submit would have shown.
+            if (f.type === 'number' && _bounded(f)) {
+                el?.addEventListener('invalid', (e) => {
+                    if (!el.validity.rangeUnderflow && !el.validity.rangeOverflow) return;
+                    e.preventDefault();
+                    setFieldError(f.name, _rangeMessage(f));
+                });
+            }
         }
 
         // Adaptive fields — see `onFieldChange` above.
@@ -296,11 +316,16 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                     row.style.display = on ? '' : 'none';
                     clearFieldError(name);
                     // A required control nobody can see blocks the submit with
-                    // no message the user can find. Remembered on the control,
-                    // so showing the row gives back exactly what it had.
+                    // no message the user can find, and so does a number out
+                    // of its min or max. Remembered on the control, so showing
+                    // the row gives back exactly what it had.
                     for (const el of row.querySelectorAll('input, select, textarea')) {
                         if (!on && el.required) { el.required = false; el.dataset.twmRequired = '1'; }
                         else if (on && el.dataset.twmRequired) { el.required = true; delete el.dataset.twmRequired; }
+                        for (const [attr, key] of [['min', 'twmMin'], ['max', 'twmMax']]) {
+                            if (!on && el.hasAttribute(attr)) { el.dataset[key] = el.getAttribute(attr); el.removeAttribute(attr); }
+                            else if (on && el.dataset[key] != null) { el.setAttribute(attr, el.dataset[key]); delete el.dataset[key]; }
+                        }
                     }
                 },
                 get(name) {
@@ -423,6 +448,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                 // radio is no single control, so the browser's own `required`
                 // check never sees them — they are checked here.
                 let msg = f.required && _missing(f, v) ? 'Required.' : null;
+                if (!msg && _outOfRange(f, v)) msg = _rangeMessage(f);
                 if (!msg) {
                     const reason = unavailable(f, v);
                     if (reason != null) msg = reason ? `Not available: ${reason}` : 'Not available.';
@@ -856,31 +882,27 @@ export function openModal({
 function _estimateHeight(fields) {
     // Header (~36) + actions row (~46) + section dividers (~32 each)
     // + per-field rows (~46 text, ~140 textarea, ~32 checkbox)
-    // + body padding. Clamped to 200..80vh.
+    // + body padding. Clamped to 200..80vh. A `{ row }` is as tall as its
+    // tallest field.
+    const height = (f) => {
+        if (f.section) return 32;
+        const hint = f.hint ? 16 : 0;
+        if (f.type === 'textarea') return 32 + (Number(f.rows) || 4) * 18 + hint;
+        if (f.type === 'checkbox' || f.type === 'toggle') return 32 + hint;
+        if (f.type === 'colorList') {
+            const n = Array.isArray(f.default) ? f.default.length : 0;
+            return 46 + Math.max(n, 1) * 40 + 40 + hint;
+        }
+        if (f.type === 'color') return 46 + (Array.isArray(f.presets) && f.presets.length ? 28 : 0) + hint;
+        if (f.type === 'radio') {
+            const opts = flatChoices(f.options);
+            return 12 + opts.reduce((h, o) => h + 22 + (o.description || o.reason ? 16 : 0), 0) + hint;
+        }
+        return 46 + hint;
+    };
     let body = 0;
     for (const f of fields) {
-        if (f.section) body += 32;
-        else if (f.type === 'textarea') {
-            const rows = Number(f.rows) || 4;
-            body += 32 + rows * 18;
-            if (f.hint) body += 16;
-        }
-        else if (f.type === 'checkbox' || f.type === 'toggle') { body += 32; if (f.hint) body += 16; }
-        else if (f.type === 'colorList') {
-            const n = Array.isArray(f.default) ? f.default.length : 0;
-            body += 46 + Math.max(n, 1) * 40 + 40;
-            if (f.hint) body += 16;
-        }
-        else if (f.type === 'color') {
-            body += 46 + (Array.isArray(f.presets) && f.presets.length ? 28 : 0);
-            if (f.hint) body += 16;
-        }
-        else if (f.type === 'radio') {
-            const opts = flatChoices(f.options);
-            body += 12 + opts.reduce((h, o) => h + 22 + (o.description || o.reason ? 16 : 0), 0);
-            if (f.hint) body += 16;
-        }
-        else { body += 46; if (f.hint) body += 16; }
+        body += Array.isArray(f?.row) ? Math.max(0, ..._formFields(f.row).map(height)) : height(f);
     }
     const base = 36 + 46 + 28 + body;
     const max = Math.floor(window.innerHeight * 0.8);
@@ -888,11 +910,33 @@ function _estimateHeight(fields) {
 }
 
 function _estimateWidth(fields) {
-    // Forms with a textarea or section divider get the wider layout so
-    // multi-line content + grouped fields breathe; otherwise 480 px is
-    // enough for label + single-line input pairs.
-    const wide = fields.some((f) => f && (f.type === 'textarea' || f.type === 'colorList' || f.section));
+    // Forms with a textarea, a colour list, a section divider or a row of
+    // fields get the wider layout so multi-line content + grouped fields
+    // breathe; otherwise 480 px is enough for label + single-line input pairs.
+    const wide = fields.some((f) => f && (f.type === 'textarea' || f.type === 'colorList' || f.section || Array.isArray(f.row)));
     return wide ? 640 : 480;
+}
+
+/** The fields of a form's entries, rows opened up, headings left out. */
+function _formFields(entries) {
+    return entries.flatMap((e) => (Array.isArray(e?.row) ? e.row : [e])).filter((f) => f && f.section == null);
+}
+
+/** Does a field carry a `min` or a `max`? */
+function _bounded(f) {
+    return f.min != null || f.max != null;
+}
+
+/** Is a `number` field's submitted value outside its `min` / `max`? */
+function _outOfRange(f, v) {
+    if (f.type !== 'number' || !_bounded(f) || v == null || Number.isNaN(v)) return false;
+    return (f.min != null && v < Number(f.min)) || (f.max != null && v > Number(f.max));
+}
+
+/** The field error for a number outside its bounds. */
+function _rangeMessage(f) {
+    if (f.min != null && f.max != null) return `Must be between ${f.min} and ${f.max}.`;
+    return f.min != null ? `Must be at least ${f.min}.` : `Must be at most ${f.max}.`;
 }
 
 /** A combobox's offered options: enabled, groups flattened. */
@@ -1095,14 +1139,20 @@ function _wireComboboxHint(host, f, optionsOf) {
 }
 
 
-function _renderEntry(f, value) {
+function _renderEntry(f, defaults) {
     if (f && f.section != null) {
         // A named section is addressable by `setVisible`, so a heading can be
         // hidden along with the group it introduces.
         const attr = f.name ? ` data-field-row="${f.name}"` : '';
         return `<div class="twm-modal__section"${attr}>${_esc(f.section)}</div>`;
     }
-    return _renderField(f, value);
+    // A row is layout only: each field in it is rendered exactly as it would
+    // be on its own line, with its own `data-field-row`.
+    if (Array.isArray(f?.row)) {
+        const cells = _formFields(f.row).map((g) => _renderField(g, defaults[g.name] ?? g.default));
+        return `<div class="twm-modal__field-group">${cells.join('')}</div>`;
+    }
+    return _renderField(f, defaults[f.name] ?? f.default);
 }
 
 function _renderField(f, value) {
@@ -1209,7 +1259,11 @@ function _renderField(f, value) {
     const step = f.step != null ? `step="${f.step}"` : '';
     const placeholder = f.placeholder ? `placeholder="${_esc(f.placeholder)}"` : '';
     const type = (f.type === 'number' || f.type === 'password') ? f.type : 'text';
-    return wrap(`<input name="${f.name}" type="${type}" value="${_esc(v)}" ${step} ${placeholder} ${required}>`);
+    // Attributes only a bounded number has, so no other input's markup moves.
+    let bounds = '';
+    if (f.type === 'number' && f.min != null) bounds += ` min="${_esc(f.min)}"`;
+    if (f.type === 'number' && f.max != null) bounds += ` max="${_esc(f.max)}"`;
+    return wrap(`<input name="${f.name}" type="${type}" value="${_esc(v)}" ${step}${bounds} ${placeholder} ${required}>`);
 }
 
 function _esc(s) {

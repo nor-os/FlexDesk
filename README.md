@@ -1394,7 +1394,7 @@ touches browser storage — and is shown to fail on a planted one.
 
 | Part | What it does |
 |---|---|
-| `createStepCatalogue(types, {categories, idBase})` | The step types the consumer passes in, read as they arrive (`type_id`, `label`, `category`, `role`, `description`, `icon`, `ports`, `config_schema`, `unavailable`; any other key is kept). `get`, `list`, `byCategory`, `role`, `tone`, `inputs(typeId, {flow})`, `outputs`, `port`, `idBase`, and `problems` — a broken type is listed there, never thrown. A type may also carry `render`, `update`, `size: {w, h}` and `accent` (a tone), which only the canvas editor reads ([Node bodies](#node-bodies-0170)); `size(typeId)`, `accent(typeId)` and `body(typeId)` answer them, `null` when a type has none, and a `size`, `accent` or hook of the wrong kind is a line in `problems` and is not used (0.17.0). `inline: ['key', …]` names settings of its `config_schema` the canvas editor draws on the node ([Edited on the node](#edited-on-the-node-0170)); `inline(typeId)` answers the names the schema has, `[]` when none, and a name it lacks (or an `inline` that is not a list) is a line in `problems` and is not drawn (0.17.0). **Ports keep their declared order**: a lane reads the first input as its own and an outline draws the other outputs as arms in order, so nothing sorts them |
+| `createStepCatalogue(types, {categories, idBase})` | The step types the consumer passes in, read as they arrive (`type_id`, `label`, `category`, `role`, `description`, `icon`, `ports`, `config_schema`, `unavailable`; any other key is kept). `get`, `list`, `byCategory`, `role`, `tone`, `inputs(typeId, {flow})`, `outputs`, `port`, `idBase`, and `problems` — a broken type is listed there, never thrown. A type may also carry `render`, `update`, `size: {w, h}` and `accent` (a tone), which only the canvas editor reads ([Node bodies](#node-bodies-0170)); `size(typeId)`, `accent(typeId)` and `body(typeId)` answer them, `null` when a type has none, and a `size`, `accent` or hook of the wrong kind is a line in `problems` and is not used (0.17.0). `inline: ['key', …]` names settings of its `config_schema` the canvas editor draws on the node ([Edited on the node](#edited-on-the-node-0170)); `inline(typeId)` answers the names the schema has, `[]` when none, and a name it lacks (or an `inline` that is not a list) is a line in `problems` and is not drawn (0.17.0). `rank: 'source' \| 'sink'` is the hint the canvas editor's `layout: 'layered'` Arrange gives the type's steps (the first or the last column); `rank(typeId)` answers it, `null` when a type has none, and any other value is a line in `problems` and is not used (0.17.0). **Ports keep their declared order**: a lane reads the first input as its own and an outline draws the other outputs as arms in order, so nothing sorts them |
 | `checkSettingsSchema(schema)` | The JSON-Schema subset a step's settings may use: `type`, `enum`, `const`, `required`, `properties`, `additionalProperties` (a boolean), `items`, `minItems`/`maxItems`, `minimum`/`maximum`, `minLength`/`maxLength`, `format: "uuid"`, the annotations and any `x-` hint. Returns the first refusal as the server's own sentence, or `null`. `oneOf`, `anyOf`, `$ref` and `pattern` are refused. `tests/fixtures/flow_kit_settings_schema.json` holds 30 schemas and their verdicts. Tables' own `check_schema` gave the same 30 verdicts when the file was written, and is meant to read this file in a test of its own |
 | `createWidgetRegistry()` | The controls, by name. The ten generic widgets are registered already; `register(name, widget)` throws for a name that exists, and replacing one takes `{replace: true}`. A widget is `(spec, value, ctx) => {el, destroy?, focus?, caret?, restoreCaret?}` and reports with `ctx.set(value)`; `undefined` removes the setting |
 | `createSettingsPanel(options)` | One step's settings, or the flow's own, drawn from the schema (below) |
@@ -1545,6 +1545,7 @@ the settings of whatever is picked, under a toolbar. It stands on the
 | `routeEdge(from, to, {obstacles, simple})`, `selfLoop`, `returnEdge(from, to, {floor})` | SVG path data between two anchors `{x, y, side}`: a line with horizontal lead-outs (bent round obstacles up to `OBSTACLE_ROUTING_NODE_LIMIT` nodes), a node's line to itself, and a loop's line back, which runs under both nodes |
 | `crowsFoot(point, side, kind)`, `footAnchor(point, side, kind)`, `cardinality({kind, optional})` | Crow's-foot ends (`many`, `one`, `zero-or-many`, `one-or-many`, `zero-or-one`, `exactly-one`) as an SVG group `twm-edge__marker twm-edge__marker--<kind>`, where the line should start so it meets the mark, and the two ends a reference implies |
 | `arrange(nodes, edges, {columnGap, rowGap})` | A layered layout. **Two quirks, kept on purpose:** an edge points from child to parent (a node sits one column right of what it points at), and each column is sorted by `label`, which every node must have |
+| `layeredLayout(nodes, edges, {rank, sizeOf, columnGap = 64, rowGap = 32, componentGap = 80, passes = 8})` (0.17.0) | A layered layout for any directed graph, as a diagram is read: `{from, to}` puts `from` left of `to`. Longest-path columns (cycles broken, never hung on); `rank(node)` answering `'source'` or `'sink'` puts a node in the first or the last column; barycentre sweeps reduce crossings, keeping the order with the fewest (the order given included); `sizeOf(node)` → `{width, height}` (default the node's own `width`/`height`, else 160 × 80) sizes the columns; components no line joins are stacked top to bottom, the largest first, `componentGap` apart. Returns a Map of id → the top-left `{x, y}` from (0, 0). Pure; 300 nodes and 400 edges take a few milliseconds |
 | `new NodePlatform({collapsedPorts})` | The nodes and their ports: `hydrate(nodes)`, `get`, `all`, `port`, `setPosition`, `setCollapsed`, `visiblePorts(id)`, `on(event, fn)` (`hydrated`, `moved`, `collapsed`). A node is `{id, position, size, collapsed, ports, …}`; any other key is kept |
 | `new ConnectorRouter({platform, selfReference, policy, endsOf, disabledEnds, strings})` | Edges and whether a drop may become one. `canConnect(source, target, {pendingEdges})` refuses, in order, a node that is gone, a port that is gone, a disabled port (with its `disabledReason`), a self-reference (unless `selfReference`), and a port at its `maxConnections`. Only then does it ask your `policy(ctx)`, which may refuse, allow, or answer `{ok: true, offer}`. Also `hydrate`, `edges` (a Map), `edgesFor`, `stage`, `unstage`, `remapNodeConnections(nodeId, portIds)` (keeps the edges whose ports survive and reports the rest) |
 | `new HistoryService({actions, apply, onState, limit, requires, refusal})` | Undo over recorded edits (deltas), behind a closed action list: `record` throws on any action you did not declare. Nothing is recorded before `hydrated()`, and a batch (`startBatch`/`endBatch`) is one entry. Also `undo`, `redo`, `reset`, `adopt`, `undoStack`, `redoStack`, `canUndo`, `canRedo`. A missing `actions`, `apply` or anything named in `requires` throws at construction, not at the first silent no-op |
@@ -1613,6 +1614,7 @@ editor.setRunOverlay({ steps, ports, banner });
 | `renameInPlace` | `true`: a double-click on a step's title edits its name on the node ([Edited on the node](#edited-on-the-node-0170)). Off by default, and then a double-click does nothing (0.17.0) |
 | `collapsible` | `true` puts a fold button on every step's header: it folds the step to its header and back, one `flow:node:collapse` entry each way (below, *Live values and folded steps*). Off by default, and then there is no button in the DOM and a `collapsed` flag in a graph is carried through untouched, the step drawn unfolded (0.17.0) |
 | `minimap` | `true` draws a small overview over the canvas's lower right corner, with the steps and the view's frame, redrawn when the canvas changes size as well as when the view moves. A click on it centres the view on that point, at the same scale. Off by default, and then there is no minimap in the DOM (0.17.0) |
+| `layout` (0.17.0) | What Arrange does. `'flow'` (the default): in the order a run takes the steps, from the start step(s). `'layered'`: the kernel's `layeredLayout` over the lines, with each type's `rank` key (`'source'` or `'sink'`, read by the catalogue's `rank(typeId)`) as its hint. Or your own `fn(graph, ctx)` returning a Map of id → `{x, y}` from the origin (a step it leaves out stays where it is; a place that is not finite numbers `{x, y}`, like anything but a Map, throws), handed a copy of what is arranged and `ctx = {catalogue, node, ids, sizeOf(node), layeredLayout}` (`ids` is `null` for the whole graph). With `multiSelect` and several steps picked, the toolbar's Arrange lays out only those steps and the lines between them, and only they move. The places are anchored at the top-left corner of what is arranged and snapped to the grid |
 
 | Method | Does |
 |---|---|
@@ -1625,10 +1627,11 @@ editor.setRunOverlay({ steps, ports, banner });
 | `setActionState(id, {disabled, reason, busy})`, `setStatus(text)`, `setMessage(text, tone)` | A verb refused in place, with its reason printed beside the toolbar; the status line; the gesture line |
 | `align(kind)`, `distribute(axis)` (0.17.0) | With `multiSelect`: line the picked steps up (`'left'`, `'center'`, `'right'`, `'top'`, `'middle'`, `'bottom'`; two or more picked) or give them equal gaps (`'horizontal'`, `'vertical'`; three or more), one `flow:nodes:align` entry. `false` when refused (too few picked, read only, or no `multiSelect`); an unknown kind or axis throws |
 | `copy()`, `cut()`, `paste(text?)`, `duplicate()` (0.17.0) | With `clipboard`: the keys' verbs from code. Each answers `{ok: true, ids}` (the steps copied, cut or made) or `{ok: false, reason}`, the reason also on the message line; `paste()` answers a promise when your `read` is async, and `paste(text)` pastes that text. Without `clipboard`: `{ok: false, reason: null}` |
-| `select(id \| [id, …] \| 'flow' \| null)`, `repaintPanel()`, `focus()`, `undo()`, `redo()`, `arrange()`, `fit({whole})` | `select([id, …])` (0.17.0, `multiSelect`) picks several steps at once (unknown ids are left out; one left is one step picked, none lets go) |
+| `select(id \| [id, …] \| 'flow' \| null)`, `repaintPanel()`, `focus()`, `undo()`, `redo()`, `fit({whole})` | `select([id, …])` (0.17.0, `multiSelect`) picks several steps at once (unknown ids are left out; one left is one step picked, none lets go) |
 | `group(ids?, {label, tone})`, `ungroup(groupIds?)`, `setGroup(id, {label, tone})`, `setGroupMembers(id, ids)` (0.17.0) | With `groups`: group these steps (by default the picked ones), each leaving the group it was in, and answer the new group's id (`group`, `group-2`, …) or `null`; remove these groups (by default the ones the picked steps are in), their steps staying put; a group's name and tone; exactly these members, none removing the group. One `flow:group:add`, `…:remove`, `…:label` or `…:members` entry each, `false`/`null` when refused (read only, nothing to do) |
 | `addNote({text, position, size})`, `editNote(id, text)`, `moveNote(id, {x, y})`, `removeNote(id)` (0.17.0) | With `notes`: a note at `position` (by default the centre of the view), answered as a copy (`note`, `note-2`, …) or `null`; its text; where it is; taking it away. One `flow:note:add`, `…:edit`, `…:move` or `…:remove` entry each |
 | `setCatalogue(catalogue \| types)` | Swaps the step types while the editor is open, for a type registered after `load`: the palette is redrawn and a node whose type's definition changed is rebuilt, so a node of a type that was unknown now draws. A definition is compared by what the node is drawn from (known or not, `icon`, `label`, tone, ports, `render`, `update` and `inline`), not by object identity: a new catalogue of the same types plus one more rebuilds no node and calls no `render` again. Under the `connections` option the connection rules and the empty-drop picker judge by the new catalogue, and a pending offer is taken away. The graph and the history are untouched (0.17.0) |
+| `arrange({ids})` | Arrange the whole graph, as the toolbar's button does when fewer than two steps are picked. With `ids` (0.17.0), only those steps and the lines between them are laid out and only they move, still one `flow:arrange` entry; fewer than two known steps, or a read-only editor, answers `false` |
 | `history`, `canvas` | The editor's `FlowHistory` (`keep()`, `adopt(kept, editor.snapshot())`, `baseline(editor.snapshot())` for your publish) and its `CanvasAdapter` |
 | `destroy()` | Removes every listener, the ghost of a drag, the minimap and any picker it opened. It saves nothing, because the editor holds nothing; a viewport report still waiting for the wheel to settle is handed to `onViewportChange` first |
 
@@ -1786,7 +1789,8 @@ panel says how many are picked, with their Remove. On the canvas the arrow
 keys nudge the pick one grid step (`gridSize`), ten with Shift; a held arrow is
 one entry. Eight icon verbs after Fit align the pick's left edges, centres,
 right edges, tops, middles and bottoms, and distribute it horizontally and
-vertically, each refused in place with fewer than two (three) picked. Tab and
+vertically, each refused in place with fewer than two (three) picked. Arrange
+lays out only the pick and the lines between them, and nothing else moves. Tab and
 Shift+Tab move the focus from step to step in graph order, and past either end
 Tab is the browser's again, so the keyboard can leave the canvas. Every one of
 these is a single undo entry. In read-only mode a marquee still picks, and no
@@ -2242,9 +2246,9 @@ keystrokes ask the preview once.
 opens a modal form and resolves with `{ [name]: value }`, or `null` when it is
 cancelled. Fields are `text`, `number`, `password`, `select`, `textarea`,
 `checkbox`, `toggle`, `picker`, `checklist`, `radio`, `color` and `colorList`;
-`{ section: 'Label' }` entries are headings. The additions below are opt-in,
-with one change every form sees, even one that uses none of them: a `select`
-or `radio` comes back with
+`{ section: 'Label' }` entries are headings and `{ row: [...] }` entries put
+fields side by side. The additions below are opt-in, with one change every form
+sees, even one that uses none of them: a `select` or `radio` comes back with
 its option's OWN value and type (a numeric option submits `2`, not `'2'`; an
 option whose value is `null` submits `null`), a default of that type selects
 its option (`defaults: { s: 2 }` selects the option whose value is `2`), and an
@@ -2436,6 +2440,43 @@ reports every edit and, with `commit: true`, every committed one.
 colour. The markup is `.twm-color-field` > `.twm-color-field__swatch` +
 `.twm-color-field__hex` (+ `.twm-color-field__presets`), and `.twm-color-list`
 rows are `.twm-color-list__row`. `tests/color_field.test.mjs` covers all of it.
+
+### Number bounds and fields side by side: `min`, `max` and `{ row }` (0.17.0)
+
+```js
+openForm({
+    fields: [
+        { name: 'steps', label: 'Steps', type: 'number', min: 2, max: 200, step: 1 },
+        { row: [
+            { name: 'lo', label: 'Min', type: 'number', hint: 'lowest value' },
+            { name: 'hi', label: 'Max', type: 'number', min: 0 },
+        ] },
+    ],
+});
+// → { steps: 50, lo: 0, hi: 10 }
+```
+
+- **`min` / `max`** on a `number` field are the input's own `min` and `max`
+  attributes, and a value outside them is refused on submit with an error
+  under that field: "Must be between 2 and 200." (or "Must be at least 2." /
+  "Must be at most 200." with only one). The browser's own range check stops
+  such a submit first; the form cancels its bubble and shows the field error
+  instead, and it checks the range itself as well, before the field's
+  `validator`. An empty field that is not `required` is not out of range. A
+  row hidden by `setVisible` drops its bounds until it is shown again, as it
+  drops `required`. As with any `<input type="number">`, a `min` is also where
+  `step` counts from.
+- **`{ row: [field, ...] }`** puts its fields on one line, sharing the width.
+  The row is layout only and has no name: each field in it is an ordinary
+  field with its own label, hint, error, `setVisible`, value and submitted
+  key, so hiding one hides only that one. The first keeps the form's label
+  column; the others size their label to its text. A form narrower than
+  360px stacks them (a container query, `twm-form`, on a form that has a row;
+  a form without one is not made a container). A form with a row opens at the
+  wide (640px) layout. The row is `.twm-modal__field-group`.
+
+A form with neither renders exactly as before.
+`tests/open_form_rows_bounds.test.mjs` covers both in jsdom.
 
 ### A switch: `ToggleField` and `type: 'toggle'` (0.17.0)
 
@@ -3195,6 +3236,29 @@ Before 0.17.0 the module was only found under a `js_new/` path, the defaults
 carried one application's override, and the mode read one application's debug
 global; choose strict mode in your own code.
 
+### The defaults cover FlexDesk's own keys (0.17.0)
+
+`DEFAULT_STATE_GUARD_CONFIG` includes every data key FlexDesk's own widgets
+write, so the shell, dialogs, forms, tooltips, tiles and flow editors run under
+`mode: 'strict'` with no violation. The list also carries some keys that
+FlexDesk itself does not write. Add your application's keys on top:
+
+```js
+const guard = new StateGuardService({ eventBus, logger, config: {
+    ...DEFAULT_STATE_GUARD_CONFIG,
+    allowedDatasetKeys: [...DEFAULT_STATE_GUARD_CONFIG.allowedDatasetKeys, 'order-id'],
+} });
+```
+
+An allow-list key may be spelled either way: `orderId` and `order-id` are the
+same key, in the allow-list and in module overrides
+(`allow(pattern, attributes, { datasetKeys })` and `config.moduleOverrides`)
+alike. camelCase maps to kebab-case as the DOM does for ordinary keys: each
+capital letter becomes `-` plus its lower-case form. So `rowID` is `row-i-d`
+(what `dataset.rowID` writes), not `rowid`; to allow `data-id`, list `id`.
+Before 0.17.0 a camelCase entry never matched, and some entries named keys no
+element carries.
+
 ## Peer dependencies
 
 `@flexdesk/charts` needs Plotly (4.4 MB). `@flexdesk/editor` needs Monaco (14 MB).
@@ -3394,9 +3458,10 @@ and logs one warning; a `list` that throws does the same. Until 0.17.0 it
 called one application's bridge method.
 
 **`PlotPopoutWindow({ streamEvents })`** names the bus events a live data
-source emits, next to `refreshEvent`: `{ delta, complete }`, defaulting to
-`'streaming:delta'` and `'streaming:complete'`. The window redraws on each
-while live update is on; a name given as `null` is not listened for.
+source emits, next to `refreshEvent`: `{ delta, complete }`. The window
+redraws on each while live update is on. There are no default names: without
+`streamEvents`, or for a name left out or given as `null`, nothing is listened
+for, and the window updates through `refreshEvent` and explicit calls only.
 
 ```js
 openPlotPopoutWindow({ id, title, plotConfig, getResults, services,

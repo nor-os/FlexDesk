@@ -178,6 +178,30 @@ section('§3 the add control on a group header');
     check('without onColumnAdd there is no add control', host.querySelectorAll('.twm-dt-group__add').length, 0);
     table.dispose();
 }
+{
+    // setData with new group objects whose key, label and columns are the
+    // same but another field changed: groupActions is asked with the new
+    // object and its button is redrawn from it.
+    const asked = [];
+    const first = { key: 'a', label: 'A', columns: [0, 1], locked: false };
+    const { host, table } = mount({
+        headers, rows, columnGroups: [first],
+        groupActions: (group) => {
+            asked.push(group);
+            return [{ action: 'lock', label: group.locked ? 'Unlock' : 'Lock' }];
+        },
+    });
+    const label = () => groupCells(host).find((th) => th.title === 'A')?.querySelector('.twm-dt-group__action')?.textContent;
+    check('the first draw asks with the given object', [asked.at(-1) === first, label()], [true, 'Lock']);
+    const next = { key: 'a', label: 'A', columns: [0, 1], locked: true };
+    const before = asked.length;
+    table.setData({ columnGroups: [next] });
+    await tick();
+    ok('setData with only another field changed asks groupActions again', asked.length > before);
+    ok('…with the new group object', asked.slice(before).every((g) => g === next));
+    check('…and its button is redrawn from it', label(), 'Unlock');
+    table.dispose();
+}
 
 section('§4 an empty group keeps a placeholder column');
 {

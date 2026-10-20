@@ -3479,7 +3479,7 @@ The other options:
 table. Its chart cells were `div.plot-tile-chart` and are now
 `div.twm-plot-grid__cell` inside a `.twm-plot-grid`. An overlay is drawn for
 any series with an `overlay` and data under its id in `actuals`; it used to
-need `overlay.etlKey` as well. Two more changes to what the window draws, for
+need `overlay.etlKey` as well. More changes to what the window draws, for
 configs outside the fixtures:
 
 - On an `'area-stacked'` subplot, overlays are stacked too, in a group of their
@@ -3493,6 +3493,12 @@ configs outside the fixtures:
 - While `getResults()` answers null and nothing has been drawn yet, every cell
   shows `emptyMessage`; the cells used to stay blank. Figures already drawn
   stay while the results are briefly null, as before.
+- A y axis's positive `step` sets the Plotly `dtick` of that axis. The window
+  used to ignore `step`, so Plotly chose the tick spacing.
+- A subplot with `xAxis: { useTime: false, variable }` is drawn against that
+  variable, with an x-axis title (`xAxis.label`, else the variable's name) and
+  no clip of the x axis to the time range. The window used to ignore `xAxis`
+  and always drew against time, clipped to the first and last time point.
 
 Its zoom and pan buttons and Download PNG act on `grid.plotted`, so a figure the
 grid drew on a resize (the window opened while its plot area had no size) is

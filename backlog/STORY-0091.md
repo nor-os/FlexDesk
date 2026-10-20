@@ -2,10 +2,10 @@
 id: 91
 type: story
 title: "A crosstab grid draws spanned header rows with pinned header rows and label columns in one scroller"
-status: refined
+status: in-progress
 parent: 1
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 5
@@ -13,7 +13,7 @@ subsystem: grid
 labels: [grid, editing, tables-consumer]
 links: [blocked-by 66]
 created: 2026-10-18
-updated: 2026-10-18T10:35Z
+updated: 2026-10-20T15:57Z
 ---
 
 ## Description
@@ -34,6 +34,8 @@ Owner decisions (norman, 2026-10-18): FlexDesk provides every UI operation and m
 ## History
 
 - 2026-10-18 · norman_agent · status: draft -> refined
+- 2026-10-20 · norman_agent · status: refined -> in-progress
+- 2026-10-20 · norman_agent · assignee: (none) -> norman_agent
 
 ## Comments
 

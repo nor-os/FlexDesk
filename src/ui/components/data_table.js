@@ -26,6 +26,7 @@ import {
 import { isRowActivation, isRowControl } from './row_activation.js';
 import { createChipsFilter } from './table_filter_chips.js';
 import { CellGrid } from './cell_grid.js';
+import { toTSV } from './tsv.js';
 
 // 0.7.0: the built-in chips filter control, for a consumer that wants to build
 // one outside a table (the same control `filterKinds: {kind: 'chips'}` draws).
@@ -1802,10 +1803,13 @@ export class DataTable {
     }
 
     /**
-     * Copy selected rows to clipboard
+     * Copy selected rows to clipboard — in cell mode (STORY-0085) the cells
+     * selected, or the cursor cell alone, with no header line
      * @param {'tsv'|'csv'} [format='tsv'] - Output format
      */
     async copyToClipboard(format = 'tsv') {
+        // STORY-0085. Cell mode copies the cells selected, not their rows.
+        if (this._cellGrid) return this._copyCells(format);
         const indices = this.getSelection();
         if (indices.length === 0) {
             this._notify('Copy', 'No rows selected.', 'warn');
@@ -1845,6 +1849,39 @@ export class DataTable {
             this._notify('Copy', 'Clipboard unavailable.', 'warn');
         }
 
+        this._hideContextMenu();
+    }
+
+    /**
+     * STORY-0085. Cell mode's copy: the range (or the cursor cell alone) as
+     * TSV — Excel's quoting, `tsv.js` — or as CSV, with no header line.
+     * @param {'tsv'|'csv'} format
+     */
+    async _copyCells(format) {
+        const matrix = this._cellGrid.copyMatrix();
+        if (!matrix || !matrix.length) {
+            this._notify('Copy', 'No cells selected.', 'warn');
+            this._hideContextMenu();
+            return;
+        }
+        const text = format === 'csv'
+            ? matrix.map((row) => row.map((cell) => this._csvEscape(cell)).join(',')).join('\n')
+            : toTSV(matrix);
+        let ok = false;
+        try {
+            await navigator.clipboard.writeText(text);
+            ok = true;
+        } catch (_) {
+            ok = this._fallbackCopy(text);
+        }
+        if (ok) {
+            const n = matrix.length;
+            const m = matrix[0].length;
+            const what = n * m === 1 ? '1 cell' : `${n} × ${m} cells`;
+            this._notify('Copy', `Copied ${what}${format === 'csv' ? ' as CSV' : ''}.`, 'info');
+        } else {
+            this._notify('Copy', 'Clipboard unavailable.', 'warn');
+        }
         this._hideContextMenu();
     }
 

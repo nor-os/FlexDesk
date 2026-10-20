@@ -214,6 +214,34 @@ export class CellGrid {
         this._changed();
     }
 
+    /**
+     * STORY-0085. What a copy of the selection puts on the clipboard: the
+     * range's cells as text, one array per row in the order SHOWN (after the
+     * sort and the filters), its shown columns left to right (a hidden column
+     * inside it is not one of them). With no range beyond the cursor, the
+     * cursor cell alone. A cell is the text it shows (`_formatValue`, a
+     * refused or pending value included); an empty cell is empty, not the
+     * table's placeholder for one, unless `nullDisplay` names one. Null with
+     * nothing selected.
+     */
+    copyMatrix() {
+        this._sync();
+        const r = this.sel.range();
+        if (!r) return null;
+        const t = this.table;
+        const text = (rowIdx, col) => {
+            const value = this.shownValue(rowIdx, col);
+            if (value == null && t.config.nullDisplay == null) return '';
+            return t._formatValue(value, col);
+        };
+        const out = [];
+        for (let p = r.top; p <= r.bottom; p++) {
+            const rowIdx = this.rowIndexAt(p);
+            out.push(r.columns.map((col) => text(rowIdx, col)));
+        }
+        return out;
+    }
+
     /** New rows (`setData({rows})`): the marks were about the old ones. */
     newRows() {
         this.generation++;

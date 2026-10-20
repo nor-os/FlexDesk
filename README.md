@@ -44,7 +44,7 @@ manager, and neither of them should drag in a plotting engine or a code editor.
 | `@flexdesk/host` | 5 kB | The host port (below) |
 | `@flexdesk/wm` | 166 kB | Tiling window manager: tabs, splits, desktops, command palette, taxonomy, `createShell()` |
 | `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus, menu bars, a document outline, progress, a conversation view |
-| `@flexdesk/charts` | 26 kB | Plotly wrapper, chart types, subplot layouts, downsampling, a plot grid, plot windows, injected series transforms |
+| `@flexdesk/charts` | 26 kB | Plotly wrapper, chart types, subplot layouts, downsampling, a plot grid, a plot-config editor, plot windows, injected series transforms |
 | `@flexdesk/tiles` | 67 kB | Draggable/resizable widget grid, tile base class, widget registry, layout persistence, figure, chart and KPI tiles |
 | `@flexdesk/editor` | 62 kB | Monaco loader + factory, multi-file tab bar, search, split panes, undo manager |
 | `@flexdesk/canvas` | 14 kB | The canvas kernel: a pannable, zoomable surface, the edge router, a generic graph layer ([Flow editors](#flow-editors)) |
@@ -3596,6 +3596,73 @@ figure, where it used to try the first slot whatever it held.
 `tests/plot_grid.test.mjs` pins all of it,
 including that the window draws the same traces, names and axes for the
 fixture configs (`tests/fixtures/plot_grid_fixtures.mjs`) as it did before.
+
+## Editing a plot config: `renderPlotConfigEditor` (0.17.0)
+
+`renderPlotGrid` draws a plot config; `renderPlotConfigEditor` edits one, in
+place, so an embedder no longer writes its own panel for it:
+
+```js
+import { renderPlotConfigEditor, renderPlotGrid, migrateData } from '@flexdesk/charts';
+
+const plotConfig = migrateData(savedConfig);
+const editor = renderPlotConfigEditor(el, plotConfig, {
+    onChange: () => grid.update({ plotConfig }),            // after every edit
+    seriesProvider: ({ value, role, subplot }) => names(value),   // items, or a promise of them
+    seriesTransforms,                                       // their toggles, per subplot
+    overlaySources: () => mySources(),                      // optional
+    extraSeriesFields: (el, series, { subplot, axis, onChange }) => { /* your fields */ },
+});
+editor.dispose();
+```
+
+It draws a layout picker (every `PLOT_LAYOUTS` entry), a tab per subplot slot
+when the layout has more than one, and for the subplot in front: its title;
+its chart type, legend, interpolation, NaN handling and data points; its x
+axis (time, or a series); its y axes (label, scale, position, min, max, step)
+and, under each, its series (a picker, legend label, colour, width, dash and
+stack group); its z axis while the chart type is 3D; its reference lines and
+shaded bands; and the toggles of any `seriesTransforms`. Every edit writes the
+config it was given and then calls `onChange(config)`.
+
+- A layout with more slots than there are subplots adds default subplots
+  (`makeDefaultSubplot`); one with fewer keeps the extra subplots, so switching
+  back restores them.
+- A 3D chart type gives the subplot a z axis (label, scale, min, max, step and
+  a series) and uses its first y axis only: the other y axes are shown disabled
+  and **Add Y axis** is disabled. A 2D chart type sets `zAxis` back to `null`.
+- Every series picker is an `AutocompleteField` fed by `seriesProvider`, asked
+  `{ value, role, subplot }`, where `role` is `'series'`, `'x'` or `'z'`. It
+  answers AutocompleteField items (`{ label, insertText?, type? }`) or a promise
+  of them. A provider that throws or rejects shows no suggestions and leaves
+  the typed text as it is (`logger.warn` hears it when you pass `logger`).
+  Without `seriesProvider` the pickers suggest nothing and take typed text.
+- `overlaySources()` answers choice options (`{ value, label }`, or
+  `{ group, options }`), or a promise of them, asked once per draw. With it,
+  every series row gets an overlay source select; choosing one writes
+  `series.overlay = { source, ... }` and shows the overlay's label, colour,
+  dash, width and mode. `renderPlotGrid` draws it from the data you pass under
+  the series' id in `overlays`. **None** removes `series.overlay`. Without
+  `overlaySources` there are no overlay controls.
+- `extraSeriesFields(el, series, { subplot, axis, onChange })` puts fields of
+  your own in each series row; call `onChange()` after you edit the series. What
+  it returns is disposed (`dispose()`) when the row is redrawn or the editor
+  is disposed.
+
+It returns `{ dispose, refresh, selectSubplot, activeSubplot }`: `dispose()`
+disposes every field it created (every `AutocompleteField` among them) and
+removes the editor; `refresh()` redraws it after the config was changed from
+outside; `selectSubplot(index)` brings a subplot to the front. It fits
+`PlotPopoutWindow`'s `configRenderer` slot:
+
+```js
+const win = openPlotPopoutWindow({ id, title, plotConfig, getResults, services,
+    configRenderer: (el) => renderPlotConfigEditor(el, plotConfig,
+                                { onChange: () => win.updateConfig(plotConfig) }) });
+```
+
+Its classes are under `.twm-plot-config` in `flexdesk.css`.
+`tests/plot_config_editor.test.mjs` pins all of it.
 
 ## Layouts are keyed by whatever you key them by
 

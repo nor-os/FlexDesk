@@ -9,7 +9,8 @@
  *   §2  the order is kept by data index: hiddenColumns, the sort, the filters,
  *       renderCell's colIdx and the cell mode's columns stay on their columns
  *   §3  persistKey saves and restores the order; a saved order for another
- *       number of columns is ignored and the natural order drawn
+ *       number of columns is ignored and columnOrder drawn (or the natural
+ *       order), whether the headers are known when the blob is read or not
  *   §4  a drag that starts on a resize grip resizes and does not reorder; the
  *       row-number and select columns do not move and take no drop
  *   §5  a copy and the CSV follow the order shown
@@ -192,6 +193,33 @@ section('§3 persistKey');
     const { host, table } = mount({ headers, rows, reorderable: true, stateStore: store, persistKey: 'q' });
     check('…and one for 5: natural', heads(host), headers);
     table.dispose();
+}
+{
+    // A saved order of the wrong length never displaces columnOrder.
+    const store = memoryStore({ q: { sortColumn: null, sortAscending: true, filters: [], colWidths: {}, order: [2, 1, 0] } });
+    const { host, table } = mount({ headers, rows, reorderable: true, columnOrder: [3, 2, 1, 0], stateStore: store, persistKey: 'q' });
+    check('a saved order for 3 columns with columnOrder: columnOrder is drawn', heads(host), ['D', 'C', 'B', 'A']);
+    check('…getColumnOrder', table.getColumnOrder(), [3, 2, 1, 0]);
+    table.dispose();
+}
+{
+    // The same rule when the blob is read before the headers are known.
+    const blob = { sortColumn: null, sortAscending: true, filters: [], colWidths: {}, order: [2, 1, 0] };
+    const a = mount({ headers: [], rows: [], reorderable: true, columnOrder: [3, 2, 1, 0],
+                      stateStore: memoryStore({ q: blob }), persistKey: 'q' });
+    a.table.setData({ headers, rows });
+    check('headers after the blob, with columnOrder: columnOrder is drawn', heads(a.host), ['D', 'C', 'B', 'A']);
+    check('…getColumnOrder', a.table.getColumnOrder(), [3, 2, 1, 0]);
+    a.table.dispose();
+    const b = mount({ headers: [], rows: [], reorderable: true, stateStore: memoryStore({ q: blob }), persistKey: 'q' });
+    b.table.setData({ headers, rows });
+    check('…without columnOrder: natural', heads(b.host), headers);
+    b.table.dispose();
+    const c = mount({ headers: [], rows: [], reorderable: true, columnOrder: [3, 2, 1, 0],
+                      stateStore: memoryStore({ q: { ...blob, order: [0, 3, 1, 2] } }), persistKey: 'q' });
+    c.table.setData({ headers, rows });
+    check('…a saved order that fits still wins over columnOrder', heads(c.host), ['A', 'D', 'B', 'C']);
+    c.table.dispose();
 }
 {
     // The blob arrives after the first paint (the store's on-disk load).

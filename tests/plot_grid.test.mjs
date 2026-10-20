@@ -20,7 +20,8 @@
  *   §6  the options: resolveSeries, overlays, seriesTransforms, derivedTraces,
  *       hiddenSeries, theme, x variable, x-range clip, NaN handling, stacks,
  *       multiple y-axes, reference lines and bands, legend, layout, onError,
- *       a stale draw is dropped
+ *       a stale draw is dropped, also one for the old layout that resolves
+ *       after a layout change while the grid is zero-size
  *   §7  the barrel, the stylesheet, no app vocabulary
  *
  * ── HOW TO RUN ───────────────────────────────────────────────────────────
@@ -693,6 +694,38 @@ async function figureOf(subplot, results = RESULTS, options = {}) {
           Plotly.reacts.map((r) => r.data[0].y), [[8, 8]]);
     grid.dispose();
     host.remove();
+
+    // a draw for the old layout that resolves after a layout change, while the grid is zero-size
+    for (const [what, oldSubplot] of [['an empty', sp(['nowhere'])], ['a drawable', sp(['a'])]]) {
+        resetPlotly();
+        const raceHost = mountHost();
+        let hold = null;
+        const raceGrid = renderPlotGrid(raceHost, { layout: '1x1', subplots: [oldSubplot] }, RESULTS, {
+            derivedTraces: () => (hold === null ? new Promise((r) => { hold = () => r([]); }) : []),
+        });
+        await ticks();
+        const oldCells = [...raceHost.querySelectorAll('.twm-plot-grid__cell')];
+        zeroSize.add(raceHost);
+        const relayout = raceGrid.update({ plotConfig: { layout: '1x2', subplots: [sp(['a']), sp(['b'])] } });
+        await ticks();
+        hold();
+        await relayout;
+        await settle();
+        const newCells = raceGrid.charts;
+        check(`${what} old-layout draw resolving after a layout change while zero-size draws nothing`,
+              Plotly.reacts.length, 0);
+        zeroSize.delete(raceHost);
+        raceGrid.resize();
+        await settle();
+        check(`  ...once the grid has a size, both new cells are drawn (${what} old draw)`,
+              newCells.map((c) => lastFigureFor(c)?.data.map((t) => t.name)), [['a'], ['b']]);
+        ok(`  ...nothing is drawn into an old cell (${what} old draw)`,
+           !Plotly.reacts.some((r) => oldCells.includes(r.gd)));
+        raceGrid.dispose();
+        ok(`  ...and dispose() leaves no figure unpurged (${what} old draw)`,
+           Plotly.reacts.every((r) => Plotly.purged.includes(r.gd)));
+        raceHost.remove();
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════

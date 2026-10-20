@@ -120,8 +120,13 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
     let disposed = false;
     let cells = [];
     let cellsLayout = null;
-    /** Per cell: the latest draw's token. An older draw that resolves late is dropped. */
+    /**
+     * Per cell: the latest draw's token, from one grid-wide counter that a
+     * rebuild never resets, so no draw for an old layout shares a token with a
+     * draw for the new one. An older draw that resolves late is dropped.
+     */
     let tokens = [];
+    let lastToken = 0;
     /** Cells whose last draw found them detached or zero-size. */
     const deferred = new Set();
 
@@ -321,19 +326,21 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
     /** Draw cell `index`; resolves true when a figure was drawn. */
     async function drawCell(index) {
         const cell = cells[index];
-        const token = ++tokens[index];
+        const token = ++lastToken;
+        tokens[index] = token;
+        const current = () => !disposed && cells[index] === cell && tokens[index] === token;
         const sp = config?.subplots?.[index];
         if (!sp) { showMessage(cell, opts.noSubplotMessage); deferred.delete(index); return false; }
 
         const figure = await buildFigure(sp, index);
-        if (disposed || tokens[index] !== token) return false;
+        if (!current()) return false;
         if (!figure) { showMessage(cell, opts.emptyMessage); deferred.delete(index); return false; }
 
         if (!hasSize(cell)) { deferred.add(index); return false; }
         deferred.delete(index);
 
         const Plotly = await ensurePlotly();
-        if (disposed || tokens[index] !== token) return false;
+        if (!current()) return false;
         if (!hasPlot(cell)) cell.replaceChildren();
         plotted.add(cell);
         try {

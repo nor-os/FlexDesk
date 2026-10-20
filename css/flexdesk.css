@@ -867,6 +867,21 @@ body.twm-dt-col-resizing {
 .twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--error.twm-dt-cell--cursor {
     box-shadow: inset 0 0 0 2px var(--color-danger, #f14c4c);
 }
+/* STORY-0086 `reorderable` — the header being dragged is dimmed, and the one
+ * it would land on carries a bar on the side it lands (inset: no column moves
+ * by a pixel while the pointer passes). */
+.twm-preview-table th.twm-dt-col--movable {
+    cursor: grab;
+}
+.twm-preview-table th.twm-dt-col--dragging {
+    opacity: 0.5;
+}
+.twm-preview-table th.twm-dt-col--drop {
+    box-shadow: inset 2px 0 0 0 var(--accent-bright, #007acc);
+}
+.twm-preview-table th.twm-dt-col--drop.twm-dt-col--drop-after {
+    box-shadow: inset -2px 0 0 0 var(--accent-bright, #007acc);
+}
 /* In the mode a click ticks: a pointer on every row, and the keyboard's row
  * (the arrows move it, Space ticks it) drawn as an outline. */
 .twm-preview-table.twm-dt--selecting tbody tr:not(.twm-dt-spacer):not(.data-table__empty-row) {

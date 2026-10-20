@@ -28,6 +28,8 @@ import { isRowActivation, isRowControl } from './row_activation.js';
 import { createChipsFilter } from './table_filter_chips.js';
 import { CellGrid } from './cell_grid.js';
 import { ColumnReorder, cellOrder, isColumnOrder, moveInOrder, naturalOrder } from './column_order.js';
+import { ColumnGroups } from './column_groups.js';
+import { STRUCTURE_OPTIONS, TableStructure } from './table_structure.js';
 
 // 0.7.0: the built-in chips filter control, for a consumer that wants to build
 // one outside a table (the same control `filterKinds: {kind: 'chips'}` draws).
@@ -424,6 +426,18 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {Function} [onCommit] - With `staged`: `({edits}) => void | {ok?, error?, errors?} | Promise<…>`, called once by `commit()` with every staged cell as `{rowIdx, colIdx, value, previous}` (by row, then column; `previous` is the value the row holds). Resolving `{errors: [{rowIdx, colIdx, error}]}` (non-empty) marks each of those cells `twm-dt-cell--error` with the message as its `title` and `data-error`, and every staged value stays; `{ok: false, error}`, a rejection or a throw marks every staged cell with the message. Anything else is success: the values are written into the rows the table holds, and the staged cells and the ring are cleared. While it is out no editor opens and Ctrl+Z, Ctrl+Y and `discard()` do nothing.
  * @property {Function} [onStagedChange] - With `staged`: `({count, canUndo, canRedo, committing}) => void` after every change of the staged cells.
  * @property {string|Function} [stagedRefusal] - With `staged`: the reason a frozen control carries, or `(count) => string`. Absent: "Sorting, filtering and paging are held while N changes are not committed. Commit or discard them first."
+ *
+ * ── STORY-0066, every one of them off unless asked for. THE CONSUMER OWNS THE DATA: each edit is a call, answered with `setData` ──
+ * @property {Array<{key: string|number, label?: string, columns: number[]}>} [columnGroups] - COLUMN GROUPS (column_groups.js). A second header row above the column headers: one cell per run of shown columns of a group, spanning them, and a blank cell over the row number / select column and over columns in no group. It is a table of its own in the header wrap (`table.twm-dt-groups`, cells `th.twm-dt-group`) that takes the header's column widths after every fit, auto-size and drag, and scrolls sideways with it. A column is in the first group that lists it. A group with NO columns keeps one PLACEHOLDER column (`th.twm-dt-col--placeholder`, `td.twm-dt-cell--placeholder` in every row), after the columns of the groups listed before it, so its add control is reachable; it is no data column (not in a copy, the CSV, `ctx.colIdx` or cell mode). `setData({columnGroups})` changes them.
+ * @property {Function} [groupActions] - `(group, {key, columns, table}) => items`, buttons in a group's header cell (`{action, icon?, label?, title?, disabled?}`); a click calls `onGroupAction(action, groupKey)`.
+ * @property {Function} [onGroupAction] - `(action, groupKey) => void`.
+ * @property {Function} [onColumnAdd] - `(groupKey) => void`. Puts an add button (`.twm-dt-group__add`) in every group's header cell and in a placeholder column's header.
+ * @property {Function} [columnActions] - `(colIdx, {colIdx, header, table}) => items`, buttons in a data column's header (`.twm-dt-col-action`, same items as `groupActions`); a click calls `onColumnAction(action, colIdx)` and does not sort.
+ * @property {Function} [onColumnAction] - `(action, colIdx) => void`.
+ * @property {Function} [onColumnRename] - `(colIdx, name) => void | false | {ok: false} | Promise<…>`. RENAMING IN PLACE through `attachInlineRenamer`: "Rename column" in the header's right-click menu, `renameColumn(colIdx)`, or (on a table that is not `sortable`) a double-click on the header's label opens it. Enter, or the focus leaving, with a different non-empty name calls it once; Escape, or the name unchanged, restores the header and calls nothing. The new name shows until the next render; `false` or `{ok: false}` restores the old one.
+ * @property {Function} [onColumnDelete] - `(colIdx) => void`, from "Delete column" in the header's right-click menu.
+ * @property {Function} [onRowAdd] - `(afterRowIdx|null) => void`, from "Insert row below" in a row's right-click menu (its original index) and "Add row" in the header's (null), so a table with no rows can get its first.
+ * @property {Function} [onRowDelete] - `(rowIdx) => void`, from "Delete row" in a row's right-click menu.
  */
 
 /** C10. When the scroll box has no layout — mounted hidden, or a DOM with no
@@ -591,12 +605,28 @@ export class DataTable {
             onCommit: null,
             onStagedChange: null,
             stagedRefusal: null,
+            // STORY-0066. Off — one header row, no structural edits — until
+            // set. The typedef says what each does.
+            columnGroups: null,
+            groupActions: null,
+            onGroupAction: null,
+            onColumnAdd: null,
+            columnActions: null,
+            onColumnAction: null,
+            onColumnRename: null,
+            onColumnDelete: null,
+            onRowAdd: null,
+            onRowDelete: null,
             ...config,
         };
 
         // STORY-0003. Cell mode is the table's for its whole life. The row
         // modes it replaces are ignored beside it, out loud.
         this._cellGrid = null;
+        // STORY-0066. Built the first time their options are set (see
+        // `_colGroups`, `_structure`); a table without them never builds either.
+        this._columnGroups = null;
+        this._tableStructure = null;
         if (this.config.selectionMode === 'cells') {
             const clash = ['selectToggle', 'selectMode', 'keyboardNav'].filter((k) => !!this.config[k]);
             if (clash.length) {
@@ -828,7 +858,9 @@ export class DataTable {
             // is a different schema — unless `setColumnVisible` carried them.
             + (this._hidden?.size ? `|-${this.getHiddenColumns().join(',')}` : '')
             // STORY-0086. And a different order — unless `moveColumn` carried them.
-            + (this._columnOrder() ? `|>${this._columnOrder().join(',')}` : '');
+            + (this._columnOrder() ? `|>${this._columnOrder().join(',')}` : '')
+            // STORY-0066. A placeholder column moves the drawn indices too.
+            + (this._colGroups()?.sig() || '');
     }
 
     /** Snapshot the persistable slice of state to the project store.
@@ -881,7 +913,23 @@ export class DataTable {
     /** The cells a drawn row has: the shown columns, and the row number. */
     _domColCount() {
         const n = Math.max(0, (this.config.headers?.length || 0) - this._hidden.size);
-        return n + this._lead().all;
+        // STORY-0066: an empty group's placeholder column is drawn too.
+        return n + this._lead().all + (this._colGroups()?.placeholderCount() || 0);
+    }
+
+    /** STORY-0066. The column groups (column_groups.js) while `columnGroups`
+     *  holds any; null otherwise. */
+    _colGroups() {
+        const spec = this.config.columnGroups;
+        if (!Array.isArray(spec) || !spec.length) return null;
+        return (this._columnGroups ||= new ColumnGroups(this));
+    }
+
+    /** STORY-0066. The structural edits (table_structure.js) while any of
+     *  their options is set; null otherwise. */
+    _structure() {
+        if (!STRUCTURE_OPTIONS.some((k) => typeof this.config[k] === 'function')) return null;
+        return (this._tableStructure ||= new TableStructure(this));
     }
 
     /** STORY-0016. The drawn columns in front of the data: the select column
@@ -905,6 +953,9 @@ export class DataTable {
 
     /** A data column's drawn index (row number included), or -1 when hidden. */
     _domIdxOf(colIdx) {
+        // STORY-0066. With a placeholder drawn, the groups' layout says.
+        const slot = this._colGroups()?.slotOf(colIdx) ?? -1;
+        if (slot >= 0) return this._lead().all + slot;
         const at = this._shownColumns().indexOf(colIdx);
         return at < 0 ? -1 : this._lead().all + at;
     }
@@ -913,6 +964,10 @@ export class DataTable {
     _dataIdxOfDom(domIdx) {
         const i = domIdx - this._lead().all;
         if (i < 0) return null;
+        // STORY-0066. With a placeholder drawn, the groups' layout says (and
+        // a placeholder is no data column).
+        const slot = this._colGroups()?.slotAt(i);
+        if (slot !== undefined) return slot;
         return this._shownColumns()[i] ?? null;
     }
 
@@ -1129,6 +1184,12 @@ export class DataTable {
             const moves = this._reorder.menuItems(colIdx);
             if (moves.length && items.length) items.push({ separator: true });
             items.push(...moves);
+        }
+        // STORY-0066. Rename, delete, add a row.
+        const structural = this._structure()?.headerItems(colIdx) || [];
+        if (structural.length) {
+            if (items.length) items.push({ separator: true });
+            items.push(...structural);
         }
         if (this.config.columnChooser) {
             if (items.length) items.push({ separator: true });
@@ -1500,6 +1561,12 @@ export class DataTable {
         return why;
     }
 
+    /** STORY-0066. Open the inline renamer on a data column's header (needs
+     *  `onColumnRename`). Returns whether it opened. */
+    renameColumn(colIdx) {
+        return !!this._structure()?.rename(colIdx);
+    }
+
     /**
      * Go to specific page
      * @param {number} page - Page number (0-indexed)
@@ -1869,8 +1936,12 @@ export class DataTable {
         this._tableWrapEl = tableWrap;
         // STORY-0012 `columnChooser` and STORY-0003 `headerMenu`: the header's
         // right-click. With neither item to show, the page's own menu.
-        if ((this.config.columnChooser || typeof this.config.headerMenu === 'function' || this._reorder)
-            && this._headerTableEl) {
+        // STORY-0066: the groups' row and placeholder columns, the renamer's
+        // labels and the consumer's column actions, on the header just built.
+        this._colGroups()?.decorate(this._headerWrapEl, this._headerTableEl);
+        this._structure()?.decorate(this._headerTableEl);
+        if ((this.config.columnChooser || typeof this.config.headerMenu === 'function' || this._reorder
+             || this._structure()?.hasHeaderItems()) && this._headerTableEl) {
             const head = this._headerTableEl;
             const onHeadMenu = (ev) => {
                 const items = this._headerMenuItems(ev.target);
@@ -2146,6 +2217,8 @@ export class DataTable {
     _teardown(emptyHost) {
         // STORY-0003. An open editor goes, committing nothing.
         this._cellGrid?.dispose();
+        // STORY-0066. And an open column renamer.
+        this._tableStructure?.dispose();
         autoDisposeUnwatch(this);
         this._autoSeen = false;
         // 0.7.0. A grace still running, the follow timer, a request still out
@@ -4195,6 +4268,8 @@ export class DataTable {
 
             tr.appendChild(td);
         }
+        // STORY-0066. An empty group's placeholder column.
+        this._colGroups()?.fillRow(tr);
         // STORY-0003. The selection, and a commit's pending or refused mark.
         this._cellGrid?.decorateRow(tr);
     }
@@ -6451,6 +6526,9 @@ export class DataTable {
         headerWrap.scrollLeft = x;
         const residual = x - headerWrap.scrollLeft;
         headerTable.style.transform = residual ? `translateX(${-residual}px)` : '';
+        // STORY-0066. The group row follows the header: every width pass and
+        // drag ends here, and so does every sideways scroll.
+        this._columnGroups?.align();
     }
 
     /** Drag-to-resize: hang a thin grab handle off the right edge of
@@ -6656,7 +6734,8 @@ export class DataTable {
 
         const { selectable, copyable } = this.config;
         // STORY-0010. The consumer's own items install the menu by themselves.
-        const customMenu = this.config.contextMenuItems != null;
+        // STORY-0066: the structural row items make a menu of their own.
+        const customMenu = this.config.contextMenuItems != null || !!this._structure()?.hasRowItems();
         const tbody = this._tbodyEl;
         const table = this._tableEl;
 
@@ -7218,7 +7297,11 @@ export class DataTable {
                 items = null;
             }
         }
-        return Array.isArray(items) ? items.filter(Boolean) : [];
+        const list = Array.isArray(items) ? items.filter(Boolean) : [];
+        // STORY-0066. Insert and delete a row, after the consumer's items.
+        const structural = this._structure()?.rowItems(ctx.rowIdx) || [];
+        if (structural.length && list.length) list.push({ separator: true });
+        return list.concat(structural);
     }
 
     /**

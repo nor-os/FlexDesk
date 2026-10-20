@@ -895,6 +895,75 @@ body.twm-dt-col-resizing {
 .twm-preview-table th.twm-dt-col--drop.twm-dt-col--drop-after {
     box-shadow: inset -2px 0 0 0 var(--accent-bright, #007acc);
 }
+/* STORY-0066 `columnGroups` — the group row is a table of its own above the
+ * header table (`twm-dt-groups`), its `<col>`s copied from the header's widths;
+ * no first-column floor or cap of the header's applies to it. A placeholder
+ * column (an empty group's) is drawn muted. The header action buttons are
+ * small icon buttons that keep to the cell. */
+.twm-preview-table.twm-dt-groups th.twm-dt-group {
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    text-align: center;
+    border-bottom: 1px solid var(--border-subtle, #333);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.twm-preview-table.twm-dt-groups th.twm-dt-group + th.twm-dt-group {
+    border-left: 1px solid var(--border-subtle, #333);
+}
+.twm-preview-table.twm-dt-groups th.twm-dt-group--empty .twm-dt-group__label {
+    opacity: 0.7;
+}
+.twm-preview-table .twm-dt-group__actions,
+.twm-preview-table .twm-dt-col-actions {
+    display: inline-flex;
+    gap: 2px;
+    margin-left: 4px;
+    vertical-align: middle;
+}
+.twm-preview-table .twm-dt-group__add,
+.twm-preview-table .twm-dt-group__action,
+.twm-preview-table .twm-dt-col-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 2px;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    opacity: 0.6;
+    font: inherit;
+}
+.twm-preview-table .twm-dt-group__add .material-symbols-outlined,
+.twm-preview-table .twm-dt-group__action .material-symbols-outlined,
+.twm-preview-table .twm-dt-col-action .material-symbols-outlined {
+    font-size: 16px;
+}
+.twm-preview-table .twm-dt-group__add:hover,
+.twm-preview-table .twm-dt-group__action:hover,
+.twm-preview-table .twm-dt-col-action:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.08);
+}
+.twm-preview-table .twm-dt-group__add:focus-visible,
+.twm-preview-table .twm-dt-group__action:focus-visible,
+.twm-preview-table .twm-dt-col-action:focus-visible {
+    opacity: 1;
+    outline: 1px solid var(--accent-bright, #007acc);
+}
+.twm-preview-table th.twm-dt-col--placeholder,
+.twm-preview-table td.twm-dt-cell--placeholder {
+    background: rgba(255, 255, 255, 0.015);
+}
+.twm-preview-table th .twm-dt-col-rename {
+    width: 100%;
+    box-sizing: border-box;
+    font: inherit;
+}
 /* In the mode a click ticks: a pointer on every row, and the keyboard's row
  * (the arrows move it, Space ticks it) drawn as an outline. */
 .twm-preview-table.twm-dt--selecting tbody tr:not(.twm-dt-spacer):not(.data-table__empty-row) {

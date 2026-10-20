@@ -38,12 +38,14 @@
 import { callOption, headerActionButton } from './header_actions.js';
 
 /** The groups the table was given, cleaned: a key each, a label, the data
- *  columns that exist, each column in the first group that lists it. */
+ *  columns that exist, each column in the first group that lists it, and
+ *  `index`, the group's place in `columnGroups` (the consumer's object is
+ *  looked up there when drawing, never kept). */
 function normalize(spec, n) {
     const taken = new Set();
     const out = [];
-    for (const g of Array.isArray(spec) ? spec : []) {
-        if (!g || g.key == null) continue;
+    (Array.isArray(spec) ? spec : []).forEach((g, index) => {
+        if (!g || g.key == null) return;
         const columns = [];
         for (const c of Array.isArray(g.columns) ? g.columns : []) {
             const i = Number(c);
@@ -51,8 +53,8 @@ function normalize(spec, n) {
             taken.add(i);
             columns.push(i);
         }
-        out.push({ key: g.key, label: g.label == null ? String(g.key) : String(g.label), columns, spec: g });
-    }
+        out.push({ key: g.key, label: g.label == null ? String(g.key) : String(g.label), columns, index });
+    });
     return out;
 }
 
@@ -259,7 +261,10 @@ export class ColumnGroups {
         const actions = document.createElement('span');
         actions.className = 'twm-dt-group__actions';
         const cfg = this._cfg();
-        const items = callOption(cfg, 'groupActions', group.spec, { key: group.key, columns: group.columns.slice(), table: this.table });
+        // The consumer's group object from the live config: the layout is
+        // memoised on key, label and columns, so a group whose other fields
+        // changed is still asked about with its current object.
+        const items = callOption(cfg, 'groupActions', cfg.columnGroups[group.index], { key: group.key, columns: group.columns.slice(), table: this.table });
         for (const item of Array.isArray(items) ? items.filter(Boolean) : []) {
             actions.appendChild(headerActionButton('twm-dt-group__action', item,
                                                    () => callOption(cfg, 'onGroupAction', item.action, group.key)));

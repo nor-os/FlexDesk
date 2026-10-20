@@ -10,7 +10,8 @@
  *       overwritten
  *   §4  a whole fill is one undo entry
  *   §5  the handle and the drag: on the corner cell, the preview, Escape,
- *       a press on the handle is no click
+ *       a press on the handle is no click, nor is the click a browser makes
+ *       of a drag (on the corner cell, the row or the body)
  *   §6  without the option (or without `staged`) there is no handle
  *
  * Against 0.16, every section fails (there is no fill handle).
@@ -31,11 +32,19 @@ const select = (host, [r0, c0], [r1, c1]) => {
     if (r1 !== r0 || c1 !== c0) click(cellAt(host, r1, c1), { shiftKey: true });
 };
 const base = { pagination: false, selectionMode: 'cells', editable: true, staged: true, fillHandle: true };
-/** A drag of the handle to a cell, released with `up` (e.g. `{ctrlKey: true}`). */
+/** The element a browser clicks after a press on `a` and a release on `b`. */
+const under = (a, b) => { let n = a; while (!n.contains(b)) n = n.parentNode; return n; };
+/** A drag of the handle to a cell, released with `up` (e.g. `{ctrlKey: true}`),
+ *  and the click the browser makes of it (on the host when a re-draw took
+ *  the element it was under away). */
 const drag = (host, [r, c], up = {}) => {
-    mouse('pointerdown', handleIn(host));
-    mouse('pointermove', cellAt(host, r, c));
-    mouse('pointerup', cellAt(host, r, c), up);
+    const h = handleIn(host);
+    const to = cellAt(host, r, c);
+    const target = under(h, to);
+    mouse('pointerdown', h);
+    mouse('pointermove', to);
+    mouse('pointerup', to, up);
+    click(target.isConnected ? target : host);
 };
 
 section('§1 the series rules');
@@ -351,6 +360,54 @@ section('§5 the handle and the drag');
     select(h3, [0, 0], [1, 0]);
     check('fill() does nothing while a commit is out', t3.fill({ row: 2, col: 0 }), null);
     check('…and no handle is drawn', handleIn(h3), null);
+}
+
+{
+    // A browser ends a handle drag in a click of its own, on the element
+    // under both the press and the release: the corner cell, the row, or the
+    // body. That click is no click on the table, filled or not.
+    const headers = ['A', 'B', 'C'];
+    const rows = [[1, 'a', 'x'], [2, 'b', 'y'], ['', '', ''], ['', '', ''], ['', '', '']];
+    const calls = [];
+    const { host, table } = mount({ ...base, headers, rows,
+        onRowClick: (i) => calls.push(['click', i]), onRowActivate: (i) => calls.push(['activate', i]) });
+    const range = () => { const r = table.getCellSelection().range; return [r.top, r.bottom, r.left, r.right]; };
+    const rowEl = (r) => bodyRows(host)[r];
+    select(host, [0, 0], [1, 1]);
+    calls.length = 0;
+
+    mouse('pointerdown', handleIn(host));
+    mouse('pointermove', cellAt(host, 3, 1));
+    mouse('pointermove', cellAt(host, 1, 1));
+    mouse('pointerup', cellAt(host, 1, 1));
+    click(cellAt(host, 1, 1));
+    check('a drag released back on the corner keeps the range', range(), [0, 1, 0, 1]);
+    check('…fills nothing and clicks no row', [staged(table), calls], [[], []]);
+
+    mouse('pointerdown', handleIn(host));
+    mouse('pointermove', cellAt(host, 3, 0));
+    mouse('pointermove', cellAt(host, 1, 0));
+    mouse('pointerup', cellAt(host, 1, 0));
+    click(rowEl(1));
+    check('a drag released on another cell of the bottom row keeps the range', range(), [0, 1, 0, 1]);
+    check('…fills nothing and neither clicks nor opens the row', [staged(table), calls], [[], []]);
+
+    mouse('pointerdown', handleIn(host));
+    mouse('pointermove', cellAt(host, 1, 2));
+    key(document.body, 'Escape');
+    mouse('pointerup', cellAt(host, 1, 2));
+    click(rowEl(1));
+    check('a drag ended by Escape and released beside the corner keeps the range', range(), [0, 1, 0, 1]);
+    check('…fills nothing and neither clicks nor opens the row', [staged(table), calls], [[], []]);
+
+    drag(host, [3, 1]);
+    click(host.querySelector('.twm-preview-table-wrap tbody'));
+    check('a drag that fills ends on the range it filled', range(), [0, 3, 0, 1]);
+    check('…staged, and the click after it clicks no row', [staged(table).length, calls], [4, []]);
+
+    await T.tick();
+    click(cellAt(host, 4, 2));
+    check('the next task\'s click is a click again', [range(), calls], [[4, 4, 2, 2], [['click', 4], ['activate', 4]]]);
 }
 
 section('§6 without the option there is no handle');

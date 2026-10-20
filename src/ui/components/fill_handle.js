@@ -34,6 +34,8 @@ export class FillHandle {
         this.preview = new Set();
         /** The drag in progress: `{range, plan, unbind}`, or null. */
         this.drag = null;
+        /** Takes the click guard of the last press on the handle off, or null. */
+        this._unguard = null;
     }
 
     // ── painting (called by the grid for every cell it paints) ───────────
@@ -56,16 +58,12 @@ export class FillHandle {
         el.setAttribute('aria-hidden', 'true');
         el.title = 'Drag to fill; hold Ctrl to repeat instead of continuing a series';
         el.addEventListener('pointerdown', (ev) => this._begin(ev));
-        // A press and release on the handle is no click on its cell: the
-        // range stays as it is.
-        el.addEventListener('click', (ev) => ev.stopPropagation());
-        el.addEventListener('dblclick', (ev) => ev.stopPropagation());
         this.el = el;
         return el;
     }
 
     _place(td) {
-        if (this.grid.isEditing() || this.grid.staged?.committing) { this._unplace(); return; }
+        if (this.grid.isEditing() || this.grid.staged.committing) { this._unplace(); return; }
         if (this.corner && this.corner !== td) this.corner.classList.remove('twm-dt-cell--fill-corner');
         this.corner = td;
         td.classList.add('twm-dt-cell--fill-corner');
@@ -158,7 +156,7 @@ export class FillHandle {
         g._sync();
         const range = g.sel.range();
         const plan = this.plan(range, to);
-        if (!plan || !g.staged || g.staged.committing || g.isEditing()) return null;
+        if (!plan || g.staged.committing || g.isEditing()) return null;
         const cells = [];
         const skipped = [];
         for (const { seed, targets } of this._lines(range, plan)) {
@@ -201,8 +199,9 @@ export class FillHandle {
         const g = this.grid;
         g._sync();
         const range = g.sel.range();
-        if (!range || this.drag || g.isEditing() || g.staged?.committing) return;
+        if (!range || this.drag || g.isEditing() || g.staged.committing) return;
         const doc = this.el.ownerDocument;
+        this._guardClick(doc);
         const onMove = (move) => this._move(move);
         const onUp = (up) => {
             const plan = this.drag?.plan;
@@ -228,6 +227,41 @@ export class FillHandle {
         };
     }
 
+    /**
+     * A press on the handle and its release make, in a browser, a click (and
+     * on a second press a dblclick) of their own, on the element under both:
+     * the corner cell, the row, the body. Filled, cancelled by Escape or
+     * released where it began, a drag is no click on the table: from the
+     * press, the next click in the document is swallowed in the capture
+     * phase, and so is every dblclick until the task the release is handled
+     * in is over. A cancelled pointer makes no click; the guard ends with it.
+     */
+    _guardClick(doc) {
+        this._unguard?.();
+        const view = doc.defaultView;
+        let timer = null;
+        const swallow = (c) => { c.stopPropagation(); c.preventDefault(); };
+        const swallowOnce = (c) => { swallow(c); doc.removeEventListener('click', swallowOnce, true); };
+        const released = () => {
+            doc.removeEventListener('pointerup', released, true);
+            doc.removeEventListener('pointercancel', unguard, true);
+            timer = view.setTimeout(unguard, 0);
+        };
+        const unguard = () => {
+            if (timer !== null) view.clearTimeout(timer);
+            doc.removeEventListener('click', swallowOnce, true);
+            doc.removeEventListener('dblclick', swallow, true);
+            doc.removeEventListener('pointerup', released, true);
+            doc.removeEventListener('pointercancel', unguard, true);
+            if (this._unguard === unguard) this._unguard = null;
+        };
+        doc.addEventListener('click', swallowOnce, true);
+        doc.addEventListener('dblclick', swallow, true);
+        doc.addEventListener('pointerup', released, true);
+        doc.addEventListener('pointercancel', unguard, true);
+        this._unguard = unguard;
+    }
+
     /** The cell a plan reaches, as `fill` takes it. */
     _reach(range, { direction, count }) {
         const cols = this.grid.columns();
@@ -248,8 +282,9 @@ export class FillHandle {
             return pos === undefined ? null : { row: pos, col: td.__colIdx };
         };
         let cell = ev.target === this.el ? null : hit(ev.target);
-        if (!cell && typeof document.elementFromPoint === 'function') {
-            cell = hit(document.elementFromPoint(ev.clientX, ev.clientY));
+        const doc = this.el.ownerDocument;
+        if (!cell && typeof doc.elementFromPoint === 'function') {
+            cell = hit(doc.elementFromPoint(ev.clientX, ev.clientY));
         }
         return cell;
     }
@@ -280,6 +315,7 @@ export class FillHandle {
 
     dispose() {
         this._end();
+        this._unguard?.();
         this._unplace();
         this.skipped.clear();
     }

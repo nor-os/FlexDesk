@@ -12021,6 +12021,73 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 .twm-flow-graph__node[data-accent="blue"]::before { background: var(--twm-flow-blue-fg); }
 .twm-flow-graph__node[data-accent="indigo"]::before { background: var(--twm-flow-indigo-fg); }
 
+/* ── a group and a note (`groups`, `notes`) ─────────────────────────── */
+/* A GROUP IS A FRAME BEHIND ITS NODES (first in the node layer). Its body
+ * takes no pointer, so a press inside it between the nodes is the canvas's
+ * (a marquee, a pan); its title bar is the handle that drags the members. */
+.twm-flow-graph__group {
+    position: absolute;
+    box-sizing: border-box;
+    border: 1px dashed var(--border-strong);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    pointer-events: none;
+}
+.twm-flow-graph__group-head {
+    box-sizing: border-box;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    border-radius: 6px 6px 0 0;
+    background: var(--twm-flow-grey-bg);
+    color: var(--twm-flow-grey-fg);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    cursor: move;
+    pointer-events: auto;
+    user-select: none;
+}
+.twm-flow-graph__group-label { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.twm-flow-graph__group-label--untitled { font-style: italic; font-weight: 400; }
+.twm-flow-graph__group-input { flex: 1 1 auto; min-width: 0; font: inherit; }
+.twm-flow-graph__group[data-tone="violet"] { border-color: var(--twm-flow-violet-fg); }
+.twm-flow-graph__group[data-tone="teal"] { border-color: var(--twm-flow-teal-fg); }
+.twm-flow-graph__group[data-tone="amber"] { border-color: var(--twm-flow-amber-fg); }
+.twm-flow-graph__group[data-tone="grey"] { border-color: var(--twm-flow-grey-fg); }
+.twm-flow-graph__group[data-tone="blue"] { border-color: var(--twm-flow-blue-fg); }
+.twm-flow-graph__group[data-tone="indigo"] { border-color: var(--twm-flow-indigo-fg); }
+.twm-flow-graph__group[data-tone="violet"] > .twm-flow-graph__group-head { background: var(--twm-flow-violet-bg); color: var(--twm-flow-violet-fg); }
+.twm-flow-graph__group[data-tone="teal"] > .twm-flow-graph__group-head { background: var(--twm-flow-teal-bg); color: var(--twm-flow-teal-fg); }
+.twm-flow-graph__group[data-tone="amber"] > .twm-flow-graph__group-head { background: var(--twm-flow-amber-bg); color: var(--twm-flow-amber-fg); }
+.twm-flow-graph__group[data-tone="blue"] > .twm-flow-graph__group-head { background: var(--twm-flow-blue-bg); color: var(--twm-flow-blue-fg); }
+.twm-flow-graph__group[data-tone="indigo"] > .twm-flow-graph__group-head { background: var(--twm-flow-indigo-bg); color: var(--twm-flow-indigo-fg); }
+/* A NOTE is free text on the canvas, its height its text's unless it has a size. */
+.twm-flow-graph__note {
+    position: absolute;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    background: var(--twm-flow-amber-bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    color: var(--text-body);
+    font-size: var(--font-size-xs);
+    cursor: move;
+    overflow: hidden;
+    outline: none;
+}
+.twm-flow-graph__note:focus-visible { box-shadow: 0 0 0 2px var(--twm-flow-focus); }
+.twm-flow-graph__note--picked { border-color: var(--twm-flow-focus); box-shadow: 0 0 0 1px var(--twm-flow-focus); }
+.twm-flow-graph__note-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.twm-flow-graph__note-text--empty { color: var(--text-muted); font-style: italic; }
+.twm-flow-graph__note-input {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 4em;
+    resize: vertical;
+    font: inherit;
+    cursor: text;
+}
 /* LIVE VALUES (`setNodeValues`): a value on the header, before the step's id
  * tag, and one beside a port. Neither element exists until there is a value. */
 .twm-flow-graph__node-badge {

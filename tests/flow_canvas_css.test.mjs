@@ -22,8 +22,9 @@
  *   §5  [hidden] wins inside the editor
  *
  * The harvest includes an editor with the opt-in parts on (`zoomControls`,
- * `minimap`) and one editing on the node (`renameInPlace` with its title box
- * open, a type's `inline` settings), so their classes are held to the same
+ * `minimap`, and `groups` with `notes`) and one editing on the node
+ * (`renameInPlace` with its title box open, a type's `inline` settings), so
+ * their classes are held to the same
  * two directions.
  *
  *     node tests/flow_canvas_css.test.mjs
@@ -129,6 +130,26 @@ const graph = {
         { left: 0, top: 0, width: 800, height: 600, right: 800, bottom: 600, x: 0, y: 0 });
     ed.load({ graph });
     ed.setViewport({ scale: 1, tx: 0, ty: 0 });
+    harvest(ed.el);
+    ed.destroy();
+}
+{
+    // the opt-in groups and notes: a frame of each tone and an untitled one, a
+    // note picked, an empty note, and each typed into in place
+    const ed = createCanvasEditor(t.host(), { catalogue, multiSelect: true, groups: true, notes: true });
+    ed.load({ graph: { ...graph, groups: [...TONES.map((tone) => ({ id: `g-${tone}`, label: tone, tone, nodes: [tone] })),
+                                          { id: 'plain', nodes: ['each'] }],
+                       notes: [{ id: 'n', text: 'a note', position: { x: 0, y: 900 } },
+                               { id: 'empty', text: '', position: { x: 300, y: 900 } }] } });
+    ed.select(['violet', 'teal']);
+    harvest(ed.el);
+    const note = ed.el.querySelector('.twm-flow-graph__note[data-note-id="n"]');
+    note.dispatchEvent(new w.MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+    w.dispatchEvent(new w.MouseEvent('pointerup', { bubbles: true }));
+    harvest(ed.el);
+    note.dispatchEvent(new w.MouseEvent('dblclick', { bubbles: true }));
+    harvest(ed.el);
+    ed.el.querySelector('.twm-flow-graph__group-head').dispatchEvent(new w.MouseEvent('dblclick', { bubbles: true }));
     harvest(ed.el);
     ed.destroy();
 }

@@ -1406,7 +1406,7 @@ touches browser storage — and is shown to fail on a planted one.
 | `groupFindings(list)`, `createFindingsStrip({onGoTo, nameOf})` | The consumer's findings (`{code, message, severity, node_id?, field?}`) by step, and the strip: *"N things to fix before this can be published."*, a line each, *Go to it* |
 | `new FlowHistory({actions, restore, onState, limit, mergeMs})` | Undo and redo over whole snapshots. The editor passes its own list of actions and `commit` throws on any other, so an edit nobody named fails its first test. Loading and publishing are `baseline`s, never entries. Keyed commits within `mergeMs` merge (typing a name is one entry), never across an undo. `keep()` and `adopt(kept, state)` carry the stacks to a successor that loaded the same bytes |
 | `bindFlowKeys(root, handlers)`, `ownsUndo(target)` | An editor's keys, bound on its root, never on `window` (below) |
-| `emptyGraph`, `normalise`, `serialise`, `nextId`, `addNode`, `removeNode`, `connect`, `addConnection`, `canConnect`, `disconnect`, `inputNamesOf` | A logic flow's graph — `{nodes: [{id, type, label?, config, position}], connections: [{source, target, sourcePort, targetPort}]}`, the shape the canvas and the outline both save. `serialise` is byte-stable: a graph opened and saved with no edit is the same text. `canConnect(graph, catalogue, edge, {strings, dataRead, dataPorts})` refuses only what an editor cannot draw; with `dataPorts: true` a data port connects to a data port, any number of lines out of one. `connect` adds the line when `canConnect` allows it; `addConnection(graph, edge)` adds it asking nothing, for a caller whose own rules already allowed it |
+| `emptyGraph`, `normalise`, `serialise`, `nextId`, `addNode`, `removeNode`, `connect`, `addConnection`, `canConnect`, `disconnect`, `inputNamesOf` | A logic flow's graph — `{nodes: [{id, type, label?, config, position}], connections: [{source, target, sourcePort, targetPort}]}`, the shape the canvas and the outline both save. `serialise` is byte-stable: a graph opened and saved with no edit is the same text. `canConnect(graph, catalogue, edge, {strings, dataRead, dataPorts})` refuses only what an editor cannot draw; with `dataPorts: true` a data port connects to a data port, any number of lines out of one. `connect` adds the line when `canConnect` allows it; `addConnection(graph, edge)` adds it asking nothing, for a caller whose own rules already allowed it. It may also carry `groups: [{id, label?, tone?, nodes: [id, …]}]` and `notes: [{id, text, position, size?: {w?, h?}}]` (0.17.0), and only when it has some, so a graph without them is the same text as before. Groups are flat: `normalise` keeps a node in the first group that names it, leaves out ids that are not nodes, and drops a group with no member; `removeNode` takes the node out of its group, and the group with its last member |
 | `createStrings(...layers)`, `FLOW_STRINGS` | Every word drawn, English and domain-free by default; an editor lays its own words over these, and the consumer lays its words over both |
 
 **The settings panel.**
@@ -1493,7 +1493,7 @@ configured renames nothing.
 
 **Keys.** `bindFlowKeys(root, handlers)` binds Ctrl/⌘+Z (`undo`), Ctrl/⌘+Y and
 Ctrl/⌘+Shift+Z (`redo`), Delete (`remove`), Ctrl/⌘+D, C, X and V (`duplicate`,
-`copy`, `cut`, `paste`), Ctrl/⌘+A (`selectAll`, 0.17.0), F2 (`rename`), Alt+↑, Alt+↓ and Alt+← (`moveUp`,
+`copy`, `cut`, `paste`), Ctrl/⌘+A (`selectAll`, 0.17.0), Ctrl/⌘+G and Ctrl/⌘+Shift+G (`group`, `ungroup`, 0.17.0), F2 (`rename`), Alt+↑, Alt+↓ and Alt+← (`moveUp`,
 `moveDown`, `moveOut`), the arrows (`up`, `down`, `left`, `right`), Enter
 (`open`) and Escape (`escape`), and returns an unbind. A key whose handler is
 absent, or returns `false`, is not taken. An editor's own row or card marks
@@ -1598,8 +1598,9 @@ editor.setRunOverlay({ steps, ports, banner });
 | `readOnly` | `false`, or `{reason}`, which is shown above the editor. Every verb is then refused with that reason, and no gesture writes |
 | `actions` | Your toolbar verbs, `[{id, label, icon, primary, danger, title, run(editor)}]`, after Undo, Redo, Arrange and Fit (and the zoom buttons, with `zoomControls`) |
 | `slots` | `toolbarEnd(el)`, `flowPanel(el, editor)` and `stepPanel(el, node, editor)`, drawn by you; `setRunOverlay` redraws the panel slots and nothing else |
-| `onChange`, `onSelect` | After every committed edit. An undo or a redo is a change too (`action: null`, `via: 'undo' \| 'redo'`), because you autosave what is undone. `onSelect({kind, id})`: `step`, `flow`, `connection` (with `connection`) or `null`; with `multiSelect`, two or more picked steps are `{kind: 'many', ids}` |
+| `onChange`, `onSelect` | After every committed edit. An undo or a redo is a change too (`action: null`, `via: 'undo' \| 'redo'`), because you autosave what is undone. `onSelect({kind, id})`: `step`, `flow`, `connection` (with `connection`) or `null`; with `multiSelect`, two or more picked steps are `{kind: 'many', ids}`; with `notes`, a picked note is `{kind: 'note', id}` and a pick with notes in it `{kind: 'many', ids, notes}` |
 | `multiSelect` (0.17.0) | `true` makes the pick a set (below, *Many picked*). Without it none of it is bound or drawn |
+| `groups`, `notes` (0.17.0) | `true` draws the graph's groups as frames behind their steps and its notes as text on the canvas, and lets the reader make and edit them (below, *Groups and notes*). Without them none of it is bound or drawn, and a graph's groups and notes are kept as they are |
 | `clipboard`, `prepareCopy(node, {from, via})` (0.17.0) | `true` keeps what Ctrl/⌘+C copies inside the editor while it is open; `{read(), write(text)}` hands it to you: `write` hears the copied JSON and `read` (text, or a promise of it) supplies what Ctrl/⌘+V pastes. `prepareCopy` may change a copy's `config` and `label` before it is added (`via`: `'paste'` or `'duplicate'`). Unset, Ctrl/⌘+C, X, V and D are not the editor's (below, *Copy and paste*) |
 | `loop`, `waitsForAll` | The loop's port names (`{entry: 'in', next, body, done}`): a line into a loop-role step on any input but `entry` is its body going back round, drawn dashed under both steps. `waitsForAll(join)` goes to `alwaysBefore` |
 | `removable(node, type)` | Whether a step may be removed. By default every step except a start step |
@@ -1627,6 +1628,8 @@ editor.setRunOverlay({ steps, ports, banner });
 | `align(kind)`, `distribute(axis)` (0.17.0) | With `multiSelect`: line the picked steps up (`'left'`, `'center'`, `'right'`, `'top'`, `'middle'`, `'bottom'`; two or more picked) or give them equal gaps (`'horizontal'`, `'vertical'`; three or more), one `flow:nodes:align` entry. `false` when refused (too few picked, read only, or no `multiSelect`); an unknown kind or axis throws |
 | `copy()`, `cut()`, `paste(text?)`, `duplicate()` (0.17.0) | With `clipboard`: the keys' verbs from code. Each answers `{ok: true, ids}` (the steps copied, cut or made) or `{ok: false, reason}`, the reason also on the message line; `paste()` answers a promise when your `read` is async, and `paste(text)` pastes that text. Without `clipboard`: `{ok: false, reason: null}` |
 | `select(id \| [id, …] \| 'flow' \| null)`, `repaintPanel()`, `focus()`, `undo()`, `redo()`, `fit({whole})` | `select([id, …])` (0.17.0, `multiSelect`) picks several steps at once (unknown ids are left out; one left is one step picked, none lets go) |
+| `group(ids?, {label, tone})`, `ungroup(groupIds?)`, `setGroup(id, {label, tone})`, `setGroupMembers(id, ids)` (0.17.0) | With `groups`: group these steps (by default the picked ones), each leaving the group it was in, and answer the new group's id (`group`, `group-2`, …) or `null`; remove these groups (by default the ones the picked steps are in), their steps staying put; a group's name and tone; exactly these members, none removing the group. One `flow:group:add`, `…:remove`, `…:label` or `…:members` entry each, `false`/`null` when refused (read only, nothing to do) |
+| `addNote({text, position, size})`, `editNote(id, text)`, `moveNote(id, {x, y})`, `removeNote(id)` (0.17.0) | With `notes`: a note at `position` (by default the centre of the view), answered as a copy (`note`, `note-2`, …) or `null`; its text; where it is; taking it away. One `flow:note:add`, `…:edit`, `…:move` or `…:remove` entry each |
 | `setCatalogue(catalogue \| types)` | Swaps the step types while the editor is open, for a type registered after `load`: the palette is redrawn and a node whose type's definition changed is rebuilt, so a node of a type that was unknown now draws. A definition is compared by what the node is drawn from (known or not, `icon`, `label`, tone, ports, `render`, `update` and `inline`), not by object identity: a new catalogue of the same types plus one more rebuilds no node and calls no `render` again. Under the `connections` option the connection rules and the empty-drop picker judge by the new catalogue, and a pending offer is taken away. The graph and the history are untouched (0.17.0) |
 | `arrange({ids})` | Arrange the whole graph, as the toolbar's button does when fewer than two steps are picked. With `ids` (0.17.0), only those steps and the lines between them are laid out and only they move, still one `flow:arrange` entry; fewer than two known steps, or a read-only editor, answers `false` |
 | `history`, `canvas` | The editor's `FlowHistory` (`keep()`, `adopt(kept, editor.snapshot())`, `baseline(editor.snapshot())` for your publish) and its `CanvasAdapter` |
@@ -1639,8 +1642,11 @@ Its edits are the closed list `CANVAS_ACTIONS`: `flow:node:add`,
 `multiSelect` `flow:nodes:move`, `flow:nodes:remove` and `flow:nodes:align`
 (0.17.0; one entry per gesture on several steps), with `clipboard`
 `flow:paste` and `flow:node:duplicate` (0.17.0; one entry per paste or
-duplicate, however many steps it makes), and with `collapsible`
-`flow:node:collapse` (0.17.0). Typing a name
+duplicate, however many steps it makes), with `collapsible`
+`flow:node:collapse` (0.17.0), and with `groups` and `notes`
+`flow:group:add`, `flow:group:remove`, `flow:group:label`,
+`flow:group:members`, `flow:note:add`, `flow:note:remove`, `flow:note:edit` and
+`flow:note:move` (0.17.0). Typing a name
 or a setting is one entry. The geometry under it is exported as well, all of it
 pure: `CANVAS_NODE`, `arrangeCanvasGraph(graph, catalogue, {loopEntry})` (where
 Arrange puts each step: a Map of id → `{x, y}` from the origin),
@@ -1790,6 +1796,27 @@ Tab is the browser's again, so the keyboard can leave the canvas. Every one of
 these is a single undo entry. In read-only mode a marquee still picks, and no
 gesture writes.
 
+**Groups and notes** (`groups: true`, `notes: true`, 0.17.0). A group is a
+named frame, in one of `TONES` if it has a `tone`, drawn behind its steps and
+round all of them wherever they are. Its title bar is its handle: dragging it
+moves every member (one `flow:nodes:move`; with `multiSelect` the press picks
+them), and a double-click renames it in place (Enter keeps, Escape puts it
+back). Groups are flat and a step is in one at most: Ctrl/⌘+G (or Group on the
+toolbar) groups the picked steps, taking each out of the group it was in, and
+a group left empty goes; Ctrl/⌘+Shift+G (or Ungroup) removes the groups the
+picked steps are in. Removing a step shrinks its group, and removing its last
+member removes the group. Between the steps the frame takes no pointer, so a
+marquee or a pan can start inside it. A note is free text on the canvas: Note
+on the toolbar adds one at the centre of the view and opens it for typing; a
+double-click, or Enter on a focused note, opens it again (Ctrl/⌘+Enter or
+leaving the box keeps the text, Escape puts it back); dragging it moves it,
+and Delete removes the picked one. With `multiSelect` a marquee picks notes
+with the steps, Shift/Ctrl+click adds or takes one away, Ctrl/⌘+A picks them
+too, and dragging or deleting the pick takes its notes along, one entry. A
+graph keeps them as `groups` and `notes` (see `normalise` above) and
+`serialise()` writes them after the connections; a graph without any is the
+same text as before.
+
 **Copy and paste** (`clipboard`, 0.17.0). Ctrl/⌘+C copies the picked steps
 and the lines among them; a line to a step left out of the pick is not copied,
 nor is a step whose type the palette does not offer (a start step) or that is
@@ -1806,12 +1833,18 @@ Ctrl/⌘+D does the same beside the pick without touching the clipboard, as one
 editor's. What is not steps, or names a type the flow does not have, is refused
 with its sentence on the message line. In read-only mode copying still works,
 and Paste, Cut and Duplicate are refused with the read-only reason and change
-nothing.
+nothing. With `notes` the picked notes are copied, cut and duplicated with the
+steps (a note alone too), and pasted under fresh ids, set off as the steps
+are; with `groups` a group whose every member is copied is in the copy, and a
+paste makes it again round the copies of its members (a fresh id, its name and
+tone kept), while a group with a member left out is not copied. `copy()` and
+`cut()` answer `notes: [id, …]` and `paste()` and `duplicate()` answer `notes`
+and `groups`, each only when there are some.
 
 **Keys** (bound on the editor's root): Ctrl/⌘+Z and Ctrl/⌘+Y or Ctrl/⌘+Shift+Z,
 stopped at the root even inside a text field; Delete; F2 renames the picked
-step; Enter on a focused node opens its settings; Escape. Backspace is never
-the editor's.
+step; Enter on a focused node opens its settings; Escape; with `groups`,
+Ctrl/⌘+G and Ctrl/⌘+Shift+G. Backspace is never the editor's.
 
 **What it does not do.** It does not load, save, validate, publish or run
 anything, and it does not keep the stacks across page loads. Those belong to
@@ -1821,7 +1854,7 @@ part of the baseline and the first Ctrl+Z does not take it away.
 
 **Where each claim was checked.** `tests/canvas_adapter.test.mjs`,
 `canvas_edge_router`, `canvas_graph`, `flow_canvas_layout`, `flow_canvas_editor`,
-`flow_canvas_multiselect`, `flow_canvas_clipboard`, `flow_canvas_node_body`, `flow_canvas_live_values` and `flow_canvas_css` check the DOM, the events, the
+`flow_canvas_multiselect`, `flow_canvas_clipboard`, `flow_canvas_node_body`, `flow_canvas_live_values`, `flow_canvas_groups_notes` and `flow_canvas_css` check the DOM, the events, the
 geometry and the stylesheet as text. In headless Edge, `demo/flow_canvas_probe.mjs` drives
 `demo/flow_canvas.html` with real input:
 - `elementFromPoint` at the centre of Undo, Arrange, Fit, a consumer verb, a
@@ -1838,6 +1871,14 @@ geometry and the stylesheet as text. In headless Edge, `demo/flow_canvas_probe.m
 - On a 300-step graph with `multiSelect`, a real marquee picked three steps, a
   real drag of one moved all three and one real Ctrl+Z put them back; a move
   of 50 picked steps and its undo each finished in under 100 ms.
+- With `groups` and `notes`, a real Ctrl+G on two picked steps drew one frame
+  round both and not round the third. Its title bar, and a step inside it, were
+  each the element at their own centre, and between the steps the canvas was
+  (the frame takes no pointer). A real drag of the title bar moved both by the
+  pointer's travel as one entry, and one real Ctrl+Z put them back. A real
+  double-click opened a note for typing, real keys and Ctrl+Enter kept the
+  text, a real drag moved it, and a real marquee picked the steps and the note
+  together.
 - With `collapsible`, ten `setNodeValues` calls 100 ms apart each put their
   value on the step's badge, inside its header, while real keys typed into a
   settings field: the field kept the focus and every key, and the values made

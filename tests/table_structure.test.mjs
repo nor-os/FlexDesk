@@ -206,6 +206,25 @@ section('§4 the consumer\'s column action buttons');
     check('…and does not sort', table._state.sortColumn ?? null, null);
     table.dispose();
 }
+{
+    const acted = [];
+    const { table } = mount({
+        headers, rows,
+        columnActions: (colIdx) => {
+            if (colIdx === 1) throw new Error('boom');
+            return [{ action: 'hide', label: 'Hide', disabled: colIdx === 2 }];
+        },
+        onColumnAction: (action, colIdx) => acted.push([action, colIdx]),
+    });
+    const buttons = labelCells(table).map((th) => th.querySelector('.twm-dt-col-action'));
+    check('a label-only action shows its label', buttons[0]?.textContent, 'Hide');
+    check('…named by it', buttons[0]?.getAttribute('aria-label'), 'Hide');
+    ok('a columnActions that throws draws no button on that column', buttons[1] === null);
+    ok('a disabled one is disabled', buttons[2]?.disabled === true);
+    click(buttons[0]);
+    check('the label-only one calls onColumnAction', acted, [['hide', 0]]);
+    table.dispose();
+}
 
 section('§5 with a placeholder column drawn');
 {

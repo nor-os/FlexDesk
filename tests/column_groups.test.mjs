@@ -15,6 +15,9 @@
  *       cell in every row — with its add control; it is no data column
  *   §5  a table with no groups renders exactly as before: no group row, no
  *       module built, and `columnGroups: []` draws the same DOM as none
+ *   §6  with STORY-0086's `columnOrder` the group row and the placeholder
+ *       follow the order the columns are drawn in, and a `moveColumn` redraws
+ *       them
  *
  * Against 0.16, every section but §5 fails (there are no groups).
  *
@@ -330,6 +333,37 @@ section('§5 a table with no groups renders exactly as before');
     ok('a right-click on the header opens no table menu', !menuOf() || entries(menuOf()).length === 0);
     plain.table.dispose();
     empty.table.dispose();
+}
+
+section('§6 the groups follow the drawn column order (STORY-0086)');
+{
+    const { host, table } = mount({ headers, rows, columnGroups: groups, columnOrder: [3, 0, 1, 2, 4] });
+    check('Deposits drawn first splits Liabilities: spans 1, 3, 1', spans(host), [1, 3, 1]);
+    check('…labelled', texts(host), ['Liabilities', 'Assets', 'Liabilities']);
+    check('…each over its own columns',
+          coverage(host).map(([a, b]) => [labelCells(table)[a].title, labelCells(table)[b].title]),
+          [['Deposits', 'Deposits'], ['Cash', 'Bonds'], ['Equity', 'Equity']]);
+    table.moveColumn(0, 3);
+    check('a moveColumn back to the natural order redraws the group row: 3 and 2', spans(host), [3, 2]);
+    table.dispose();
+}
+{
+    const spec = [
+        { key: 'assets', label: 'Assets', columns: [0, 1, 2] },
+        { key: 'liab', label: 'Liabilities', columns: [] },
+        { key: 'eq', label: 'Equity', columns: [3, 4] },
+    ];
+    const { host, table } = mount({ headers, rows, columnGroups: spec, columnOrder: [0, 1, 3, 2, 4] });
+    const head = labelCells(table);
+    check('the placeholder stands before the first drawn column of a group listed after it',
+          head.map((th) => (th.classList.contains('twm-dt-col--placeholder') ? '+' : th.title)),
+          ['Cash', 'Loans', '+', 'Deposits', 'Bonds', 'Equity']);
+    check('the group row spans 2, 1, 1, 1, 1', spans(host), [2, 1, 1, 1, 1]);
+    check('the body cells line up under their headers',
+          [...bodyRows(host)[0].children].map((td) => td.textContent), ['1', '2', '', '4', '3', '5']);
+    check('the data columns map to their drawn places', [0, 1, 2, 3, 4].map((c) => table._domIdxOf(c)), [0, 1, 4, 3, 5]);
+    check('…and back', [0, 1, 2, 3, 4, 5].map((d) => table._dataIdxOfDom(d)), [0, 1, null, 3, 2, 4]);
+    table.dispose();
 }
 
 done();

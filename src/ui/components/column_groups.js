@@ -74,15 +74,17 @@ export class ColumnGroups {
     /**
      * The drawn columns after the lead, in order: `{col, group}` for a shown
      * data column (`group` the index in `groups`, or null) and
-     * `{placeholder: true, group}` for an empty group's column. Memoised on
-     * the groups' content, the column count and the hidden set.
+     * `{placeholder: true, group}` for an empty group's column. The data
+     * columns come in the order the table draws them (STORY-0086's
+     * `columnOrder`, hidden ones left out). Memoised on the groups' content,
+     * the column count and the drawn columns.
      */
     layout() {
         const cfg = this._cfg();
         const n = cfg.headers?.length || 0;
-        const hidden = this.table.getHiddenColumns();
+        const shown = this.table._shownColumns();
         const spec = Array.isArray(cfg.columnGroups) ? cfg.columnGroups : [];
-        const key = `${n}|${hidden.join(',')}|${spec.map((g) => (g ? `${g.key}\x01${g.label}\x01${(g.columns || []).join(',')}` : '')).join('\x02')}`;
+        const key = `${n}|${shown.join(',')}|${spec.map((g) => (g ? `${g.key}\x01${g.label}\x01${(g.columns || []).join(',')}` : '')).join('\x02')}`;
         if (key === this._memoKey) return this._memo;
 
         const groups = normalize(spec, n);
@@ -96,8 +98,7 @@ export class ColumnGroups {
                 if (empty[e] && !placed.has(e)) { placed.add(e); slots.push({ placeholder: true, group: e }); }
             }
         };
-        for (let c = 0; c < n; c++) {
-            if (this.table._isHidden(c)) continue;
+        for (const c of shown) {
             const gi = groupOf[c];
             if (gi !== null) placeEmptyBefore(gi);
             slots.push({ col: c, group: gi });

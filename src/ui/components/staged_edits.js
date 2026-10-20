@@ -103,7 +103,36 @@ export class StagedEdits {
      * Returns whether anything changed.
      */
     stage(rowIdx, colIdx, value) {
-        if (this.committing) return false;
+        if (this.committing || !this._stageOne(rowIdx, colIdx, value)) return false;
+        this.grid._redraw(rowIdx, colIdx);
+        this._changed();
+        return true;
+    }
+
+    /**
+     * STORY-0089. Stage many cells (`[{rowIdx, colIdx, value}]`) as ONE undo
+     * entry — a fill, a paste — each as `stage` would; the rows are drawn and
+     * the listeners told once, at the end. Returns how many cells changed.
+     */
+    stageMany(cells, label = '') {
+        if (this.committing) return 0;
+        const rows = new Set();
+        let changed = 0;
+        this.history.beginGroup(label);
+        try {
+            for (const { rowIdx, colIdx, value } of cells) {
+                if (this._stageOne(rowIdx, colIdx, value)) { changed++; rows.add(rowIdx); }
+            }
+        } finally {
+            this.history.endGroup();
+        }
+        for (const rowIdx of rows) this.grid._redraw(rowIdx);
+        if (changed) this._changed();
+        return changed;
+    }
+
+    /** One cell's new state and its delta in the ring; whether it changed. */
+    _stageOne(rowIdx, colIdx, value) {
         const k = key(rowIdx, colIdx);
         const before = this._side(k);
         const after = Object.is(value, this.original(rowIdx, colIdx))
@@ -111,8 +140,6 @@ export class StagedEdits {
         if (before.has === after.has && Object.is(before.value, after.value)) return false;
         this._write(rowIdx, colIdx, after);
         this.history.record({ action: 'cell:stage', row: rowIdx, col: colIdx, before, after });
-        this.grid._redraw(rowIdx, colIdx);
-        this._changed();
         return true;
     }
 

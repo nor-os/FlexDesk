@@ -1379,6 +1379,38 @@ discardButton.onclick = () => grid.discard();
 is exported with `ACTIONS` and `DEFAULT_HISTORY_LIMIT` for a consumer that
 builds its own grid.
 
+#### Fill handle (0.17.0)
+
+With `fillHandle: true` beside `staged`, the bottom-right cell of the range
+carries a small square (`.twm-dt-fill-handle`). Dragging it up, down, left or
+right over the cells beyond the range fills them as a spreadsheet does, and
+stages the values: nothing is sent until `commit()`.
+
+```js
+const grid = DataTable.mount(host, {
+    headers, rows,
+    selectionMode: 'cells',
+    editable: (colIdx, row) => !row.locked,  // a refused cell is skipped by a fill
+    staged: true,
+    fillHandle: true,
+    onCommit: ({ edits }) => api.saveBatch(edits),
+});
+grid.fill({ row: 20, col: 3 });              // what dragging the handle to (20, 3) does
+```
+
+| Option or method | What it does |
+|---|---|
+| `fillHandle: true` | Needs `staged` (ignored with a warning without it). The handle sits in the range's corner cell (`twm-dt-cell--fill-corner`); it is not drawn while an editor is open or a commit is out. During a drag the cells it covers are drawn `twm-dt-cell--fill-preview`; the direction is the one the pointer is furthest out in (up and down win a tie), up to the page's edge. Escape, or a cancelled pointer, ends the drag without filling. On release the cells are staged as ONE undo entry — one Ctrl+Z takes the whole fill back — and the range grows over them. |
+| What is written | Each column of the range (each row, filling left or right) is a seed, continued by `projectSeries`: one cell repeats its value; numbers a constant step apart continue (`1, 2` filled three further gives `3, 4, 5`); `YYYY-MM-DD` dates or `Date`s a constant number of days apart continue that many days apart; texts like `Item 1, Item 2` continue their number (`INV-001` keeps its zeros); any other block repeats in a cycle. Filling up or left runs the series away from the block (`3, 4` filled up gives `2, 1`). Holding Ctrl (Cmd) at release repeats the block instead of continuing it. A hidden column is stepped over. |
+| A cell `editable` refuses | Is skipped: nothing is staged in it and the row is untouched. It is drawn `twm-dt-cell--fill-skipped` until the selection moves, the next fill or new rows. |
+| `fill(to, {forceCopy})` | The fill a drag to cell `to` (`{row, col}`: position shown, data column) makes, from code; `forceCopy` is Ctrl. Returns `{direction, count, staged, skipped}` (`staged` the cells that changed, `skipped` the refused cells as `{row, col, rowIdx}`), or null when nothing was filled. |
+
+`detectSeries(values)` (what a seed is: `{kind, step}` with kind `copy`,
+`number`, `date`, `text-number` or `cycle`, or null for blanks) and
+`projectSeries(values, count, {forceCopy})` (the next `count` values; a
+series keeps its seed's type) are exported as pure functions for a consumer
+that builds its own grid. `values` is the seed in fill order.
+
 ### DataTable: column groups and structural edits (0.17.0)
 
 `columnGroups` draws a second header row over the column headers, and a few

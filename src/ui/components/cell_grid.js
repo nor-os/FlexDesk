@@ -14,6 +14,7 @@
 import { CellSelection } from './cell_selection.js';
 import { CellEditorHost, createTextEditor } from './cell_editor_host.js';
 import { StagedEdits } from './staged_edits.js';
+import { FillHandle } from './fill_handle.js';
 
 /** Is this a cell somebody filled? What Ctrl+arrow stops at. */
 export function isFilledValue(value) {
@@ -69,6 +70,12 @@ export class CellGrid {
         if (this._cfg().staged) {
             if (this._cfg().editable) this.staged = new StagedEdits(this);
             else console.warn('[DataTable] `staged` needs `editable`; ignored.');
+        }
+        /** STORY-0089 `fillHandle`: the handle on the range's corner. */
+        this.fill = null;
+        if (this._cfg().fillHandle) {
+            if (this.staged) this.fill = new FillHandle(this);
+            else console.warn('[DataTable] `fillHandle` needs `staged`; ignored.');
         }
     }
 
@@ -227,6 +234,7 @@ export class CellGrid {
         this.latest.clear();
         this.rowsWaiting.clear();
         this.staged?.clear();
+        this.fill?.clearMarks();
     }
 
     isEditing() {
@@ -266,6 +274,7 @@ export class CellGrid {
             td.title = message;
             td.setAttribute('data-error', message);
         } else td.removeAttribute('data-error');
+        this.fill?.paintCell(td, pos, col);   // STORY-0089, after the text
     }
 
     _paintCell(td, pos, col) {
@@ -274,6 +283,7 @@ export class CellGrid {
         td.classList.toggle('twm-dt-cell--cursor', cursor);
         if (cursor) td.setAttribute('aria-selected', 'true');
         else td.removeAttribute('aria-selected');
+        this.fill?.paintCell(td, pos, col);   // STORY-0089
     }
 
     paint() {
@@ -292,6 +302,7 @@ export class CellGrid {
      *  whoever listens. */
     _changed({ reveal = false } = {}) {
         const t = this.table;
+        this.fill?.clearMarks();   // STORY-0089: a skipped mark lasts until the selection moves
         if (reveal && this.sel.focus) t.scrollToRow(this.rowIndexAt(this.sel.focus.row));
         this.paint();
         const before = t.getSelection().join();
@@ -497,6 +508,7 @@ export class CellGrid {
     }
 
     dispose() {
+        this.fill?.dispose();
         this.editor.cancel('dispose');
         this.renderWaiting = false;
         this.rowsWaiting.clear();

@@ -425,6 +425,7 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {number} [historyLimit=100] - With `staged`: the undo ring keeps this many entries (each a before/after delta of one cell); the oldest fall off.
  * @property {Function} [onCommit] - With `staged`: `({edits}) => void | {ok?, error?, errors?} | Promise<…>`, called once by `commit()` with every staged cell as `{rowIdx, colIdx, value, previous}` (by row, then column; `previous` is the value the row holds). Resolving `{errors: [{rowIdx, colIdx, error}]}` (non-empty) marks each of those cells `twm-dt-cell--error` with the message as its `title` and `data-error`, and every staged value stays; `{ok: false, error}`, a rejection or a throw marks every staged cell with the message. Anything else is success: the values are written into the rows the table holds, and the staged cells and the ring are cleared. While it is out no editor opens and Ctrl+Z, Ctrl+Y and `discard()` do nothing.
  * @property {Function} [onStagedChange] - With `staged`: `({count, canUndo, canRedo, committing}) => void` after every change of the staged cells.
+ * @property {boolean} [fillHandle=false] - STORY-0089. With `staged` (a warning, and ignored, without it): a FILL HANDLE (fill_handle.js) on the bottom-right corner of the cell range (`.twm-dt-fill-handle`, in the corner cell). Dragging it up, down, left or right over the cells beyond the range previews them `twm-dt-cell--fill-preview` and, on release, stages their values as ONE undo entry: each column of the range (each row, filling sideways) is continued by `projectSeries` (series.js) — one cell repeats, numbers, dates and "Item 1"-style texts a constant step apart continue, anything else repeats in a cycle — and Ctrl (Cmd) held at release repeats the block instead. A target cell `editable` refuses is skipped and drawn `twm-dt-cell--fill-skipped` until the selection moves. The range then covers what was filled. Escape during the drag cancels it. See `fill`.
  * @property {string|Function} [stagedRefusal] - With `staged`: the reason a frozen control carries, or `(count) => string`. Absent: "Sorting, filtering and paging are held while N changes are not committed. Commit or discard them first."
  *
  * ── STORY-0066, every one of them off unless asked for. THE CONSUMER OWNS THE DATA: each edit is a call, answered with `setData` ──
@@ -617,6 +618,8 @@ export class DataTable {
             onColumnDelete: null,
             onRowAdd: null,
             onRowDelete: null,
+            // STORY-0089. Off — no fill handle — until set.
+            fillHandle: false,
             ...config,
         };
 
@@ -639,6 +642,9 @@ export class DataTable {
         }
         if (this.config.staged && !this._cellGrid) {
             console.warn('[DataTable] `staged` needs `editable`; ignored.');
+        }
+        if (this.config.fillHandle && !this._cellGrid) {
+            console.warn('[DataTable] `fillHandle` needs `staged`; ignored.');
         }
 
         // STORY-0016. The select column is drawn for the table's whole life or
@@ -1551,6 +1557,19 @@ export class DataTable {
      *  column. Empty without `staged`. */
     getStagedEdits() {
         return this._cellGrid?.staged ? this._cellGrid.staged.edits() : [];
+    }
+
+    /**
+     * STORY-0089. Fill from the cell range to the cell `to` (`{row, col}`:
+     * position in the order shown, data column), as dragging the fill handle
+     * there does: staged as ONE undo entry, Ctrl's repeat as `forceCopy`.
+     * Returns `{direction, count, staged, skipped}` —
+     * `staged` the cells that changed, `skipped` the cells `editable` refused
+     * (`{row, col, rowIdx}`) — or null when nothing was filled (no
+     * `fillHandle`, no range, `to` inside it, an editor open, a commit out).
+     */
+    fill(to, { forceCopy = false } = {}) {
+        return this._cellGrid?.fill ? this._cellGrid.fill.fill(to, { forceCopy }) : null;
     }
 
     /** Why sort, filters and pages are held — a staged edit — or null; with

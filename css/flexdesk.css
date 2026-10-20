@@ -865,6 +865,32 @@ body.twm-dt-col-resizing {
 .twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--staged {
     background: color-mix(in srgb, var(--accent-bright, #007acc) 16%, transparent);
 }
+/* STORY-0089 `fillHandle`: a square on the range's corner cell, the cells a
+ * drag covers dashed, and a cell the fill skipped (not editable) hatched. */
+.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--fill-corner {
+    position: relative;
+}
+.twm-preview-table.twm-dt--cells .twm-dt-fill-handle {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 7px;
+    height: 7px;
+    box-sizing: border-box;
+    background: var(--accent-bright, #007acc);
+    border: 1px solid var(--surface-well, #1e1e1e);
+    cursor: crosshair;
+    z-index: 1;
+    touch-action: none;
+}
+.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--fill-preview {
+    outline: 1px dashed var(--accent-bright, #007acc);
+    outline-offset: -1px;
+}
+.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--fill-skipped {
+    background-image: repeating-linear-gradient(45deg,
+        color-mix(in srgb, var(--color-danger, #f14c4c) 22%, transparent) 0 4px, transparent 4px 8px);
+}
 /* While cells are staged, sort, filters and pages are held: the held control
  * says why on itself (`data-refusal`). */
 .twm-data-table-component.twm-dt--frozen th.sortable[data-refusal] {

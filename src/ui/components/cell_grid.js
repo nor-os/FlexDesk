@@ -13,6 +13,7 @@
 
 import { CellSelection } from './cell_selection.js';
 import { CellEditorHost, createTextEditor } from './cell_editor_host.js';
+import { StagedEdits } from './staged_edits.js';
 
 /** Is this a cell somebody filled? What Ctrl+arrow stops at. */
 export function isFilledValue(value) {
@@ -63,6 +64,12 @@ export class CellGrid {
             onCommit: (s, value, move, reason) => this._committed(s, value, move, reason),
             onCancel: (s, reason) => this._closed(s, reason),
         });
+        /** STORY-0088 `staged`: commits are staged here instead of sent. */
+        this.staged = null;
+        if (this._cfg().staged) {
+            if (this._cfg().editable) this.staged = new StagedEdits(this);
+            else console.warn('[DataTable] `staged` needs `editable`; ignored.');
+        }
     }
 
     // ── what the table is, read through its own helpers ──────────────────
@@ -118,6 +125,7 @@ export class CellGrid {
         const err = this.errors.get(key);
         if (err) return err.value;
         if (this.pending.has(key)) return this.pending.get(key);
+        if (this.staged?.has(key)) return this.staged.value(key);
         const row = this.currentRow(rowIdx);
         return row ? row[col] : undefined;
     }
@@ -218,6 +226,7 @@ export class CellGrid {
         this.errors.clear();
         this.latest.clear();
         this.rowsWaiting.clear();
+        this.staged?.clear();
     }
 
     isEditing() {
@@ -236,20 +245,26 @@ export class CellGrid {
         }
     }
 
-    /** One cell: the selection, and its commit's pending or refused mark. */
+    /** One cell: the selection, its commit's pending or refused mark, and
+     *  (STORY-0088) its staged value and a refused batch's mark. */
     _decorateCell(td, pos, rowIdx, col) {
         this._paintCell(td, pos, col);
         const key = `${rowIdx}:${col}`;
         const err = this.errors.get(key);
         const waiting = this.pending.has(key);
+        const staged = !!this.staged?.has(key);
         if (err || waiting) {
             td.textContent = this.table._formatValue(err ? err.value : this.pending.get(key), col);
+        } else if (staged) {
+            td.textContent = this.table._formatValue(this.staged.value(key), col);
         }
+        const message = err ? err.message : this.staged?.errors.get(key);
         td.classList.toggle('twm-dt-cell--pending', waiting);
-        td.classList.toggle('twm-dt-cell--error', !!err);
-        if (err) {
-            td.title = err.message;
-            td.setAttribute('data-error', err.message);
+        td.classList.toggle('twm-dt-cell--staged', staged);
+        td.classList.toggle('twm-dt-cell--error', message != null);
+        if (message != null) {
+            td.title = message;
+            td.setAttribute('data-error', message);
         } else td.removeAttribute('data-error');
     }
 
@@ -352,6 +367,8 @@ export class CellGrid {
         // An editor that was open across a render of its row (an `updateRow`)
         // is still the editor; the paint follows the model.
         this.paint();
+        // STORY-0088. The new controls are held while cells are staged.
+        this.staged?.paintFreeze();
     }
 
     /** One key on the focused table. Returns whether the cell mode took it. */
@@ -359,6 +376,14 @@ export class CellGrid {
         this._sync();
         const ctrl = ev.ctrlKey || ev.metaKey;
         const k = ev.key;
+        // STORY-0088. Ctrl+Z takes a staged edit back; Ctrl+Y (Ctrl+Shift+Z)
+        // puts it back. Taken even with nothing to undo: the browser's own
+        // undo has nothing to do on a table either.
+        if (this.staged && ctrl && !ev.altKey) {
+            const lower = String(k).toLowerCase();
+            if (lower === 'z' && !ev.shiftKey) { this.staged.undo(); return true; }
+            if (lower === 'y' || (lower === 'z' && ev.shiftKey)) { this.staged.redo(); return true; }
+        }
         if (ARROWS[k] && !ev.altKey) {
             const [dr, dc] = ARROWS[k];
             if (ctrl) {
@@ -408,6 +433,8 @@ export class CellGrid {
     canEdit(pos, col) {
         const spec = this._cfg().editable;
         if (!spec) return false;
+        // STORY-0088. While a staged batch is out, nothing new is typed into it.
+        if (this.staged?.committing) return false;
         if (spec === true) return true;
         if (Array.isArray(spec)) return spec.includes(col);
         if (typeof spec === 'function') {
@@ -540,6 +567,12 @@ export class CellGrid {
         const key = `${s.rowIdx}:${s.colIdx}`;
         // Left as it was shown: no edit at all.
         if (Object.is(value, s.previous)) {
+            this._closed(s, reason);
+            return;
+        }
+        // STORY-0088 `staged`: the value is staged, not sent.
+        if (this.staged) {
+            if (live) this.staged.stage(s.rowIdx, s.colIdx, value);
             this._closed(s, reason);
             return;
         }

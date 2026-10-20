@@ -1338,6 +1338,47 @@ DOM), `CellEditorHost` (one cell's editor, opened and closed exactly once) and
 `createTextEditor` (the default text box). The table's own half of cell mode
 is internal.
 
+#### Staged edits, undo and redo, one commit (0.17.0)
+
+With `staged: true` beside `editable`, a commit from an editor is STAGED
+rather than sent to `onCellCommit`: it stays in the table, drawn
+`twm-dt-cell--staged`, until `commit()` hands every staged cell to the
+consumer in one call. Ctrl+Z and Ctrl+Y walk the staged edits.
+
+```js
+const grid = DataTable.mount(host, {
+    headers, rows,
+    selectionMode: 'cells',
+    editable: true,
+    staged: true,
+    historyLimit: 100,                      // the default
+    onCommit: async ({ edits }) => {        // [{rowIdx, colIdx, value, previous}, …]
+        const r = await api.saveBatch(edits);
+        return { errors: r.failed };        // [{rowIdx, colIdx, error}] — empty or absent: success
+    },
+    onStagedChange: ({ count, canUndo, canRedo, committing }) => paintSaveButton(count),
+});
+saveButton.onclick = () => grid.commit();
+discardButton.onclick = () => grid.discard();
+```
+
+| Option or method | What it does |
+|---|---|
+| `staged: true` | Needs `editable` (ignored with a warning without it). A commit stages the value: the cell shows it, drawn `twm-dt-cell--staged`, and nothing is called. Staging the value the row holds is no change. The editor opens with the staged value. |
+| Ctrl+Z, Ctrl+Y (focused table) | Ctrl+Z takes the last staged edit back; Ctrl+Y or Ctrl+Shift+Z puts it back. A cell staged as `null` undoes to NO CHANGE, not to a staged null. In an open editor the keys are the editor's. `undo()` and `redo()` do the same from code. |
+| `historyLimit` | The ring keeps the last this-many entries (default 100); the oldest fall off, and their cells stay staged. Each entry is one cell's before/after delta, never a copy of the staged set. |
+| `commit()` | Calls `onCommit({edits})` ONCE with every staged cell, `{rowIdx, colIdx, value, previous}` by row then column (`previous` is what the row holds); an open editor's value is staged first. Resolves `{ok: true, committed}` on success: the values are written into the rows the table holds, and the staged cells and the ring are cleared (a Ctrl+Z after a commit does nothing). If `onCommit` resolves `{errors: [{rowIdx, colIdx, error}]}` (non-empty), each of those cells is drawn `twm-dt-cell--error` with the message as its `title` and `data-error`, every staged value stays, and `commit()` resolves `{ok: false, errors}`; `{ok: false, error}`, a rejection or a throw marks every staged cell with the message. Staging a marked cell again clears its mark. While the commit is out no editor opens and undo, redo and `discard()` do nothing. |
+| `discard()` | Drops every staged cell, its marks and the ring. |
+| `getStagedEdits()` | The staged cells, as `onCommit` would get them. |
+| `onStagedChange({count, canUndo, canRedo, committing})` | After every change of the staged cells. |
+| The freeze | While any cell is staged, sorting, filtering and paging are held: the sortable headers, the filter row's controls, the pager's buttons and the `paging` strip are disabled with the reason on them (`data-refusal`, `title`), and `sortBy`, `setFilter`, `clearFilters`, `goToPage`, `goToRow` and the paging calls refuse with a console warning. The export button is not held. `stagedRefusal` (a string, or `(count) => string`) gives the reason in the app's words. |
+| New rows | `setData({rows})` drops the staged cells and the ring: the row indices they named are other rows now. |
+
+`StagedHistory` (the ring, with no DOM: `record`, `beginGroup`/`endGroup`,
+`undo`, `redo`, `reset`, writing through an injected `apply(entry, direction)`)
+is exported with `ACTIONS` and `DEFAULT_HISTORY_LIMIT` for a consumer that
+builds its own grid.
+
 ### Scrollbars
 
 `installAutoScrollbars(root)` (from `@flexdesk/widgets`) replaces the browser's

@@ -2,10 +2,10 @@
 id: 61
 type: story
 title: "A plot-config editor panel for the charts plot_config model"
-status: refined
+status: in-progress
 parent: 59
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 8
@@ -13,7 +13,7 @@ subsystem: charts
 labels: [charts, new-component]
 links: [blocked-by 60]
 created: 2026-10-17
-updated: 2026-10-17T07:55Z
+updated: 2026-10-20T11:30Z
 ---
 
 ## Description
@@ -36,6 +36,8 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
+- 2026-10-20 · norman_agent · status: refined -> in-progress
+- 2026-10-20 · norman_agent · assignee: (none) -> norman_agent
 
 ## Comments
 

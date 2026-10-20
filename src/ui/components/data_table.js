@@ -409,7 +409,7 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {'rows'|'cells'} [selectionMode='rows'] - 'cells': CELL MODE (cell_grid.js, over cell_selection.js). A click selects one cell and puts the CURSOR on it, Shift+click selects the range from the anchor to it; every cell of the range is drawn `twm-dt-cell--selected` and the cursor `twm-dt-cell--cursor` (rows are not lit). On the focused table the arrows move the cursor (Shift extends), Ctrl+arrow jumps to the edge of the block of filled cells, Home/End go to the row's ends (Ctrl: the page's corners), Tab moves right and wraps to the next row (Shift+Tab back), Ctrl+A selects every cell of the page and Escape collapses the range onto the cursor. The cursor stays on the page drawn and is scrolled into view (under `virtualize` its row is drawn). `getSelection()` still answers ROWS — the original indices the range touches — and Ctrl+C copies those rows as before. A cell is `{row, col}`: `row` the position in the order shown (`getDisplayedRows()`), `col` the data column. Fixed for the table's life; `selectToggle`, `selectMode` and `keyboardNav` beside it are ignored with a console warning. See `getCellSelection`, `setCellSelection`.
  * @property {boolean|number[]|Function} [editable=false] - Cell mode only (a warning, and ignored, without it). Which cells open an EDITOR: `true` every one, an array of data column indices, or `(colIdx, row, rowIdx) => boolean`. F2, Enter, a double-click or a printable key (which the editor starts with) opens it on the cursor cell; in it Enter commits and moves down, Tab commits and moves right, Escape restores the cell and calls nothing, and the focus leaving commits. While it is open a `render()` (a `setData` included) waits, and runs when it closes; its row leaving the virtual window commits it.
  * @property {Object} [editors] - `{[colIdx|type]: factory}`, the editor for a column (by index first, then by its type: `columnTypes`' or the detected 'num'/'text'). A factory is `({value, row, rowIdx, colIdx, column: {index, header, type}, initialText, commit(value), cancel()}) => Element | {el, getValue?, focus?, destroy?}`; an input, select or textarea returned as it is commits its `value`. Absent: a text box (cell_editor_host.js `createTextEditor`), which commits the value unchanged when left as it was.
- * @property {Function} [onCellCommit] - `({rowIdx, colIdx, value, previous}) => void | {ok, error?} | Promise<…>`, once per commit (not for a value left unchanged). Resolving `{ok: false, error}`, rejecting or throwing leaves the typed value in the cell drawn `twm-dt-cell--error` with the message as its `title` and `data-error`; until it settles the cell is `twm-dt-cell--pending`. Otherwise the value is written into the row (`rows[rowIdx][colIdx]`) and drawn. New rows (`setData({rows})`) drop the marks.
+ * @property {Function} [onCellCommit] - `({rowIdx, colIdx, value, previous}) => void | {ok, error?} | Promise<…>`, once per commit (not for a value left as the cell showed it; `previous` is the value the row holds). Resolving `{ok: false, error}`, rejecting or throwing leaves the typed value in the cell drawn `twm-dt-cell--error` with the message as its `title` and `data-error`; until it settles the cell is `twm-dt-cell--pending`. Otherwise the value is written into the row the table holds for `rowIdx` when it settles (`rows[rowIdx][colIdx]`) and drawn. Committing a refused cell back to the row's value clears the mark without a call. New rows (`setData({rows})`) drop the marks.
  * @property {Function} [onCellSelectionChange] - `(getCellSelection()) => void`, after every change of the cells selected.
  * @property {Function} [headerMenu] - `(colIdx, {colIdx, header, hiddenColumns, table}) => items`, asked on a right-click on a data column's header (or its filter cell). The items (`{label, action, icon?, disabled?, danger?, title?}` or `{separator: true}`) open the table's menu; with `columnChooser` the chooser's items follow behind a separator. `[]` or `null` shows what would show without the hook: the chooser, or the page's own menu.
  * @property {Function} [onHeaderMenuAction] - `(action, colIdx) => void`, when one of `headerMenu`'s items is chosen; the menu is hidden first.
@@ -3999,6 +3999,9 @@ export class DataTable {
      *   - keyboard focus, because the focused element's position is recorded
      *     before the replace and restored after.
      *
+     *  STORY-0003: on the row an open cell editor is in, the data is stored
+     *  now and the row is drawn when the editor closes (true is returned).
+     *
      *  @param {number} index   row index as tracked by `tr.__rowIndex`
      *  @param {any[]}  row     the new cell values
      *  @returns {boolean}      false when the row is not currently rendered
@@ -4031,6 +4034,9 @@ export class DataTable {
             this.config.rows[index] = row;
         }
         if (this._virt) this._virtSetRow(index, row);
+        // STORY-0003. The row holds an open cell editor: the rebuild would take
+        // it out of the document, so the row is drawn when the editor closes.
+        if (this._cellGrid?.holdRow(tr, index)) return true;
 
         // Record focus BEFORE the replace: `replaceChildren` detaches the
         // focused cell and the browser moves focus to <body>.

@@ -14,10 +14,12 @@
  *       editor that commits itself
  *   §5  onCellCommit resolving {ok:false, error}, or rejecting, leaves the
  *       typed value in the cell marked with the message; a later good commit
- *       clears the mark
+ *       clears the mark; the editor opens with the value the cell shows, and
+ *       giving a refused cell its row's value back clears the mark
  *   §6  a non-editable column (array or function `editable`) opens no editor
- *   §7  setData / render() while an editor is open do not destroy it: the
- *       redraw runs after the commit or the cancel
+ *   §7  setData / render() / updateRow while an editor is open do not destroy
+ *       it: the redraw runs after the commit or the cancel; a settling commit
+ *       writes into the row the table holds then, never a stale one
  *
  * Against 0.16, every section fails (there is no editing).
  *
@@ -281,6 +283,69 @@ section('§5 a refused commit');
     table.dispose();
 }
 
+{
+    // The editor holds what the cell SHOWS. After a refusal that is the
+    // refused value; giving the cell back the value its row holds ends the
+    // refusal (nothing to save, so no call).
+    const commits = [];
+    const { host, table } = edit({
+        onCellCommit: (c) => { commits.push(c); return { ok: false, error: 'no' }; },
+    });
+    const td = () => cellAt(host, 0, 0);
+    click(td());
+    key(tbl(), 'F2');
+    editorIn(host).value = 'bad';
+    key(editorIn(host), 'Enter');
+    check('refused', [td().textContent, td().getAttribute('data-error')], ['bad', 'no']);
+    table.setCellSelection({ row: 0, col: 0 });
+    key(tbl(), 'F2');
+    check('F2 on the refused cell opens with the value it shows', editorIn(host)?.value, 'bad');
+    key(editorIn(host), 'Enter');
+    check('…left as shown it is no commit', commits.length, 1);
+    check('…and the refusal stays', [td().textContent, td().getAttribute('data-error')], ['bad', 'no']);
+    table.setCellSelection({ row: 0, col: 0 });
+    key(tbl(), 'F2');
+    key(editorIn(host), 'Escape');
+    check('Escape leaves the refusal too', td().getAttribute('data-error'), 'no');
+    table.setCellSelection({ row: 0, col: 0 });
+    key(tbl(), 'F2');
+    editorIn(host).value = 'apple';
+    key(editorIn(host), 'Enter');
+    ok('committing the value the row holds clears the mark', !td().classList.contains('twm-dt-cell--error')
+        && !td().hasAttribute('data-error') && !td().title);
+    check('…draws the row\'s value', td().textContent, 'apple');
+    check('…and calls nothing (there is nothing to save)', commits.length, 1);
+    table.dispose();
+}
+{
+    // A pending cell opens with the pending value too; its commit's
+    // `previous` is what the row holds.
+    let settle = [];
+    const commits = [];
+    const { host, table } = edit({
+        onCellCommit: (c) => { commits.push(c); return new Promise((r) => settle.push(r)); },
+    });
+    click(cellAt(host, 0, 2));
+    key(tbl(), 'F2');
+    editorIn(host).value = 'crimson';
+    key(editorIn(host), 'Enter');
+    table.setCellSelection({ row: 0, col: 2 });
+    key(tbl(), 'F2');
+    check('F2 on a pending cell opens with the pending value', editorIn(host)?.value, 'crimson');
+    editorIn(host).value = 'scarlet';
+    key(editorIn(host), 'Enter');
+    check('…a new commit says what the row holds as previous', commits.at(-1),
+        { rowIdx: 0, colIdx: 2, value: 'scarlet', previous: 'red' });
+    settle.pop()({ ok: true });
+    await tick();
+    check('the newer commit settling draws its value', cellAt(host, 0, 2).textContent, 'scarlet');
+    settle.pop()({ ok: false, error: 'late' });
+    await tick();
+    ok('an older commit settling later does not mark the cell',
+        !cellAt(host, 0, 2).hasAttribute('data-error') && cellAt(host, 0, 2).textContent === 'scarlet');
+    table.dispose();
+}
+
 section('§6 a column that is not editable');
 {
     const { host, table, commits } = edit({ editable: [1] });
@@ -401,6 +466,63 @@ section('§7 a redraw waits for the editor');
     check('after the cancel the row is drawn, the mark still on',
         [cellAt(host, 1, 0).textContent, cellAt(host, 1, 0).getAttribute('data-error'), cellAt(host, 1, 1).textContent],
         ['bad', 'Nope', '5']);
+    table.dispose();
+}
+
+{
+    // The settle writes into the row the table holds NOW. A consumer that
+    // put a newer row in while the commit was out (a server push of the
+    // saved row) keeps it.
+    let settle = null;
+    const { host, table } = edit({
+        onCellCommit: () => new Promise((resolve) => { settle = resolve; }),
+    });
+    click(cellAt(host, 1, 0));
+    key(tbl(), 'F2');
+    editorIn(host).value = 'typed';
+    key(editorIn(host), 'Enter');
+    check('the consumer\'s updateRow while the commit is out draws', table.updateRow(1, ['typed', 42, 'server']), true);
+    settle({ ok: true });
+    await tick();
+    check('the settle keeps the consumer\'s row', table.config.rows[1], ['typed', 42, 'server']);
+    check('…and draws it', [0, 1, 2].map((c) => cellAt(host, 1, c).textContent), ['typed', '42', 'server']);
+    ok('…with no mark left', !host.querySelector('.twm-dt-cell--pending, .twm-dt-cell--error'));
+    table.dispose();
+}
+{
+    // `updateRow` on the row an editor is open in: the data is stored now,
+    // the row is drawn when the editor closes, the editor is left in place.
+    const commits = [];
+    const { host, table } = edit({ onCellCommit: (c) => { commits.push(c); } });
+    click(cellAt(host, 1, 0));
+    key(tbl(), 'F2');
+    const input = editorIn(host);
+    input.value = 'half';
+    check('updateRow on the editing row answers true', table.updateRow(1, ['PEAR', 5, 'green']), true);
+    ok('…the editor is still in the document', input.isConnected && editorIn(host) === input);
+    check('…with its text', input.value, 'half');
+    check('…and the data is stored', table.config.rows[1], ['PEAR', 5, 'green']);
+    key(input, 'Escape');
+    ok('the cancel closes it', !table.isEditing() && !editorIn(host));
+    check('…and the row is drawn with the new data', cellAt(host, 1, 0).textContent, 'PEAR');
+    table.setData({ rows: [['fig', 1, 'x'], ['kiwi', 2, 'y']] });
+    check('the table is not stuck: setData draws', bodyRows(host).length, 2);
+    table.dispose();
+}
+{
+    // …and a commit after it lands on the consumer's row.
+    const commits = [];
+    const { host, table } = edit({ onCellCommit: (c) => { commits.push(c); } });
+    click(cellAt(host, 1, 0));
+    key(tbl(), 'F2');
+    const input = editorIn(host);
+    input.value = 'typed';
+    table.updateRow(1, ['pear', 99, 'LIVE']);
+    key(input, 'Enter');
+    check('the commit is made once', commits, [{ rowIdx: 1, colIdx: 0, value: 'typed', previous: 'pear' }]);
+    check('…into the consumer\'s row', table.config.rows[1], ['typed', 99, 'LIVE']);
+    check('…which is drawn', [0, 1, 2].map((c) => cellAt(host, 1, c).textContent), ['typed', '99', 'LIVE']);
+    ok('not editing', !table.isEditing());
     table.dispose();
 }
 

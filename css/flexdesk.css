@@ -10512,6 +10512,168 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 }
 /* ══ end PLOT GRID ══ */
 
+/* ══ PLOT CONFIG EDITOR ═══════════════════════════════════════════════
+ *
+ * `renderPlotConfigEditor` (src/charts/plot_config_editor.js): a layout
+ * picker, a tab per subplot slot and the fields of the subplot in front. */
+.twm-plot-config {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    min-width: 0;
+    font-size: var(--font-size-sm);
+    color: var(--text-primary);
+}
+.twm-plot-config__section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+.twm-plot-config__heading {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-muted);
+}
+.twm-plot-config__layouts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+}
+.twm-plot-config__layout {
+    min-width: 0;
+}
+.twm-plot-config__layout--on {
+    border-color: var(--accent);
+    color: var(--text-bright);
+}
+.twm-plot-config__tabs[hidden] {
+    display: none;
+}
+.twm-plot-config__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+.twm-plot-config__field {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    min-width: 0;
+}
+.twm-plot-config__label {
+    flex: 0 0 96px;
+    color: var(--text-muted);
+}
+.twm-plot-config__input {
+    box-sizing: border-box;
+    min-width: 0;
+    flex: 1 1 auto;
+    padding: var(--space-xxs) var(--space-xs);
+    font: inherit;
+    background: var(--surface-3);
+    color: var(--text-primary);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+}
+.twm-plot-config__input--number {
+    flex: 0 1 80px;
+    width: 80px;
+}
+.twm-plot-config__input:disabled {
+    opacity: 0.5;
+}
+.twm-plot-config__picker {
+    flex: 1 1 140px;
+    min-width: 0;
+}
+.twm-plot-config__axes,
+.twm-plot-config__list,
+.twm-plot-config__series-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+.twm-plot-config__axis {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    margin: 0;
+    padding: var(--space-sm) var(--space-md);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    min-width: 0;
+}
+.twm-plot-config__axis--disabled {
+    opacity: 0.5;
+}
+.twm-plot-config__axis-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: 0 var(--space-xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-muted);
+}
+.twm-plot-config__axis-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: var(--space-xs) var(--space-md);
+}
+.twm-plot-config__series {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xxs);
+    padding: var(--space-xs) 0;
+    border-top: 1px solid var(--border-subtle);
+}
+.twm-plot-config__series-main,
+.twm-plot-config__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-xs);
+}
+.twm-plot-config__series-main > .twm-plot-config__input:not(.twm-plot-config__input--number):not(.twm-plot-config__input--select),
+.twm-plot-config__row > .twm-plot-config__input:not(.twm-plot-config__input--number):not(.twm-plot-config__input--select) {
+    flex: 1 1 100px;
+}
+.twm-plot-config__series-main > .twm-plot-config__input--select,
+.twm-plot-config__row > .twm-plot-config__input--select {
+    flex: 0 1 auto;
+}
+.twm-plot-config__series-extra:empty {
+    display: none;
+}
+.twm-plot-config__overlay,
+.twm-plot-config__overlay-fields {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xxs);
+    padding-left: var(--space-md);
+}
+.twm-plot-config__overlay-source {
+    color: var(--text-muted);
+}
+.twm-plot-config__overlay-source--error {
+    color: var(--color-danger);
+}
+.twm-plot-config__empty {
+    color: var(--text-muted);
+    font-style: italic;
+}
+.twm-plot-config__add {
+    align-self: flex-start;
+}
+.twm-plot-config__remove {
+    flex: 0 0 auto;
+    margin-left: auto;
+}
+.twm-plot-config__remove > .material-symbols-outlined {
+    font-size: 16px;
+}
+/* ══ end PLOT CONFIG EDITOR ══ */
+
 /* ══ WIZARD (STORY-0047) ══════════════════════════════════════════════════
  * A step indicator, a body slot and a footer. Steps are drawn done / current /
  * upcoming / error and joined by a connector that fills once the step after it

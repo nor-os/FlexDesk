@@ -157,6 +157,23 @@ section('§3 the add control on a group header');
     table.dispose();
 }
 {
+    // A label-only item shows its label; a groupActions that throws is
+    // logged and the group row is still drawn.
+    const { host, table } = mount({
+        headers, rows, columnGroups: groups,
+        groupActions: (group) => {
+            if (group.key === 'liab') throw new Error('boom');
+            return [{ action: 'x', label: 'Drop' }];
+        },
+    });
+    const b = groupCells(host)[0].querySelector('.twm-dt-group__action');
+    check('a label-only action shows its label', b?.textContent, 'Drop');
+    check('…named by it', b?.getAttribute('aria-label'), 'Drop');
+    check('a groupActions that throws draws no button there, and the row is drawn',
+          [spans(host), groupCells(host)[1].querySelectorAll('.twm-dt-group__action').length], [[3, 2], 0]);
+    table.dispose();
+}
+{
     const { host, table } = mount({ headers, rows, columnGroups: groups });
     check('without onColumnAdd there is no add control', host.querySelectorAll('.twm-dt-group__add').length, 0);
     table.dispose();
@@ -256,9 +273,18 @@ section('§4 an empty group keeps a placeholder column');
     ok('no group row to start', !groupTable(host));
     table.setData({ columnGroups: groups });
     check('setData({columnGroups}) draws them', spans(host), [3, 2]);
+    const gone = groupTable(host);
+    gone.style.width = '1px';
     table.setData({ columnGroups: null });
     ok('…and null takes them away', !groupTable(host));
     check('…with no placeholder left behind', bodyRows(host)[0].children.length, 5);
+    table._headerTableEl.style.width = '321px';
+    table._syncHeaderScroll();
+    check('…and the scroll sync no longer writes into the detached group table', gone.style.width, '1px');
+    table.setData({ columnGroups: groups });
+    table._syncHeaderScroll();
+    check('groups set again draw a new group table that follows the header',
+          groupTable(host) !== gone && groupTable(host).style.width, table._headerTableEl.style.width);
     table.dispose();
 }
 

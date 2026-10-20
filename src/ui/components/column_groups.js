@@ -35,6 +35,8 @@
  * A table without `columnGroups` never builds this.
  */
 
+import { callOption, headerActionButton } from './header_actions.js';
+
 /** The groups the table was given, cleaned: a key each, a label, the data
  *  columns that exist, each column in the first group that lists it. */
 function normalize(spec, n) {
@@ -52,32 +54,6 @@ function normalize(spec, n) {
         out.push({ key: g.key, label: g.label == null ? String(g.key) : String(g.label), columns, spec: g });
     }
     return out;
-}
-
-/** A button in a header cell. Its click is its own: no sort under it. */
-function actionButton(className, { icon, label, title }, onClick) {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = className;
-    if (icon) {
-        const span = document.createElement('span');
-        span.className = 'material-symbols-outlined';
-        span.textContent = String(icon);
-        b.appendChild(span);
-    }
-    if (label != null && !icon) b.appendChild(document.createTextNode(String(label)));
-    const name = title ?? label;
-    if (name != null) {
-        b.title = String(name);
-        b.setAttribute('aria-label', String(name));
-    }
-    b.addEventListener('mousedown', (ev) => ev.stopPropagation());
-    b.addEventListener('click', (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        onClick(ev);
-    });
-    return b;
 }
 
 export class ColumnGroups {
@@ -221,7 +197,6 @@ export class ColumnGroups {
     _placeholderHead(group) {
         const th = document.createElement('th');
         th.className = 'text twm-dt-col--placeholder';
-        th.__groupKey = group.key;
         if (typeof this._cfg().onColumnAdd === 'function') {
             th.appendChild(this._addButton(group));
         }
@@ -229,14 +204,8 @@ export class ColumnGroups {
     }
 
     _addButton(group) {
-        return actionButton('twm-dt-group__add', { icon: 'add', title: `Add column to ${group.label}` },
-                            () => this._call('onColumnAdd', group.key));
-    }
-
-    _call(name, ...args) {
-        try { this._cfg()[name]?.(...args); } catch (err) {
-            console.error(`[DataTable] ${name} threw`, err);
-        }
+        return headerActionButton('twm-dt-group__add', { icon: 'add', title: `Add column to ${group.label}` },
+                                  () => callOption(this._cfg(), 'onColumnAdd', group.key));
     }
 
     _buildGroupTable(headerTable) {
@@ -281,7 +250,6 @@ export class ColumnGroups {
         const th = document.createElement('th');
         th.className = empty ? 'twm-dt-group twm-dt-group--empty' : 'twm-dt-group';
         th.colSpan = span;
-        th.__groupKey = group.key;
         th.title = group.label;
         const label = document.createElement('span');
         label.className = 'twm-dt-group__label';
@@ -291,19 +259,10 @@ export class ColumnGroups {
         const actions = document.createElement('span');
         actions.className = 'twm-dt-group__actions';
         const cfg = this._cfg();
-        if (typeof cfg.groupActions === 'function') {
-            let items = null;
-            try {
-                items = cfg.groupActions(group.spec, { key: group.key, columns: group.columns.slice(), table: this.table });
-            } catch (err) {
-                console.error('[DataTable] groupActions threw', err);
-            }
-            for (const item of Array.isArray(items) ? items.filter(Boolean) : []) {
-                const b = actionButton('twm-dt-group__action', item,
-                                       () => this._call('onGroupAction', item.action, group.key));
-                if (item.disabled) b.disabled = true;
-                actions.appendChild(b);
-            }
+        const items = callOption(cfg, 'groupActions', group.spec, { key: group.key, columns: group.columns.slice(), table: this.table });
+        for (const item of Array.isArray(items) ? items.filter(Boolean) : []) {
+            actions.appendChild(headerActionButton('twm-dt-group__action', item,
+                                                   () => callOption(cfg, 'onGroupAction', item.action, group.key)));
         }
         if (typeof cfg.onColumnAdd === 'function') actions.appendChild(this._addButton(group));
         if (actions.childNodes.length) th.appendChild(actions);
@@ -326,10 +285,5 @@ export class ColumnGroups {
         groupTable.style.width = headerTable.style.width;
         groupTable.style.tableLayout = headerTable.style.tableLayout;
         groupTable.style.transform = headerTable.style.transform;
-    }
-
-    /** The group table drawn by the last render, or null. */
-    element() {
-        return this._el;
     }
 }

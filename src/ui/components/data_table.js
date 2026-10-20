@@ -6300,7 +6300,7 @@ export class DataTable {
         headerTable.style.transform = residual ? `translateX(${-residual}px)` : '';
         // STORY-0066. The group row follows the header: every width pass and
         // drag ends here, and so does every sideways scroll.
-        this._columnGroups?.align();
+        this._colGroups()?.align();
     }
 
     /** Drag-to-resize: hang a thin grab handle off the right edge of

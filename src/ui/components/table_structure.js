@@ -20,6 +20,7 @@
  * A table without any of these options never builds this.
  */
 
+import { callOption, headerActionButton } from './header_actions.js';
 import { attachInlineRenamer } from './inline_renamer.js';
 
 /** The options that build this module. */
@@ -41,10 +42,7 @@ export class TableStructure {
     }
 
     _call(name, ...args) {
-        try { return this._cfg()[name]?.(...args); } catch (err) {
-            console.error(`[DataTable] ${name} threw`, err);
-            return undefined;
-        }
+        return callOption(this._cfg(), name, ...args);
     }
 
     /** Whether the header's right-click has items of this module's. */
@@ -130,41 +128,14 @@ export class TableStructure {
     }
 
     _addActions(th, colIdx, header) {
-        let items = null;
-        try {
-            items = this._cfg().columnActions(colIdx, { colIdx, header, table: this.table });
-        } catch (err) {
-            console.error('[DataTable] columnActions threw', err);
-        }
+        const items = this._call('columnActions', colIdx, { colIdx, header, table: this.table });
         const list = Array.isArray(items) ? items.filter(Boolean) : [];
         if (!list.length) return;
         const box = document.createElement('span');
         box.className = 'twm-dt-col-actions';
         for (const item of list) {
-            const b = document.createElement('button');
-            b.type = 'button';
-            b.className = 'twm-dt-col-action';
-            if (item.icon) {
-                const span = document.createElement('span');
-                span.className = 'material-symbols-outlined';
-                span.textContent = String(item.icon);
-                b.appendChild(span);
-            } else if (item.label != null) {
-                b.textContent = String(item.label);
-            }
-            const name = item.title ?? item.label;
-            if (name != null) {
-                b.title = String(name);
-                b.setAttribute('aria-label', String(name));
-            }
-            if (item.disabled) b.disabled = true;
-            b.addEventListener('mousedown', (ev) => ev.stopPropagation());
-            b.addEventListener('click', (ev) => {
-                ev.preventDefault();
-                ev.stopPropagation();
-                this._call('onColumnAction', item.action, colIdx);
-            });
-            box.appendChild(b);
+            box.appendChild(headerActionButton('twm-dt-col-action', item,
+                                               () => this._call('onColumnAction', item.action, colIdx)));
         }
         th.appendChild(box);
     }

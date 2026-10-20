@@ -2,10 +2,10 @@
 id: 60
 type: story
 title: "renderPlotGrid draws a plot_config into any container; PlotPopoutWindow uses it"
-status: in-progress
+status: review
 parent: 59
 phase:
-assignee: norman_agent
+assignee: norman
 reporter: norman
 due:
 points: 5
@@ -13,7 +13,7 @@ subsystem: charts
 labels: [charts]
 links: [blocked-by 62]
 created: 2026-10-17
-updated: 2026-10-19T21:50Z
+updated: 2026-10-20T10:56Z
 ---
 
 ## Description
@@ -26,22 +26,24 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 
 ## Acceptance criteria
 
-- [ ] A 2x2 config renders four subplots in the right grid areas
-- [ ] A subplot with no data shows the empty message
-- [ ] For the fixture configs, PlotPopoutWindow produces the same trace count, names and axes before and after the refactor
-- [ ] Rendering into a zero-size container defers until it has size
-- [ ] dispose() purges every figure
-- [ ] An overlay is drawn for every series that has `overlay` and data in `actuals`; `overlay.etlKey` is no longer required
-- [ ] On 'area-stacked' subplots, overlays are stacked with groupnorm 'fraction'
-- [ ] PlotPopoutWindow's chart cells are `div.twm-plot-grid__cell` inside `.twm-plot-grid` (no `div.plot-tile-chart`), and the README's 0.17.0 section names the class change
-- [ ] An empty figure is drawn only when all of a subplot's own series are hidden
-- [ ] With null results, every cell shows the empty message
+- [x] A 2x2 config renders four subplots in the right grid areas
+- [x] A subplot with no data shows the empty message
+- [x] For the fixture configs, PlotPopoutWindow produces the same trace count, names and axes before and after the refactor
+- [x] Rendering into a zero-size container defers until it has size
+- [x] dispose() purges every figure
+- [x] An overlay is drawn for every series that has `overlay` and data in `actuals`; `overlay.etlKey` is no longer required
+- [x] On 'area-stacked' subplots, overlays are stacked with groupnorm 'fraction'
+- [x] PlotPopoutWindow's chart cells are `div.twm-plot-grid__cell` inside `.twm-plot-grid` (no `div.plot-tile-chart`), and the README's 0.17.0 section names the class change
+- [x] An empty figure is drawn only when all of a subplot's own series are hidden
+- [x] With null results, every cell shows the empty message
 
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
 - 2026-10-18 · norman_agent · status: refined -> in-progress
 - 2026-10-18 · norman_agent · assignee: (none) -> norman_agent
+- 2026-10-20 · norman_agent · status: in-progress -> review
+- 2026-10-20 · norman_agent · assignee: norman_agent -> norman
 
 ## Comments
 
@@ -143,3 +145,19 @@ Open:
 - The two changed files are uncommitted in /mnt/c/Users/Norman/repos/FlexDesk-story-0060; origin/story-0060 is still at 3e704ed.
 
 To finish: wait for run.mjs to end green with no SKIPPED lines, run node build.mjs and restore dist/, commit "STORY-0060: stale draws are detected across a layout change", then `git push -u origin story-0060` (fast-forward). No criteria ticked. Nothing landed. Waiting on norman.
+
+### 2026-10-20T10:56Z · norman_agent (status: in-progress -> review)
+
+Landed on main and handed back to norman for review.
+
+**What was built.** `renderPlotGrid(container, plotConfig, results, options)` in src/charts/plot_grid.js returns `{update, resize, dispose}`. It lays out a CSS grid from PLOT_LAYOUTS and draws one figure per subplot. It supports multi-y axes, chart types, interpolation, stack groups, reference lines and bands, NaN handling, x-range clipping and an optional x-variable. It shows an empty-state message, and it waits while the container is detached or has zero size. Its options are resolveSeries, seriesTransforms, overlays, derivedTraces, hiddenSeries and theme. PlotPopoutWindow's private #render now uses it. The README section "A plot config in any container: renderPlotGrid (0.17.0)" documents it, including the class change from div.plot-tile-chart to div.twm-plot-grid__cell and the drawing changes (a) to (e). Tests are in tests/plot_grid.test.mjs, with fixtures in tests/fixtures/plot_grid_fixtures.mjs.
+
+**Latest fix (ade3098).** With null results, every cell shows the empty message, even when all of a subplot's series are hidden. buildFigure now starts with `if (!data) return null;`. A subplot whose own series are all hidden gets an empty figure only when results are present. The README section now says that null results win over the all-hidden rule. Three new §2 checks cover this: the existing grid with update({results:null}) and subplot 'b' fully hidden; the reviewer's 1x2 repro; and a PlotPopoutWindow variant using the series panel's 'None' button and updateConfig(). Each shows the empty message in every cell and makes 0 Plotly.react calls. All three failed against the previous plot_grid.js.
+
+**Criteria ticked:** all ten.
+
+**Landed.** main is now at c414ac2 ("STORY-0060: merge origin/main into the branch"), pushed as a fast-forward with `git push origin HEAD:main` (7aa2cea..c414ac2). The branch already contained origin/main 7aa2cea, so no rebase was needed and none was done. There was no history rewrite and no force-push. origin/story-0060 is also at c414ac2, so this time it does not hold a different pre-rebase history.
+
+**Tests (on c414ac2, the tree that landed).** I ran `node tests/run.mjs` with the Linux /usr/bin/node v18.19.1 and watched it finish: "FLEXDESK TESTS: GREEN — 169 suite(s)", exit 0, 0 ': SKIPPED' lines. `node build.mjs` succeeded (exit 0). dist/ was restored with `git checkout -- dist && git clean -fdq dist`, so it is not committed. The builder's earlier runs on ade3098 (168 suites) and 4633e84 (169 suites) were also green.
+
+**App check:** none was run during this landing. This story is FlexDesk library code, and the checks above are the FlexDesk test suite and build.

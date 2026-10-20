@@ -84,13 +84,16 @@ export function numberSeparators(locale) {
     };
 }
 
-const SPACES = /[\s  ]/g;
+const SPACES = /[\s\u00a0\u202f]/g;
 
-/** Text to a Number by `locale`'s separators; blank is null. */
+/** Text to a Number by `locale`'s separators; blank is null. Spaces around
+ *  the text are ignored; inside it a space is a group separator only where
+ *  the locale groups with one (fr-FR, sv-SE, ...) and only between groups of
+ *  three digits; anywhere else it is refused. */
 export function parseNumber(text, ctx = {}) {
     if (isBlank(text)) return ok(null);
     const { group, decimal } = numberSeparators(ctx.locale);
-    let s = String(text).replace(SPACES, '').replace(/−/g, '-');
+    let s = String(text).trim().replace(/\u2212/g, '-');
     let sign = '';
     if (s[0] === '-' || s[0] === '+') { sign = s[0] === '-' ? '-' : ''; s = s.slice(1); }
     const halves = s.split(decimal);
@@ -104,7 +107,9 @@ export function parseNumber(text, ctx = {}) {
         if (frac != null) frac = frac.slice(0, -exp.length);
         else whole = whole.slice(0, -exp.length);
     }
-    const g = group.replace(SPACES, '');
+    const spaceGroup = group !== '' && group.replace(SPACES, '') === '';
+    const g = spaceGroup ? ' ' : group;
+    if (spaceGroup) whole = whole.replace(SPACES, ' ');
     if (g && whole.includes(g)) {
         const esc = g.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         if (!new RegExp(`^\\d{1,3}(${esc}\\d{3})+$`).test(whole)) return refuse(ctx, 'number');

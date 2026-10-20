@@ -4,7 +4,8 @@
  *   §1  the six are `CELL_EDITORS[type] = {create, parse}`; 'num' and 'date'
  *       name the number and datetime editors
  *   §2  number by `locale`: '1.234,56' (de-DE) and '1,234.56' (en-US) are
- *       1234.56; a separator out of place is refused, never misread
+ *       1234.56, '1 234,5' (fr-FR) is 1234.5; a separator out of place, a
+ *       space included, is refused, never misread
  *   §3  datetime: ISO, and the locale's day/month/year order ('31/12/2026'),
  *       checked (no 31 February), in the table's zone
  *   §4  bool and choice; blank is null for a number, a date and a choice
@@ -56,7 +57,21 @@ check('several groups', val(parseNumber('1,234,567.5', en)), 1234567.5);
 check('plain, negative, signed, a Unicode minus, exponent',
     ['42', '-3.5', '+7', '−2', '1.5e3', '.5'].map((t) => val(parseNumber(t, en))),
     [42, -3.5, 7, -2, 1500, 0.5]);
-check('spaces and no-break spaces are ignored', val(parseNumber(' 1 234,5 ', { locale: 'fr-FR' })), 1234.5);
+const fr = { locale: 'fr-FR' };
+check('spaces around the text are ignored', val(parseNumber(' 1234,5 ', fr)), 1234.5);
+check("fr-FR groups with a space: '1 234,5', a no-break and a narrow no-break space",
+    ['1 234,5', '1\u00a0234,5', '1\u202f234,5', '12 345 678'].map((t) => val(parseNumber(t, fr))),
+    [1234.5, 1234.5, 1234.5, 12345678]);
+check("fr-FR: a space out of place is refused, not read as 123.4 or 123456.7",
+    ['1 23,4', '12 3456,7', '1  234', '1 234, 5', '1 234,5 6'].map((t) => parseNumber(t, fr).ok),
+    [false, false, false, false, false]);
+check('sv-SE and pl-PL too', [val(parseNumber('1 234,5', { locale: 'sv-SE' })), parseNumber('1 23,4', { locale: 'pl-PL' }).ok],
+    [1234.5, false]);
+check("'1234 5' is refused in every locale",
+    ['en-US', 'de-DE', 'de-CH', 'fr-FR', 'sv-SE'].map((locale) => parseNumber('1234 5', { locale }).ok),
+    [false, false, false, false, false]);
+check('a space where the locale does not group with one is refused',
+    [parseNumber('1 234.5', en).ok, parseNumber('1 234,5', de).ok], [false, false]);
 check("'abc', '1.2.3', '-', '' are refused or null",
     ['abc', '1.2.3', '-', '12abc'].map((t) => parseNumber(t, en).ok), [false, false, false, false]);
 check('blank is null', [val(parseNumber('', en)), val(parseNumber('   ', en))], [null, null]);

@@ -109,11 +109,20 @@ export function projectSeries(values, count, { forceCopy = false } = {}) {
         return out;
     }
     if (series?.kind === 'date') {
-        const base = toDayMs(last);
+        // Calendar days, not 24-hour blocks: a `Date` keeps its wall-clock
+        // time across a daylight-saving change (local calendar), and a
+        // YYYY-MM-DD text stays on the UTC calendar it was parsed on.
         const asDate = last instanceof Date;
         for (let i = 1; i <= n; i++) {
-            const next = new Date(base + series.step * i * DAY_MS);
-            out.push(asDate ? next : next.toISOString().slice(0, 10));
+            if (asDate) {
+                const next = new Date(last.getTime());
+                next.setDate(next.getDate() + series.step * i);
+                out.push(next);
+            } else {
+                const next = new Date(toDayMs(last));
+                next.setUTCDate(next.getUTCDate() + series.step * i);
+                out.push(next.toISOString().slice(0, 10));
+            }
         }
         return out;
     }

@@ -10,6 +10,7 @@
  *
  *     node tests/series.test.mjs
  */
+import { execFileSync } from 'node:child_process';
 import { detectSeries, projectSeries } from '../src/ui/components/series.js';
 import * as widgets from '../widgets.js';
 
@@ -80,6 +81,22 @@ check('Date seeds give Dates',
       projectSeries([new Date('2026-01-01T00:00:00Z'), new Date('2026-01-08T00:00:00Z')], 2)
           .map((d) => d instanceof Date && d.toISOString()),
       ['2026-01-15T00:00:00.000Z', '2026-01-22T00:00:00.000Z']);
+// A `Date` seed moves by calendar days in local time, so it keeps its
+// wall-clock time across a daylight-saving change. The suite runs this in a
+// child process with TZ=Europe/Berlin (clocks go back on 25 Oct 2026): local
+// midnights on the Mondays 12 and 19 Oct continue on the following Mondays.
+{
+    const seriesUrl = new URL('../src/ui/components/series.js', import.meta.url).href;
+    const code = `
+        const { projectSeries } = await import(${JSON.stringify(seriesUrl)});
+        const out = projectSeries([new Date(2026, 9, 12), new Date(2026, 9, 19)], 3);
+        console.log(JSON.stringify(out.map((d) => [d.getFullYear(), d.getMonth() + 1, d.getDate(), d.getDay(), d.getHours(), d.getMinutes()])));`;
+    const raw = execFileSync(process.execPath, ['--input-type=module', '-e', code],
+        { env: { ...process.env, TZ: 'Europe/Berlin' }, encoding: 'utf8' });
+    check('Date seeds a week apart stay on Monday midnight across daylight saving (TZ=Europe/Berlin)',
+          JSON.parse(raw.trim()),
+          [[2026, 10, 26, 1, 0, 0], [2026, 11, 2, 1, 0, 0], [2026, 11, 9, 1, 0, 0]]);
+}
 check('dates across a month end',   projectSeries(['2026-01-30', '2026-01-31'], 2), ['2026-02-01', '2026-02-02']);
 check('any other block cycles',     projectSeries([1, 2, 4], 4),          [1, 2, 4, 1]);
 check('mixed block cycles',         projectSeries(['a', 1, null], 4),     ['a', 1, null, 'a']);

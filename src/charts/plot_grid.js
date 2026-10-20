@@ -187,8 +187,10 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
 
     /** The traces and layout of one subplot, or null when it has nothing to draw. */
     async function buildFigure(sp, index) {
+        // No results is the empty message, whatever is hidden.
+        if (!data) return null;
         const t = theme();
-        const time = data?.time ?? [];
+        const time = data.time ?? [];
         const traces = [];
         const layoutAxes = {};
         const yRefByAxisId = {};
@@ -285,9 +287,9 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
             if (Array.isArray(extra)) traces.push(...extra);
         }
 
-        // Nothing to draw is the empty message — unless every one of the
-        // subplot's own series is hidden: then it is an empty figure, so the
-        // viewer can tell "hidden" from "no data".
+        // Nothing to draw is the empty message — unless there are results and
+        // every one of the subplot's own series is hidden: then it is an empty
+        // figure, so the viewer can tell "hidden" from "no data".
         if (traces.length === 0 && !(ownCount > 0 && hiddenCount === ownCount)) return null;
 
         const legendPos = opts.alwaysShowLegend && (sp.legendPosition ?? 'hidden') === 'hidden'

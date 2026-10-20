@@ -244,8 +244,57 @@ console.log('\ncharts: renderPlotGrid\n');
           msg(cells[1]), 'Nothing to show.');
     check('the subplot whose one series is hidden draws an empty figure',
           [msg(cells[2]), lastFigureFor(cells[2])?.data.length], [null, 0]);
+
+    // Null results win over "all hidden": no data is the message, not an empty figure.
+    resetPlotly();
+    await grid.update({ results: null });
+    check('null results with every series of a subplot hidden: the message, no figure drawn',
+          [cells.map(msg), Plotly.reacts.length],
+          [Array(4).fill('Nothing to show.'), 0]);
     grid.dispose();
     host.remove();
+
+    resetPlotly();
+    const hostH = mountHost();
+    const gridH = renderPlotGrid(hostH, { layout: '1x2', subplots: [sp(['a']), sp(['b'])] }, null,
+                                 { hiddenSeries: ['a'] });
+    await settle();
+    check('a new grid with null results and a hidden series: every cell shows the message, nothing drawn',
+          [gridH.charts.map(msg), Plotly.reacts.length], [['No data yet.', 'No data yet.'], 0]);
+    gridH.dispose();
+    hostH.remove();
+
+    // PlotPopoutWindow: hide every series ("None"), the results go away, then
+    // updateConfig() redraws — every subplot shows the message, no empty figure.
+    {
+        resetPlotly();
+        let current = RESULTS;
+        const winH = new PlotPopoutWindow({
+            id: 'hidden-null-popout', title: 'Hidden, then no data',
+            plotConfig: { layout: '1x2', subplots: [sp(['a']), sp(['b'])] },
+            getResults: () => current,
+            services: { eventBus: { on: () => ({ dispose() {} }), emit() {} } },
+        });
+        await winH.show();
+        await settle();
+        const cellsH = () => [...winH._contentEl.querySelectorAll('.twm-plot-grid > .twm-plot-grid__cell')];
+        check('popout with results: both subplots draw', cellsH().map(msg), [null, null]);
+        winH._seriesToggleBtn.click();   // open the series panel
+        await settle();
+        const none = [...winH._contentEl.ownerDocument.querySelectorAll('.twm-plot-series-toggle-panel__action')]
+            .find((b) => b.textContent === 'None');
+        ok('popout: the series panel has a "None" button', !!none);
+        current = null;
+        none?.click();
+        await settle();
+        resetPlotly();
+        winH.updateConfig({ layout: '1x2', subplots: [sp(['a']), sp(['b'])] });
+        await settle();
+        check('popout: all hidden, then null results and updateConfig: every subplot shows the message, nothing drawn',
+              [cellsH().map(msg), Plotly.reacts.length], [['No data yet.', 'No data yet.'], 0]);
+        winH.close();
+        await settle();
+    }
 
     // PlotPopoutWindow with no data yet: updateConfig() to another layout
     // still rebuilds the cells for it (it used to, through #buildSubplotGrid).

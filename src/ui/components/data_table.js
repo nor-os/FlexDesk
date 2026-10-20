@@ -442,7 +442,7 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {Function} [onRowDelete] - `(rowIdx) => void`, from "Delete row" in a row's right-click menu.
  *
  * ── STORY-0091, off unless asked for ──────────────────────────────────────
- * @property {{labelColumns?: number, headerRows?: Array<Array<{label: string, columns: number[], className?: string|string[], title?: string}>>, emptyLabel?: string}} [crosstab] - A CROSSTAB (crosstab.js): one table in one scroller, the `thead` kept in the body table. `headerRows` draws rows of spans above the column headers (top first; a cell spans the run of drawn body columns it lists, a run in no cell is blank), the leading `labelColumns` drawn data columns are row labels, and header rows stick to the top and label columns (behind the select and row-number columns) to the left at offsets MEASURED after layout and again when a header row or pinned header cell changes size; the corner sticks to both. With no body column, one column headed `emptyLabel` ('(none)'). No header table is built, so the column fit, resize grips, header menu and `columnGroups` (ignored, with a warning) do not apply.
+ * @property {{labelColumns?: number, headerRows?: Array<Array<{label: string, columns: number[], className?: string|string[], title?: string}>>, emptyLabel?: string}} [crosstab] - A CROSSTAB (crosstab.js): one table in one scroller, the `thead` kept in the body table. `headerRows` draws rows of spans above the column headers (top first; a cell spans the run of drawn body columns it lists, a run in no cell is blank), the leading `labelColumns` drawn data columns are row labels, and header rows stick to the top and label columns (behind the select and row-number columns) to the left at offsets MEASURED after layout and again when a header row or pinned header cell changes size; the corner sticks to both. With no body column, one column headed `emptyLabel` ('(none)'). No header table is built, so the column fit, resize grips, header menu (and the header items of `table_structure`), `columnActions`, `reorderable` and `columnGroups` (ignored, with a warning) do not apply. A row's background is `--twm-dt-row-bg` on its `tr`, which the pinned cells lay over their surface.
  */
 
 /** C10. When the scroll box has no layout — mounted hidden, or a DOM with no
@@ -634,6 +634,8 @@ export class DataTable {
         // `_colGroups`, `_structure`); a table without them never builds either.
         this._columnGroups = null;
         this._tableStructure = null;
+        // STORY-0091. Built the first time `crosstab` is read (`_crosstab`).
+        this._crosstabLayout = null;
         if (this.config.selectionMode === 'cells') {
             const clash = ['selectToggle', 'selectMode', 'keyboardNav'].filter((k) => !!this.config[k]);
             if (clash.length) {
@@ -649,6 +651,10 @@ export class DataTable {
         }
         if (this.config.fillHandle && !this._cellGrid) {
             console.warn('[DataTable] `fillHandle` needs `staged`; ignored.');
+        }
+        // STORY-0091. A crosstab has no group row: its spans are `headerRows`.
+        if (Array.isArray(this.config.columnGroups) && this.config.columnGroups.length && this._crosstab()) {
+            console.warn('[DataTable] `columnGroups` cannot be combined with `crosstab` (use crosstab.headerRows); ignored.');
         }
 
         // STORY-0016. The select column is drawn for the table's whole life or
@@ -936,13 +942,7 @@ export class DataTable {
         if (!Array.isArray(spec) || !spec.length) return null;
         // STORY-0091. A crosstab's spanned rows are its `headerRows`; the
         // split layout's group row has no header table to stand in.
-        if (this._crosstab()) {
-            if (!this._warnedGroupsInCrosstab) {
-                this._warnedGroupsInCrosstab = true;
-                console.warn('[DataTable] columnGroups is ignored with crosstab: use crosstab.headerRows');
-            }
-            return null;
-        }
+        if (this._crosstab()) return null;
         return (this._columnGroups ||= new ColumnGroups(this));
     }
 

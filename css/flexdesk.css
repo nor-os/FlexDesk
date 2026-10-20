@@ -682,9 +682,14 @@ body.twm-dt-col-resizing {
     width: auto;
     min-width: 80px;
 }
-/* Alternating row backgrounds */
+/* Alternating row backgrounds. The stripe is the row's `--twm-dt-row-bg`, set
+   at no specificity so a consumer's row class can replace it; a crosstab
+   (STORY-0091) also lays it under its pinned cells. */
+:where(.twm-preview-table tbody tr:nth-child(even)) {
+    --twm-dt-row-bg: rgba(255, 255, 255, 0.02);
+}
 .twm-preview-table tbody tr:nth-child(even) {
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--twm-dt-row-bg);
 }
 /* Hover state (disabled in wizard via modifier) */
 .twm-preview-table:not(.twm-preview-table--readonly) tr:hover td {
@@ -923,10 +928,12 @@ body.twm-dt-col-resizing {
 }
 /* STORY-0066 `columnGroups` — the group row is a table of its own above the
  * header table (`twm-dt-groups`), its `<col>`s copied from the header's widths;
- * no first-column floor or cap of the header's applies to it. A placeholder
+ * no first-column floor or cap of the header's applies to it. A crosstab's
+ * spanned header cells (STORY-0091) are the same group cells. A placeholder
  * column (an empty group's) is drawn muted. The header action buttons are
  * small icon buttons that keep to the cell. */
-.twm-preview-table.twm-dt-groups th.twm-dt-group {
+.twm-preview-table.twm-dt-groups th.twm-dt-group,
+.twm-preview-table.twm-dt-crosstab th.twm-dt-group {
     width: auto;
     min-width: 0;
     max-width: none;
@@ -936,7 +943,8 @@ body.twm-dt-col-resizing {
     overflow: hidden;
     text-overflow: ellipsis;
 }
-.twm-preview-table.twm-dt-groups th.twm-dt-group + th.twm-dt-group {
+.twm-preview-table.twm-dt-groups th.twm-dt-group + th.twm-dt-group,
+.twm-preview-table.twm-dt-crosstab th.twm-dt-group + th.twm-dt-group {
     border-left: 1px solid var(--border-subtle, #333);
 }
 .twm-preview-table.twm-dt-groups th.twm-dt-group--empty .twm-dt-group__label {
@@ -994,9 +1002,15 @@ body.twm-dt-col-resizing {
  * Every header cell sticks to the top at the `top` crosstab.js measured for its
  * row; the pinned cells (select, row number and label columns) stick to the
  * left at the `left` it measured, and the corner — header cells over them — to
- * both, above everything else. A pinned body cell needs a background of its
- * own or the cells scrolling under it show through; its hover and selection
- * are laid over that background instead of replacing it. */
+ * both, above everything else. A pinned body cell needs an opaque background
+ * or the cells scrolling under it show through: the surface, with the row's
+ * own background (`--twm-dt-row-bg`: the stripe, or a consumer's row colour)
+ * laid over it, and hover and selection over that. Every crosstab row paints
+ * its `--twm-dt-row-bg`, so a row coloured through it is one colour from the
+ * label cells to the last column. */
+.twm-preview-table.twm-dt-crosstab tbody tr {
+    background: var(--twm-dt-row-bg, transparent);
+}
 .twm-preview-table.twm-dt-crosstab thead th {
     position: sticky;
     z-index: 3;
@@ -1007,27 +1021,19 @@ body.twm-dt-col-resizing {
 .twm-preview-table.twm-dt-crosstab tbody td.twm-dt-pin {
     position: sticky;
     z-index: 1;
-    background: var(--surface-0, #1e1e1e);
+    background: linear-gradient(var(--twm-dt-row-bg, transparent), var(--twm-dt-row-bg, transparent)) var(--surface-0, #1e1e1e);
 }
 .twm-preview-table.twm-dt-crosstab .twm-dt-pin--last {
     box-shadow: inset -1px 0 0 var(--border-strong, #3c3c3c);
 }
 .twm-preview-table.twm-dt-crosstab:not(.twm-preview-table--readonly) tbody tr:hover td.twm-dt-pin {
-    background: linear-gradient(rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.04)) var(--surface-0, #1e1e1e);
+    background: linear-gradient(rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.04)),
+        linear-gradient(var(--twm-dt-row-bg, transparent), var(--twm-dt-row-bg, transparent)) var(--surface-0, #1e1e1e);
 }
 .twm-preview-table.twm-dt-crosstab:not(.twm-preview-table--readonly) tbody tr.selected td.twm-dt-pin,
 .twm-preview-table.twm-dt-crosstab tbody tr.selected td.twm-dt-pin {
-    background: linear-gradient(var(--state-selected, rgba(0, 122, 204, 0.15)), var(--state-selected, rgba(0, 122, 204, 0.15))) var(--surface-0, #1e1e1e);
-}
-.twm-preview-table.twm-dt-crosstab th.twm-dt-group {
-    width: auto;
-    min-width: 0;
-    max-width: none;
-    text-align: center;
-    border-bottom: 1px solid var(--border-subtle, #333);
-}
-.twm-preview-table.twm-dt-crosstab th.twm-dt-group + th.twm-dt-group {
-    border-left: 1px solid var(--border-subtle, #333);
+    background: linear-gradient(var(--state-selected, rgba(0, 122, 204, 0.15)), var(--state-selected, rgba(0, 122, 204, 0.15))),
+        linear-gradient(var(--twm-dt-row-bg, transparent), var(--twm-dt-row-bg, transparent)) var(--surface-0, #1e1e1e);
 }
 .twm-preview-table.twm-dt-crosstab th.twm-dt-crosstab__none {
     font-style: italic;

@@ -1204,11 +1204,45 @@ list.setColumnVisible(3, true);
 | `columnChooser: true` | A right-click on the header opens a menu that lists every column, with a check mark on those shown. Choosing one shows or hides it. The last column shown is greyed out and says why. Without the option the header keeps the browser's menu. |
 | `setColumnVisible(colIdx, on)` | Shows or hides a column from code. Returns whether anything changed. The widths of the other columns, dragged or fitted, stay with their columns; a column shown again is measured. |
 | `getHiddenColumns()` | The hidden columns' indices, ascending. |
-| `onColumnsChange(hidden)` | Called after every change of the set: the chooser, `setColumnVisible` and `setData({ hiddenColumns })`. |
+| `onColumnsChange(hidden, { hidden, order })` | Called after every change of the set: the chooser, `setColumnVisible` and `setData({ hiddenColumns })`, and after every change of the column order (see below). `order` is `getColumnOrder()`. |
 | With `persistKey` | The set is saved with the sort and the filters and restored on mount. A saved set wins over `hiddenColumns`, so a column somebody chose stays chosen. A table without these options saves exactly what 0.9.1 saves. |
 
 A column sorted on and then hidden keeps the order; its arrow comes back with
 the column.
+
+### DataTable: columns in the order somebody puts them (0.17.0)
+
+Columns can be dragged into a new order by their headers, or ordered from
+code, and the order is remembered. The order is kept by data index, so
+`hiddenColumns`, the sort, the filters, `renderCell`'s `colIdx` and cell
+mode's `col` stay on their columns. A table that sets none of these options
+draws its columns in their natural order and saves what 0.16 saves.
+
+```js
+const list = DataTable.mount(host, {
+    headers: ['Id', 'Summary', 'Status', 'Owner'],
+    rows,
+    reorderable: true,
+    columnOrder: [0, 3, 1, 2],              // optional starting order
+    stateStore, persistKey: 'bugs:queue',
+    onColumnsChange: (hidden, { order }) => console.log('order now', order),
+});
+list.moveColumn(3, 1);                       // positions in getColumnOrder()
+```
+
+| Option | What it does |
+|---|---|
+| `reorderable: true` | Every data column's header can be dragged onto another; dropped, it takes that column's place (to its left when moved left, to its right when moved right). A press that starts on a column's resize grip resizes it and never starts a drag. The row-number and select columns stay first: they cannot be dragged, and nothing can be dropped on or in front of them. The header's right-click menu offers Move left and Move right, after any `headerMenu` items and before the `columnChooser` items; they pass over hidden columns. |
+| `columnOrder: [colIdx, ...]` | The order to draw the columns in: every data index once, hidden ones included. A list that is not a permutation of the columns is ignored with a console warning, and the natural order is drawn; a table mounted with no headers yet checks it, and warns once, when `setData` brings the first ones. Works without `reorderable`, in which case only code moves columns. `setData({ columnOrder })` applies a new order; `null` goes back to the natural one. |
+| `moveColumn(from, to)` | Moves the column at position `from` of `getColumnOrder()` to position `to`, the others closing up: from the natural order, `moveColumn(3, 1)` draws 0, 3, 1, 2. Returns whether the order changed. Dragged widths stay with their columns. |
+| `getColumnOrder()` | Every data index, hidden ones included, in the order drawn (a copy). |
+| With `persistKey` | The order is saved with the sort, the filters and the widths, and restored on mount. A saved order wins over `columnOrder`. A saved order for a different number of columns than the table has today is ignored: `columnOrder` is drawn, or the natural order when there is none. That holds whether the headers are known when the blob is read or come later with `setData`; likewise, a dragged order that new headers no longer fit gives way to `columnOrder`, or the natural order. A blob saved before 0.17 (no order) loads as it did. |
+| Copies and the CSV | Ctrl+C, the copy menu and `downloadCSV()` write the columns in the order shown. |
+
+The drag is HTML5 drag-and-drop on the header cells. The cell being dragged is
+`twm-dt-col--dragging`, the one under the pointer `twm-dt-col--drop` (plus
+`twm-dt-col--drop-after` when the column would land to its right). The logic
+lives in `column_order.js`, which is internal to the table.
 
 ### DataTable: the CSV button on every table (0.14.1)
 
@@ -3701,6 +3735,11 @@ config it was given and then calls `onChange(config)`.
 - A layout with more slots than there are subplots adds default subplots
   (`makeDefaultSubplot`); one with fewer keeps the extra subplots, so switching
   back restores them.
+- **Add Y axis** adds `makeDefaultYAxis(index)` (left for an even index, right
+  for an odd one) and **Add series** adds `makeDefaultSeries(index)` (coloured
+  by its place among the subplot's series). Both come from `@flexdesk/charts`,
+  and `makeDefaultSubplot` and `migrateData` build their axes and series from
+  them, so an axis added in the editor matches a default subplot's.
 - A 3D chart type gives the subplot a z axis (label, scale, min, max, step and
   a series) and uses its first y axis only: the other y axes are shown disabled
   and **Add Y axis** is disabled. A 2D chart type sets `zAxis` back to `null`.
@@ -3720,7 +3759,8 @@ config it was given and then calls `onChange(config)`.
 - `extraSeriesFields(el, series, { subplot, axis, onChange })` puts fields of
   your own in each series row; call `onChange()` after you edit the series. What
   it returns is disposed (`dispose()`) when the row is redrawn or the editor
-  is disposed.
+  is disposed. A `dispose()` that throws is reported to `logger.warn` and does
+  not stop the rest of the editor being disposed.
 
 It returns `{ dispose, refresh, selectSubplot, activeSubplot }`: `dispose()`
 disposes every field it created (every `AutocompleteField` among them) and

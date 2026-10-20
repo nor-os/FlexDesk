@@ -29,6 +29,7 @@ import { createChipsFilter } from './table_filter_chips.js';
 import { CellGrid } from './cell_grid.js';
 import { ColumnReorder, cellOrder, isColumnOrder, moveInOrder, naturalOrder } from './column_order.js';
 import { ColumnGroups } from './column_groups.js';
+import { Crosstab } from './crosstab.js';
 import { STRUCTURE_OPTIONS, TableStructure } from './table_structure.js';
 
 // 0.7.0: the built-in chips filter control, for a consumer that wants to build
@@ -439,6 +440,9 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {Function} [onColumnDelete] - `(colIdx) => void`, from "Delete column" in the header's right-click menu.
  * @property {Function} [onRowAdd] - `(afterRowIdx|null) => void`, from "Insert row below" in a row's right-click menu (its original index) and "Add row" in the header's (null), so a table with no rows can get its first.
  * @property {Function} [onRowDelete] - `(rowIdx) => void`, from "Delete row" in a row's right-click menu.
+ *
+ * ── STORY-0091, off unless asked for ──────────────────────────────────────
+ * @property {{labelColumns?: number, headerRows?: Array<Array<{label: string, columns: number[], className?: string|string[], title?: string}>>, emptyLabel?: string}} [crosstab] - A CROSSTAB (crosstab.js): one table in one scroller, the `thead` kept in the body table. `headerRows` draws rows of spans above the column headers (top first; a cell spans the run of drawn body columns it lists, a run in no cell is blank), the leading `labelColumns` drawn data columns are row labels, and header rows stick to the top and label columns (behind the select and row-number columns) to the left at offsets MEASURED after layout and again when a header row or pinned header cell changes size; the corner sticks to both. With no body column, one column headed `emptyLabel` ('(none)'). No header table is built, so the column fit, resize grips, header menu and `columnGroups` (ignored, with a warning) do not apply.
  */
 
 /** C10. When the scroll box has no layout — mounted hidden, or a DOM with no
@@ -920,7 +924,9 @@ export class DataTable {
     _domColCount() {
         const n = Math.max(0, (this.config.headers?.length || 0) - this._hidden.size);
         // STORY-0066: an empty group's placeholder column is drawn too.
-        return n + this._lead().all + (this._colGroups()?.placeholderCount() || 0);
+        return n + this._lead().all + (this._colGroups()?.placeholderCount() || 0)
+            // STORY-0091: an empty axis's one column.
+            + (this._crosstab()?.extraColumns() || 0);
     }
 
     /** STORY-0066. The column groups (column_groups.js) while `columnGroups`
@@ -928,7 +934,24 @@ export class DataTable {
     _colGroups() {
         const spec = this.config.columnGroups;
         if (!Array.isArray(spec) || !spec.length) return null;
+        // STORY-0091. A crosstab's spanned rows are its `headerRows`; the
+        // split layout's group row has no header table to stand in.
+        if (this._crosstab()) {
+            if (!this._warnedGroupsInCrosstab) {
+                this._warnedGroupsInCrosstab = true;
+                console.warn('[DataTable] columnGroups is ignored with crosstab: use crosstab.headerRows');
+            }
+            return null;
+        }
         return (this._columnGroups ||= new ColumnGroups(this));
+    }
+
+    /** STORY-0091. The crosstab layout (crosstab.js) while `crosstab` is an
+     *  object; null otherwise. */
+    _crosstab() {
+        const spec = this.config.crosstab;
+        if (!spec || typeof spec !== 'object') return null;
+        return (this._crosstabLayout ||= new Crosstab(this));
     }
 
     /** STORY-0066. The structural edits (table_structure.js) while any of
@@ -1872,7 +1895,9 @@ export class DataTable {
         // empty one must keep the filter row — or a filter that matched nothing
         // could never be cleared. It goes through `_createTable` and gets its
         // empty row there.
-        const keepFilterRow = rows.length === 0 && !!this.config.dataSource && this.config.filterable;
+        // STORY-0091: a crosstab keeps its header rows and its corner too.
+        const keepFilterRow = rows.length === 0
+            && ((!!this.config.dataSource && this.config.filterable) || !!this._crosstab());
         if (rows.length === 0 && !keepFilterRow) {
             // Empty state — render the same chrome as the data table
             // (header row in its own non-scrolling wrap) followed by a
@@ -1927,7 +1952,15 @@ export class DataTable {
             this._tableEl = fullTable;
             // Extract thead → header table in its own non-scrolling
             // container. The body table keeps tbody only.
-            const thead = fullTable.querySelector('thead');
+            // STORY-0091. A crosstab keeps its `thead` in the body table: one
+            // table in one scroller, pinned by `position: sticky`.
+            const crosstab = this._crosstab();
+            const thead = crosstab ? null : fullTable.querySelector('thead');
+            if (crosstab) {
+                crosstab.decorate(fullTable);
+                this._headerTableEl = null;
+                this._headerWrapEl = null;
+            }
             if (thead) {
                 const headerWrap = document.createElement('div');
                 headerWrap.className = 'twm-preview-table-header-wrap';
@@ -1992,6 +2025,8 @@ export class DataTable {
             if (this._pagingEl) this._wrapperEl.appendChild(this._pagingEl);
         }
         this.container.appendChild(this._wrapperEl);
+        // STORY-0091. The crosstab's offsets, measured now the table is in.
+        this._crosstab()?.install();
         // 0.6.1 `scrollLock`: THIS render's body box joins the group, and leaves
         // it with the next render's cleanup or the dispose.
         if (this.config.scrollLock && typeof this.config.scrollLock.attach === 'function') {
@@ -4289,6 +4324,8 @@ export class DataTable {
         }
         // STORY-0066. An empty group's placeholder column.
         this._colGroups()?.fillRow(tr);
+        // STORY-0091. The crosstab's pinned cells, and an empty axis's cell.
+        this._crosstab()?.fillRow(tr);
         // STORY-0003. The selection, and a commit's pending or refused mark.
         this._cellGrid?.decorateRow(tr);
     }

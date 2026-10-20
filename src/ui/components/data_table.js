@@ -422,11 +422,12 @@ const AUTOSIZE_MAX_PX = 520;
 const VIRTUAL_FALLBACK_VIEWPORT_PX = 1000;
 
 /** The copy menu's two items — the whole right-click menu of a table without
- *  `contextMenuItems`, and its tail with them (STORY-0010). */
-const COPY_MENU_HTML = `
+ *  `contextMenuItems`, and its tail with them (STORY-0010). In cell mode the
+ *  first item copies cells, not rows, and says so (STORY-0085). */
+const copyMenuHtml = (cells) => `
             <div class="twm-context-menu-item" data-action="copy-tsv">
                 <span class="material-symbols-outlined">content_copy</span>
-                <span class="label">Copy Row(s)</span>
+                <span class="label">${cells ? 'Copy Cells' : 'Copy Row(s)'}</span>
             </div>
             <div class="twm-context-menu-item" data-action="copy-csv">
                 <span class="material-symbols-outlined">table</span>
@@ -6871,7 +6872,7 @@ export class DataTable {
         menu.style.display = 'none';
         menu.style.position = 'fixed';
         menu.style.zIndex = '10001';
-        menu.innerHTML = COPY_MENU_HTML;
+        menu.innerHTML = copyMenuHtml(!!this._cellGrid);
         document.body.appendChild(menu);
 
         menu.addEventListener('click', (event) => {
@@ -7040,7 +7041,7 @@ export class DataTable {
         this._contextMenuCtx = custom ? custom.ctx : null;
         if (!custom) {
             if (this._contextMenuCustom) {
-                menu.innerHTML = COPY_MENU_HTML;
+                menu.innerHTML = copyMenuHtml(!!this._cellGrid);
                 this._contextMenuCustom = false;
             }
             return;
@@ -7085,7 +7086,7 @@ export class DataTable {
                 sep.className = 'twm-context-menu__separator';
                 menu.appendChild(sep);
             }
-            menu.insertAdjacentHTML('beforeend', COPY_MENU_HTML);
+            menu.insertAdjacentHTML('beforeend', copyMenuHtml(!!this._cellGrid));
         }
     }
 

@@ -1492,9 +1492,24 @@ const table = DataTable.mount(host, {
 | `emptyLabel` | With no body column at all (an empty axis), one column headed with this text (default `'(none)'`) and an empty cell in every row, and no header rows. It is no data column. |
 
 The table carries `twm-dt-crosstab`, the header rows `tr.twm-dt-crosstab__band`
-and the column headers `tr.twm-dt-crosstab__leaf`. There is no separate header
-table, so the split layout's column fit, resize grips, header right-click menu
-and `columnGroups` row do not apply (`columnGroups` is ignored with a warning).
+and the column headers `tr.twm-dt-crosstab__leaf`; the spanned header cells are
+`columnGroups`' group cells (`th.twm-dt-group`) and are styled as those. There
+is no separate header table, so the split layout's column fit, resize grips,
+header right-click menu (`columnChooser`, `headerMenu`, and the header items of
+`onColumnRename`, `onColumnDelete` and `onRowAdd`), `columnActions`,
+`reorderable` and `columnGroups` row do not apply (`columnGroups` is ignored
+with a warning).
+
+A row's background is the custom property `--twm-dt-row-bg` on its `<tr>`
+(the zebra stripe sets it on even rows, at no specificity). Every crosstab row
+paints it, and the pinned label cells lay it over their opaque surface, so a
+coloured row keeps its colour across the label cells too. To colour a row, set
+the property from its `rowClass`, not `background` on the `tr` (the crosstab's
+row rule paints the property instead):
+
+```css
+.my-sum-row { --twm-dt-row-bg: rgba(255, 255, 255, 0.06); }
+```
 Under `virtualize` the columns are held at the widths first measured, so they
 do not shift as rows scroll in and out. With 1,000 rows and 50 body columns
 under `virtualize`, the first draw stays well under 300 ms in jsdom (tests/crosstab.test.mjs §6).

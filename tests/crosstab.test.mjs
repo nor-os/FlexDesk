@@ -229,6 +229,14 @@ section('§2 header rows stay pinned while the body scrolls vertically, each at 
     check('under a 200% zoom the tops are written in the unzoomed space', rowTops(), [[0], [38], [62], [92]]);
     delete thead.currentCSSZoom;
 
+    // At 100% the fractions stand: no rounded length (offsetHeight) rescales them.
+    GEO.rowH = [20.5, 24.25, 30, 26];
+    Object.defineProperty(thead, 'offsetHeight', { configurable: true, value: 101 });
+    resized(headRows(host)[0]);
+    await frames();
+    check('fractional row heights give fractional tops, exactly', rowTops(), [[0], [20.5], [44.75], [74.75]]);
+    delete thead.offsetHeight;
+
     // A re-render measures again (its own new rows).
     GEO.rowH = [20, 24, 30, 26];
     table.render();
@@ -286,6 +294,20 @@ section('§3 row-label columns stay pinned while the body scrolls sideways; the 
     const sheet = T.css('flexdesk.css');
     ok('a pinned body cell is sticky with a background of its own',
        /\.twm-dt-crosstab tbody td\.twm-dt-pin \{\s*position: sticky;\s*z-index: 1;\s*background:/.test(sheet));
+    const ROW_LAYER = 'linear-gradient(var(--twm-dt-row-bg, transparent), var(--twm-dt-row-bg, transparent)) var(--surface-0, #1e1e1e)';
+    const ruleOf = (selector) => {
+        const at = sheet.indexOf(`${selector} {`);
+        return at < 0 ? '' : sheet.slice(at, sheet.indexOf('}', at));
+    };
+    ok('the zebra stripe is the row\'s --twm-dt-row-bg',
+       /:where\(\.twm-preview-table tbody tr:nth-child\(even\)\) \{\s*--twm-dt-row-bg: rgba\(255, 255, 255, 0\.02\);/.test(sheet)
+       && ruleOf('.twm-preview-table tbody tr:nth-child(even)').includes('background: var(--twm-dt-row-bg);'));
+    ok('a pinned body cell lays the row\'s background (the stripe) over the opaque surface',
+       ruleOf('.twm-preview-table.twm-dt-crosstab tbody td.twm-dt-pin').includes(`background: ${ROW_LAYER};`));
+    const hover = ruleOf('.twm-preview-table.twm-dt-crosstab:not(.twm-preview-table--readonly) tbody tr:hover td.twm-dt-pin');
+    ok('…hover over the row\'s background, not instead of it', hover.includes('rgba(255, 255, 255, 0.04)),') && hover.includes(ROW_LAYER));
+    const selected = ruleOf('.twm-preview-table.twm-dt-crosstab tbody tr.selected td.twm-dt-pin');
+    ok('…selection likewise', selected.includes('rgba(0, 122, 204, 0.15))),') && selected.includes(ROW_LAYER));
     ok('a pinned header cell (the corner) is above the header and the body',
        /\.twm-dt-crosstab thead th\.twm-dt-pin \{\s*z-index: 4;/.test(sheet));
 
@@ -370,6 +392,21 @@ section('§5 totals rows and columns and every label come from the consumer (voc
     check('the consumer\'s row is drawn as the consumer marked it', rows.map((tr) => tr.classList.contains('my-sum-row')), [false, false, true]);
     check('…with the consumer\'s label and values', [...rows[2].children].map((c) => c.textContent), ['All', '6', '8', '10', '12', '36']);
     check('the consumer\'s column is marked by the consumer', rows.map((tr) => tr.children[5].classList.contains('my-sum-col')), [true, true, true]);
+    // The consumer colours that row: `--twm-dt-row-bg` through its rowClass.
+    // jsdom cascades no custom property, so the contract is read off the
+    // stylesheet: every crosstab row paints the variable, its pinned cells lay
+    // it over their surface, and the sheet's own value (the stripe) is set at
+    // no specificity, so a consumer's one-class rule replaces it on every row.
+    const css = T.css('flexdesk.css');
+    ok('every crosstab row paints its --twm-dt-row-bg',
+       /\.twm-preview-table\.twm-dt-crosstab tbody tr \{\s*background: var\(--twm-dt-row-bg, transparent\);/.test(css));
+    ok('…and its pinned cells lay it over the surface, so the label cells carry the row colour',
+       /tbody td\.twm-dt-pin \{[^}]*background: linear-gradient\(var\(--twm-dt-row-bg, transparent\), var\(--twm-dt-row-bg, transparent\)\) var\(--surface-0/.test(css));
+    const setters = css.split('}').filter((rule) => /--twm-dt-row-bg\s*:/.test(rule)).map((rule) => rule.trim().split('{')[0].trim().split('\n').pop());
+    check('the sheet sets --twm-dt-row-bg only at no specificity (a consumer\'s .my-sum-row wins)',
+          setters, [':where(.twm-preview-table tbody tr:nth-child(even))']);
+    const doc = readFileSync(resolvePath(HERE, '../README.md'), 'utf8');
+    ok('the README tells a consumer to colour a crosstab row through --twm-dt-row-bg', /--twm-dt-row-bg/.test(doc.slice(doc.indexOf('### DataTable: a crosstab'))));
     const head = runs(bands(host)[0])[2];
     check('a band cell takes the consumer\'s class, label and title',
           [head.classList.contains('my-sum-head'), head.textContent, head.title], [true, 'All', 'All years']);
@@ -444,9 +481,11 @@ section('§7 a table without crosstab is the 0.16 table');
         columnGroups: [{ key: 'a', label: 'A', columns: [1, 2] }],
         crosstab: { labelColumns: 1, headerRows: [years] },
     });
+    both.table.render();
     console.warn = warn;
+    check('…once, from the constructor, however often it draws', warned.filter((w) => /columnGroups/.test(w)).length, 1);
     check('columnGroups beside crosstab: no group table', both.host.querySelectorAll('table.twm-dt-groups').length, 0);
-    ok('…and a warning that says to use headerRows', warned.some((w) => /columnGroups is ignored with crosstab/.test(w)));
+    ok('…and a warning that says to use headerRows', warned.some((w) => /^\[DataTable\] `columnGroups` cannot be combined with `crosstab` \(use crosstab\.headerRows\); ignored\.$/.test(w)));
     check('…the crosstab is drawn', bands(both.host).length, 1);
 }
 

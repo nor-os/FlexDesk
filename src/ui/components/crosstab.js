@@ -53,11 +53,7 @@ const DEFAULT_EMPTY_LABEL = '(none)';
 /** The CSS zoom an element is drawn in, as the factor that takes a measured
  *  (zoomed) length back to the space `style` lengths are written in. */
 function unzoom(el) {
-    const zoom = el?.currentCSSZoom;
-    if (typeof zoom === 'number' && zoom > 0) return 1 / zoom;
-    const box = el?.getBoundingClientRect?.();
-    if (box && box.height && el.offsetHeight) return el.offsetHeight / box.height;
-    return 1;
+    return 1 / (el?.currentCSSZoom || 1);
 }
 
 export class Crosstab {

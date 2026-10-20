@@ -376,6 +376,9 @@ export class CellGrid {
             return true;
         }
         if (k === 'Tab' && !ctrl && !ev.altKey) {
+            // On the last cell (the first, going back) Tab is not taken:
+            // focus moves on out of the table, as Tab says.
+            if (this.sel.tabEnds(ev.shiftKey)) return false;
             this.sel.tab(ev.shiftKey);
             this._changed({ reveal: true });
             return true;

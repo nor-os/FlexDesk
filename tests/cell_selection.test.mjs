@@ -8,7 +8,9 @@
  *       `getCellSelection()`; every cell in it is `twm-dt-cell--selected`;
  *       `getSelection()` still answers rows (the rows the range touches)
  *   §2  the keys on the focused table: arrows, Ctrl+arrow, Home/End, Tab and its
- *       wrap, ArrowDown on the last row, Shift extends, Ctrl+A, Escape
+ *       wrap (not taken on the last cell, nor Shift+Tab on the first, so
+ *       focus leaves the table), ArrowDown on the last row, Shift extends,
+ *       Ctrl+A, Escape
  *   §3  the range follows the order SHOWN (a sort) and skips hidden columns
  *   §4  combining with selectToggle / selectMode / keyboardNav is ignored with
  *       a warning; `editable` without cell mode is ignored with a warning
@@ -73,6 +75,11 @@ section('§0 the model');
     m.setCursor(4, 3);
     m.tab();
     check('Tab on the last cell stays', m.focus, { row: 4, col: 3 });
+    ok('tabEnds on the last cell', m.tabEnds() && !m.tabEnds(true));
+    m.setCursor(0, 0);
+    ok('tabEnds(back) on the first cell', m.tabEnds(true) && !m.tabEnds());
+    m.setCursor(2, 1);
+    ok('tabEnds is false inside the grid', !m.tabEnds() && !m.tabEnds(true));
     m.setCursor(2, 2);
     m.lineEnd(false);
     check('Home: the row\'s first column', m.focus, { row: 2, col: 0 });
@@ -195,6 +202,21 @@ section('§2 the keys');
     key(t, 'Tab', { shiftKey: true });
     key(t, 'Tab', { shiftKey: true });
     check('Shift+Tab wraps back to the row before', focusOf(table), [2, 4]);
+    const tabEv = (opts = {}) => {
+        const e = new T.window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true, ...opts });
+        t.dispatchEvent(e);
+        return e;
+    };
+    ok('Tab inside the grid is taken', tabEv().defaultPrevented);
+    check('…and moves right', focusOf(table), [3, 0]);
+    table.setCellSelection({ row: 4, col: 4 });
+    ok('Tab on the last cell is not prevented: focus moves out of the table', !tabEv().defaultPrevented);
+    check('…and the cursor stays', focusOf(table), [4, 4]);
+    table.setCellSelection({ row: 0, col: 0 });
+    ok('Shift+Tab on the first cell is not prevented', !tabEv({ shiftKey: true }).defaultPrevented);
+    check('…and the cursor stays', focusOf(table), [0, 0]);
+    ok('Shift+Tab elsewhere is taken', (table.setCellSelection({ row: 0, col: 1 }), tabEv({ shiftKey: true }).defaultPrevented));
+    check('…and moves left', focusOf(table), [0, 0]);
     table.setCellSelection({ row: 1, col: 1 });
     key(t, 'ArrowDown', { shiftKey: true });
     key(t, 'ArrowRight', { shiftKey: true });

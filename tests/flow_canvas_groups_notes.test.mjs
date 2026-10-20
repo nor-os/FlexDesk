@@ -31,6 +31,9 @@
  *  §11 the toolbar's Arrange (STORY-0080) counts only picked steps: one step
  *       and a note picked arrange the whole graph; two steps and a note
  *       arrange those two and leave the note where it is
+ *  §12 typing open in a note or a group name ends, unsaved, when load()
+ *      replaces the graph (even one with a note of the same id) or when the
+ *      note or group goes away under it
  *
  *     node tests/flow_canvas_groups_notes.test.mjs
  */
@@ -545,6 +548,19 @@ t.section('§9 copy and paste carry the notes, and the groups wholly inside the 
     t.check('…and a paste of steps with notes and groups takes only the steps',
             [off.editor.getGraph().nodes.length, 'notes' in off.editor.getGraph(), 'groups' in off.editor.getGraph()],
             [8, false, false]);
+
+    // Notes that normalise drops (no id) leave nothing to paste: refused, as other unusable text.
+    const idless = JSON.stringify({ nodes: [], connections: [], notes: [{ text: 'no id' }] });
+    for (const opts of [{ ...ALL, clipboard }, { groups: true, notes: true, clipboard }]) {
+        const p = mount(opts);
+        const pBefore = p.editor.serialise();
+        const pSel = p.selects.length;
+        const r = p.editor.paste(idless);
+        t.check(`notes without ids paste nothing: refused (multiSelect ${Boolean(opts.multiSelect)})`,
+                [r.ok, r.reason, p.editor.serialise() === pBefore, p.selects.length === pSel],
+                [false, 'What is on the clipboard is not steps of a flow.', true, true]);
+        t.ok('…and the refusal is on the message line', /not steps of a flow/.test(p.el.textContent));
+    }
 }
 
 t.section('§10 a group and a note with the same id: editing one never blocks the other');
@@ -596,6 +612,90 @@ t.section('§11 Arrange counts the picked steps, not the picked notes');
     t.check('two steps and a note: only those steps are arranged, one entry',
             [m2.editor.history.depth - d1, pos(m2, 'c'), pos(m2, 'far'), notesOf(m2)[0].position],
             [1, c0, far0, { x: 304, y: 48 }]);
+}
+
+t.section('§12 typing in place ends, unsaved, with the graph it belongs to');
+{
+    const N1 = (text) => ({ nodes: [node('a', 96, 160)], connections: [],
+                            groups: [{ id: 'g1', label: 'Old', nodes: ['a'] }],
+                            notes: [{ id: 'n1', text, position: { x: 96, y: 600 } }] });
+    const m = mount(ALL, N1('hello'));
+    noteEl(m, 'n1').dispatchEvent(ev(w.MouseEvent, 'dblclick'));
+    const input = noteEl(m, 'n1').querySelector('textarea');
+    input.value = 'typed before load';
+    const seen = m.changes.length;
+    m.editor.load({ graph: N1('server text') }, { fit: false });
+    t.ok('load() closes the open note', !noteEl(m, 'n1').querySelector('textarea') && !input.isConnected);
+    input.dispatchEvent(new w.FocusEvent('blur'));
+    t.check('…and the text typed before it never reaches the loaded graph',
+            [notesOf(m)[0].text, m.changes.slice(seen).map((c) => c.action),
+             noteEl(m, 'n1').querySelector('.twm-flow-graph__note-text').textContent],
+            ['server text', [], 'server text']);
+
+    frameOf(m, 'g1').querySelector('.twm-flow-graph__group-head').dispatchEvent(ev(w.MouseEvent, 'dblclick'));
+    const name = m.el.querySelector('.twm-flow-graph__group-input');
+    name.value = 'typed before load';
+    m.editor.load({ graph: { ...N1('x'), groups: [{ id: 'g1', label: 'Server', nodes: ['a'] }] } }, { fit: false });
+    name.dispatchEvent(new w.FocusEvent('blur'));
+    t.check('load() closes an open group name too, nothing written',
+            [m.el.querySelector('.twm-flow-graph__group-input'), groupsOf(m)[0].label,
+             frameOf(m, 'g1').querySelector('.twm-flow-graph__group-label').textContent,
+             m.changes.slice(seen).map((c) => c.action)],
+            [null, 'Server', 'Server', []]);
+
+    // The note or group removed under the typing (here by the API): the box goes, the typing with it.
+    noteEl(m, 'n1').dispatchEvent(ev(w.MouseEvent, 'dblclick'));
+    const gone = noteEl(m, 'n1').querySelector('textarea');
+    gone.value = 'typed into a removed note';
+    const removed = m.changes.length;
+    t.ok('the API removes the note being typed into', m.editor.removeNote('n1') !== false);
+    t.ok('…which takes its input along', !gone.isConnected && !noteEl(m, 'n1'));
+    gone.dispatchEvent(new w.FocusEvent('blur'));
+    t.check('a note gone: nothing but the removal written, no note made again',
+            [notesOf(m), m.changes.slice(removed).map((c) => c.action)], [undefined, ['flow:note:remove']]);
+    m.editor.undo();
+    noteEl(m, 'n1').dispatchEvent(ev(w.MouseEvent, 'dblclick'));
+    const back = noteEl(m, 'n1').querySelector('textarea');
+    t.ok('undone, the note opens for typing again (the old typing is over, not left behind)', Boolean(back));
+    keyOn(back, 'Escape');
+    frameOf(m, 'g1').querySelector('.twm-flow-graph__group-head').dispatchEvent(ev(w.MouseEvent, 'dblclick'));
+    const gname = m.el.querySelector('.twm-flow-graph__group-input');
+    gname.value = 'typed into a removed group';
+    const before = m.changes.length;
+    t.ok('the API ungroups the group being renamed', m.editor.ungroup('g1') === true);
+    t.ok('…which takes its name input along', !gname.isConnected && !frameOf(m, 'g1'));
+    gname.dispatchEvent(new w.FocusEvent('blur'));
+    t.check('a group gone: nothing but the ungroup written, no group made again',
+            [groupsOf(m), m.changes.slice(before).length], [undefined, 1]);
+    m.editor.undo();
+    frameOf(m, 'g1').querySelector('.twm-flow-graph__group-head').dispatchEvent(ev(w.MouseEvent, 'dblclick'));
+    t.check('undone, the group shows its name and renames again',
+            [frameOf(m, 'g1').querySelector('.twm-flow-graph__group-label').textContent,
+             Boolean(m.el.querySelector('.twm-flow-graph__group-input'))], ['Server', true]);
+    keyOn(m.el.querySelector('.twm-flow-graph__group-input'), 'Escape');
+
+    // The next one made takes the gone one's fresh id: it is not mistaken for the box still being typed in
+    // (no blur here: not every browser sends one when the focused input is taken out of the page).
+    const f = mount(ALL, { nodes: [node('a', 96, 160)], connections: [] });
+    tool(f, 'note').click();
+    const first = noteEl(f, 'note').querySelector('textarea');
+    first.value = 'typed into the first';
+    f.editor.removeNote('note');
+    f.editor.addNote({ text: 'second', position: { x: 96, y: 600 } });
+    noteEl(f, 'note').dispatchEvent(ev(w.MouseEvent, 'dblclick'));
+    const second = noteEl(f, 'note').querySelector('textarea');
+    t.check('a note made under the removed one\'s id opens for typing, with its own text',
+            [Boolean(second), second?.value, notesOf(f)[0].text], [true, 'second', 'second']);
+    if (second) keyOn(second, 'Escape');
+    f.editor.group(['a'], { label: 'First' });
+    frameOf(f, 'group').querySelector('.twm-flow-graph__group-head').dispatchEvent(ev(w.MouseEvent, 'dblclick'));
+    const gInput = f.el.querySelector('.twm-flow-graph__group-input');
+    gInput.value = 'typed into the first';
+    f.editor.ungroup('group');
+    f.editor.group(['a'], { label: 'Second' });
+    t.check('a group made under the removed one\'s id shows its own name',
+            [groupsOf(f)[0].id, frameOf(f, 'group').querySelector('.twm-flow-graph__group-label').textContent],
+            ['group', 'Second']);
 }
 
 for (const e of mounted) e.destroy();

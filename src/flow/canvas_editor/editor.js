@@ -2180,6 +2180,8 @@ export function createCanvasEditor(host, options = {}) {
     function paintFrames() {
         if (!grouping || destroyed) return;
         const live = new Set(groupList().map((gr) => gr.id));
+        // A group gone while its name is being typed: the typing ends, unsaved.
+        if (editing?.kind === 'group' && !live.has(editing.id)) editing.done(false);
         for (const [id, f] of frameEls) if (!live.has(id)) { f.remove(); frameEls.delete(id); }
         for (const gr of groupList()) {
             let f = frameEls.get(gr.id);
@@ -2353,6 +2355,8 @@ export function createCanvasEditor(host, options = {}) {
     function paintNotes() {
         if (!noting || destroyed) return;
         const live = new Set(noteList().map((x) => x.id));
+        // A note gone while it is being typed into: the typing ends, unsaved.
+        if (editing?.kind === 'note' && !live.has(editing.id)) editing.done(false);
         for (const [id, box] of noteEls) if (!live.has(id)) { box.remove(); noteEls.delete(id); }
         const picks = new Set(pickedNotes());
         for (const note of noteList()) {
@@ -2842,6 +2846,8 @@ export function createCanvasEditor(host, options = {}) {
             return { reason: say(S, 'pasteNotSteps') };
         }
         const g = normalise(raw);
+        // Nothing usable once read: no steps and no notes left to paste.
+        if (!g.nodes.length && !g.notes?.length) return { reason: say(S, 'pasteNotSteps') };
         const odd = g.nodes.find((n) => !addable(typeOf(n)));
         if (odd) return { reason: typeOf(odd) ? say(S, 'notAddable', titleOf(odd)) : say(S, 'unknownType', odd.type) };
         return { g };
@@ -3036,6 +3042,8 @@ export function createCanvasEditor(host, options = {}) {
          */
         load({ graph: g = null, flowSettings: fs } = {}, { baseline = true, fit: andFit = true, viewport } = {}) {
             if (destroyed) return;
+            // Typing open in a note or a group name belongs to the graph being replaced.
+            editing?.done(false);
             if (connecting) cancelConnect();
             if (pendingOffer) clearOffer();
             graph = normalise(g);

@@ -3653,10 +3653,13 @@ It returns `{ dispose, refresh, selectSubplot, activeSubplot }`: `dispose()`
 disposes every field it created (every `AutocompleteField` among them) and
 removes the editor; `refresh()` redraws it after the config was changed from
 outside; `selectSubplot(index)` brings a subplot to the front. It fits
-`PlotPopoutWindow`'s `configRenderer` slot:
+`PlotPopoutWindow`'s `configRenderer` slot, `(container) => { dispose() } | void`:
+the window disposes what the renderer returns when it closes, so return the
+editor and its dropdowns leave `document.body` with the window.
+`openPlotPopoutWindow` is async; await it:
 
 ```js
-const win = openPlotPopoutWindow({ id, title, plotConfig, getResults, services,
+const win = await openPlotPopoutWindow({ id, title, plotConfig, getResults, services,
     configRenderer: (el) => renderPlotConfigEditor(el, plotConfig,
                                 { onChange: () => win.updateConfig(plotConfig) }) });
 ```

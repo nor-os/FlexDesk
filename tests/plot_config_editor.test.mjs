@@ -91,7 +91,7 @@ process.on('unhandledRejection', (err) => {
 const { renderPlotConfigEditor } = await import('../src/charts/plot_config_editor.js');
 const { makeDefaultSubplot } = await import('../src/charts/plot_config.js');
 const { AutocompleteField } = await import('../src/ui/components/autocomplete_field.js');
-const { PlotPopoutWindow } = await import('../src/charts/plot_popout_window.js');
+const { PlotPopoutWindow, openPlotPopoutWindow } = await import('../src/charts/plot_popout_window.js');
 const barrel = await import('../charts.js');
 
 // Every AutocompleteField that renders, and every one that is disposed.
@@ -619,28 +619,52 @@ console.log('\ncharts: renderPlotConfigEditor\n');
     console.log('\n§8 PlotPopoutWindow configRenderer');
     const config = oneByOne();
     config.subplots[0].yAxes[0].series.push({ id: 'a', variable: 'a', label: 'A' });
-    let win = null;
-    let editor = null;
-    win = new PlotPopoutWindow({
-        id: 'editor-popout', title: 'Editor',
-        plotConfig: config,
-        getResults: () => ({ time: [0, 1, 2], series: { a: [1, 2, 3] } }),
-        services: { eventBus: { on: () => ({ dispose() {} }), emit() {} } },
-        configRenderer: (el) => {
-            editor = renderPlotConfigEditor(el, config, { onChange: () => win.updateConfig(config) });
-        },
-    });
-    await win.show();
+    const id = 'editor-popout';
+    const title = 'Editor';
+    const plotConfig = config;
+    const getResults = () => ({ time: [0, 1, 2], series: { a: [1, 2, 3] } });
+    const services = { eventBus: { on: () => ({ dispose() {} }), emit() {} } };
+    const dropdowns = () => document.body.querySelectorAll('.twm-autocomplete-field__dropdown').length;
+    const before = dropdowns();
+    // The README's example, as written.
+    const win = await openPlotPopoutWindow({ id, title, plotConfig, getResults, services,
+        configRenderer: (el) => renderPlotConfigEditor(el, plotConfig,
+                                    { onChange: () => win.updateConfig(plotConfig) }) });
     await ticks();
+    ok('openPlotPopoutWindow resolves to the window', win instanceof PlotPopoutWindow);
     const cells = () => win._contentEl.querySelectorAll('.twm-plot-grid > .twm-plot-grid__cell').length;
     check('the window starts with one cell', cells(), 1);
     const panel = win._contentEl.querySelector('.twm-plot-tab-content[data-tab="config"]');
     ok('the editor is drawn in the Config tab', !!panel?.querySelector('.twm-plot-config'));
+    ok('the editor put its pickers\' dropdowns in document.body', dropdowns() > before);
     click(buttonText(panel, 'Side by side'));
     await ticks(20);
     check('choosing 1x2 in the editor redraws the window with two cells', cells(), 2);
-    editor.dispose();
     win.close();
+    await ticks();
+    check('closing the window disposes the editor: none of its dropdowns is left in document.body',
+          dropdowns(), before);
+
+    // A renderer that returns nothing still draws, and closing is quiet.
+    let drawn = false;
+    const plain = await openPlotPopoutWindow({ id: 'editor-popout-void', title, plotConfig: oneByOne(),
+        getResults, services, configRenderer: (el) => { drawn = true; el.textContent = 'mine'; } });
+    ok('a renderer that returns nothing is drawn', drawn);
+    let threw = null;
+    try { plain.close(); } catch (error) { threw = error; }
+    ok('a window whose renderer returned nothing closes without an error', threw === null);
+
+    // A handle whose dispose() throws is reported through the logger; the window still closes.
+    const warned = [];
+    const noisy = new PlotPopoutWindow({ id: 'editor-popout-noisy', title, plotConfig: oneByOne(), getResults,
+        services: { ...services, logger: { warn: (...args) => warned.push(args) } },
+        configRenderer: () => ({ dispose() { throw new Error('boom'); } }) });
+    await noisy.show();
+    threw = null;
+    try { noisy.close(); } catch (error) { threw = error; }
+    ok('a config handle whose dispose() throws does not stop the close', threw === null && !noisy.isVisible);
+    ok('logger.warn hears that the config panel failed to dispose',
+       warned.some(([msg, err]) => /config panel failed to dispose/.test(msg) && err?.message === 'boom'));
 }
 
 // ════════════════════════════════════════════════════════════════════════

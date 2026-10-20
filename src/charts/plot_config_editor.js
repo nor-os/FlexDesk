@@ -33,10 +33,12 @@
  * or a promise of them. One that throws or rejects shows no suggestions and
  * leaves what was typed as it is. Nothing here knows what a series is.
  *
- * It fits PlotPopoutWindow's `configRenderer` slot:
+ * It fits PlotPopoutWindow's `configRenderer` slot, which disposes what the
+ * renderer returns when the window closes (openPlotPopoutWindow is async):
  *
- *     configRenderer: (el) => renderPlotConfigEditor(el, plotConfig,
- *                                 { onChange: () => win.updateConfig(plotConfig) })
+ *     const win = await openPlotPopoutWindow({ id, title, plotConfig, getResults, services,
+ *         configRenderer: (el) => renderPlotConfigEditor(el, plotConfig,
+ *                                     { onChange: () => win.updateConfig(plotConfig) }) });
  */
 
 import { AutocompleteField } from '../ui/components/autocomplete_field.js';

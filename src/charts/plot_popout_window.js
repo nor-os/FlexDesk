@@ -46,7 +46,9 @@ export class PlotPopoutWindow {
      *        capability backs Export PNG/CSV; absent => Blob download fallback.
      * @param {Function} [options.onClose] - Called when window closes
      * @param {Object} [options.actuals] - ETL overlay data { seriesId: { years, values } }
-     * @param {Function} [options.configRenderer] - (container) => void — renders config panel
+     * @param {Function} [options.configRenderer] - `(container) => { dispose() } | void` —
+     *        renders the Config tab. What it returns is disposed (`dispose()`) when the
+     *        window closes, so an editor drawn there (renderPlotConfigEditor) goes with it.
      * @param {Object} [options.seriesTransforms] - `{ [id]: transform }` (series_transforms.js);
      *        absent => no derived series are drawn
      * @param {string} [options.refreshEvent='data:changed'] - Bus event after which the
@@ -112,6 +114,7 @@ export class PlotPopoutWindow {
         this._plotContent = null;
         this._dataContent = null;
         this._configContent = null;
+        this._configHandle = null;
         this._toolbarActions = null;
         this._zoomBtn = null;
         this._panBtn = null;
@@ -323,7 +326,7 @@ export class PlotPopoutWindow {
             this._configContent.className = 'twm-plot-tab-content';
             this._configContent.setAttribute('data-tab', 'config');
             this._configContent.style.cssText = 'display:none; flex-direction:column; overflow:auto; padding:8px 12px;';
-            this._configRenderer(this._configContent);
+            this._configHandle = this._configRenderer(this._configContent) ?? null;
             content.appendChild(this._configContent);
         }
 
@@ -960,6 +963,13 @@ export class PlotPopoutWindow {
             try { disposer?.dispose?.(); } catch (_) {}
         }
         this._eventDisposers = [];
+
+        // What configRenderer returned (an editor with dropdowns in document.body,
+        // say) goes with the window.
+        try { this._configHandle?.dispose?.(); } catch (error) {
+            this._services?.logger?.warn?.('[PlotPopoutWindow] the config panel failed to dispose', error);
+        }
+        this._configHandle = null;
 
         this._grid?.dispose();
         this._grid = null;

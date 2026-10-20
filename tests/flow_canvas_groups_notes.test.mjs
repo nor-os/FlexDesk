@@ -28,6 +28,9 @@
  *  §10 a group and a note may share an id (separate namespaces): typing in
  *       note 'x' does not stop group 'x''s title bar dragging, nor does
  *       renaming group 'x' stop note 'x' dragging
+ *  §11 the toolbar's Arrange (STORY-0080) counts only picked steps: one step
+ *       and a note picked arrange the whole graph; two steps and a note
+ *       arrange those two and leave the note where it is
  *
  *     node tests/flow_canvas_groups_notes.test.mjs
  */
@@ -566,6 +569,33 @@ t.section('§10 a group and a note with the same id: editing one never blocks th
     t.check('note x still drags, one entry', [notesOf(m)[0].position, m.editor.history.depth - depth2,
                                                m.changes.at(-1)?.action],
             [{ x: m.editor.canvas.snap(at.x + 48), y: m.editor.canvas.snap(at.y + 32) }, 1, 'flow:note:move']);
+}
+
+t.section('§11 Arrange counts the picked steps, not the picked notes');
+{
+    const notes = [{ id: 'n1', text: 'one', position: { x: 304, y: 48 }, size: { w: 160, h: 60 } }];
+    const m = mount(ALL, { ...GRAPH, notes });
+    marquee(m, { x: 80, y: 30 }, { x: 480, y: 170 });
+    t.check('the box picks a and n1', m.selects.at(-1), { kind: 'many', ids: ['a'], notes: ['n1'] });
+    const before = m.editor.getGraph().nodes.map((n) => n.position);
+    const d0 = m.editor.history.depth;
+    tool(m, 'arrange').click();
+    t.check('one step and a note: the whole graph is arranged, one flow:arrange',
+            [m.editor.history.depth - d0, m.changes.at(-1)?.action], [1, 'flow:arrange']);
+    t.ok('…and steps that were not picked moved', m.editor.getGraph().nodes.some((n, i) => n.id !== 'a'
+        && JSON.stringify(n.position) !== JSON.stringify(before[i])));
+    t.check('…the note stays where it was', notesOf(m)[0].position, { x: 304, y: 48 });
+
+    const m2 = mount(ALL, { ...GRAPH, notes });
+    marquee(m2, { x: 80, y: 30 }, { x: 500, y: 200 });
+    t.check('the box picks a, b and n1', m2.selects.at(-1), { kind: 'many', ids: ['a', 'b'], notes: ['n1'] });
+    const c0 = pos(m2, 'c');
+    const far0 = pos(m2, 'far');
+    const d1 = m2.editor.history.depth;
+    tool(m2, 'arrange').click();
+    t.check('two steps and a note: only those steps are arranged, one entry',
+            [m2.editor.history.depth - d1, pos(m2, 'c'), pos(m2, 'far'), notesOf(m2)[0].position],
+            [1, c0, far0, { x: 304, y: 48 }]);
 }
 
 for (const e of mounted) e.destroy();

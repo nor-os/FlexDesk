@@ -2020,8 +2020,9 @@ export function createCanvasEditor(host, options = {}) {
     }
 
     /** What the toolbar's Arrange lays out: the picked steps when several are
-     *  picked (`multiSelect`), else the whole graph. */
-    const arrangeTarget = () => (selected?.kind === 'many' ? { ids: [...selected.ids] } : {});
+     *  picked (`multiSelect`), else the whole graph. Picked notes do not count:
+     *  one step and a note arrange the whole graph. */
+    const arrangeTarget = () => (selected?.kind === 'many' && selected.ids.length >= 2 ? { ids: [...selected.ids] } : {});
 
     /** ARRANGE: the `layout` option's places, anchored at the current top-left
      *  corner of what is arranged so nothing jumps off screen, and ONE undo

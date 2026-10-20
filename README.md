@@ -3628,6 +3628,11 @@ config it was given and then calls `onChange(config)`.
 - A layout with more slots than there are subplots adds default subplots
   (`makeDefaultSubplot`); one with fewer keeps the extra subplots, so switching
   back restores them.
+- **Add Y axis** adds `makeDefaultYAxis(index)` (left for an even index, right
+  for an odd one) and **Add series** adds `makeDefaultSeries(index)` (coloured
+  by its place among the subplot's series). Both come from `@flexdesk/charts`,
+  and `makeDefaultSubplot` and `migrateData` build their axes and series from
+  them, so an axis added in the editor matches a default subplot's.
 - A 3D chart type gives the subplot a z axis (label, scale, min, max, step and
   a series) and uses its first y axis only: the other y axes are shown disabled
   and **Add Y axis** is disabled. A 2D chart type sets `zAxis` back to `null`.
@@ -3647,7 +3652,8 @@ config it was given and then calls `onChange(config)`.
 - `extraSeriesFields(el, series, { subplot, axis, onChange })` puts fields of
   your own in each series row; call `onChange()` after you edit the series. What
   it returns is disposed (`dispose()`) when the row is redrawn or the editor
-  is disposed.
+  is disposed. A `dispose()` that throws is reported to `logger.warn` and does
+  not stop the rest of the editor being disposed.
 
 It returns `{ dispose, refresh, selectSubplot, activeSubplot }`: `dispose()`
 disposes every field it created (every `AutocompleteField` among them) and

@@ -8,14 +8,17 @@
  *
  *   §1  choosing layout 1x2 creates a second subplot tab with a default subplot
  *   §2  adding a series calls onChange and the series is in the config
- *   §3  a 3D chart type shows the Z axis and disables the extra Y axes
+ *   §3  a 3D chart type shows the Z axis and disables the extra Y axes; an
+ *       added y axis is plot_config's makeDefaultYAxis
  *   §4  the series picker shows suggestions from seriesProvider
  *   §5  a seriesProvider that rejects (or throws) shows no suggestions and
  *       keeps the typed text
  *   §6  dispose() disposes every AutocompleteField it created; a redraw
  *       disposes the old ones; a disposed field writes nothing on its late blur
  *   §7  the rest of the editor: axis fields, x axis, reference lines, shaded
- *       bands, transforms, extraSeriesFields, overlay sources
+ *       bands, transforms, extraSeriesFields (a handle whose dispose()
+ *       throws is reported to the logger), overlay sources; an added series
+ *       is plot_config's makeDefaultSeries
  *   §8  it fits PlotPopoutWindow's configRenderer slot
  *   §9  the barrel, the stylesheet
  *
@@ -89,7 +92,7 @@ process.on('unhandledRejection', (err) => {
 });
 
 const { renderPlotConfigEditor } = await import('../src/charts/plot_config_editor.js');
-const { makeDefaultSubplot } = await import('../src/charts/plot_config.js');
+const { makeDefaultSubplot, makeDefaultYAxis, makeDefaultSeries, migrateSingleChart } = await import('../src/charts/plot_config.js');
 const { AutocompleteField } = await import('../src/ui/components/autocomplete_field.js');
 const { PlotPopoutWindow, openPlotPopoutWindow } = await import('../src/charts/plot_popout_window.js');
 const barrel = await import('../charts.js');
@@ -272,6 +275,11 @@ console.log('\ncharts: renderPlotConfigEditor\n');
     const sp = config.subplots[0];
     click(buttonText(el, 'Add Y axis'));
     check('two y axes', sp.yAxes.length, 2);
+    const keys = (o) => Object.keys(o).sort();
+    check('an added y axis has the keys of a default subplot\'s axis',
+          keys(sp.yAxes[1]), keys(makeDefaultSubplot(0).yAxes[0]));
+    check('... and the defaults of makeDefaultYAxis, on the right',
+          { ...sp.yAxes[1], id: null }, { ...makeDefaultYAxis(1), id: null });
     ok('2D: no Z axis section', sectionOf(el, 'Z axis') === null);
     ok('2D: Add Y axis is enabled', buttonText(el, 'Add Y axis').disabled === false);
 
@@ -565,6 +573,14 @@ console.log('\ncharts: renderPlotConfigEditor\n');
     const disposedBefore = hookDisposed;
     click(buttonText(el, 'Add series'));
     ok('a redraw disposes what the hook returned', hookDisposed > disposedBefore);
+    const added = sp.yAxes[0].series.at(-1);
+    check('an added series has the defaults of makeDefaultSeries (coloured by its place)',
+          { ...added, id: null }, { ...makeDefaultSeries(sp.yAxes[0].series.length - 1), id: null });
+    const legacy = migrateSingleChart({ series: [{ variable: 'v' }] }).yAxes[0];
+    check('a migrated legacy series has the same keys as an added one',
+          Object.keys(legacy.series[0]).sort(), Object.keys(added).sort());
+    check('a migrated legacy axis has the same keys as a default one',
+          Object.keys(legacy).sort(), Object.keys(makeDefaultYAxis(0)).sort());
 
     // overlay sources
     await ticks();
@@ -610,6 +626,32 @@ console.log('\ncharts: renderPlotConfigEditor\n');
     const hd = hookDisposed;
     editor.dispose();
     ok('dispose() disposes what the hook returned', hookDisposed > hd);
+
+    // A hook handle whose dispose() throws is reported; the other fields are still disposed.
+    const throwing = oneByOne();
+    throwing.subplots[0].yAxes[0].series.push({ id: 't1', variable: 'one', label: '' },
+                                              { id: 't2', variable: 'two', label: '' });
+    const warnings = [];
+    const tStart = fields.length;
+    let otherDisposed = 0;
+    let rows = 0;
+    const t = open(throwing, {
+        logger: { warn: (...a) => warnings.push(a) },
+        extraSeriesFields: () => {
+            rows += 1;
+            return rows % 2 === 1
+                ? { dispose() { throw new Error('boom'); } }
+                : { dispose() { otherDisposed += 1; } };
+        },
+    });
+    const tFields = fields.slice(tStart);
+    ok('two series rows, two hooks, two pickers', rows === 2 && tFields.length === 2, `rows ${rows}, fields ${tFields.length}`);
+    t.editor.dispose();
+    ok('a throwing extraSeriesFields handle is reported through logger.warn',
+       warnings.some((w) => /plot config editor/.test(String(w[0])) && w[1]?.message === 'boom'));
+    check('... and the other hook handle is still disposed', otherDisposed, 1);
+    check('... and every picker is still disposed', tFields.filter((f) => !disposedFields.has(f)).length, 0);
+    ok('... and the editor is still removed', t.el.querySelector('.twm-plot-config') === null);
 }
 
 // ════════════════════════════════════════════════════════════════════════

@@ -14,7 +14,11 @@
  *       label column, and three (one per row field) behind a row number; each
  *       pinned cell's `left` is the measured width of the pinned columns before
  *       it, in the header, the corner, the filter row and the body; a row the
- *       virtual window draws later lines up at once; the corner pins both ways
+ *       virtual window draws later lines up at once; the corner pins both ways;
+ *       a pinned cell's background is an opaque important stack, and every
+ *       tint the sheet paints on a body cell (hover, clickable hover, row and
+ *       cell selection, staged, fill mark, placeholder, diff, new-row flash)
+ *       reaches it as a layer over the row's colour over the surface
  *   §4  an empty axis draws a single "(none)" column header, not a broken
  *       table: with rows, with none, with no label column, and with a word of
  *       the consumer's
@@ -295,19 +299,120 @@ section('§3 row-label columns stay pinned while the body scrolls sideways; the 
     ok('a pinned body cell is sticky with a background of its own',
        /\.twm-dt-crosstab tbody td\.twm-dt-pin \{\s*position: sticky;\s*z-index: 1;\s*background:/.test(sheet));
     const ROW_LAYER = 'linear-gradient(var(--twm-dt-row-bg, transparent), var(--twm-dt-row-bg, transparent)) var(--surface-0, #1e1e1e)';
-    const ruleOf = (selector) => {
-        const at = sheet.indexOf(`${selector} {`);
-        return at < 0 ? '' : sheet.slice(at, sheet.indexOf('}', at));
+    // The sheet's top-level rules, as [selector, body] (the at-rules' bodies
+    // are not split into rules).
+    const rules = [];
+    {
+        let depth = 0, start = 0, sel = '';
+        const text = sheet.replace(/\/\*[\s\S]*?\*\//g, '');
+        for (let i = 0; i < text.length; i++) {
+            if (text[i] === '{') { if (depth === 0) { sel = text.slice(start, i).trim(); start = i + 1; } depth++; }
+            else if (text[i] === '}') { depth--; if (depth === 0) { rules.push([sel.replace(/\s+/g, ' '), text.slice(start, i)]); start = i + 1; } }
+        }
+    }
+    const ruleOf = (selector) => rules.find(([sel]) => sel === selector)?.[1] ?? '';
+    // Specificity (a, b, c) of one selector, `:not()` counted as its argument.
+    const specificity = (selector) => {
+        let rest = selector, a = 0, b = 0, c = 0;
+        for (;;) {
+            const m = /:not\(([^()]*)\)/.exec(rest);
+            if (!m) break;
+            const [x, y, z] = specificity(m[1]);
+            a += x; b += y; c += z;
+            rest = rest.slice(0, m.index) + ' ' + rest.slice(m.index + m[0].length);
+        }
+        a += (rest.match(/#[\w-]+/g) || []).length;
+        b += (rest.match(/\.[\w-]+|\[[^\]]*\]|:(?!:)[\w-]+/g) || []).length;
+        c += (rest.replace(/\.[\w-]+|\[[^\]]*\]|:[\w-]+|#[\w-]+/g, ' ').match(/[a-z][\w-]*/gi) || []).length;
+        return [a, b, c];
     };
+    const beats = (x, y) => x[0] !== y[0] ? x[0] > y[0] : x[1] !== y[1] ? x[1] > y[1] : x[2] > y[2];
     ok('the zebra stripe is the row\'s --twm-dt-row-bg',
        /:where\(\.twm-preview-table tbody tr:nth-child\(even\)\) \{\s*--twm-dt-row-bg: rgba\(255, 255, 255, 0\.02\);/.test(sheet)
        && ruleOf('.twm-preview-table tbody tr:nth-child(even)').includes('background: var(--twm-dt-row-bg);'));
-    ok('a pinned body cell lays the row\'s background (the stripe) over the opaque surface',
-       ruleOf('.twm-preview-table.twm-dt-crosstab tbody td.twm-dt-pin').includes(`background: ${ROW_LAYER};`));
-    const hover = ruleOf('.twm-preview-table.twm-dt-crosstab:not(.twm-preview-table--readonly) tbody tr:hover td.twm-dt-pin');
-    ok('…hover over the row\'s background, not instead of it', hover.includes('rgba(255, 255, 255, 0.04)),') && hover.includes(ROW_LAYER));
-    const selected = ruleOf('.twm-preview-table.twm-dt-crosstab tbody tr.selected td.twm-dt-pin');
-    ok('…selection likewise', selected.includes('rgba(0, 122, 204, 0.15))),') && selected.includes(ROW_LAYER));
+    const PIN = '.twm-preview-table.twm-dt-crosstab tbody td.twm-dt-pin';
+    const pinBg = ruleOf(PIN).replace(/\s+/g, ' ');
+    ok('a pinned body cell draws one opaque stack: mark, new-row flash, state, the row\'s background, the surface',
+       pinBg.includes('background: var(--twm-dt-pin-mark, none), '
+           + 'linear-gradient(var(--twm-dt-pin-new, transparent), var(--twm-dt-pin-new, transparent)), '
+           + `var(--twm-dt-pin-state, none), ${ROW_LAYER} !important;`));
+    ok('…important, so no state rule and no animation replaces the surface',
+       /!important;\s*$/.test(ruleOf(PIN).trim()));
+    // Every background FlexDesk paints on a body `td` (a state: hover, row
+    // and cell selection, staged, the fill's mark, placeholder, diff, the
+    // new-row flash) is mirrored for the pinned cell as a layer: the same
+    // selector with `.twm-dt-crosstab` on the table and `.twm-dt-pin` on the
+    // cell, setting the layer to the same colour. The two classes are added to
+    // every one, so the mirrors rank among themselves as the originals do.
+    const STATES = [
+        ['.twm-preview-table:not(.twm-preview-table--readonly) tr:hover td',
+         '.twm-preview-table.twm-dt-crosstab:not(.twm-preview-table--readonly) tr:hover td.twm-dt-pin', '--twm-dt-pin-state', 'rgba(255, 255, 255, 0.04)'],
+        ['.twm-preview-table:not(.twm-preview-table--readonly) tbody tr.selected td, .twm-preview-table tbody tr.selected td',
+         '.twm-preview-table.twm-dt-crosstab:not(.twm-preview-table--readonly) tbody tr.selected td.twm-dt-pin, .twm-preview-table.twm-dt-crosstab tbody tr.selected td.twm-dt-pin', '--twm-dt-pin-state', 'var(--state-selected, rgba(0, 122, 204, 0.15))'],
+        ['.twm-preview-table.twm-dt--clickable tbody tr:not(.twm-dt-spacer):not(.data-table__empty-row):not(.selected):hover td',
+         '.twm-preview-table.twm-dt-crosstab.twm-dt--clickable tbody tr:not(.twm-dt-spacer):not(.data-table__empty-row):not(.selected):hover td.twm-dt-pin', '--twm-dt-pin-state', 'var(--state-hover, rgba(255, 255, 255, 0.05))'],
+        ['.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--selected',
+         '.twm-preview-table.twm-dt-crosstab.twm-dt--cells tbody td.twm-dt-pin.twm-dt-cell--selected', '--twm-dt-pin-state', 'var(--state-selected, rgba(0, 122, 204, 0.15))'],
+        ['.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--staged',
+         '.twm-preview-table.twm-dt-crosstab.twm-dt--cells tbody td.twm-dt-pin.twm-dt-cell--staged', '--twm-dt-pin-state', 'color-mix(in srgb, var(--accent-bright, #007acc) 16%, transparent)'],
+        ['.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--fill-skipped',
+         '.twm-preview-table.twm-dt-crosstab.twm-dt--cells tbody td.twm-dt-pin.twm-dt-cell--fill-skipped', '--twm-dt-pin-mark', 'color-mix(in srgb, var(--color-danger, #f14c4c) 22%, transparent) 0 4px, transparent 4px 8px'],
+        ['.twm-preview-table th.twm-dt-col--placeholder, .twm-preview-table td.twm-dt-cell--placeholder',
+         '.twm-preview-table.twm-dt-crosstab td.twm-dt-pin.twm-dt-cell--placeholder', '--twm-dt-pin-state', 'rgba(255, 255, 255, 0.015)'],
+        ['.twm-data-table-component .twm-preview-table tbody tr.twm-dt-diff--added:not(.selected) > td',
+         '.twm-data-table-component .twm-preview-table.twm-dt-crosstab tbody tr.twm-dt-diff--added:not(.selected) > td.twm-dt-pin', '--twm-dt-pin-state', 'color-mix(in srgb, var(--color-success, #3fb950) 16%, transparent)'],
+        ['.twm-data-table-component .twm-preview-table tbody tr.twm-dt-diff--removed:not(.selected) > td',
+         '.twm-data-table-component .twm-preview-table.twm-dt-crosstab tbody tr.twm-dt-diff--removed:not(.selected) > td.twm-dt-pin', '--twm-dt-pin-state', 'color-mix(in srgb, var(--color-danger, #c74e4e) 18%, transparent)'],
+        ['.twm-data-table-component .twm-preview-table tbody tr.twm-dt-diff:not(.selected) > td.twm-dt-diff__cell--changed',
+         '.twm-data-table-component .twm-preview-table.twm-dt-crosstab tbody tr.twm-dt-diff:not(.selected) > td.twm-dt-pin.twm-dt-diff__cell--changed', '--twm-dt-pin-state', 'color-mix(in srgb, var(--color-warning, #ff9800) 22%, transparent)'],
+        ['.twm-data-table-component .twm-preview-table tbody tr.twm-dt-diff--gap > td.twm-dt-diff__gap',
+         '.twm-data-table-component .twm-preview-table.twm-dt-crosstab tbody tr.twm-dt-diff--gap > td.twm-dt-pin.twm-dt-diff__gap', '--twm-dt-pin-state', 'color-mix(in srgb, var(--text-muted, #888) 14%, transparent) 6px 7px'],
+        ['.twm-preview-table tr:hover td',
+         '.twm-preview-table.twm-dt-crosstab tr:hover td.twm-dt-pin', '--twm-dt-pin-state', 'rgba(255,255,255,0.04)'],
+    ];
+    const flat = (body) => body.replace(/\s+/g, ' ');
+    for (const [original, mirror, layer, colour] of STATES) {
+        const from = ruleOf(original), to = flat(ruleOf(mirror));
+        ok(`${original}: its tint (${colour}) is on the unpinned cell`, flat(from).includes(colour));
+        ok(`…and the pinned cell lays it as ${layer}`, to.includes(`${layer}: `) && to.includes(colour) && !/(^|[;\s])background(-image)?\s*:/.test(to));
+        const o = original.split(', '), m = mirror.split(', ');
+        check('…at the original\'s specificity plus the two classes, selector for selector',
+              m.map(specificity), o.filter((x) => !x.includes(' th.')).map((x) => { const [a, b, c] = specificity(x); return [a, b + 2, c]; }));
+    }
+    // The order the originals rank in is kept: where two tie, the later wins,
+    // and the mirrors are in the same order.
+    const at = (sel) => rules.findIndex(([s]) => s === sel);
+    const pairs = [];
+    for (let i = 0; i < STATES.length; i++) for (let j = 0; j < STATES.length; j++) {
+        if (i === j) continue;
+        const so = specificity(STATES[i][0].split(', ').pop()), sp = specificity(STATES[j][0].split(', ').pop());
+        if (!beats(so, sp) && !beats(sp, so) && at(STATES[i][0]) < at(STATES[j][0])) pairs.push([i, j]);
+    }
+    check('…tied originals keep their order in the mirrors', pairs.filter(([i, j]) => at(STATES[i][1]) > at(STATES[j][1])), []);
+    // The sweep: any OTHER rule that paints a body cell's background or
+    // animates it would bleed through a pinned cell, unless mirrored above.
+    const known = new Set(STATES.map(([o]) => o));
+    const painters = rules.filter(([sel, body]) => /(^|[;\s])(background(-image|-color)?|animation)\s*:/.test(body)
+        && sel.split(', ').some((one) => /(^|[\s>])td([.:[][^\s>]*)?$/.test(one))
+        && !sel.includes('twm-dt-crosstab') && !known.has(sel)).map(([sel]) => sel);
+    check('every other body-cell background is not a state a pinned cell can carry (the spacer row, the detail cell, the new-row flash below)', painters, [
+        '.twm-preview-table tbody tr.twm-dt-spacer, .twm-preview-table tbody tr.twm-dt-spacer > td',
+        '.twm-data-table-component .twm-preview-table tbody tr.twm-dt-detail-row > td.twm-dt-detail-cell, .twm-data-table-component .twm-preview-table tbody tr.twm-dt-detail-row:not(.twm-dt-spacer):not(.data-table__empty-row):hover > td.twm-dt-detail-cell',
+        '.twm-preview-table tbody tr.twm-dt-row--new > td',
+    ]);
+    // The new-row flash: an animation outranks a normal declaration, an
+    // important one outranks it — so the pinned cell flashes through its
+    // layer instead, a colour registered so that it animates.
+    ok('the flash layer is a registered colour, transparent at rest',
+       /@property --twm-dt-pin-new \{\s*syntax: '<color>';\s*inherits: false;\s*initial-value: transparent;/.test(sheet));
+    ok('…animated from the same --twm-dt-new-bg the unpinned cells flash in, to transparent',
+       /@keyframes twm-dt-pin-new \{\s*from \{ --twm-dt-pin-new: var\(--twm-dt-new-bg, rgba\(0, 122, 204, 0\.22\)\); \}\s*to \{ --twm-dt-pin-new: transparent; \}/.test(sheet)
+       && /@keyframes twm-dt-row-new \{\s*from \{ background: var\(--twm-dt-new-bg, rgba\(0, 122, 204, 0\.22\)\); \}/.test(sheet));
+    const flash = ruleOf('.twm-preview-table.twm-dt-crosstab tbody tr.twm-dt-row--new > td.twm-dt-pin');
+    ok('…on a new row\'s pinned cells, for as long, replacing the background animation the important stack would void',
+       flash.includes('animation: twm-dt-pin-new 1.6s ease-out;')
+       && ruleOf('.twm-preview-table tbody tr.twm-dt-row--new > td').includes('animation: twm-dt-row-new 1.6s ease-out;')
+       && beats(specificity('.twm-preview-table.twm-dt-crosstab tbody tr.twm-dt-row--new > td.twm-dt-pin'), specificity('.twm-preview-table tbody tr.twm-dt-row--new > td')));
     ok('a pinned header cell (the corner) is above the header and the body',
        /\.twm-dt-crosstab thead th\.twm-dt-pin \{\s*z-index: 4;/.test(sheet));
 
@@ -401,7 +506,7 @@ section('§5 totals rows and columns and every label come from the consumer (voc
     ok('every crosstab row paints its --twm-dt-row-bg',
        /\.twm-preview-table\.twm-dt-crosstab tbody tr \{\s*background: var\(--twm-dt-row-bg, transparent\);/.test(css));
     ok('…and its pinned cells lay it over the surface, so the label cells carry the row colour',
-       /tbody td\.twm-dt-pin \{[^}]*background: linear-gradient\(var\(--twm-dt-row-bg, transparent\), var\(--twm-dt-row-bg, transparent\)\) var\(--surface-0/.test(css));
+       /tbody td\.twm-dt-pin \{[^}]*background:[^}]*var\(--twm-dt-pin-state, none\),\s*linear-gradient\(var\(--twm-dt-row-bg, transparent\), var\(--twm-dt-row-bg, transparent\)\) var\(--surface-0/.test(css));
     const setters = css.split('}').filter((rule) => /--twm-dt-row-bg\s*:/.test(rule)).map((rule) => rule.trim().split('{')[0].trim().split('\n').pop());
     check('the sheet sets --twm-dt-row-bg only at no specificity (a consumer\'s .my-sum-row wins)',
           setters, [':where(.twm-preview-table tbody tr:nth-child(even))']);

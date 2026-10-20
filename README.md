@@ -1510,6 +1510,12 @@ row rule paints the property instead):
 ```css
 .my-sum-row { --twm-dt-row-bg: rgba(255, 255, 255, 0.06); }
 ```
+The pinned cells' background is one opaque stack the crosstab owns (it is
+`!important`, so neither a state rule nor an animation can make it see-through):
+every tint FlexDesk paints on a cell — hover, the clickable hover, row and cell
+selection, `staged`, the fill's skipped mark, placeholders, `diff` and the
+new-row flash — is drawn as a layer over the row's `--twm-dt-row-bg` over the
+surface (`--surface-0`), the same tint the unpinned cells of that row show.
 Under `virtualize` the columns are held at the widths first measured, so they
 do not shift as rows scroll in and out. With 1,000 rows and 50 body columns
 under `virtualize`, the first draw stays well under 300 ms in jsdom (tests/crosstab.test.mjs §6).

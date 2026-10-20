@@ -8,6 +8,7 @@
  * - Context menu (copy as TSV/CSV)
  * - Column sorting (internal or external via callback)
  * - Column drag-to-resize, and double-click-to-auto-size on the same grip
+ * - Column drag-to-reorder (`reorderable`, `columnOrder`; column_order.js)
  * - Per-column filtering (numeric operators, text substring)
  * - Column type detection (numeric/text alignment)
  * - Header icons
@@ -26,6 +27,7 @@ import {
 import { isRowActivation, isRowControl } from './row_activation.js';
 import { createChipsFilter } from './table_filter_chips.js';
 import { CellGrid } from './cell_grid.js';
+import { ColumnReorder, cellOrder, isColumnOrder, moveInOrder, naturalOrder } from './column_order.js';
 
 // 0.7.0: the built-in chips filter control, for a consumer that wants to build
 // one outside a table (the same control `filterKinds: {kind: 'chips'}` draws).
@@ -402,7 +404,9 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {boolean} [selectToggle=false] - STORY-0016. The table offers a SELECT MODE: a narrow leading column whose header holds a toggle button. While the mode is on, every row shows a checkbox there and the header a select-all box; a plain click (or Space) ticks or unticks one row, Shift-click adds the range from the last row ticked, and no gesture opens a row (`onRowActivate` is not called; `onRowClick` still is — a consumer that opens rows from it asks `isSelectMode()`). The arrows move a cursor without changing what is ticked. A right-click keeps the ticks. Escape clears the ticks, then leaves the mode. Needs a multi-row `selectable` (ignored, with a warning, on `false` or 'single'). The column is not resizable, is no data column (not in a copy, a CSV, `ctx.colIdx` or `hiddenColumns`), and remembered widths stay on their columns.
  * @property {boolean} [selectMode=false] - STORY-0016. Start in select mode. Draws the select column even without `selectToggle` (then there is no toggle: the consumer turns the mode off with `setSelectMode(false)`).
  * @property {Function} [onSelectModeChange] - STORY-0016. `(on) => void`, after every change of the mode (the toggle, Escape, `setSelectMode`).
- * @property {Function} [onColumnsChange] - STORY-0012. `(hidden) => void` with the hidden columns' indices, ascending, after every change of the set (the chooser, `setColumnVisible`, `setData({hiddenColumns})`).
+ * @property {Function} [onColumnsChange] - STORY-0012. `(hidden, {hidden, order}) => void` with the hidden columns' indices, ascending, after every change of the set (the chooser, `setColumnVisible`, `setData({hiddenColumns})`) — and (STORY-0086) of the order (a drag, `moveColumn`, `setData({columnOrder})`); `order` is `getColumnOrder()`.
+ * @property {boolean} [reorderable=false] - STORY-0086. Data columns can be dragged into a new order by their headers (a press on a resize grip resizes instead), and the header's right-click offers Move left / Move right. The row-number and select columns stay first: they do not move and nothing is dropped in front of them. The order is kept by data index, so `hiddenColumns`, the sort and the filters stay on their columns; copies and the CSV follow the order shown. With `persistKey` it is saved, and a saved order wins over `columnOrder` — unless its column count is not today's, when it is ignored.
+ * @property {number[]} [columnOrder] - STORY-0086. Every data index, in the order to draw them (`[0, 3, 1, 2]`). Not a permutation of the columns: ignored, natural order. Works without `reorderable` (then only code moves columns). See `moveColumn`, `getColumnOrder`.
  * @property {boolean} [persistPage=false] - With `persistKey`: the client page is saved with the sort and the filters, and opened again on mount (on the last page, if the rows have shrunk since). OFF by default: a key shared by DIFFERENT row sets (ad-hoc filters, search results) must not reopen on a page of the last list. A sort under `resetPageOnSort` and a new filter save the first page, as they show it. A server's page (`onPageChange`, `dataSource`) is the consumer's and is not kept.
  *
  * ── STORY-0003, every one of them off unless asked for ─────────────────────
@@ -565,6 +569,9 @@ export class DataTable {
             hiddenColumns: null,
             columnChooser: false,
             onColumnsChange: null,
+            // STORY-0086. Off — columns in their natural order, as in 0.16.
+            reorderable: false,
+            columnOrder: null,
             // STORY-0016. Off — no select column, as in 0.11 — until set.
             selectToggle: false,
             selectMode: false,
@@ -633,6 +640,13 @@ export class DataTable {
         // below, which may replace them with the remembered set.
         this._hidden = new Set();
         this._setHidden(this.config.hiddenColumns);
+        // STORY-0086. The order asked for (null: natural), before the restore
+        // below, which may replace it with the remembered one.
+        this._order = null;
+        if (!this._setOrder(this.config.columnOrder)) {
+            console.warn('[DataTable] columnOrder is not an order of the columns; ignored.');
+        }
+        this._reorder = this.config.reorderable ? new ColumnReorder(this) : null;
 
         // 0.5.0. The open row's key, and the failure on show (`setError`).
         this._activeKey = this.config.activeRow == null ? null : String(this.config.activeRow);
@@ -772,6 +786,11 @@ export class DataTable {
             this._setHidden(blob.hidden);
             applied = true;
         }
+        // STORY-0086. The order, before the widths for the same reason. One
+        // saved for a different number of columns is no order of these.
+        if (Array.isArray(blob.order) && this._setOrder(blob.order)) {
+            applied = true;
+        }
         if (blob.colWidths && typeof blob.colWidths === 'object') {
             // Stored under string keys (JSON) → coerce back to ints.
             this._colWidths = {};
@@ -805,7 +824,9 @@ export class DataTable {
             + (this.config.showRowNumbers ? '|#' : '')
             // STORY-0012. Widths are by drawn column, so a different set drawn
             // is a different schema — unless `setColumnVisible` carried them.
-            + (this._hidden?.size ? `|-${this.getHiddenColumns().join(',')}` : '');
+            + (this._hidden?.size ? `|-${this.getHiddenColumns().join(',')}` : '')
+            // STORY-0086. And a different order — unless `moveColumn` carried them.
+            + (this._columnOrder() ? `|>${this._columnOrder().join(',')}` : '');
     }
 
     /** Snapshot the persistable slice of state to the project store.
@@ -826,6 +847,8 @@ export class DataTable {
             // STORY-0012. Only for a table that hides columns or lets them be
             // hidden.
             ...(this._columnsOn() ? { hidden: this.getHiddenColumns() } : {}),
+            // STORY-0086. Only for a table that orders its columns.
+            ...(this._orderOn() ? { order: this.getColumnOrder() } : {}),
         });
     }
 
@@ -866,25 +889,29 @@ export class DataTable {
         return { select, all: select + (this.config.showRowNumbers ? 1 : 0) };
     }
 
+    /** The data columns drawn, in the order drawn (STORY-0086): the order
+     *  without the hidden ones. */
+    _shownColumns() {
+        return this._rowColumns(this.config.headers?.length || 0);
+    }
+
+    /** The data indices of a row of `count` cells to draw, in order: the
+     *  shown columns, and any cell past the headers after them. */
+    _rowColumns(count) {
+        return cellOrder(this._columnOrder(), count).filter((c) => !this._isHidden(c));
+    }
+
     /** A data column's drawn index (row number included), or -1 when hidden. */
     _domIdxOf(colIdx) {
-        if (this._isHidden(colIdx)) return -1;
-        let dom = this._lead().all;
-        for (const h of this._hidden) if (h < colIdx) dom--;
-        return dom + colIdx;
+        const at = this._shownColumns().indexOf(colIdx);
+        return at < 0 ? -1 : this._lead().all + at;
     }
 
     /** A drawn cell's data column, or null for the row number. */
     _dataIdxOfDom(domIdx) {
-        let i = domIdx - this._lead().all;
+        const i = domIdx - this._lead().all;
         if (i < 0) return null;
-        const n = this.config.headers?.length || 0;
-        for (let c = 0; c < n; c++) {
-            if (this._isHidden(c)) continue;
-            if (i === 0) return c;
-            i--;
-        }
-        return null;
+        return this._shownColumns()[i] ?? null;
     }
 
     /** The columns not drawn, by data index, ascending. */
@@ -917,12 +944,24 @@ export class DataTable {
      *  that stay drawn to their new places, and tell whoever listens. */
     _applyHidden(next) {
         const before = this.getHiddenColumns();
+        this._carryWidths(() => this._setHidden([...next]));
+        const after = this.getHiddenColumns();
+        if (before.join() === after.join()) return;
+        this._savePersisted();
+        if (this._wrapperEl) this.render();
+        this._columnsChanged();
+    }
+
+    /** STORY-0012/0086. Run `change` (a new hidden set or order), carrying
+     *  the drawn widths of the columns drawn before and after to their new
+     *  places. */
+    _carryWidths(change) {
         const n = this.config.headers?.length || 0;
         const old = this._colWidths;
         const kept = this._colWidthsSig === this._colSig();
         const domBefore = [];
         for (let c = 0; c < n; c++) domBefore[c] = this._domIdxOf(c);
-        this._setHidden([...next]);
+        change();
         if (kept) {
             const widths = {};
             for (let i = 0; i < this._lead().all; i++) if (old[i] != null) widths[i] = old[i];
@@ -934,13 +973,79 @@ export class DataTable {
             this._colWidths = widths;
             this._colWidthsSig = this._colSig();
         }
-        const after = this.getHiddenColumns();
-        if (before.join() === after.join()) return;
-        this._savePersisted();
-        if (this._wrapperEl) this.render();
-        try { this.config.onColumnsChange?.(after); } catch (err) {
+    }
+
+    /** `onColumnsChange(hidden, {hidden, order})`, after a change of either. */
+    _columnsChanged() {
+        const hidden = this.getHiddenColumns();
+        try { this.config.onColumnsChange?.(hidden, { hidden, order: this.getColumnOrder() }); } catch (err) {
             console.error('[DataTable] onColumnsChange threw', err);
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // STORY-0086 — the order the columns are drawn in (column_order.js)
+    // ─────────────────────────────────────────────────────────────────
+
+    /** Whether this table orders its columns at all (and so saves the order). */
+    _orderOn() {
+        return !!this.config.reorderable || Array.isArray(this.config.columnOrder) || !!this._orderTouched;
+    }
+
+    /** Take `list` as the order. Refused (false, nothing changed) when it is
+     *  no permutation of the columns; a table with no headers yet keeps it
+     *  for the headers `setData` brings, and `_columnOrder` checks it then. */
+    _setOrder(list) {
+        if (list == null) { this._order = null; return true; }
+        const n = this.config.headers?.length || 0;
+        if (!Array.isArray(list) || (n && !isColumnOrder(list, n))) return false;
+        this._order = list.map(Number);
+        return true;
+    }
+
+    /** The order in force, or null for the natural one (none asked for, or
+     *  one that does not fit today's columns). */
+    _columnOrder() {
+        const n = this.config.headers?.length || 0;
+        return this._order && isColumnOrder(this._order, n) ? this._order : null;
+    }
+
+    /**
+     * Every data column's index, hidden ones included, in the order drawn.
+     * @returns {number[]}
+     */
+    getColumnOrder() {
+        return (this._columnOrder() || naturalOrder(this.config.headers?.length || 0)).slice();
+    }
+
+    /**
+     * Move the column at position `from` of `getColumnOrder()` to position
+     * `to`, the others closing up behind it: from the natural order,
+     * `moveColumn(3, 1)` draws 0, 3, 1, 2. The widths stay with their columns.
+     * Saved under `persistKey`, and `onColumnsChange` is told.
+     *
+     * @param {number} from
+     * @param {number} to
+     * @returns {boolean} whether the order changed
+     */
+    moveColumn(from, to) {
+        const order = this.getColumnOrder();
+        const n = order.length;
+        if (![from, to].every((i) => Number.isInteger(i) && i >= 0 && i < n) || from === to) return false;
+        this._applyOrder(moveInOrder(order, from, to));
+        return true;
+    }
+
+    /** Swap in a new order (a permutation, or null), widths carried, and
+     *  tell whoever listens. */
+    _applyOrder(next) {
+        const before = this.getColumnOrder().join();
+        this._orderTouched = true;
+        this._carryWidths(() => this._setOrder(next));
+        if (this.getColumnOrder().join() === before) return;
+        this._savePersisted();
+        if (this._wrapperEl) this.render();
+        this._columnsChanged();
     }
 
     /** `columnChooser`'s items: one checkable item a column. */
@@ -993,6 +1098,12 @@ export class DataTable {
                     },
                 });
             }
+        }
+        // STORY-0086. Move left / Move right, for the data column under it.
+        if (this._reorder && colIdx !== null) {
+            const moves = this._reorder.menuItems(colIdx);
+            if (moves.length && items.length) items.push({ separator: true });
+            items.push(...moves);
         }
         if (this.config.columnChooser) {
             if (items.length) items.push({ separator: true });
@@ -1062,12 +1173,22 @@ export class DataTable {
             this._setHidden(updates.hiddenColumns);
             if (this.getHiddenColumns().join() !== before) {
                 this._savePersisted();
-                try { this.config.onColumnsChange?.(this.getHiddenColumns()); } catch (err) {
-                    console.error('[DataTable] onColumnsChange threw', err);
-                }
+                this._columnsChanged();
             }
         } else if (updates.headers && this._hidden.size) {
             this._setHidden([...this._hidden]);
+        }
+        // STORY-0086. A new order asked for applies at once (refused, with a
+        // warning, when it is no order of the columns); new headers keep the
+        // order while it still fits them.
+        if (Object.prototype.hasOwnProperty.call(updates, 'columnOrder')) {
+            const before = this.getColumnOrder().join();
+            if (!this._setOrder(updates.columnOrder)) {
+                console.warn('[DataTable] columnOrder is not an order of the columns; ignored.');
+            } else if (this.getColumnOrder().join() !== before) {
+                this._savePersisted();
+                this._columnsChanged();
+            }
         }
 
         // Reset state if rows changed
@@ -1661,13 +1782,12 @@ export class DataTable {
                 th.textContent = '#';
                 tr.appendChild(th);
             }
-            headers.forEach((h, colIdx) => {
-                if (this._isHidden(colIdx)) return;
+            for (const colIdx of this._shownColumns()) {
                 const th = document.createElement('th');
                 th.className = this._columnTypes[colIdx] || 'text';
-                th.textContent = h;
+                th.textContent = headers[colIdx];
                 tr.appendChild(th);
-            });
+            }
             thead.appendChild(tr);
             headerTable.appendChild(thead);
             headerWrap.appendChild(headerTable);
@@ -1722,7 +1842,8 @@ export class DataTable {
         this._tableWrapEl = tableWrap;
         // STORY-0012 `columnChooser` and STORY-0003 `headerMenu`: the header's
         // right-click. With neither item to show, the page's own menu.
-        if ((this.config.columnChooser || typeof this.config.headerMenu === 'function') && this._headerTableEl) {
+        if ((this.config.columnChooser || typeof this.config.headerMenu === 'function' || this._reorder)
+            && this._headerTableEl) {
             const head = this._headerTableEl;
             const onHeadMenu = (ev) => {
                 const items = this._headerMenuItems(ev.target);
@@ -1734,6 +1855,10 @@ export class DataTable {
             };
             head.addEventListener('contextmenu', onHeadMenu);
             this._disposers.push(() => head.removeEventListener('contextmenu', onHeadMenu));
+        }
+        // STORY-0086 `reorderable`: the header's drag.
+        if (this._reorder && this._headerTableEl) {
+            this._reorder.install(this._headerTableEl.querySelector('thead > tr'));
         }
         // 0.7.0 `pagerPosition: 'bottom'`: under the rows.
         if (this._paginationEl && this.config.pagerPosition === 'bottom') {
@@ -1879,14 +2004,14 @@ export class DataTable {
         }
 
         const { headers, rows } = this.config;
-        // STORY-0012. The columns shown — all of them, unless some are hidden.
-        const shown = (_, colIdx) => !this._isHidden(colIdx);
-        const matrix = [headers.filter(shown)];
+        // STORY-0012. The columns shown — all of them, unless some are hidden —
+        // and (STORY-0086) in the order shown.
+        const matrix = [this._rowColumns(headers.length).map((c) => headers[c])];
 
         for (const idx of indices) {
             const row = rows[idx];
             if (row) {
-                matrix.push(row.map((val, colIdx) => this._formatValue(val, colIdx)).filter(shown));
+                matrix.push(this._rowColumns(row.length).map((c) => this._formatValue(row[c], c)));
             }
         }
 
@@ -1925,12 +2050,11 @@ export class DataTable {
             return;
         }
 
-        const shown = (_, colIdx) => !this._isHidden(colIdx);
-        const lines = [headers.filter(shown).join(',')];
+        const lines = [this._rowColumns(headers.length).map((c) => headers[c]).join(',')];
         for (const row of rows) {
-            lines.push(row.map((val, colIdx) =>
-                this._csvEscape(this._formatValue(val, colIdx))
-            ).filter(shown).join(','));
+            lines.push(this._rowColumns(row.length).map((c) =>
+                this._csvEscape(this._formatValue(row[c], c))
+            ).join(','));
         }
 
         const csv = lines.join('\n');
@@ -2285,8 +2409,8 @@ export class DataTable {
             tr.appendChild(th);
         }
 
-        headers.forEach((header, colIdx) => {
-            if (this._isHidden(colIdx)) return;
+        this._shownColumns().forEach((colIdx) => {
+            const header = headers[colIdx];
             const th = document.createElement('th');
             th.className = 'data-table__filter-cell';
 
@@ -3325,8 +3449,8 @@ export class DataTable {
             headerRow.appendChild(th);
         }
 
-        headers.forEach((header, colIdx) => {
-            if (this._isHidden(colIdx)) return;
+        this._shownColumns().forEach((colIdx) => {
+            const header = headers[colIdx];
             const th = document.createElement('th');
             th.className = this._columnTypes[colIdx] || 'text';
 
@@ -3990,8 +4114,7 @@ export class DataTable {
         const changedCells = diff?.cells
             ? (diff.cells instanceof Set ? diff.cells : new Set(diff.cells))
             : null;
-        for (let colIdx = 0; colIdx < row.length; colIdx++) {
-            if (this._isHidden(colIdx)) continue;
+        for (const colIdx of this._rowColumns(row.length)) {
             const td = document.createElement('td');
             td.className = this._columnTypes[colIdx] || 'text';
             if (this._cellGrid) td.__colIdx = colIdx;   // STORY-0003

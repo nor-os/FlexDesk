@@ -78,10 +78,7 @@ export class CellGrid {
 
     /** The data columns shown, in the order shown. */
     columns() {
-        const n = this._cfg().headers?.length || 0;
-        const out = [];
-        for (let c = 0; c < n; c++) if (!this.table._isHidden(c)) out.push(c);
-        return out;
+        return this.table._shownColumns();
     }
 
     /** The positions of the rows on the page drawn, `[first, last]`. */

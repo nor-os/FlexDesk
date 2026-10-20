@@ -142,7 +142,9 @@
  * `flow:node:duplicate`. A label the flow already has is derived (`Title
  * (copy)`, `(copy 2)`, …), and `prepareCopy(node, {from, via})` may change a
  * copy's config and label before it is added. Read only, copy still copies
- * and the rest are refused with the reason on the message line.
+ * and the rest are refused with the reason on the message line. With `notes`
+ * the picked notes go along (under fresh ids when pasted), and with `groups`
+ * each group wholly inside the copy is made again round the copies.
  *
  * ══ LIVE VALUES ARE PAINTED, NEVER EDITED ═══════════════════════════════
  *
@@ -164,6 +166,22 @@
  * folded node hides). A folded node is `collapsed: true` in the graph; an unfolded one has no such
  * key. Without the option a `collapsed` flag is carried through untouched and
  * the node is drawn unfolded.
+ * ══ GROUPS AND NOTES, ONLY WHEN ASKED (`groups: true`, `notes: true`) ════
+ *
+ * A group is a named, toned frame drawn BEHIND its nodes, round all of them;
+ * its title bar is its handle: dragging it moves every member (one
+ * `flow:nodes:move`), a double-click renames it in place. Groups are flat and
+ * a node is in one at most: Ctrl/⌘+G groups the pick (taking each node out of
+ * the group it was in), Ctrl/⌘+Shift+G ungroups the groups the pick is in,
+ * and removing a node shrinks its group, the last member taking the group with
+ * it. A note is free text on the canvas: added by the toolbar's Note, edited
+ * in place (a double-click, or Enter on it), moved by dragging it, removed by
+ * Delete. A marquee picks notes with the nodes, and a drag or a Delete takes
+ * every picked one along. Each is one closed-list edit — `flow:group:add`,
+ * `…:remove`, `…:label`, `…:members`, `flow:note:add`, `…:remove`, `…:edit`,
+ * `…:move` — and the graph carries them as `groups` and `notes` only when it
+ * has some, so a graph without them serialises exactly as before. Without the
+ * options a graph's groups and notes are kept, never drawn.
  */
 
 import { CanvasAdapter } from '../../canvas/canvas_adapter.js';
@@ -203,6 +221,14 @@ export const CANVAS_ACTIONS = Object.freeze([
     'flow:paste',
     'flow:node:duplicate',
     'flow:node:collapse',
+    'flow:group:add',
+    'flow:group:remove',
+    'flow:group:label',
+    'flow:group:members',
+    'flow:note:add',
+    'flow:note:remove',
+    'flow:note:edit',
+    'flow:note:move',
 ]);
 
 /** `editor.align(kind)` and the toolbar's align verbs, in toolbar order. */
@@ -217,6 +243,10 @@ const DISTRIBUTE_ICON = Object.freeze({ horizontal: 'horizontal_distribute', ver
 const COPY_OFFSET = 2;
 /** Shift+arrow nudges this many grid steps. */
 const NUDGE_FAR = 10;
+/** A group's frame: how far it stands clear of its members, and its title bar's height. */
+const FRAME = Object.freeze({ pad: 16, head: 26 });
+/** A note without a `size` of its own is this wide; its height is its text's. */
+const NOTE_WIDTH = 192;
 
 /** The scale a fit frames at most: natural size. The kernel's own ceiling is
  *  4×, so a new flow — one step — was framed at it: the step drew 514 px wide
@@ -288,10 +318,13 @@ export function createCanvasEditor(host, options = {}) {
         edgeStyle = null, routing = 'simple', hoverHighlight = false,
         onViewportChange = null, zoomControls = false, minimap = false, renameInPlace = false,
         clipboard = null, prepareCopy = null, collapsible = false,
+        groups: groupsOption = false, notes: notesOption = false,
         layout = 'flow',
     } = options;
     const folding = Boolean(collapsible);
     const multi = Boolean(multiSelect);
+    const grouping = Boolean(groupsOption);
+    const noting = Boolean(notesOption);
     if (layout !== 'flow' && layout !== 'layered' && typeof layout !== 'function') {
         throw new Error(`createCanvasEditor's layout is 'flow', 'layered' or a function (graph, ctx) → Map; got ${String(layout)}.`);
     }
@@ -370,7 +403,8 @@ export function createCanvasEditor(host, options = {}) {
     let overlay = null;
     /** What the host shows on each node now (`setNodeValues`), by node id: {badge, tone, ports}. */
     let liveValues = new Map();
-    /** {kind: 'flow'} | {kind: 'node', id} | {kind: 'many', ids} (two or more, `multiSelect`)
+    /** {kind: 'flow'} | {kind: 'node', id} | {kind: 'many', ids, notes?} (two or more,
+     *  `multiSelect`; `notes` the picked notes' ids, with `notes`) | {kind: 'note', id}
      *  | {kind: 'edge', edge} | null */
     let selected = null;
     /** The node a left press went down on (`multiSelect`), while it is held:
@@ -398,6 +432,11 @@ export function createCanvasEditor(host, options = {}) {
     /** Whether `routing: 'obstacles'` is drawing plain curves, the graph being over the kernel's limit. */
     let routingFallback = false;
     const nodeEls = new Map();
+    /** A group's frame and a note's box, by id (`groups`, `notes`). */
+    const frameEls = new Map();
+    const noteEls = new Map();
+    /** The note or the group being typed into in place: {kind, id, done(keep)} | null. */
+    let editing = null;
     /** What each node element was built from (`buildKey`), by node id. */
     const builtFrom = new Map();
     /** A node's own body, by node id: {el, ctx, update} — built once with the node. */
@@ -450,6 +489,14 @@ export function createCanvasEditor(host, options = {}) {
     const isPicked = (id) => (selected?.kind === 'node' ? selected.id === id
         : selected?.kind === 'many' ? selected.ids.includes(id) : false);
     const toggles = (ev) => multi && Boolean(ev.shiftKey || ev.ctrlKey || ev.metaKey);
+    const groupList = () => (Array.isArray(graph.groups) ? graph.groups : []);
+    const noteList = () => (Array.isArray(graph.notes) ? graph.notes : []);
+    const groupOf = (id) => groupList().find((gr) => gr.id === id) || null;
+    const noteOf = (id) => noteList().find((x) => x.id === id) || null;
+    /** The picked notes' ids (`notes`). */
+    const pickedNotes = () => (selected?.kind === 'note' ? [selected.id]
+        : selected?.kind === 'many' ? selected.notes || [] : []);
+    const isNotePicked = (id) => pickedNotes().includes(id);
     /** The consumer's findings, then the editor's own (a node body that threw). */
     const allFindings = () => (bodyFindings.size ? [...findings, ...bodyFindings.values()] : findings);
 
@@ -481,6 +528,7 @@ export function createCanvasEditor(host, options = {}) {
     }
 
     function restore(state) {
+        editing?.done(false);
         const p = JSON.parse(state);
         graph = normalise(p.graph);
         settingsValue = plainObject(p.flowSettings);
@@ -499,11 +547,19 @@ export function createCanvasEditor(host, options = {}) {
     function prunePick() {
         if (selected?.kind === 'node' && !nodeOf(selected.id)) selected = null;
         if (selected?.kind === 'edge' && !graph.connections.some((c) => sameEdge(c, selected.edge))) selected = null;
-        if (selected?.kind === 'many') {
-            const live = new Set(graph.nodes.map((x) => x.id));
-            const ids = selected.ids.filter((id) => live.has(id));
-            selected = ids.length > 1 ? { kind: 'many', ids } : ids.length ? { kind: 'node', id: ids[0] } : null;
-        }
+        if (selected?.kind === 'note' && !noteOf(selected.id)) selected = null;
+        if (selected?.kind === 'many') selected = pickOf(selected.ids, selected.notes || []);
+    }
+
+    /** The pick of these nodes and notes that are still there: none, one, or several. */
+    function pickOf(ids, noteIds = []) {
+        const live = new Set(graph.nodes.map((x) => x.id));
+        const list = [...new Set(ids)].filter((id) => live.has(id));
+        const liveNotes = new Set(noteList().map((x) => x.id));
+        const notes = [...new Set(noteIds)].filter((id) => liveNotes.has(id));
+        if (list.length + notes.length > 1) return { kind: 'many', ids: list, ...(notes.length ? { notes } : {}) };
+        if (list.length) return { kind: 'node', id: list[0] };
+        return notes.length ? { kind: 'note', id: notes[0] } : null;
     }
 
     /** A verb that repainted away the focused control leaves focus on the body,
@@ -559,6 +615,20 @@ export function createCanvasEditor(host, options = {}) {
             pickTools.push(tools[id]);
         }
     }
+    // Group, Ungroup and Note, after the align verbs (`groups`, `notes`).
+    const itemTools = [];
+    if (grouping) {
+        tools.group = tool('group', { label: say(S, 'group'), title: say(S, 'groupTitle'), icon: 'select_all',
+                                      iconOnly: true, onClick: () => groupPicked() });
+        tools.ungroup = tool('ungroup', { label: say(S, 'ungroup'), title: say(S, 'ungroupTitle'), icon: 'deselect',
+                                          iconOnly: true, onClick: () => ungroupPicked() });
+        itemTools.push(tools.group, tools.ungroup);
+    }
+    if (noting) {
+        tools.note = tool('note', { label: say(S, 'note'), title: say(S, 'noteTitle'), icon: 'sticky_note_2',
+                                    onClick: () => { const n = addNote(); if (n) editNote(n.id); } });
+        itemTools.push(tools.note);
+    }
     if (zoomControls) {
         tools['zoom-out'] = tool('zoom-out', { label: say(S, 'zoomOut'), icon: 'zoom_out', title: say(S, 'zoomOutTitle'),
                                                onClick: () => zoomStep(-1) });
@@ -578,7 +648,7 @@ export function createCanvasEditor(host, options = {}) {
     }
     toolbar.append(tools.undo, tools.redo, tools.arrange, tools.fit,
                    ...['zoom-out', 'zoom-in', 'zoom-reset'].filter((id) => tools[id]).map((id) => tools[id]),
-                   ...pickTools, ...consumerTools.map((t) => t.el), status, toolbarEnd);
+                   ...pickTools, ...itemTools, ...consumerTools.map((t) => t.el), status, toolbarEnd);
     if (typeof slots.toolbarEnd === 'function') slots.toolbarEnd(toolbarEnd);
 
     function refusals() {
@@ -597,6 +667,11 @@ export function createCanvasEditor(host, options = {}) {
             for (const kind of ALIGN) r[`align-${kind}`] = stop || (n < 2 ? say(S, 'alignNeedsTwo') : null);
             for (const axis of DISTRIBUTE) r[`distribute-${axis}`] = stop || (n < 3 ? say(S, 'distributeNeedsThree') : null);
         }
+        if (grouping) {
+            r.group = stop || (pickedIds().length ? null : say(S, 'groupNeedsOne'));
+            r.ungroup = stop || (groupsOfPick().length ? null : say(S, 'ungroupNeedsGroup'));
+        }
+        if (noting) r.note = stop;
         return r;
     }
 
@@ -1590,9 +1665,20 @@ export function createCanvasEditor(host, options = {}) {
         if (!(multi && isPicked(nodeId))) select({ kind: 'node', id: nodeId });
         if (isReadOnly()) return;
         const ids = selected?.kind === 'many' ? selected.ids : [nodeId];
-        const rows = ids.map((id) => ({ nodeRow: nodeOf(id), n: nodeEls.get(id) })).filter((r) => r.nodeRow && r.n);
-        if (!rows.some((r) => r.nodeRow.id === nodeId)) return;
-        const from = rows.map((r) => ({ ...r.nodeRow.position }));
+        if (!ids.includes(nodeId)) return;
+        dragItems(ev, ids, pickedNotes(), () => { if (pressed?.id === nodeId) pressed.moved = true; });
+    }
+
+    /** Drag these nodes and notes together by the pointer: ONE entry when it
+     *  moved — `flow:node:move` for one node, `flow:note:move` for notes only,
+     *  `flow:nodes:move` for anything more. */
+    function dragItems(ev, nodeIds, noteIds, onFirstMove = null) {
+        const rows = [
+            ...nodeIds.map((id) => ({ item: nodeOf(id), n: nodeEls.get(id) })),
+            ...noteIds.map((id) => ({ item: noteOf(id), n: noteEls.get(id), note: true })),
+        ].filter((r) => r.item && r.n);
+        if (!rows.length) return;
+        const from = rows.map((r) => ({ ...r.item.position }));
         const start = { x: ev.clientX, y: ev.clientY };
         let moved = false;
         const onMove = (m) => {
@@ -1600,11 +1686,11 @@ export function createCanvasEditor(host, options = {}) {
             const dy = (m.clientY - start.y) / canvas.scale;
             if (!moved && Math.abs(dx) + Math.abs(dy) < 3) return;
             moved = true;
-            if (pressed?.id === nodeId) pressed.moved = true;
-            rows.forEach(({ nodeRow, n }, i) => {
-                nodeRow.position = { x: canvas.snap(from[i].x + dx), y: canvas.snap(from[i].y + dy) };
-                n.style.left = `${nodeRow.position.x}px`;
-                n.style.top = `${nodeRow.position.y}px`;
+            onFirstMove?.();
+            rows.forEach(({ item, n }, i) => {
+                item.position = { x: canvas.snap(from[i].x + dx), y: canvas.snap(from[i].y + dy) };
+                n.style.left = `${item.position.x}px`;
+                n.style.top = `${item.position.y}px`;
             });
             paintEdges();
         };
@@ -1612,7 +1698,9 @@ export function createCanvasEditor(host, options = {}) {
             window.removeEventListener('pointermove', onMove);
             window.removeEventListener('pointerup', onUp);
             window.removeEventListener('pointercancel', onUp);
-            if (moved) commit(rows.length > 1 ? 'flow:nodes:move' : 'flow:node:move');
+            if (!moved) return;
+            const nodes = rows.filter((r) => !r.note).length;
+            commit(!nodes ? 'flow:note:move' : rows.length > 1 ? 'flow:nodes:move' : 'flow:node:move');
         };
         window.addEventListener('pointermove', onMove);
         window.addEventListener('pointerup', onUp);
@@ -1642,6 +1730,7 @@ export function createCanvasEditor(host, options = {}) {
             if (bodyChanged) findingsBy = groupFindings(allFindings(), { graph });
             const picks = pickedSet();
             for (const nodeRow of graph.nodes) bodyChanged = paintNode(nodeRow, picks) || bodyChanged;
+            paintNotes();
         } finally {
             painting = false;
         }
@@ -1879,6 +1968,7 @@ export function createCanvasEditor(host, options = {}) {
         });
         canvas.edgeLayer.replaceChildren(...paths);
         labelLayer?.replaceChildren(...labels);
+        paintFrames();
         paintMinimap();
     }
 
@@ -1891,12 +1981,14 @@ export function createCanvasEditor(host, options = {}) {
      *  it was looked like a button that does nothing. */
     function fit({ whole = false } = {}) {
         if (!graph.nodes.length || destroyed) return;
-        const xs = graph.nodes.map((x) => x.position.x);
-        const ys = graph.nodes.map((x) => x.position.y);
-        const x = Math.min(...xs);
-        const y = Math.min(...ys);
-        const height = Math.max(...graph.nodes.map(bottomOf)) - y;
-        const right = Math.max(...graph.nodes.map((n) => n.position.x + widthOf(n)));
+        // A drawn note is framed with the steps.
+        const notes = noting ? noteList().map((n) => ({ x: n.position.x, y: n.position.y,
+                                                         right: n.position.x + (n.size?.w || NOTE_WIDTH),
+                                                         bottom: n.position.y + (n.size?.h || noteEls.get(n.id)?.offsetHeight || 0) })) : [];
+        const x = Math.min(...graph.nodes.map((n) => n.position.x), ...notes.map((n) => n.x));
+        const y = Math.min(...graph.nodes.map((n) => n.position.y), ...notes.map((n) => n.y));
+        const height = Math.max(...graph.nodes.map(bottomOf), ...notes.map((n) => n.bottom)) - y;
+        const right = Math.max(...graph.nodes.map((n) => n.position.x + widthOf(n)), ...notes.map((n) => n.right));
         canvas.fit({ x, y, width: right - x, height });
         const scale = canvas.scale > NATURAL ? NATURAL
             : !whole && canvas.scale < READABLE ? READABLE : null;
@@ -1928,8 +2020,9 @@ export function createCanvasEditor(host, options = {}) {
     }
 
     /** What the toolbar's Arrange lays out: the picked steps when several are
-     *  picked (`multiSelect`), else the whole graph. */
-    const arrangeTarget = () => (selected?.kind === 'many' ? { ids: [...selected.ids] } : {});
+     *  picked (`multiSelect`), else the whole graph. Picked notes do not count:
+     *  one step and a note arrange the whole graph. */
+    const arrangeTarget = () => (selected?.kind === 'many' && selected.ids.length >= 2 ? { ids: [...selected.ids] } : {});
 
     /** ARRANGE: the `layout` option's places, anchored at the current top-left
      *  corner of what is arranged so nothing jumps off screen, and ONE undo
@@ -1955,6 +2048,347 @@ export function createCanvasEditor(host, options = {}) {
         commit('flow:arrange');
         if (!only) fit();
         return true;
+    }
+
+    // ── groups and notes (`groups`, `notes`) ────────────────────────────
+
+    /** A fresh id among `list`'s: `stem`, `stem-2`, … */
+    function freshId(list, stem) {
+        const taken = new Set(list.map((x) => x.id));
+        if (!taken.has(stem)) return stem;
+        for (let i = 2; ; i += 1) if (!taken.has(`${stem}-${i}`)) return `${stem}-${i}`;
+    }
+
+    /** The groups the picked nodes are in, in graph order. */
+    const groupsOfPick = () => {
+        const ids = pickedSet();
+        return groupList().filter((gr) => gr.nodes.some((id) => ids.has(id)));
+    };
+
+    /** Take `ids` out of every group (a node is in one at most); a group left
+     *  with no member goes. */
+    function ungroupNodes(ids) {
+        const out = new Set(ids);
+        for (const gr of groupList()) gr.nodes = gr.nodes.filter((id) => !out.has(id));
+        setGroups(groupList().filter((gr) => gr.nodes.length));
+    }
+
+    function setGroups(list) {
+        if (list.length) graph.groups = list; else delete graph.groups;
+    }
+
+    /** Group these nodes (default: the pick) as ONE `flow:group:add`; each
+     *  leaves the group it was in. The new group's id, or null when refused. */
+    function groupNodes(ids, { label = '', tone = null } = {}) {
+        if (!grouping || isReadOnly()) return null;
+        const want = new Set(ids);
+        const members = graph.nodes.filter((x) => want.has(x.id)).map((x) => x.id);
+        if (!members.length) return null;
+        ungroupNodes(members);
+        const id = freshId(groupList(), 'group');
+        setGroups([...groupList(), { id, ...(label ? { label: String(label) } : {}),
+                                     ...(tone ? { tone: String(tone) } : {}), nodes: members }]);
+        paintFrames();
+        commit('flow:group:add');
+        paintToolbar();
+        return id;
+    }
+
+    function groupPicked() {
+        if (refusals().group) return false;
+        return groupNodes(pickedIds()) !== null;
+    }
+
+    /** Ungroup these groups (default: the ones the pick is in) as ONE `flow:group:remove`. */
+    function ungroupGroups(groupIds) {
+        if (!grouping || isReadOnly()) return false;
+        const gone = new Set(groupIds.filter((id) => groupOf(id)));
+        if (!gone.size) return false;
+        setGroups(groupList().filter((gr) => !gone.has(gr.id)));
+        paintFrames();
+        commit('flow:group:remove');
+        paintToolbar();
+        return true;
+    }
+
+    function ungroupPicked() {
+        if (refusals().ungroup) return false;
+        return ungroupGroups(groupsOfPick().map((gr) => gr.id));
+    }
+
+    /** A group's name and tone, as ONE `flow:group:label` (typing merges). */
+    function setGroupLook(id, { label, tone } = {}) {
+        const gr = grouping && !isReadOnly() ? groupOf(id) : null;
+        if (!gr) return false;
+        const name = label === undefined ? gr.label || '' : String(label ?? '');
+        const look = tone === undefined ? gr.tone || '' : String(tone ?? '');
+        if (name === (gr.label || '') && look === (gr.tone || '')) return false;
+        setGroups(groupList().map((x) => (x.id !== id ? x : {
+            id, ...(name ? { label: name } : {}), ...(look ? { tone: look } : {}), nodes: x.nodes })));
+        paintFrames();
+        commit('flow:group:label', `group:${id}`);
+        return true;
+    }
+
+    /** Exactly these members, as ONE `flow:group:members`: each leaves the
+     *  group it was in, and none left removes the group. */
+    function setGroupMembers(id, ids) {
+        const gr = grouping && !isReadOnly() ? groupOf(id) : null;
+        if (!gr) return false;
+        const want = new Set(ids);
+        const members = graph.nodes.filter((x) => want.has(x.id)).map((x) => x.id);
+        if (members.length === gr.nodes.length && members.every((m, i) => m === gr.nodes[i])) return false;
+        const taken = new Set(members);
+        setGroups(groupList().map((x) => (x.id === id ? { ...x, nodes: members }
+            : { ...x, nodes: x.nodes.filter((n) => !taken.has(n)) })).filter((x) => x.nodes.length));
+        paintFrames();
+        commit('flow:group:members');
+        paintToolbar();
+        return true;
+    }
+
+    /** The box round a group's members, its title bar included. */
+    function frameBox(gr) {
+        const rows = gr.nodes.map(nodeOf).filter(Boolean);
+        if (!rows.length) return null;
+        const x = Math.min(...rows.map((n) => n.position.x)) - FRAME.pad;
+        const y = Math.min(...rows.map((n) => n.position.y)) - FRAME.pad - FRAME.head;
+        const right = Math.max(...rows.map((n) => n.position.x + widthOf(n))) + FRAME.pad;
+        const bottom = Math.max(...rows.map(bottomOf)) + FRAME.pad;
+        return { x, y, width: right - x, height: bottom - y };
+    }
+
+    function buildFrame(id) {
+        const f = el('div', 'twm-flow-graph__group');
+        f.dataset.groupId = id;
+        const head = el('div', 'twm-flow-graph__group-head');
+        head.appendChild(el('span', 'twm-flow-graph__group-label'));
+        head.addEventListener('pointerdown', (ev) => {
+            if (ev.button !== 0 || (editing?.kind === 'group' && editing.id === id)) return;
+            ev.stopPropagation();
+            const gr = groupOf(id);
+            if (!gr) return;
+            if (multi) pickNodes(gr.nodes);
+            if (!isReadOnly()) dragItems(ev, gr.nodes, []);
+        });
+        head.addEventListener('dblclick', () => editGroupLabel(id));
+        f.appendChild(head);
+        return f;
+    }
+
+    /** The frames, behind the nodes, round their members wherever they are now. */
+    function paintFrames() {
+        if (!grouping || destroyed) return;
+        const live = new Set(groupList().map((gr) => gr.id));
+        // A group gone while its name is being typed: the typing ends, unsaved.
+        if (editing?.kind === 'group' && !live.has(editing.id)) editing.done(false);
+        for (const [id, f] of frameEls) if (!live.has(id)) { f.remove(); frameEls.delete(id); }
+        for (const gr of groupList()) {
+            let f = frameEls.get(gr.id);
+            if (!f) {
+                f = buildFrame(gr.id);
+                frameEls.set(gr.id, f);
+            }
+            const box = frameBox(gr);
+            Object.assign(f.style, { left: `${box.x}px`, top: `${box.y}px`, width: `${box.width}px`,
+                                     height: `${box.height}px` });
+            if (TONES.includes(gr.tone)) f.dataset.tone = gr.tone; else delete f.dataset.tone;
+            const name = gr.label || say(S, 'groupUntitled');
+            f.setAttribute('aria-label', name);
+            if (editing?.kind !== 'group' || editing.id !== gr.id) {
+                const tag = f.querySelector('.twm-flow-graph__group-label');
+                tag.textContent = name;
+                tag.title = name;
+                tag.classList.toggle('twm-flow-graph__group-label--untitled', !gr.label);
+            }
+        }
+        // Behind every node: first in the node layer, in group order (the
+        // first group lowest), and moved only when out of that order.
+        const order = groupList().map((gr) => frameEls.get(gr.id));
+        const lead = [...canvas.nodeLayer.children].slice(0, order.length);
+        if (order.some((f, i) => lead[i] !== f)) canvas.nodeLayer.prepend(...order);
+    }
+
+    /** Type into a box in place of `shown`: Enter (a note: Ctrl/⌘+Enter) or
+     *  leaving keeps it, Escape puts it back. */
+    function typeInPlace(kind, id, shown, input, keep) {
+        editing?.done(true);
+        input.value = kind === 'note' ? noteOf(id)?.text ?? '' : groupOf(id)?.label ?? '';
+        shown.hidden = true;
+        shown.after(input);
+        let over = false;
+        const done = (save) => {
+            if (over) return;
+            over = true;
+            editing = null;
+            const text = input.value;
+            input.remove();
+            shown.hidden = false;
+            if (save) keep(text);
+            if (kind === 'note') paintNotes(); else paintFrames();
+            keepFocus();
+        };
+        input.addEventListener('keydown', (k) => {
+            if (k.key === 'Escape') { k.preventDefault(); k.stopPropagation(); done(false); return; }
+            if (k.key === 'Enter' && (kind !== 'note' || k.ctrlKey || k.metaKey)) {
+                k.preventDefault();
+                k.stopPropagation();
+                done(true);
+            }
+        });
+        input.addEventListener('blur', () => done(true));
+        input.addEventListener('pointerdown', (p) => p.stopPropagation());
+        editing = { kind, id, done };
+        input.focus({ preventScroll: true });
+        input.select?.();
+    }
+
+    function editGroupLabel(id) {
+        const f = frameEls.get(id);
+        if (!f || !groupOf(id) || isReadOnly()) return false;
+        if (editing?.kind === 'group' && editing.id === id) return true;
+        const input = el('input', 'twm-flow-graph__group-input');
+        input.type = 'text';
+        input.setAttribute('aria-label', say(S, 'groupName'));
+        typeInPlace('group', id, f.querySelector('.twm-flow-graph__group-label'), input,
+                    (text) => setGroupLook(id, { label: text.trim() }));
+        return true;
+    }
+
+    /** Add a note as ONE `flow:note:add`: at `position`, or at the centre of the view. */
+    function addNote({ text = '', position = null, size = null } = {}) {
+        if (!noting || isReadOnly()) return null;
+        let where = position;
+        if (!where) {
+            const box = canvas.visibleBox();
+            where = { x: canvas.snap(box.width ? box.x + box.width / 2 - NOTE_WIDTH / 2 : 80),
+                      y: canvas.snap(box.height ? box.y + box.height / 3 : 80) };
+        }
+        const id = freshId(noteList(), 'note');
+        const next = normalise({ nodes: [], connections: [], notes: [{ id, text, position: where, size }] }).notes[0];
+        graph.notes = [...noteList(), next];
+        selected = { kind: 'note', id };
+        paintNodes();
+        paintPanel();
+        announceSelection();
+        commit('flow:note:add');
+        return structuredClone(next);
+    }
+
+    /** A note's text, as ONE `flow:note:edit`. */
+    function setNoteText(id, text) {
+        const note = noting && !isReadOnly() ? noteOf(id) : null;
+        if (!note || note.text === String(text ?? '')) return false;
+        note.text = String(text ?? '');
+        paintNotes();
+        if (selected?.kind === 'note' && selected.id === id) paintPanel();
+        commit('flow:note:edit', `note:${id}`);
+        return true;
+    }
+
+    /** A note put somewhere, as ONE `flow:note:move`. */
+    function moveNote(id, position) {
+        const note = noting && !isReadOnly() ? noteOf(id) : null;
+        const x = Math.round(Number(position?.x));
+        const y = Math.round(Number(position?.y));
+        if (!note || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+        if (note.position.x === x && note.position.y === y) return false;
+        note.position = { x, y };
+        paintNotes();
+        commit('flow:note:move');
+        return true;
+    }
+
+    /** Take these notes away, as ONE `flow:note:remove` (the editor's own,
+     *  so no commit when `commitAs` is null: the caller's edit carries it). */
+    function dropNotes(ids, commitAs = 'flow:note:remove') {
+        const gone = new Set(ids);
+        const kept = noteList().filter((x) => !gone.has(x.id));
+        if (kept.length === noteList().length) return false;
+        if (kept.length) graph.notes = kept; else delete graph.notes;
+        if (commitAs) {
+            prunePick();
+            paintNodes();
+            paintPanel();
+            announceSelection();
+            commit(commitAs);
+        }
+        return true;
+    }
+
+    function editNote(id) {
+        const box = noteEls.get(id);
+        if (!box || !noteOf(id) || isReadOnly()) return false;
+        if (editing?.kind === 'note' && editing.id === id) return true;
+        const input = el('textarea', 'twm-flow-graph__note-input');
+        input.setAttribute('aria-label', say(S, 'noteText'));
+        typeInPlace('note', id, box.querySelector('.twm-flow-graph__note-text'), input,
+                    (text) => setNoteText(id, text));
+        return true;
+    }
+
+    function buildNote(id) {
+        const box = el('div', 'twm-flow-graph__note');
+        box.dataset.noteId = id;
+        box.setAttribute('data-twm-flow-item', '');
+        box.setAttribute('role', 'note');
+        box.tabIndex = 0;
+        box.appendChild(el('p', 'twm-flow-graph__note-text'));
+        box.addEventListener('pointerdown', (ev) => {
+            if (ev.button !== 0 || (editing?.kind === 'note' && editing.id === id)) return;
+            ev.stopPropagation();
+            if (toggles(ev)) return;                                   // its click toggles it
+            if (!isNotePicked(id)) select({ kind: 'note', id });
+            if (isReadOnly()) return;
+            dragItems(ev, selected?.kind === 'many' ? selected.ids : [], pickedNotes());
+        });
+        box.addEventListener('click', (ev) => {
+            if (!toggles(ev)) return;
+            const notes = pickedNotes();
+            pickItems(pickedIds(), notes.includes(id) ? notes.filter((x) => x !== id) : [...notes, id]);
+        });
+        box.addEventListener('dblclick', () => editNote(id));
+        return box;
+    }
+
+    /** The notes, in place: a note being typed into keeps its box and its text. */
+    function paintNotes() {
+        if (!noting || destroyed) return;
+        const live = new Set(noteList().map((x) => x.id));
+        // A note gone while it is being typed into: the typing ends, unsaved.
+        if (editing?.kind === 'note' && !live.has(editing.id)) editing.done(false);
+        for (const [id, box] of noteEls) if (!live.has(id)) { box.remove(); noteEls.delete(id); }
+        const picks = new Set(pickedNotes());
+        for (const note of noteList()) {
+            let box = noteEls.get(note.id);
+            if (!box) {
+                box = buildNote(note.id);
+                noteEls.set(note.id, box);
+                canvas.nodeLayer.appendChild(box);
+            }
+            box.style.left = `${note.position.x}px`;
+            box.style.top = `${note.position.y}px`;
+            box.style.width = `${note.size?.w || NOTE_WIDTH}px`;
+            if (note.size?.h) box.style.height = `${note.size.h}px`; else box.style.removeProperty('height');
+            const picked = picks.has(note.id);
+            box.classList.toggle('twm-flow-graph__note--picked', picked);
+            if (picked) box.setAttribute('aria-current', 'true'); else box.removeAttribute('aria-current');
+            const shown = box.querySelector('.twm-flow-graph__note-text');
+            shown.textContent = note.text || say(S, 'noteEmpty');
+            shown.classList.toggle('twm-flow-graph__note-text--empty', !note.text);
+            box.setAttribute('aria-label', note.text || say(S, 'noteEmpty'));
+        }
+    }
+
+    /** The notes a marquee box (canvas units) touches, in graph order. */
+    function notesIn(box) {
+        return noteList().filter((x) => {
+            const el2 = noteEls.get(x.id);
+            const w = x.size?.w || NOTE_WIDTH;
+            const h = x.size?.h || el2?.offsetHeight || FRAME.head;
+            return x.position.x < box.x + box.width && x.position.x + w > box.x
+                && x.position.y < box.y + box.height && x.position.y + h > box.y;
+        }).map((x) => x.id);
     }
 
     // ── the panel ───────────────────────────────────────────────────────
@@ -2028,24 +2462,25 @@ export function createCanvasEditor(host, options = {}) {
             n.classList.toggle('twm-flow-graph__node--picked', picked);
             if (picked) n.setAttribute('aria-current', 'true'); else n.removeAttribute('aria-current');
         }
+        paintNotes();
         paintEdges();
         paintPanel();
         announceSelection();
-        if (multi) paintToolbar();
+        if (multi || grouping) paintToolbar();
     }
 
-    /** Pick exactly these nodes (`multiSelect`): none, one, or several. */
-    function pickNodes(ids) {
-        const live = new Set(graph.nodes.map((x) => x.id));
-        const list = [...new Set(ids)].filter((id) => live.has(id));
-        const next = list.length > 1 ? { kind: 'many', ids: list } : list.length ? { kind: 'node', id: list[0] } : null;
+    /** Pick exactly these nodes and notes (`multiSelect`): none, one, or several. */
+    function pickItems(ids, noteIds = []) {
+        const next = pickOf(ids, noteIds);
         // A marquee asks on every pointer move: only a change repaints.
         if (JSON.stringify(next) !== JSON.stringify(selected)) select(next);
     }
 
+    const pickNodes = (ids) => pickItems(ids);
+
     function togglePick(id) {
         const ids = pickedIds();
-        pickNodes(ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
+        pickItems(ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id], pickedNotes());
     }
 
     /** The nodes a marquee box (canvas units) touches, in graph order. */
@@ -2057,14 +2492,17 @@ export function createCanvasEditor(host, options = {}) {
 
     function announceSelection() {
         const now = selected?.kind === 'node' ? `step:${selected.id}`
-            : selected?.kind === 'many' ? `many:${JSON.stringify(selected.ids)}`
+            : selected?.kind === 'many' ? `many:${JSON.stringify([selected.ids, selected.notes || []])}`
+                : selected?.kind === 'note' ? `note:${selected.id}`
                 : selected?.kind === 'edge' ? `connection:${JSON.stringify(selected.edge)}`
                     : selected?.kind === 'flow' ? 'flow' : '';
         if (now === lastSelect) return;
         lastSelect = now;
         if (!onSelect || destroyed) return;
         if (selected?.kind === 'node') onSelect({ kind: 'step', id: selected.id });
-        else if (selected?.kind === 'many') onSelect({ kind: 'many', ids: [...selected.ids] });
+        else if (selected?.kind === 'many') {
+            onSelect({ kind: 'many', ids: [...selected.ids], ...(selected.notes ? { notes: [...selected.notes] } : {}) });
+        } else if (selected?.kind === 'note') onSelect({ kind: 'note', id: selected.id });
         else if (selected?.kind === 'edge') onSelect({ kind: 'connection', id: null, connection: { ...selected.edge } });
         else if (selected?.kind === 'flow') onSelect({ kind: 'flow', id: null });
         else onSelect({ kind: null, id: null });
@@ -2074,12 +2512,16 @@ export function createCanvasEditor(host, options = {}) {
         if (!selected || isReadOnly()) return false;
         if (selected.kind === 'many') {
             const doomed = removableOf(selected.ids);
-            if (!doomed.length) return false;
+            const notes = selected.notes || [];
+            if (!doomed.length && !notes.length) return false;
             for (const id of doomed) removeNode(graph, id);
+            dropNotes(notes, null);
             findingsBy = groupFindings(allFindings(), { graph });
             select(null);
             paintNodes();
-            commit('flow:nodes:remove');
+            commit(doomed.length ? 'flow:nodes:remove' : 'flow:note:remove');
+        } else if (selected.kind === 'note') {
+            if (!dropNotes([selected.id])) return false;
         } else if (selected.kind === 'node') {
             const nodeRow = nodeOf(selected.id);
             if (!nodeRow || !canRemove(nodeRow, typeOf(nodeRow))) return false;
@@ -2123,9 +2565,21 @@ export function createCanvasEditor(host, options = {}) {
 
     function paintMany() {
         const n = removableOf(selected.ids).length;
-        paintPickBox({ title: say(S, 'stepsPicked', selected.ids.length), line: say(S, 'stepsPickedLine'),
-                       removeLabel: say(S, 'removeSteps', n), removeIcon: 'delete', action: 'remove-steps',
-                       refused: n === 0 });
+        const notes = selected.notes?.length || 0;
+        if (!notes) {
+            paintPickBox({ title: say(S, 'stepsPicked', selected.ids.length), line: say(S, 'stepsPickedLine'),
+                           removeLabel: say(S, 'removeSteps', n), removeIcon: 'delete', action: 'remove-steps',
+                           refused: n === 0 });
+            return;
+        }
+        paintPickBox({ title: say(S, 'itemsPicked', selected.ids.length, notes), line: say(S, 'stepsPickedLine'),
+                       removeLabel: say(S, 'removeItems', n + notes), removeIcon: 'delete', action: 'remove-steps' });
+    }
+
+    function paintNote() {
+        const text = noteOf(selected.id)?.text || '';
+        paintPickBox({ title: say(S, 'noteKind'), line: text || say(S, 'noteEmpty'), removeLabel: say(S, 'removeNote'),
+                       removeIcon: 'delete', action: 'remove-note' });
     }
 
     /**
@@ -2136,10 +2590,10 @@ export function createCanvasEditor(host, options = {}) {
      */
     function paintPanel() {
         if (destroyed) return;
-        if (selected?.kind === 'edge' || selected?.kind === 'many') {
+        if (selected?.kind === 'edge' || selected?.kind === 'many' || selected?.kind === 'note') {
             panel.clear();
             panel.el.hidden = true;
-            if (selected.kind === 'edge') paintConnection(); else paintMany();
+            if (selected.kind === 'edge') paintConnection(); else if (selected.kind === 'note') paintNote(); else paintMany();
             return;
         }
         connectionBox.hidden = true;
@@ -2233,15 +2687,17 @@ export function createCanvasEditor(host, options = {}) {
     function nudge(dx, dy, ev) {
         if (!multi || !canvas.root.contains(ev.target)) return false;
         const rows = pickedRows();
-        if (!rows.length || isReadOnly()) return false;
+        const notes = pickedNotes().map(noteOf).filter(Boolean);
+        if (!(rows.length + notes.length) || isReadOnly()) return false;
         const step = (canvas.gridSize || 1) * (ev.shiftKey ? NUDGE_FAR : 1);
-        for (const n of rows) {
+        for (const n of [...rows, ...notes]) {
             n.position = { x: n.position.x + dx * step, y: n.position.y + dy * step };
-            const box = nodeEls.get(n.id);
+            const box = (rows.includes(n) ? nodeEls : noteEls).get(n.id);
             if (box) { box.style.left = `${n.position.x}px`; box.style.top = `${n.position.y}px`; }
         }
         paintEdges();
-        commit(rows.length > 1 ? 'flow:nodes:move' : 'flow:node:move', `nudge:${rows.map((n) => n.id).join(',')}`);
+        const action = !rows.length ? 'flow:note:move' : rows.length + notes.length > 1 ? 'flow:nodes:move' : 'flow:node:move';
+        commit(action, `nudge:${[...rows, ...notes].map((n) => n.id).join(',')}`);
         return undefined;
     }
 
@@ -2270,7 +2726,7 @@ export function createCanvasEditor(host, options = {}) {
     }
 
     if (multi) {
-        canvas.onMarquee = (box) => pickNodes(nodesIn(box));
+        canvas.onMarquee = (box) => pickItems(nodesIn(box), noting ? notesIn(box) : []);
         canvas.root.addEventListener('keydown', onTab);
         window.addEventListener('pointerup', pressLetGo, true);
         window.addEventListener('pointercancel', pressLetGo, true);
@@ -2299,12 +2755,34 @@ export function createCanvasEditor(host, options = {}) {
         return graph.nodes.filter((n) => picks.has(n.id) && addable(typeOf(n)));
     };
 
-    /** The steps and the lines among them as the graph's own text; a line to a step left out is not copied. */
-    function copyText(rows) {
+    /** The picked notes a copy takes along (`notes`), in graph order. */
+    const copyNoteRows = () => {
+        if (!noting) return [];
+        const picks = new Set(pickedNotes());
+        return noteList().filter((x) => picks.has(x.id));
+    };
+
+    /** Is anything picked a copy could be made of: a step, or (`notes`) a note. */
+    const pickedAny = () => pickedIds().length > 0 || copyNoteRows().length > 0;
+
+    /** The steps, the lines among them, (`groups`) the groups whose every
+     *  member is copied and (`notes`) the picked notes, as the graph's own
+     *  text; a line to a step left out is not copied, nor a group with a
+     *  member left out. */
+    function copyText(rows, notes = []) {
         const ids = new Set(rows.map((n) => n.id));
+        const groups = grouping ? groupList().filter((gr) => gr.nodes.every((id) => ids.has(id))) : [];
         return serialise({ nodes: rows,
-                           connections: graph.connections.filter((c) => ids.has(c.source) && ids.has(c.target)) });
+                           connections: graph.connections.filter((c) => ids.has(c.source) && ids.has(c.target)),
+                           ...(groups.length ? { groups } : {}), ...(notes.length ? { notes } : {}) });
     }
+
+    /** What a copy or a cut says it took: steps, or steps and notes. */
+    const tookSay = (key, rows, notes) => (notes.length ? say(S, `${key}Items`, rows.length, notes.length)
+        : say(S, key, rows.length));
+    /** What a copy or a cut answers: the steps' ids, and the notes' when there are some. */
+    const tookIds = (rows, notes) => ({ ok: true, ids: rows.map((n) => n.id),
+                                        ...(notes.length ? { notes: notes.map((x) => x.id) } : {}) });
 
     /** Onto the clipboard: the editor's own, or the consumer's `write`. */
     function writeClipboard(text, times) {
@@ -2321,34 +2799,39 @@ export function createCanvasEditor(host, options = {}) {
         return true;
     }
 
-    /** COPY: the picked steps and the lines among them onto the clipboard. Read only, too. */
+    /** COPY: the picked steps and the lines among them (and the picked notes,
+     *  and the groups wholly inside the pick) onto the clipboard. Read only, too. */
     function copyNodes() {
         if (!clip) return CLIPBOARD_OFF;
-        if (!pickedIds().length) return refused(say(S, 'nothingPicked'));
+        if (!pickedAny()) return refused(say(S, 'nothingPicked'));
         const rows = copyRows();
-        if (!rows.length) return refused(say(S, 'cannotCopy'));
-        if (!writeClipboard(copyText(rows), 0)) return { ok: false, reason: say(S, 'clipboardFailed') };
-        setMessage(say(S, 'copied', rows.length), 'ok');
-        return { ok: true, ids: rows.map((n) => n.id) };
+        const notes = copyNoteRows();
+        if (!rows.length && !notes.length) return refused(say(S, 'cannotCopy'));
+        if (!writeClipboard(copyText(rows, notes), 0)) return { ok: false, reason: say(S, 'clipboardFailed') };
+        setMessage(tookSay('copied', rows, notes), 'ok');
+        return tookIds(rows, notes);
     }
 
     /** CUT: a copy, then the copied steps removed with their lines — one remove entry. */
     function cutNodes() {
         if (!clip) return CLIPBOARD_OFF;
         if (isReadOnly()) return roRefusal();
-        if (!pickedIds().length) return refused(say(S, 'nothingPicked'));
+        if (!pickedAny()) return refused(say(S, 'nothingPicked'));
         const rows = copyRows().filter((n) => canRemove(n, typeOf(n)));
-        if (!rows.length) return refused(say(S, 'cannotCut'));
+        const notes = copyNoteRows();
+        if (!rows.length && !notes.length) return refused(say(S, 'cannotCut'));
         // The first paste after a cut puts the steps back where they were.
-        if (!writeClipboard(copyText(rows), -1)) return { ok: false, reason: say(S, 'clipboardFailed') };
+        if (!writeClipboard(copyText(rows, notes), -1)) return { ok: false, reason: say(S, 'clipboardFailed') };
         for (const n of rows) removeNode(graph, n.id);
+        dropNotes(notes.map((x) => x.id), null);
         findingsBy = groupFindings(allFindings(), { graph });
         select(null);
         paintNodes();
-        commit(rows.length > 1 ? 'flow:nodes:remove' : 'flow:node:remove');
-        setMessage(say(S, 'cutDone', rows.length), 'ok');
+        commit(!rows.length ? 'flow:note:remove'
+            : rows.length + notes.length > 1 ? 'flow:nodes:remove' : 'flow:node:remove');
+        setMessage(tookSay('cutDone', rows, notes), 'ok');
         keepFocus();
-        return { ok: true, ids: rows.map((n) => n.id) };
+        return tookIds(rows, notes);
     }
 
     /** What is on the clipboard, read as steps: the graph text, or a refusal. */
@@ -2356,11 +2839,15 @@ export function createCanvasEditor(host, options = {}) {
         if (typeof text !== 'string' || !text.trim()) return { reason: say(S, 'nothingToPaste') };
         let raw;
         try { raw = JSON.parse(text); } catch { return { reason: say(S, 'pasteNotSteps') }; }
-        if (!raw || !Array.isArray(raw.nodes) || !raw.nodes.length
+        // Notes alone paste too, where the editor draws notes.
+        const notesToo = noting && Array.isArray(raw?.notes) && raw.notes.length > 0;
+        if (!raw || !Array.isArray(raw.nodes) || (!raw.nodes.length && !notesToo)
             || raw.nodes.some((n) => !n || typeof n !== 'object' || !n.id || !n.type)) {
             return { reason: say(S, 'pasteNotSteps') };
         }
         const g = normalise(raw);
+        // Nothing usable once read: no steps and no notes left to paste.
+        if (!g.nodes.length && !g.notes?.length) return { reason: say(S, 'pasteNotSteps') };
         const odd = g.nodes.find((n) => !addable(typeOf(n)));
         if (odd) return { reason: typeOf(odd) ? say(S, 'notAddable', titleOf(odd)) : say(S, 'unknownType', odd.type) };
         return { g };
@@ -2369,8 +2856,10 @@ export function createCanvasEditor(host, options = {}) {
     /**
      * The copies into the graph, `offset` grid steps off: fresh ids, a label
      * derived when the flow already has it, `prepareCopy`, the lines among
-     * them, then picked — ONE `action` entry. Nothing is written until every
-     * copy is made, so a `prepareCopy` that throws changes nothing.
+     * them, (`notes`) the notes under fresh ids, (`groups`) each group made
+     * again round the copies of its members, then picked — ONE `action`
+     * entry. Nothing is written until every copy is made, so a `prepareCopy`
+     * that throws changes nothing.
      */
     function addCopies(g, offset, via, action) {
         const step = (canvas.gridSize || CANVAS_NODE.row) * offset;
@@ -2401,13 +2890,31 @@ export function createCanvasEditor(host, options = {}) {
             const target = idOf.get(c.target);
             if (source && target) connect(graph, catalogue, { ...c, source, target }, { strings: S });
         }
+        const noteIds = [];
+        for (const from of noting ? g.notes || [] : []) {
+            const id = freshId(noteList(), 'note');
+            graph.notes = [...noteList(), { ...structuredClone(from), id,
+                                            position: { x: from.position.x + step, y: from.position.y + step } }];
+            noteIds.push(id);
+        }
+        const groupIds = [];
+        for (const gr of grouping ? g.groups || [] : []) {
+            const members = gr.nodes.map((id) => idOf.get(id)).filter(Boolean);
+            if (!members.length || members.length !== gr.nodes.length) continue;
+            const id = freshId(groupList(), 'group');
+            setGroups([...groupList(), { id, ...(gr.label ? { label: gr.label } : {}),
+                                         ...(gr.tone ? { tone: gr.tone } : {}), nodes: members }]);
+            groupIds.push(id);
+        }
         const ids = made.map((n) => n.id);
         if (connecting) cancelConnect();
         paintNodes();
-        if (multi) pickNodes(ids); else select({ kind: 'node', id: ids[0] });
+        if (multi) pickItems(ids, noteIds);
+        else select(ids.length ? { kind: 'node', id: ids[0] } : { kind: 'note', id: noteIds[0] });
         commit(action);
         setMessage('');
-        return { ok: true, ids };
+        return { ok: true, ids, ...(noteIds.length ? { notes: noteIds } : {}),
+                 ...(groupIds.length ? { groups: groupIds } : {}) };
     }
 
     /** PASTE `text` — or, without it, what the clipboard holds (a promise of
@@ -2438,15 +2945,16 @@ export function createCanvasEditor(host, options = {}) {
     function duplicateNodes() {
         if (!clip) return CLIPBOARD_OFF;
         if (isReadOnly()) return roRefusal();
-        if (!pickedIds().length) return refused(say(S, 'nothingPicked'));
+        if (!pickedAny()) return refused(say(S, 'nothingPicked'));
         const rows = copyRows();
-        if (!rows.length) return refused(say(S, 'cannotCopy'));
-        return addCopies(JSON.parse(copyText(rows)), COPY_OFFSET, 'duplicate', 'flow:node:duplicate');
+        const notes = copyNoteRows();
+        if (!rows.length && !notes.length) return refused(say(S, 'cannotCopy'));
+        return addCopies(JSON.parse(copyText(rows, notes)), COPY_OFFSET, 'duplicate', 'flow:node:duplicate');
     }
 
     /** A clipboard key: with nothing picked, Ctrl+C, X and D are not the editor's. */
     const clipKey = (run, needsPick = true) => () => {
-        if (!clip || (needsPick && !pickedIds().length)) return false;
+        if (!clip || (needsPick && !pickedAny())) return false;
         run();
         return undefined;
     };
@@ -2467,6 +2975,8 @@ export function createCanvasEditor(host, options = {}) {
         },
         open: (ev) => {
             if (ev.target.closest?.('.twm-flow-graph__port')) return false;     // a port's Enter is its own
+            const noteEl = noting ? ev.target.closest?.('[data-note-id]') : null;
+            if (noteEl && canvas.nodeLayer.contains(noteEl)) return editNote(noteEl.dataset.noteId) ? undefined : false;
             const nodeEl = ev.target.closest?.('[data-node-id]');
             if (nodeEl && canvas.nodeLayer.contains(nodeEl)) {
                 if (!(selected?.kind === 'node' && selected.id === nodeEl.dataset.nodeId)) {
@@ -2478,7 +2988,7 @@ export function createCanvasEditor(host, options = {}) {
         },
         escape: () => {
             if (!connecting) {
-                if (!multi || !pickedIds().length) return false;
+                if (!pickedNotes().length && !(multi && pickedIds().length)) return false;
                 select(null);
                 return undefined;
             }
@@ -2492,9 +3002,11 @@ export function createCanvasEditor(host, options = {}) {
         duplicate: clipKey(duplicateNodes),
         selectAll: () => {
             if (!multi) return false;
-            pickNodes(graph.nodes.map((x) => x.id));
+            pickItems(graph.nodes.map((x) => x.id), noting ? noteList().map((x) => x.id) : []);
             return undefined;
         },
+        group: () => (grouping && groupPicked() ? undefined : false),
+        ungroup: () => (grouping && ungroupPicked() ? undefined : false),
         up: (ev) => nudge(0, -1, ev),
         down: (ev) => nudge(0, 1, ev),
         left: (ev) => nudge(-1, 0, ev),
@@ -2530,6 +3042,8 @@ export function createCanvasEditor(host, options = {}) {
          */
         load({ graph: g = null, flowSettings: fs } = {}, { baseline = true, fit: andFit = true, viewport } = {}) {
             if (destroyed) return;
+            // Typing open in a note or a group name belongs to the graph being replaced.
+            editing?.done(false);
             if (connecting) cancelConnect();
             if (pendingOffer) clearOffer();
             graph = normalise(g);
@@ -2655,6 +3169,7 @@ export function createCanvasEditor(host, options = {}) {
         setReadOnly(next) {
             ro = next;
             if (ro && connecting) cancelConnect();
+            if (ro) editing?.done(false);
             if (isReadOnly()) renaming?.finish(false);
             if (ro && pendingOffer) clearOffer();
             dragCleanup?.();
@@ -2690,7 +3205,28 @@ export function createCanvasEditor(host, options = {}) {
         /** `multiSelect`: equal gaps, horizontal or vertical (three or more). */
         distribute: (axis) => (multi ? distributeNodes(axis) : false),
         fit: (opts) => { fit(opts); viewportBaseline(); },
-        /** `clipboard`: copy the picked steps and the lines among them; `{ok, ids}` or `{ok: false, reason}`. */
+        /** `groups`: group these steps (default: the picked ones), each leaving
+         *  the group it was in — one `flow:group:add`. The new group's id, or null. */
+        group: (ids = null, look = {}) => (ids === null ? (refusals().group ? null : groupNodes(pickedIds(), look))
+            : groupNodes(Array.isArray(ids) ? ids.map(String) : [], look)),
+        /** `groups`: remove these groups (default: the ones the pick is in), their
+         *  steps staying where they are — one `flow:group:remove`. */
+        ungroup: (ids = null) => (ids === null ? ungroupPicked()
+            : ungroupGroups((Array.isArray(ids) ? ids : [ids]).map(String))),
+        /** `groups`: a group's `{label, tone}` — one `flow:group:label`. */
+        setGroup: (id, look) => setGroupLook(String(id), look || {}),
+        /** `groups`: exactly these steps in the group — one `flow:group:members`. */
+        setGroupMembers: (id, ids) => setGroupMembers(String(id), Array.isArray(ids) ? ids.map(String) : []),
+        /** `notes`: add a note — one `flow:note:add`. A copy of it, or null. */
+        addNote: (note) => addNote(note || {}),
+        /** `notes`: a note's text — one `flow:note:edit`. */
+        editNote: (id, text) => setNoteText(String(id), text),
+        /** `notes`: put a note at `{x, y}` — one `flow:note:move`. */
+        moveNote: (id, position) => moveNote(String(id), position),
+        /** `notes`: take a note away — one `flow:note:remove`. */
+        removeNote: (id) => (noting && !isReadOnly() ? dropNotes([String(id)]) : false),
+        /** `clipboard`: copy the picked steps and the lines among them (and the picked notes, the groups wholly
+         *  inside); `{ok, ids, notes?}` or `{ok: false, reason}`. */
         copy: () => copyNodes(),
         /** `clipboard`: copy, then remove what was copied (one remove entry). Refused read only. */
         cut: () => cutNodes(),
@@ -2700,6 +3236,7 @@ export function createCanvasEditor(host, options = {}) {
         duplicate: () => duplicateNodes(),
         destroy() {
             if (destroyed) return;
+            editing?.done(false);
             // A wheel's report still waiting is handed on: the reader did zoom.
             if (wheelTimer !== null) viewportSettled();
             pressEnd?.();

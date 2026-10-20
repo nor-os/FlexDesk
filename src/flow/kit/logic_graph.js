@@ -6,7 +6,16 @@
  * The shape is the consumer server's:
  *
  *     { nodes: [{ id, type, label?, config, position: {x, y}, collapsed? }],
- *       connections: [{ source, target, sourcePort, targetPort }] }
+ *       connections: [{ source, target, sourcePort, targetPort }],
+ *       groups?: [{ id, label?, tone?, nodes: [id, …] }],
+ *       notes?: [{ id, text, position: {x, y}, size?: {w?, h?} }] }
+ *
+ * `groups` and `notes` (0.17.0) are there only when the graph has some: a
+ * graph without them is the same object, and the same text, it always was. A
+ * group is FLAT and a node is in one group at most — `normalise` keeps a node
+ * in the first group that names it, leaves out ids that are not nodes of the
+ * graph, and drops a group left with no member. `removeNode` takes the node
+ * out of its group, and the group with its last member.
  *
  * **The editors decide nothing a publish depends on.** Whether a graph is a
  * valid flow is the consumer's validator, drawn as findings. What `canConnect`
@@ -18,7 +27,8 @@
  * `serialise` is byte-stable: node keys in the order `id, type, label?, config,
  * position, collapsed?` (`collapsed` only when it is `true`, so a graph that
  * never folded a node is the text it always was), config keys sorted, nodes and connections in the order they were
- * drawn — so a graph opened and saved with no edit is the identical text.
+ * drawn (and then the groups and the notes, in theirs) — so a graph opened and
+ * saved with no edit is the identical text.
  */
 
 import { createStrings } from './strings.js';
@@ -44,10 +54,55 @@ export function emptyGraph() {
     return { nodes: [], connections: [] };
 }
 
+const round = (v) => Math.round(Number(v) || 0);
+
+/** The groups worth keeping: flat, each node in the first group that names it. */
+function groupsOf(list, nodeIds) {
+    const out = [];
+    const ids = new Set();
+    const placed = new Set();
+    for (const gr of Array.isArray(list) ? list : []) {
+        if (!gr || typeof gr !== 'object' || gr.id === undefined || gr.id === null || gr.id === '') continue;
+        const id = String(gr.id);
+        if (ids.has(id)) continue;
+        const nodes = [];
+        for (const raw of Array.isArray(gr.nodes) ? gr.nodes : []) {
+            const n = String(raw);
+            if (!nodeIds.has(n) || placed.has(n)) continue;
+            placed.add(n);
+            nodes.push(n);
+        }
+        if (!nodes.length) continue;
+        ids.add(id);
+        out.push({ id, ...(gr.label ? { label: String(gr.label) } : {}), ...(gr.tone ? { tone: String(gr.tone) } : {}),
+                   nodes });
+    }
+    return out;
+}
+
+/** The notes worth keeping: an id each, their text, where they are and the size they were given. */
+function notesOf(list) {
+    const out = [];
+    const ids = new Set();
+    for (const note of Array.isArray(list) ? list : []) {
+        if (!note || typeof note !== 'object' || note.id === undefined || note.id === null || note.id === '') continue;
+        const id = String(note.id);
+        if (ids.has(id)) continue;
+        ids.add(id);
+        const w = round(note.size?.w);
+        const h = round(note.size?.h);
+        const size = { ...(w > 0 ? { w } : {}), ...(h > 0 ? { h } : {}) };
+        out.push({ id, text: note.text === undefined || note.text === null ? '' : String(note.text),
+                   position: { x: round(note.position?.x), y: round(note.position?.y) },
+                   ...(Object.keys(size).length ? { size } : {}) });
+    }
+    return out;
+}
+
 /** A deep copy with every field the graph carries, and nothing else. */
 export function normalise(graph) {
     const g = graph && typeof graph === 'object' ? graph : emptyGraph();
-    return {
+    const out = {
         nodes: (Array.isArray(g.nodes) ? g.nodes : []).map((n) => ({
             id: String(n.id),
             type: String(n.type),
@@ -63,6 +118,11 @@ export function normalise(graph) {
             targetPort: String(c.targetPort || 'in'),
         })),
     };
+    const groups = groupsOf(g.groups, new Set(out.nodes.map((n) => n.id)));
+    if (groups.length) out.groups = groups;
+    const notes = notesOf(g.notes);
+    if (notes.length) out.notes = notes;
+    return out;
 }
 
 function sortedKeys(value) {
@@ -84,6 +144,8 @@ export function serialise(graph) {
         connections: g.connections.map((c) => ({
             source: c.source, target: c.target, sourcePort: c.sourcePort, targetPort: c.targetPort,
         })),
+        ...(g.groups ? { groups: g.groups } : {}),
+        ...(g.notes ? { notes: g.notes } : {}),
     });
 }
 
@@ -121,9 +183,15 @@ export function addNode(graph, typeId, position = null, { id = null, label = nul
     return node;
 }
 
+/** Take a step away, with its lines; its group shrinks, and goes with its last member. */
 export function removeNode(graph, nodeId) {
     graph.nodes = graph.nodes.filter((n) => n.id !== nodeId);
     graph.connections = graph.connections.filter((c) => c.source !== nodeId && c.target !== nodeId);
+    if (Array.isArray(graph.groups)) {
+        for (const gr of graph.groups) gr.nodes = gr.nodes.filter((id) => id !== nodeId);
+        graph.groups = graph.groups.filter((gr) => gr.nodes.length);
+        if (!graph.groups.length) delete graph.groups;
+    }
 }
 
 export function moveNode(graph, nodeId, position) {

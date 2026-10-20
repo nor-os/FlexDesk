@@ -5,6 +5,7 @@
  *   Delete                                 remove the selection
  *   Ctrl/⌘+D · C · X · V                   duplicate · copy · cut · paste
  *   Ctrl/⌘+A                               pick everything
+ *   Ctrl/⌘+G · Ctrl/⌘+Shift+G              group · ungroup the selection
  *   F2                                     rename
  *   Alt+↑ · Alt+↓ · Alt+←                  move up · down · out of its block
  *   ↑ ↓ ← →                                move the selection
@@ -67,7 +68,8 @@ export function isTextField(target) {
  *
  * @param {HTMLElement} root
  * @param {object} handlers  undo, redo, remove, duplicate, copy, cut, paste,
- *        selectAll, rename, moveUp, moveDown, moveOut, up, down, left, right, open, escape
+ *        selectAll, group, ungroup, rename, moveUp, moveDown, moveOut, up, down, left, right,
+ *        open, escape
  * @returns {() => void} unbind
  */
 export function bindFlowKeys(root, handlers = {}) {
@@ -102,8 +104,10 @@ export function bindFlowKeys(root, handlers = {}) {
             if (lower === 'x') { run('cut', ev); return; }
             if (lower === 'v') { run('paste', ev); return; }
             if (lower === 'a') { run('selectAll', ev); return; }
+            if (lower === 'g') { run('group', ev); return; }
             return;
         }
+        if (mod && lower === 'g') { run('ungroup', ev); return; }
         if (ev.altKey && !ev.ctrlKey && !ev.metaKey) {
             if (k === 'ArrowUp') run('moveUp', ev);
             else if (k === 'ArrowDown') run('moveDown', ev);

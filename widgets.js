@@ -39,6 +39,7 @@ export * from './src/ui/components/notification_history.js';
 export * from './src/ui/components/progress.js';
 export * from './src/ui/components/record_list.js';
 export * from './src/ui/components/section_stack.js';
+export * from './src/ui/components/series.js';
 export * from './src/ui/components/settings_view.js';
 export * from './src/ui/components/slide_out_panel.js';
 export * from './src/ui/components/slider_field.js';

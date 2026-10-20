@@ -49,9 +49,13 @@ export class CellGrid {
         this.errors = new Map();
         /** A `render()` asked for while an editor was open. */
         this.renderWaiting = false;
-        /** `rowIdx` → row: a settled commit's redraw of the row an editor is
-         *  open in, which waits for that editor to close. */
-        this.rowsWaiting = new Map();
+        /** `rowIdx`s whose redraw waits for the editor open in the row to
+         *  close: a settled commit's, or the consumer's `updateRow`. The row
+         *  is read when it is drawn, so the newest data is what shows. */
+        this.rowsWaiting = new Set();
+        /** `rowIdx:colIdx` → the token of the cell's newest commit, so an
+         *  older commit settling late does not take the newer one's marks. */
+        this.latest = new Map();
         /** Bumped by every new set of rows, so a commit that outlived its rows
          *  marks nothing in the new ones. */
         this.generation = 0;
@@ -94,6 +98,49 @@ export class CellGrid {
 
     rowAt(pos) {
         return this.table._getProcessedRows()[pos] ?? null;
+    }
+
+    /**
+     * The row the table holds NOW for an original row index — the window's
+     * row list, else `config.rows` at the place the table draws it from —
+     * the one `updateRow` writes. Never a row captured earlier.
+     */
+    currentRow(rowIdx) {
+        const t = this.table;
+        const local = t._virtLocalOf(rowIdx);
+        if (local >= 0) return t._virt.rows[local] ?? null;
+        const rows = t.config.rows;
+        if (!Array.isArray(rows)) return null;
+        const at = t._isServerSide() ? rowIdx - (t.config.dataSource ? 0 : (t.config.offset || 0)) : rowIdx;
+        return rows[at] ?? null;
+    }
+
+    /** What a cell shows: a refused or pending commit's value, else the row's. */
+    shownValue(rowIdx, col) {
+        const key = `${rowIdx}:${col}`;
+        const err = this.errors.get(key);
+        if (err) return err.value;
+        if (this.pending.has(key)) return this.pending.get(key);
+        const row = this.currentRow(rowIdx);
+        return row ? row[col] : undefined;
+    }
+
+    /** Whether the open editor sits in this row element. */
+    _holds(tr) {
+        const s = this.editor.session;
+        return !!s && !!tr && tr.contains(s.td);
+    }
+
+    /**
+     * `updateRow` on a drawn row: the table has stored the data already. When
+     * the row holds the open editor the rebuild — which would take the editor
+     * out of the document — waits for that editor to close, the editor's cell
+     * left as it is. Returns whether it waits.
+     */
+    holdRow(tr, rowIdx) {
+        if (!this._holds(tr)) return false;
+        this.rowsWaiting.add(rowIdx);
+        return true;
     }
 
     valueAt(pos, col) {
@@ -172,6 +219,7 @@ export class CellGrid {
         this.generation++;
         this.pending.clear();
         this.errors.clear();
+        this.latest.clear();
         this.rowsWaiting.clear();
     }
 
@@ -397,15 +445,17 @@ export class CellGrid {
         this.table.scrollToRow(this.rowIndexAt(pos));
         const td = this.cellEl(pos, col);
         if (!td) return false;
-        const row = this.rowAt(pos);
         const rowIdx = this.rowIndexAt(pos);
+        const row = this.currentRow(rowIdx);
         const headers = this._cfg().headers || [];
+        // The editor holds what the cell SHOWS — a refused or pending value,
+        // not the row's — so it is what the person sees that they edit.
         return this.editor.open({
             td,
             factory: this._factoryFor(col),
             pos, colIdx: col, rowIdx, row,
             generation: this.generation,
-            value: row ? row[col] : undefined,
+            value: this.shownValue(rowIdx, col),
             column: { index: col, header: headers[col], type: this._typeOf(col) },
             initialText,
         });
@@ -446,7 +496,7 @@ export class CellGrid {
             const flush = () => {
                 const waiting = [...this.rowsWaiting];
                 this.rowsWaiting.clear();
-                for (const [rowIdx, row] of waiting) this._redraw(rowIdx, row);
+                for (const rowIdx of waiting) this._redraw(rowIdx);
             };
             if (reason === 'scroll') queueMicrotask(() => { if (t._wrapperEl) flush(); });
             else flush();
@@ -454,19 +504,21 @@ export class CellGrid {
     }
 
     /**
-     * Draw a row again after a commit. `updateRow` rebuilds EVERY cell of the
-     * row, so while an editor is open in it (save, Tab, type — the commit
-     * settles under the next editor) the row waits for that editor to close
-     * (`_closed`), and only the committed cell's marks are painted now.
+     * Draw a row again after a commit, from the row the table holds now
+     * (`currentRow`). `updateRow` rebuilds EVERY cell of the row, so while an
+     * editor is open in it (save, Tab, type — the commit settles under the
+     * next editor) the row waits for that editor to close (`_closed`), and
+     * only the committed cell's marks are painted now.
      */
-    _redraw(rowIdx, row, col = null) {
+    _redraw(rowIdx, col = null) {
         const t = this.table;
         const tr = t.getRowElement(rowIdx);
+        const row = this.currentRow(rowIdx);
         if (!tr || !row) return;
-        const s = this.editor.session;
-        if (s && tr.contains(s.td)) {
-            this.rowsWaiting.set(rowIdx, row);
+        if (this._holds(tr)) {
+            this.rowsWaiting.add(rowIdx);
             if (col === null || tr.__cellPos === undefined) return;
+            const s = this.editor.session;
             for (const td of tr.children) {
                 if (td.__colIdx === col && td !== s.td) this._decorateCell(td, tr.__cellPos, rowIdx, col);
             }
@@ -485,27 +537,51 @@ export class CellGrid {
         }
         const live = s.generation === this.generation;
         const key = `${s.rowIdx}:${s.colIdx}`;
+        // Left as it was shown: no edit at all.
         if (Object.is(value, s.previous)) {
             this._closed(s, reason);
             return;
         }
+        // What the row holds: the table's row now, or — for a commit that
+        // outlived its rows — the row it was opened on.
+        const held = live ? this.currentRow(s.rowIdx) : s.row;
+        const stored = held ? held[s.colIdx] : undefined;
+        // A refused cell given back the value its row holds: nothing to save,
+        // the refusal is over.
+        if (live && this.errors.has(key) && !this.pending.has(key) && Object.is(value, stored)) {
+            this.errors.delete(key);
+            this.latest.delete(key);
+            this._redraw(s.rowIdx, s.colIdx);
+            this._closed(s, reason);
+            return;
+        }
         const fn = this._cfg().onCellCommit;
+        const token = {};
+        if (live) this.latest.set(key, token);
         const finish = (result) => {
             if (!live || s.generation !== this.generation) return;
-            this.pending.delete(key);
-            if (result && result.ok === false) {
-                this.errors.set(key, { value, message: String(result.error ?? 'Not saved') });
-            } else {
-                this.errors.delete(key);
-                if (Array.isArray(s.row)) s.row[s.colIdx] = value;
+            const newest = this.latest.get(key) === token;
+            const good = !(result && result.ok === false);
+            // The value goes into the row the table holds NOW, so a newer row
+            // the consumer put in meanwhile (`updateRow`) keeps its other cells.
+            if (good) {
+                const row = this.currentRow(s.rowIdx);
+                if (Array.isArray(row)) row[s.colIdx] = value;
             }
-            this._redraw(s.rowIdx, s.row, s.colIdx);
+            // A newer commit of the cell is still out: its marks are its own.
+            if (newest) {
+                this.latest.delete(key);
+                this.pending.delete(key);
+                if (good) this.errors.delete(key);
+                else this.errors.set(key, { value, message: String(result.error ?? 'Not saved') });
+            }
+            this._redraw(s.rowIdx, s.colIdx);
         };
         const refused = (err) => ({ ok: false, error: err?.message || String(err ?? 'Not saved') });
         let result;
         if (typeof fn === 'function') {
             try {
-                result = fn({ rowIdx: s.rowIdx, colIdx: s.colIdx, value, previous: s.previous });
+                result = fn({ rowIdx: s.rowIdx, colIdx: s.colIdx, value, previous: stored });
             } catch (err) {
                 result = refused(err);
             }
@@ -514,7 +590,7 @@ export class CellGrid {
             if (live) {
                 this.pending.set(key, value);
                 this.errors.delete(key);
-                this._redraw(s.rowIdx, s.row, s.colIdx);
+                this._redraw(s.rowIdx, s.colIdx);
             }
             this._closed(s, reason);
             result.then(finish, (err) => finish(refused(err)));

@@ -2,10 +2,10 @@
 id: 80
 type: story
 title: "Canvas Arrange takes a pluggable layered layout with rank hints, crossing reduction and separate components"
-status: in-progress
+status: review
 parent: 73
 phase: 
-assignee: norman_agent
+assignee: norman
 reporter: norman
 due:
 points: 5
@@ -13,7 +13,7 @@ subsystem: canvas
 labels: [flexdesk, modeler]
 links: []
 created: 2026-10-17
-updated: 2026-10-19T13:44Z
+updated: 2026-10-19T23:23Z
 ---
 
 ## Description
@@ -22,18 +22,20 @@ Canvas Arrange is flow-specific (orders from start-role steps), and the kernel `
 
 ## Acceptance criteria
 
-- [ ] A chain A->B->C is laid out in three columns, left to right
-- [ ] A node whose `rank` hint is 'sink' lands in the last column; 'source' in the first
-- [ ] A crossing-prone two-layer fixture ends with fewer edge crossings than its input order (unit test)
-- [ ] Two disconnected components do not overlap
-- [ ] With two nodes selected, Arrange moves only those two, as one undo entry
-- [ ] A layout of 300 nodes and 400 edges completes in under 200 ms in the unit test
+- [x] A chain A->B->C is laid out in three columns, left to right
+- [x] A node whose `rank` hint is 'sink' lands in the last column; 'source' in the first
+- [x] A crossing-prone two-layer fixture ends with fewer edge crossings than its input order (unit test)
+- [x] Two disconnected components do not overlap
+- [x] With two nodes selected, Arrange moves only those two, as one undo entry
+- [x] A layout of 300 nodes and 400 edges completes in under 200 ms in the unit test
 
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
 - 2026-10-18 · norman_agent · status: refined -> in-progress
 - 2026-10-18 · norman_agent · assignee:  -> norman_agent
+- 2026-10-19 · norman_agent · status: in-progress -> review
+- 2026-10-19 · norman_agent · assignee: norman_agent -> norman
 
 ## Comments
 
@@ -60,3 +62,31 @@ The branch has `layeredLayout` in `src/canvas/layered_layout.js` (exported from 
 Open, for norman: criterion 5 ("With two nodes selected, Arrange moves only those two, as one undo entry") needs a set selection. That is STORY-0076, which is still in progress with nothing on origin/main. On the branch, `editor.arrange({ids: [a, b]})` moves only those two steps, and one Ctrl+Z puts both back. Criterion 5 is not ticked. The question from 2026-10-18T13:07Z has no answer yet, and the record has no decision. Which do you want?
 1. Accept criterion 5 on the `arrange({ids})` API. STORY-0076 then wires the toolbar Arrange button to `arrangeGraph({ids})` when the selection is `{kind:'many', ids}` (a one-line change).
 2. Keep STORY-0080 open until 0076 lands, then add that wiring and a selection-driven test here.
+
+### 2026-10-19T23:23Z · norman_agent (status: in-progress -> review)
+
+Landed on main, tip 4db1af5 (fast-forward 96eda85..4db1af5). Handing back to norman for review. The branch was rebased onto origin/main into two linear commits: 8f72c7d (layeredLayout, the `layout` option, `arrange({ids})`, and the toolbar's Arrange laying out only the pick, which was the selection wiring from the old merge commit 7e626ff) and 4db1af5 (the review fixes). The rebased tree has the same changes as the reviewed branch tip 2372f0e, checked by diff. origin/story-0080 still holds the pre-rebase history (2372f0e, with its merge commits). I did not push the rebased branch there, because that would have needed a force-push.
+
+What was built:
+- `layeredLayout(nodes, edges, {rank, sizeOf, columnGap, rowGap, componentGap, passes})` is in `src/canvas/layered_layout.js`, exported from the canvas entry. It does components laid out separately, cycle breaking, longest-path columns, 'source'/'sink' rank hints, barycentre crossing reduction and measured column sizes. The kernel `arrange` is unchanged.
+- The editor option `layout: 'flow' | 'layered' | fn(graph, ctx) -> Map` defaults to 'flow', so a consumer that sets nothing sees no change. Any other value throws at construction.
+- `editor.arrange({ids})` lays out only the named steps, as one `flow:arrange` undo entry. With a `{kind:'many', ids}` selection (STORY-0076), the toolbar's Arrange lays out only the picked steps.
+- The catalogue reads and checks `rank`. Only 'source' or 'sink' are accepted, and anything else becomes a `problems` line. It answers `rank(typeId)`, which is null when a type has no rank. Its internal category helper was renamed `categoryIndex`.
+- A `layout` function's place must be finite `{x, y}`, or Arrange throws before anything moves or is committed. A step the Map leaves out stays where it is.
+- There is a new string `arrangeLayeredTitle` and README rows for all of the above.
+
+Ticked, all six:
+- A chain A->B->C in three columns
+- sink/source ranks
+- fewer crossings on the two-layer fixture
+- disconnected components do not overlap
+- two selected nodes, only they move, as one undo entry
+- 300 nodes and 400 edges in under 200 ms
+
+They are covered by `tests/canvas_layered_layout.test.mjs`, `tests/flow_canvas_layered.test.mjs` (§3b selects two steps by Shift-click, §4 covers bad places) and `tests/flow_kit_catalogue.test.mjs` §6.
+
+Tests: I ran `node tests/run.mjs` (Linux node v18.19.1) in the worktree on the rebased tip 4db1af5 and watched it finish: 'FLEXDESK TESTS: GREEN — 167 suite(s)', exit 0, no ': SKIPPED' lines. The only 'FAIL' match in the log is an assertion name. `node build.mjs` succeeded. dist/ was restored and not committed.
+
+App check: `demo/flow_canvas_probe.mjs` (Windows node, headless Edge over CDP) passed every check: "every check held". That covers the editor with the default 'flow' layout (Arrange present and hit-testable, marquee multi-select, moves and undo), so default behaviour is unchanged. The probe does not drive `layout: 'layered'` in the browser. That path is covered by the jsdom suites above.
+
+The flake mentioned earlier (`flow_canvas_live_values.test.mjs` §2 measures time with Date.now()) did not show up in this run. It is unchanged and could be filed as a separate bug if wanted.

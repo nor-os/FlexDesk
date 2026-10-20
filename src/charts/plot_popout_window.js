@@ -34,9 +34,6 @@ import {
 import { migrateData } from './plot_config.js';
 import { renderPlotGrid, resolveSeriesData } from './plot_grid.js';
 
-/** The bus events a live data source emits, unless `streamEvents` names others. */
-const DEFAULT_STREAM_EVENTS = Object.freeze({ delta: 'streaming:delta', complete: 'streaming:complete' });
-
 export class PlotPopoutWindow {
     /**
      * @param {Object} options
@@ -57,8 +54,9 @@ export class PlotPopoutWindow {
      * @param {{delta?: string|null, complete?: string|null}} [options.streamEvents] - Bus
      *        events a live data source emits while it runs (`delta`) and when it ends
      *        (`complete`); the window redraws on each while live update is on.
-     *        Defaults `{delta: 'streaming:delta', complete: 'streaming:complete'}`;
-     *        a name given as null is not listened for.
+     *        There are no default names: without `streamEvents` (or with a name
+     *        left out or given as null) nothing is listened for, and the window
+     *        updates through `refreshEvent` and explicit calls only.
      * @param {Function} [options.resolveSeries] - `(series, results, subplot) => { y, x? } | null`
      *        (plot_grid.js); used by the chart and the data table. Default resolveSeriesData.
      */
@@ -83,7 +81,8 @@ export class PlotPopoutWindow {
         this._seriesTransforms = seriesTransforms ?? null;
         this._resolveSeries = resolveSeries;
         this.refreshEvent = refreshEvent;
-        this.streamEvents = Object.freeze({ ...DEFAULT_STREAM_EVENTS, ...(streamEvents || {}) });
+        this.streamEvents = Object.freeze({ delta: streamEvents?.delta ?? null,
+                                            complete: streamEvents?.complete ?? null });
         // TWO messages, not one. The chart says "No data — run simulation first."
         // and the data table underneath says "Run simulation to see data". Folding
         // them into a single option would have quietly rewritten one of them, which

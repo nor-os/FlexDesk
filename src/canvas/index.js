@@ -11,6 +11,7 @@ export { CanvasAdapter } from './canvas_adapter.js';
 export {
     OBSTACLE_ROUTING_NODE_LIMIT, routeEdge, footAnchor, crowsFoot, cardinality, selfLoop, returnEdge, arrange,
 } from './edge_router.js';
+export { layeredLayout } from './layered_layout.js';
 export { NodePlatform } from './graph/node_platform.js';
 export { ConnectorRouter, CONNECTOR_STRINGS } from './graph/connector_router.js';
 export { HistoryService } from './graph/history_service.js';

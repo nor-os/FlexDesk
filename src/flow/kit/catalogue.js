@@ -30,6 +30,10 @@
  * settings panel uses. A name the schema does not have, or an `inline` that is
  * not a list of names, is a line in `problems`, and that name is not drawn.
  *
+ * A sixth, `rank: 'source' | 'sink'`, is the hint the canvas editor's
+ * `layout: 'layered'` Arrange gives its steps: the first column or the last.
+ * Any other value is a line in `problems`, and it is not used.
+ *
  * ══ DECLARED PORT ORDER IS MEANING ═════════════════════════════════════
  *
  * A lane reads an operation's first FLOW input as its own lane and the rest as
@@ -126,6 +130,7 @@ export function createStepCatalogue(types, { categories = [], idBase = defaultId
     const sizes = new Map();
     const accents = new Map();
     const inlines = new Map();
+    const ranks = new Map();
 
     for (const raw of Array.isArray(types) ? types : []) {
         if (!isPlainObject(raw)) {
@@ -174,6 +179,10 @@ export function createStepCatalogue(types, { categories = [], idBase = defaultId
         }
         const inline = readInline(raw.inline, schema, id, problems);
         if (inline.length) inlines.set(id, inline);
+        if (raw.rank !== undefined && raw.rank !== null) {
+            if (raw.rank === 'source' || raw.rank === 'sink') ranks.set(id, raw.rank);
+            else problems.push({ type_id: id, message: `"${id}"'s rank "${String(raw.rank)}" is not 'source' or 'sink'; it is not used.` });
+        }
         for (const hook of ['render', 'update']) {
             if (raw[hook] !== undefined && typeof raw[hook] !== 'function') {
                 problems.push({ type_id: id, message: `"${id}"'s ${hook} is not a function; it is not used.` });
@@ -200,11 +209,11 @@ export function createStepCatalogue(types, { categories = [], idBase = defaultId
         extra.push(Object.freeze({ id: '', label: '', tone: 'grey', layout: 'list' }));
     }
     const allCats = Object.freeze([...cats, ...extra]);
-    const rank = (t) => {
+    const categoryIndex = (t) => {
         const id = t.category === null ? '' : t.category;
         return allCats.findIndex((c) => c.id === id);
     };
-    const sorted = [...order].sort((a, b) => (rank(a) - rank(b))
+    const sorted = [...order].sort((a, b) => (categoryIndex(a) - categoryIndex(b))
         || String(a.label).localeCompare(String(b.label)));
 
     const portsOf = (typeId, direction, flow) => {
@@ -237,6 +246,8 @@ export function createStepCatalogue(types, { categories = [], idBase = defaultId
         accent: (typeId) => accents.get(typeId) ?? null,
         /** The setting names the type draws on its node (`inline`), in order; `[]` when none. */
         inline: (typeId) => inlines.get(typeId) ?? Object.freeze([]),
+        /** The type's layered-layout hint, 'source' or 'sink', or null when it has none. */
+        rank: (typeId) => ranks.get(typeId) ?? null,
         /** The type's `{render, update}` (`update` may be null), or null when it has no `render`. */
         body: (typeId) => {
             const t = byId.get(typeId);

@@ -1304,6 +1304,47 @@ DOM), `CellEditorHost` (one cell's editor, opened and closed exactly once) and
 `createTextEditor` (the default text box). The table's own half of cell mode
 is internal.
 
+### DataTable: column groups and structural edits (0.17.0)
+
+`columnGroups` draws a second header row over the column headers, and a few
+callbacks let a person add, rename and delete columns and rows from the
+headers and the row menu. The consumer owns the data: every edit is a call,
+and the consumer answers it with `setData`. A table that sets none of these
+options draws exactly as in 0.16.
+
+```js
+const table = DataTable.mount(host, {
+    headers: ['Cash', 'Loans', 'Deposits'],
+    rows,
+    columnGroups: [
+        { key: 'assets', label: 'Assets', columns: [0, 1] },
+        { key: 'liabilities', label: 'Liabilities', columns: [2] },
+        { key: 'equity', label: 'Equity', columns: [] },   // drawn as a placeholder column
+    ],
+    onColumnAdd: (groupKey) => model.addColumn(groupKey),
+    onColumnRename: (colIdx, name) => model.renameColumn(colIdx, name),
+    onColumnDelete: (colIdx) => model.deleteColumn(colIdx),
+    onRowAdd: (afterRowIdx) => model.addRow(afterRowIdx),        // null: from the header
+    onRowDelete: (rowIdx) => model.deleteRow(rowIdx),
+});
+```
+
+| Option | What it does |
+|---|---|
+| `columnGroups: [{key, label?, columns}]` | A group row above the headers: one cell per run of shown columns of a group, spanning them (`th.twm-dt-group`), and a blank cell over the row number, the select column and any column in no group. `columns` are data column indices; a column is in the first group that lists it; a hidden column leaves its group's span. The row is its own table in the header wrap (`table.twm-dt-groups`), which takes the header's column widths, table width and sideways scroll after every fit, auto-size and drag. `setData({columnGroups})` changes the groups. |
+| An empty group | Keeps one placeholder column so it stays visible and its add control reachable: `th.twm-dt-col--placeholder` in the header, an empty filter cell, and an empty `td.twm-dt-cell--placeholder` in every row. It stands after the columns of the groups listed before it, and is no data column: not in a copy, the CSV, a menu's `ctx.colIdx` or cell mode. |
+| `onColumnAdd(groupKey)` | An add button (`.twm-dt-group__add`) in every group's header cell and in a placeholder's header. |
+| `groupActions(group, {key, columns, table}) => items`, `onGroupAction(action, groupKey)` | The consumer's buttons in a group's header cell. Items are `{action, icon?, label?, title?, disabled?}`. |
+| `columnActions(colIdx, {colIdx, header, table}) => items`, `onColumnAction(action, colIdx)` | The consumer's buttons in a column's header (`.twm-dt-col-action`), with the same items. A click on one does not sort. |
+| `onColumnRename(colIdx, name)` | Renames a column in place with `attachInlineRenamer`. "Rename column" in the header's right-click menu, `renameColumn(colIdx)`, or a double-click on the header's label (on a table that is not `sortable`) opens it. Enter, or the focus leaving, with a different non-empty name calls it once. Escape, or the name left as it was, restores the header and calls nothing. The new name shows until the next render; returning `false` or `{ok: false}` (or a Promise of it) restores the old one. |
+| `onColumnDelete(colIdx)` | "Delete column" in the header's right-click menu. |
+| `onRowAdd(afterRowIdx)` | "Insert row below" in a row's right-click menu (the row's original index), and "Add row" in the header's (`null`), so a table with no rows can get its first. |
+| `onRowDelete(rowIdx)` | "Delete row" in a row's right-click menu. |
+
+The structural items follow the consumer's own: in the header menu after the
+`headerMenu` items and before the column chooser, in a row's menu after the
+`contextMenuItems` and before the copy items, each behind a separator.
+
 ### Scrollbars
 
 `installAutoScrollbars(root)` (from `@flexdesk/widgets`) replaces the browser's

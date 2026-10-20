@@ -857,6 +857,21 @@ body.twm-dt-col-resizing {
     color: inherit;
     font: inherit;
 }
+/* STORY-0087 the built-in editors: a checkbox keeps its own size, a text
+ * area grows with what it holds, and the choice box shows no empty helper
+ * line under it. */
+.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--editing .twm-dt-editor--bool {
+    width: auto;
+    margin: 4px 6px;
+    outline-offset: 1px;
+}
+.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--editing textarea.twm-dt-editor {
+    resize: vertical;
+    min-height: 3.5em;
+}
+.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--editing .twm-dt-editor--choice .twm-autocomplete-field__helper:empty {
+    display: none;
+}
 .twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--pending {
     opacity: 0.6;
     font-style: italic;

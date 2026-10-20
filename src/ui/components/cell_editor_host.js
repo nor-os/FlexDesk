@@ -6,10 +6,11 @@
  * it likes (DataTable's `editors` option); the plain text box below is the
  * default. A factory is called with
  *
- *     { value, row, rowIdx, colIdx, column: {index, header, type},
- *       initialText, commit(value), cancel() }
+ *     { ...args, value, row, rowIdx, colIdx, column: {index, header, type},
+ *       initialText, commit(value, move?), cancel() }
  *
- * and returns either an element, or `{ el, getValue?, focus?, destroy? }`.
+ * and returns either an element, or
+ * `{ el, getValue?, parse?, multiline?, focus?, destroy? }`.
  * `initialText` is the character typed to open the editor (null when it was
  * opened by F2, Enter or a double-click): the editor starts with it in place
  * of the value, as a spreadsheet does.
@@ -28,6 +29,20 @@
  * outside (its row leaving a virtual window) CANCELS it. Every key
  * pressed in the editor stops there: the table's own keys (the arrows, Ctrl+A,
  * Ctrl+C) are not the editor's.
+ *
+ * ══ A VALUE THAT DOES NOT PARSE (STORY-0087) ═══════════════════════════
+ *
+ * An editor with a `parse()` — `() => {ok: true, value} | {ok: false, error}`
+ * — commits what `parse()` reads, not `getValue()`. A refusal on Enter or Tab
+ * keeps the editor open, and its cell carries the message
+ * (`twm-dt-cell--error`, `title`, `data-error`) until the next keystroke in
+ * it; nothing is committed. A refusal when the focus leaves, or on `commit()`
+ * from outside, closes the editor and hands `onRefuse` the message and the
+ * text (`getValue()`); still nothing is committed. A `multiline` editor
+ * keeps Enter for a new line: Ctrl/Cmd+Enter commits it.
+ *
+ * `commit(value, move?)` takes an optional move ('down', 'up', 'right',
+ * 'left'), for an editor that commits on a key of its own.
  *
  * ══ EXACTLY ONCE ═════════════════════════════════════════════════════════
  *
@@ -73,13 +88,28 @@ function normalise(made) {
     let getValue = typeof own.getValue === 'function' ? own.getValue : null;
     // A form field's value is the editor's; any other element says for itself.
     if (!getValue && el.matches?.('input, select, textarea')) getValue = () => el.value;
+    const parse = typeof own.parse === 'function' ? own.parse : null;
+    // What a commit reads: the parse, else the value as it is.
+    let read = null;
+    if (parse) {
+        read = () => {
+            let r;
+            try { r = parse(); } catch (err) { r = { ok: false, error: err?.message || String(err) }; }
+            return r && r.ok === false ? { ok: false, error: String(r.error ?? 'Not valid') }
+                : { ok: true, value: r ? r.value : undefined };
+        };
+    } else if (getValue) read = () => ({ ok: true, value: getValue() });
     return {
         el,
         getValue,
+        read,
+        multiline: !!own.multiline,
         focus: typeof own.focus === 'function' ? own.focus : null,
         destroy: typeof own.destroy === 'function' ? own.destroy : null,
     };
 }
+
+const MOVES = new Set(['down', 'up', 'right', 'left']);
 
 export class CellEditorHost {
     /**
@@ -88,19 +118,24 @@ export class CellEditorHost {
      *   cell is drawn as it was again; `move` is 'down', 'up', 'right', 'left'
      *   or null; `reason` is 'key', 'blur', 'editor' or 'scroll'.
      * @param {(session, reason) => void} o.onCancel
+     * @param {(session, error, text, reason) => void} [o.onRefuse]  a value
+     *   that did not parse, when the editor closed with it (the focus left,
+     *   `commit()` from outside); without it such a close is a cancel.
      */
-    constructor({ onCommit, onCancel }) {
+    constructor({ onCommit, onCancel, onRefuse = null }) {
         this._onCommit = onCommit;
         this._onCancel = onCancel;
+        this._onRefuse = onRefuse;
         /** The open session, or null. */
         this.session = null;
     }
 
     /**
-     * Open an editor in `td`. Returns whether one opened (a factory that
+     * Open an editor in `td`; `args` go to the factory beside the cell's own
+     * (DataTable's `locale`, `utc`, `messages`). Returns whether one opened (a factory that
      * throws or returns nothing opens none, and the cell is untouched).
      */
-    open({ td, factory, value, row, rowIdx, colIdx, column, initialText = null, ...extra }) {
+    open({ td, factory, value, row, rowIdx, colIdx, column, initialText = null, args = {}, ...extra }) {
         if (this.session) return false;
         const s = {
             ...extra, td, value, row, rowIdx, colIdx, column,
@@ -109,8 +144,8 @@ export class CellEditorHost {
         let made = null;
         try {
             made = factory({
-                value, row, rowIdx, colIdx, column, initialText,
-                commit: (v) => this._finish(s, v, null, 'editor'),
+                ...args, value, row, rowIdx, colIdx, column, initialText,
+                commit: (v, move = null) => this._finish(s, v, MOVES.has(move) ? move : null, 'editor'),
                 cancel: () => this._cancel(s, 'editor'),
             });
         } catch (err) {
@@ -122,6 +157,10 @@ export class CellEditorHost {
         s.editor = editor;
         s.saved = [...td.childNodes];
         s.savedTitle = td.getAttribute('title');
+        s.savedError = {
+            on: td.classList.contains('twm-dt-cell--error'),
+            message: td.getAttribute('data-error'),
+        };
         this.session = s;
         td.classList.add('twm-dt-cell--editing');
         td.replaceChildren(editor.el);
@@ -136,26 +175,29 @@ export class CellEditorHost {
             if (ev.key === 'Escape') {
                 ev.preventDefault();
                 this._cancel(s, 'key');
-            } else if (ev.key === 'Enter' && !ev.altKey && !ev.ctrlKey && !ev.metaKey && editor.getValue) {
+            } else if (ev.key === 'Enter' && !ev.altKey && editor.read
+                       && (editor.multiline ? (ev.ctrlKey || ev.metaKey) : !(ev.ctrlKey || ev.metaKey))) {
                 ev.preventDefault();
-                this._finish(s, editor.getValue(), ev.shiftKey ? 'up' : 'down', 'key');
-            } else if (ev.key === 'Tab' && !ev.altKey && !ev.ctrlKey && !ev.metaKey && editor.getValue) {
+                this._tryKey(s, ev.shiftKey ? 'up' : 'down');
+            } else if (ev.key === 'Tab' && !ev.altKey && !ev.ctrlKey && !ev.metaKey && editor.read) {
                 ev.preventDefault();
-                this._finish(s, editor.getValue(), ev.shiftKey ? 'left' : 'right', 'key');
+                this._tryKey(s, ev.shiftKey ? 'left' : 'right');
             }
         });
+        // A refusal's message stands until the text changes.
+        on('input', () => this._unmark(s));
         // A press inside the editor is the editor's, not a click on the cell.
         for (const type of ['click', 'dblclick', 'mousedown', 'contextmenu']) {
             on(type, (ev) => ev.stopPropagation());
         }
         on('focusout', (ev) => {
-            if (s.closed || !editor.getValue) return;
+            if (s.closed || !editor.read) return;
             const to = ev.relatedTarget;
             if (to && editor.el.contains(to)) return;
             // The window losing focus (another app) is not a click elsewhere.
             const doc = editor.el.ownerDocument;
             if (!to && doc && typeof doc.hasFocus === 'function' && !doc.hasFocus()) return;
-            this._finish(s, editor.getValue(), null, 'blur');
+            this._settle(s, null, 'blur');
         });
 
         try {
@@ -169,8 +211,49 @@ export class CellEditorHost {
     commit(move = null, reason = 'editor') {
         const s = this.session;
         if (!s) return false;
-        if (!s.editor.getValue) { this._cancel(s, reason); return false; }
-        return this._finish(s, s.editor.getValue(), move, reason);
+        if (!s.editor.read) { this._cancel(s, reason); return false; }
+        return this._settle(s, move, reason);
+    }
+
+    /** Enter or Tab: commit what parses; a refusal keeps the editor open,
+     *  the message on its cell. */
+    _tryKey(s, move) {
+        const r = s.editor.read();
+        if (r.ok) return this._finish(s, r.value, move, 'key');
+        s.td.classList.add('twm-dt-cell--error');
+        s.td.setAttribute('data-error', r.error);
+        s.td.setAttribute('title', r.error);
+        s.marked = true;
+        return false;
+    }
+
+    _unmark(s) {
+        if (!s.marked) return;
+        s.marked = false;
+        this._restoreMark(s);
+    }
+
+    _restoreMark(s) {
+        const { on, message } = s.savedError;
+        s.td.classList.toggle('twm-dt-cell--error', on);
+        if (message == null) s.td.removeAttribute('data-error');
+        else s.td.setAttribute('data-error', message);
+        if (s.savedTitle == null) s.td.removeAttribute('title');
+        else s.td.setAttribute('title', s.savedTitle);
+    }
+
+    /** The editor closing with what it holds (the focus left, `commit()`):
+     *  committed when it parses, else handed to `onRefuse`. */
+    _settle(s, move, reason) {
+        const r = s.editor.read();
+        if (r.ok) return this._finish(s, r.value, move, reason);
+        if (s.closed) return false;
+        let text = '';
+        try { text = s.editor.getValue ? s.editor.getValue() : ''; } catch (_) { /* gone */ }
+        this._close(s);
+        if (this._onRefuse) this._onRefuse(s, r.error, text, reason);
+        else this._onCancel?.(s, reason);
+        return true;
     }
 
     /** Cancel the open session: the cell is drawn as it was. */
@@ -191,8 +274,7 @@ export class CellEditorHost {
         }
         s.td.classList.remove('twm-dt-cell--editing');
         s.td.replaceChildren(...s.saved);
-        if (s.savedTitle == null) s.td.removeAttribute('title');
-        else s.td.setAttribute('title', s.savedTitle);
+        this._restoreMark(s);
     }
 
     _finish(s, value, move, reason) {

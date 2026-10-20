@@ -123,9 +123,9 @@ section('§2 Enter, Tab, and exactly one commit');
 
     key(tbl(), 'F2');
     input = editorIn(host);
-    input.value = 'seven';
+    input.value = '17';   // a number column (STORY-0087): it commits 17
     input.dispatchEvent(new window.FocusEvent('focusout', { bubbles: true, relatedTarget: T.document.body }));
-    check('focus leaving the editor commits, once', commits.at(-1)?.value, 'seven');
+    check('focus leaving the editor commits, once', commits.at(-1)?.value, 17);
     check('…without moving', focusOf(table), [2, 1]);
     check('three commits in all', commits.length, 3);
 
@@ -417,7 +417,7 @@ section('§7 a redraw waits for the editor');
     click(cellAt(host, 0, 1));
     key(tbl(), 'F2');
     const first = editorIn(host);
-    first.value = 'NEW';
+    first.value = '9';   // Qty is a number column (STORY-0087): it commits 9
     key(first, 'Tab');
     check('Tab moved the cursor right', focusOf(table), [0, 2]);
     ok('the first commit is out', cellAt(host, 0, 1).classList.contains('twm-dt-cell--pending'));
@@ -430,13 +430,13 @@ section('§7 a redraw waits for the editor');
         second.isConnected && editorIn(host) === second);
     check('…with its text', second.value, 'typing');
     ok('…while the settled cell loses its pending mark', !cellAt(host, 0, 1).classList.contains('twm-dt-cell--pending'));
-    check('…and the value is in the row', rows[0][1], 'NEW');
+    check('…and the value is in the row', rows[0][1], 9);
     key(second, 'Enter');
     check('the open editor commits once, its own cell', commits.slice(1),
         [{ rowIdx: 0, colIdx: 2, value: 'typing', previous: 'red' }]);
     settle.shift()({ ok: true });
     await tick();
-    check('both cells drawn', [cellAt(host, 0, 1).textContent, cellAt(host, 0, 2).textContent], ['NEW', 'typing']);
+    check('both cells drawn', [cellAt(host, 0, 1).textContent, cellAt(host, 0, 2).textContent], ['9', 'typing']);
     ok('no mark left', !host.querySelector('.twm-dt-cell--pending, .twm-dt-cell--error'));
     ok('the table is not left editing', !table.isEditing());
     table.setData({ rows: fresh() });

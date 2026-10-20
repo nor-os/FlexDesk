@@ -17,6 +17,7 @@ export * from './src/ui/components/action_dropdown.js';
 export * from './src/ui/components/attribute_list_editor.js';
 export * from './src/ui/components/autocomplete_field.js';
 export * from './src/ui/components/cell_editor_host.js';
+export * from './src/ui/components/cell_editors.js';
 export * from './src/ui/components/cell_selection.js';
 export * from './src/ui/components/color_field.js';
 export * from './src/ui/components/color_list_field.js';

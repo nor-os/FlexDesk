@@ -13,6 +13,7 @@
 
 import { CellSelection } from './cell_selection.js';
 import { CellEditorHost, createTextEditor } from './cell_editor_host.js';
+import { CELL_EDITORS, editorTypeOf } from './cell_editors.js';
 
 /** Is this a cell somebody filled? What Ctrl+arrow stops at. */
 export function isFilledValue(value) {
@@ -62,6 +63,7 @@ export class CellGrid {
         this.editor = new CellEditorHost({
             onCommit: (s, value, move, reason) => this._committed(s, value, move, reason),
             onCancel: (s, reason) => this._closed(s, reason),
+            onRefuse: (s, error, text, reason) => this._refused(s, error, text, reason),
         });
     }
 
@@ -422,21 +424,41 @@ export class CellGrid {
         return false;
     }
 
-    /** The column's type, as `editors` is keyed by: the declared one, else the
-     *  detected one. */
-    _typeOf(col) {
+    /** STORY-0087. The column's `editTypes` entry, as `{type, ...}`, or null. */
+    _editSpec(col) {
+        const all = this._cfg().editTypes;
+        let spec = all && typeof all === 'object' ? all[col] : null;
+        if (typeof spec === 'string') spec = { type: spec };
+        return spec && typeof spec === 'object' ? spec : null;
+    }
+
+    /** The column's type as it is named: `editTypes`', else the declared one
+     *  (`columnTypes`), else the detected one. */
+    _rawType(col) {
+        const spec = this._editSpec(col);
+        if (spec?.type) return String(spec.type);
         const declared = this._cfg().columnTypes?.[col];
         return declared || this.table._columnTypes?.[col] || 'text';
     }
 
+    /** The column's type as `editors` and the built-in editors know it:
+     *  'num' is 'number', 'date' is 'datetime'. */
+    _typeOf(col) {
+        return editorTypeOf(this._rawType(col));
+    }
+
+    /** By column index, then by type (as named, then as the built-ins name
+     *  it), then the built-in editor for the type, else the text box. */
     _factoryFor(col) {
         const editors = this._cfg().editors;
         if (editors && typeof editors === 'object') {
-            if (typeof editors[col] === 'function') return editors[col];
-            const type = this._typeOf(col);
-            if (typeof editors[type] === 'function') return editors[type];
+            for (const k of [col, this._rawType(col), this._typeOf(col)]) {
+                if (typeof editors[k] === 'function') return editors[k];
+            }
         }
-        return createTextEditor;
+        const builtIn = Object.prototype.hasOwnProperty.call(CELL_EDITORS, this._typeOf(col))
+            ? CELL_EDITORS[this._typeOf(col)] : null;
+        return builtIn ? builtIn.create : createTextEditor;
     }
 
     /**
@@ -459,7 +481,12 @@ export class CellGrid {
             pos, colIdx: col, rowIdx, row,
             generation: this.generation,
             value: this.shownValue(rowIdx, col),
-            column: { index: col, header: headers[col], type: this._typeOf(col) },
+            column: { ...this._editSpec(col), index: col, header: headers[col], type: this._typeOf(col) },
+            args: {
+                locale: this._cfg().locale ?? undefined,
+                utc: this.table._utc(),
+                messages: this._cfg().editorMessages ?? undefined,
+            },
             initialText,
         });
     }
@@ -530,6 +557,22 @@ export class CellGrid {
         }
         this.rowsWaiting.delete(rowIdx);
         t.updateRow(rowIdx, row);
+    }
+
+    /** STORY-0087. The editor closed holding text that does not parse (the
+     *  focus left it, or its row left the window): nothing is committed, and
+     *  the cell keeps the text, marked with the message, as a refused commit's
+     *  would be. */
+    _refused(s, error, text, reason) {
+        if (s.generation === this.generation) {
+            const key = `${s.rowIdx}:${s.colIdx}`;
+            this.errors.set(key, { value: text, message: error });
+            // Any older commit of the cell still out no longer owns its marks.
+            this.latest.set(key, {});
+            this.pending.delete(key);
+            this._redraw(s.rowIdx, s.colIdx);
+        }
+        this._closed(s, reason);
     }
 
     _committed(s, value, move, reason) {

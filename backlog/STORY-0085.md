@@ -2,10 +2,10 @@
 id: 85
 type: story
 title: "DataTable copies a selected cell range as tab-separated text"
-status: refined
+status: in-progress
 parent: 1
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 2
@@ -13,7 +13,7 @@ subsystem: grid
 labels: [grid, editing, tables-consumer]
 links: [blocked-by 3]
 created: 2026-10-18
-updated: 2026-10-18T10:34Z
+updated: 2026-10-20T11:31Z
 ---
 
 ## Description
@@ -33,6 +33,8 @@ Owner decisions (norman, 2026-10-18): FlexDesk provides every UI operation and m
 ## History
 
 - 2026-10-18 · norman_agent · status: draft -> refined
+- 2026-10-20 · norman_agent · status: refined -> in-progress
+- 2026-10-20 · norman_agent · assignee: (none) -> norman_agent
 
 ## Comments
 

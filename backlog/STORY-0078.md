@@ -91,13 +91,13 @@ Landed on main and handed back for review. All 7 criteria are ticked.
 **What was built.** Canvas graphs now carry flat groups and free-text notes. Both are opt-in through createCanvasEditor `groups: true` / `notes: true` and are serialised only when non-empty. Groups are frames drawn behind their nodes: Ctrl/Cmd+G groups the pick and Ctrl/Cmd+Shift+G ungroups, the title bar drags every member as one entry, and a double-click renames the group in place. Notes are added from the toolbar, edited in place, moved and deleted. A marquee, Shift/Ctrl+click and Ctrl+A pick notes along with nodes. Every edit is one closed-list action (flow:group:add/remove/label/members, flow:note:add/remove/edit/move). Criterion 6's copy/paste half is f87551e, built on STORY-0077's copyNodes/pasteNodes: picked notes are pasted under fresh ids, and groups wholly inside the copy are re-created with remapped ids. The fixes from the review rounds are 1ef58cd, acf6a0c, a24251a and 2d4ea92. The 2026-10-17T21:20Z and 2026-10-19 comments describe the API, CSS, strings and README changes.
 
 **Ticked (each checked):**
-- Criterion 1, same bytes without groups or notes: §1 of tests/flow_canvas_groups_notes.test.mjs. serialise() and the editor with and without the options give the old text.
-- Criterion 2, Ctrl+G frames two nodes and the frame drag is one undo entry: §2, and in a real browser in the probe.
-- Criterion 3, a regrouped node moves to the new group: §3.
-- Criterion 4, removing members shrinks the group and the last one removes it: §4.
-- Criterion 5, a note is added, edited in place, moved, and each step undone: §5, and real input in the probe.
-- Criterion 6, a marquee picks notes and nodes together, and copy/paste carries both: §6 and §9, and a real marquee in the probe.
-- Criterion 7, groups and notes survive serialise -> load: §7. Load gives the same text and the same graph, and normalise/serialise is a fixed point.
+- Criterion 1, same bytes without groups or notes: §0 of tests/flow_canvas_groups_notes.test.mjs. serialise() and the editor with and without the options give the old text.
+- Criterion 2, Ctrl+G frames two nodes and the frame drag is one undo entry: §1, and in a real browser in the probe.
+- Criterion 3, a regrouped node moves to the new group: §2.
+- Criterion 4, removing members shrinks the group and the last one removes it: §3.
+- Criterion 5, a note is added, edited in place, moved, and each step undone: §4, and real input in the probe.
+- Criterion 6, a marquee picks notes and nodes together, and copy/paste carries both: §5 and §9, and a real marquee in the probe.
+- Criterion 7, groups and notes survive serialise -> load: §6. Load gives the same text and the same graph, and normalise/serialise is a fixed point.
 
 **Landed.** main is now at 4c71520, a fast-forward from 7eebb64 (`git push origin HEAD:main`). The branch already contained origin/main through its merge commit 4c71520, and main had nothing newer. A linear `git rebase origin/main` would have re-opened the merge conflicts that 4c71520 already resolves (10 files, starting with the first feature commit 78d6395), so I aborted it and landed the tip as it was. main already carries merge commits. origin/story-0078 is also at 4c71520, so nothing was rewritten and nothing was force-pushed. The branch is kept; the worktree is removed.
 

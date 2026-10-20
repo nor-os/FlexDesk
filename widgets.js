@@ -43,6 +43,7 @@ export * from './src/ui/components/settings_view.js';
 export * from './src/ui/components/slide_out_panel.js';
 export * from './src/ui/components/slider_field.js';
 export * from './src/ui/components/sortable_list.js';
+export * from './src/ui/components/staged_history.js';
 export * from './src/ui/components/table_state_store.js';
 export * from './src/ui/components/tabs.js';
 export * from './src/ui/components/tag_input.js';

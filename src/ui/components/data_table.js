@@ -427,6 +427,12 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {Function} [onColumnDelete] - `(colIdx) => void`, from "Delete column" in the header's right-click menu.
  * @property {Function} [onRowAdd] - `(afterRowIdx|null) => void`, from "Insert row below" in a row's right-click menu (its original index) and "Add row" in the header's (null), so a table with no rows can get its first.
  * @property {Function} [onRowDelete] - `(rowIdx) => void`, from "Delete row" in a row's right-click menu.
+ * ── STORY-0088, off unless asked for ──────────────────────────────────────
+ * @property {boolean} [staged=false] - With `editable` (a warning, and ignored, without it): an editor's commit is STAGED instead of sent to `onCellCommit` (staged_edits.js). A staged cell shows its value drawn `twm-dt-cell--staged`; staging the value its row holds is no change. On the focused table Ctrl+Z takes the last staged edit back and Ctrl+Y (or Ctrl+Shift+Z) puts it back — a cell staged as `null` undoes to no change, not to a staged null. `commit()` sends every staged cell to `onCommit` at once; `discard()` drops them. While any cell is staged the sort, the filters and the pages are FROZEN: their controls are disabled with the reason on them (`data-refusal`, `title`), and `sortBy`, `setFilter`, `clearFilters`, `goToPage`, `goToRow` and the paging calls refuse with a console warning. New rows (`setData({rows})`) drop the staged cells and the ring.
+ * @property {number} [historyLimit=100] - With `staged`: the undo ring keeps this many entries (each a before/after delta of one cell); the oldest fall off.
+ * @property {Function} [onCommit] - With `staged`: `({edits}) => void | {ok?, error?, errors?} | Promise<…>`, called once by `commit()` with every staged cell as `{rowIdx, colIdx, value, previous}` (by row, then column; `previous` is the value the row holds). Resolving `{errors: [{rowIdx, colIdx, error}]}` (non-empty) marks each of those cells `twm-dt-cell--error` with the message as its `title` and `data-error`, and every staged value stays; `{ok: false, error}`, a rejection or a throw marks every staged cell with the message. Anything else is success: the values are written into the rows the table holds, and the staged cells and the ring are cleared. While it is out no editor opens and Ctrl+Z, Ctrl+Y and `discard()` do nothing.
+ * @property {Function} [onStagedChange] - With `staged`: `({count, canUndo, canRedo, committing}) => void` after every change of the staged cells.
+ * @property {string|Function} [stagedRefusal] - With `staged`: the reason a frozen control carries, or `(count) => string`. Absent: "Sorting, filtering and paging are held while N changes are not committed. Commit or discard them first."
  */
 
 /** C10. When the scroll box has no layout — mounted hidden, or a DOM with no
@@ -597,6 +603,12 @@ export class DataTable {
             onColumnDelete: null,
             onRowAdd: null,
             onRowDelete: null,
+            // STORY-0088. Off — commits go to onCellCommit — until set.
+            staged: false,
+            historyLimit: 100,
+            onCommit: null,
+            onStagedChange: null,
+            stagedRefusal: null,
             ...config,
         };
 
@@ -616,6 +628,9 @@ export class DataTable {
             this._cellGrid = new CellGrid(this);
         } else if (this.config.editable) {
             console.warn("[DataTable] `editable` needs selectionMode: 'cells'; ignored.");
+        }
+        if (this.config.staged && !this._cellGrid) {
+            console.warn('[DataTable] `staged` needs `editable`; ignored.');
         }
 
         // STORY-0016. The select column is drawn for the table's whole life or
@@ -1357,11 +1372,58 @@ export class DataTable {
         return !!this._structure()?.rename(colIdx);
     }
 
+    // ── STORY-0088 `staged` ──────────────────────────────────────────────
+
+    /**
+     * Send every staged cell to `onCommit({edits})`, in one call. Resolves
+     * `{ok: true, committed}` (the staged cells and the undo ring are
+     * cleared), or `{ok: false, errors}` (the cells refused are marked and
+     * every staged value stays). An open editor's value is staged first.
+     * Without `staged`, resolves `{ok: false, errors: []}`.
+     *
+     * @returns {Promise<{ok: boolean, committed?: number, errors?: Array<{rowIdx:number, colIdx:number, error:string}>}>}
+     */
+    commit() {
+        const st = this._cellGrid?.staged;
+        return st ? st.commit() : Promise.resolve({ ok: false, errors: [] });
+    }
+
+    /** Drop every staged cell, its marks and the undo ring. Returns whether
+     *  there was anything to drop. */
+    discard() {
+        return !!this._cellGrid?.staged?.discard();
+    }
+
+    /** Take the last staged edit back (Ctrl+Z). Returns whether it moved. */
+    undo() {
+        return !!this._cellGrid?.staged?.undo();
+    }
+
+    /** Put the last edit taken back back again (Ctrl+Y). */
+    redo() {
+        return !!this._cellGrid?.staged?.redo();
+    }
+
+    /** Every staged cell, `{rowIdx, colIdx, value, previous}`, by row then
+     *  column. Empty without `staged`. */
+    getStagedEdits() {
+        return this._cellGrid?.staged ? this._cellGrid.staged.edits() : [];
+    }
+
+    /** Why sort, filters and pages are held — a staged edit — or null; with
+     *  a reason, `what` is refused out loud. */
+    _stagedRefusal(what) {
+        const why = this._cellGrid?.staged?.freezeReason() || null;
+        if (why) console.warn(`[DataTable] ${what} refused: ${why}`);
+        return why;
+    }
+
     /**
      * Go to specific page
      * @param {number} page - Page number (0-indexed)
      */
     goToPage(page) {
+        if (this._stagedRefusal('goToPage')) return;
         // 0.7.0 `dataSource`: the page is the SOURCE's — asked for, and drawn
         // when it answers (the promise). Past a known total, the last page.
         // (The release review: this set an offset nothing under a data source
@@ -1385,6 +1447,7 @@ export class DataTable {
      * @param {number} rowIndex - Row index
      */
     goToRow(rowIndex) {
+        if (this._stagedRefusal('goToRow')) return;
         // 0.7.0 `dataSource`: the page that holds the row, from the source.
         if (this.config.dataSource) {
             const size = this._sourcePageSize();
@@ -1403,6 +1466,7 @@ export class DataTable {
      * @param {boolean} [ascending] - Sort direction (toggles if same column)
      */
     sortBy(colIndex, ascending) {
+        if (this._stagedRefusal('sortBy')) return;
         if (this._state.sortColumn === colIndex && ascending === undefined) {
             this._state.sortAscending = !this._state.sortAscending;
         } else {
@@ -1445,6 +1509,7 @@ export class DataTable {
      * Clear all column filters
      */
     clearFilters() {
+        if (this._stagedRefusal('clearFilters')) return;
         this._state.filters.clear();
         this._processedRows = null;
         this._processedIndexMap = null;
@@ -2670,6 +2735,7 @@ export class DataTable {
     }
 
     _onFilterInput(colIdx, value) {
+        if (this._stagedRefusal('A filter')) return;
         // 0.7.0. A filter value need not be text (a control's array, a range),
         // and an empty one of those is no filter. Text is judged as in 0.4.
         const empty = typeof value === 'string' ? !value : this._isEmptyFilterValue(value);
@@ -2873,6 +2939,7 @@ export class DataTable {
 
         // Page change handler - supports both client-side and server-side pagination
         const handlePageChange = (newOffset) => {
+            if (this._stagedRefusal('Turning the page')) return;
             if (isServerSide) {
                 // Auto-spinner if the consumer returns a Promise.
                 this._awaitWithSpinner(onPageChange(newOffset, pageSize));
@@ -2950,8 +3017,11 @@ export class DataTable {
     _createExportBtn() {
         const name = this.config.exportFilename;
         const filename = (typeof name === 'function' ? name(this) : name) || 'data.csv';
-        return this._createPaginationBtn('download', 'Download visible rows as CSV', false,
-                                         () => this.downloadCSV(filename));
+        const btn = this._createPaginationBtn('download', 'Download visible rows as CSV', false,
+                                              () => this.downloadCSV(filename));
+        // STORY-0088. Moves no rows, so a staged edit's freeze leaves it be.
+        btn.classList.add('twm-pagination-btn--export');
+        return btn;
     }
 
     /**
@@ -3091,6 +3161,7 @@ export class DataTable {
             this._wrapperEl.appendChild(next);
         }
         this._pagingEl = next;
+        this._cellGrid?.staged?.paintFreeze();   // STORY-0088
     }
 
     /**
@@ -3101,6 +3172,7 @@ export class DataTable {
      */
     _pagingCall(kind, fn, ...args) {
         if (typeof fn !== 'function' || this._pagingBusy) return;
+        if (this._stagedRefusal(`paging ${kind}`)) return;
         let result;
         try {
             result = fn(...args);
@@ -3132,6 +3204,9 @@ export class DataTable {
     _pagingMaybeLoadMore() {
         const p = this._pagingConfig();
         if (!p || !p.hasMore || this._pagingBusy) return;
+        // STORY-0088. Paging is held while cells are staged — quietly here:
+        // a scroll is not a click on a control that could say why.
+        if (this._cellGrid?.staged?.freezeReason()) return;
         // 0.7.0: not while the source is answering another question (a sort, a
         // filter, a refresh) — those rows are about to be replaced.
         if (this.config.dataSource && this._source?.inFlight) return;
@@ -4713,6 +4788,7 @@ export class DataTable {
 
     /** Go to the page at `offset` (paging back stops following). */
     _sourceGoTo(offset) {
+        if (this._stagedRefusal('Turning the page')) return undefined;
         const next = Math.max(0, offset | 0);
         // PAGING AWAY TURNS FOLLOWING OFF, and coming back does not turn it on
         // again by itself: a reader who left the tail to read an old page is
@@ -5004,6 +5080,7 @@ export class DataTable {
         const maxJump = Number.isFinite(c.maxJumpOffset) ? c.maxJumpOffset : null;
 
         const go = (newOffset) => {
+            if (this._stagedRefusal('Turning the page')) return;
             if (source) { this._sourceGoTo(newOffset); return; }
             if (server) { this._awaitWithSpinner(c.onPageChange(newOffset, pageSize)); return; }
             this._state.offset = newOffset;
@@ -5193,6 +5270,7 @@ export class DataTable {
      * value is whatever the column's control works in — text for the 0.4 box.
      */
     setFilter(colIdx, value) {
+        if (this._stagedRefusal('setFilter')) return;
         const textBox = !this._filterKindFor(colIdx, (this.config.headers || [])[colIdx]);
         const v = textBox && value != null && typeof value !== 'string' ? String(value) : value;
         if (textBox) {

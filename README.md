@@ -1420,6 +1420,53 @@ The structural items follow the consumer's own: in the header menu after the
 `headerMenu` items and before the column chooser, in a row's menu after the
 `contextMenuItems` and before the copy items, each behind a separator.
 
+### DataTable: a crosstab, with spanned header rows and pinned label columns (0.17.0)
+
+`crosstab` draws the table as a matrix: rows of spanned headers over the
+column headers, the leading columns as row labels, and all of it in ONE table
+in ONE scroller. The header rows stick to the top, the label columns (with the
+select and row-number columns in front of them) stick to the left, and the
+corner, the header cells over the label columns, sticks to both. Each header
+row's `top` is the measured height of the rows above it, and each pinned
+column's `left` the measured width of the pinned columns before it. Both are
+read after layout and again whenever a header row or a pinned header cell
+changes size (a label that wraps, a font, a zoom). The consumer supplies every
+value and every label: rows and columns that add others up are ordinary rows
+and columns, marked with `rowClass`, `cellClass` and a header cell's
+`className`. A table without `crosstab` draws exactly as in 0.16.
+
+```js
+const table = DataTable.mount(host, {
+    headers: ['Region', 'City', 'Q1', 'Q2', 'Q1', 'Q2', 'All'],
+    rows,                                   // ['North', 'Oslo', 1, 2, 3, 4, 10], …
+    pagination: false,
+    virtualize: true,                       // a large matrix: draw the rows in view
+    rowClass: (row) => (row[0] === 'All' ? 'my-sum-row' : null),
+    crosstab: {
+        labelColumns: 2,                    // 'Region' and 'City' are row labels
+        headerRows: [[                      // one row of spans per level, top first
+            { label: '2024', columns: [2, 3] },
+            { label: '2025', columns: [4, 5] },
+            { label: 'All', columns: [6], className: 'my-sum-head' },
+        ]],
+    },
+});
+```
+
+| `crosstab` key | What it does |
+|---|---|
+| `labelColumns` | How many of the leading drawn data columns are row labels (default 0). They are marked `twm-dt-pin` in every row, the header and the filter row, and pinned at the measured widths. One column with the depth drawn by the consumer (`cellClass`, `renderCell`), or one per level: both are just a count. |
+| `headerRows: [[{label, columns, className?, title?}]]` | The rows of spans above the column headers, top first. A cell spans the run of drawn body columns it lists (`columns` are data column indices, as in `columnGroups`; a column is in the first cell of its row that lists it); a run of columns in no cell of a row is a blank cell. Every row's spans add up to the body's columns. Above the label columns stands the corner: one `th.twm-dt-crosstab__corner` per pinned column, spanning every header row. |
+| `emptyLabel` | With no body column at all (an empty axis), one column headed with this text (default `'(none)'`) and an empty cell in every row, and no header rows. It is no data column. |
+
+The table carries `twm-dt-crosstab`, the header rows `tr.twm-dt-crosstab__band`
+and the column headers `tr.twm-dt-crosstab__leaf`. There is no separate header
+table, so the split layout's column fit, resize grips, header right-click menu
+and `columnGroups` row do not apply (`columnGroups` is ignored with a warning).
+Under `virtualize` the columns are held at the widths first measured, so they
+do not shift as rows scroll in and out. With 1,000 rows and 50 body columns
+under `virtualize`, the first draw stays well under 300 ms in jsdom (tests/crosstab.test.mjs §6).
+
 ### Scrollbars
 
 `installAutoScrollbars(root)` (from `@flexdesk/widgets`) replaces the browser's

@@ -1366,7 +1366,7 @@ discardButton.onclick = () => grid.discard();
 |---|---|
 | `staged: true` | Needs `editable` (ignored with a warning without it). A commit stages the value: the cell shows it, drawn `twm-dt-cell--staged`, and nothing is called. Staging the value the row holds is no change. The editor opens with the staged value. |
 | Ctrl+Z, Ctrl+Y (focused table) | Ctrl+Z takes the last staged edit back; Ctrl+Y or Ctrl+Shift+Z puts it back. A cell staged as `null` undoes to NO CHANGE, not to a staged null. In an open editor the keys are the editor's. `undo()` and `redo()` do the same from code. |
-| `historyLimit` | The ring keeps the last this-many entries (default 100); the oldest fall off, and their cells stay staged. Each entry is one cell's before/after delta, never a copy of the staged set. |
+| `historyLimit` | The ring keeps the last this-many entries (default 100); the limit counts entries, not cells. The oldest fall off, and their cells stay staged. An entry is one cell's before/after change or one fill (a group of cell changes, undone together), never a copy of the staged set. |
 | `commit()` | Calls `onCommit({edits})` ONCE with every staged cell, `{rowIdx, colIdx, value, previous}` by row then column (`previous` is what the row holds); an open editor's value is staged first. Resolves `{ok: true, committed}` on success: the values are written into the rows the table holds, and the staged cells and the ring are cleared (a Ctrl+Z after a commit does nothing). If `onCommit` resolves `{errors: [{rowIdx, colIdx, error}]}` (non-empty), each of those cells is drawn `twm-dt-cell--error` with the message as its `title` and `data-error`, every staged value stays, and `commit()` resolves `{ok: false, errors}`; `{ok: false, error}`, a rejection or a throw marks every staged cell with the message. Staging a marked cell again clears its mark. While the commit is out no editor opens and undo, redo and `discard()` do nothing. |
 | `discard()` | Drops every staged cell, its marks and the ring. |
 | `getStagedEdits()` | The staged cells, as `onCommit` would get them. |
@@ -1378,6 +1378,38 @@ discardButton.onclick = () => grid.discard();
 `undo`, `redo`, `reset`, writing through an injected `apply(entry, direction)`)
 is exported with `ACTIONS` and `DEFAULT_HISTORY_LIMIT` for a consumer that
 builds its own grid.
+
+#### Fill handle (0.17.0)
+
+With `fillHandle: true` beside `staged`, the bottom-right cell of the range
+carries a small square (`.twm-dt-fill-handle`). Dragging it up, down, left or
+right over the cells beyond the range fills them as a spreadsheet does, and
+stages the values: nothing is sent until `commit()`.
+
+```js
+const grid = DataTable.mount(host, {
+    headers, rows,
+    selectionMode: 'cells',
+    editable: (colIdx, row) => !row.locked,  // a refused cell is skipped by a fill
+    staged: true,
+    fillHandle: true,
+    onCommit: ({ edits }) => api.saveBatch(edits),
+});
+grid.fill({ row: 20, col: 3 });              // what dragging the handle to (20, 3) does
+```
+
+| Option or method | What it does |
+|---|---|
+| `fillHandle: true` | Needs `staged` (ignored with a warning without it). The handle sits in the range's corner cell (`twm-dt-cell--fill-corner`); it is not drawn while an editor is open or a commit is out. During a drag the cells it covers are drawn `twm-dt-cell--fill-preview`; the direction is the one the pointer is furthest out in (up and down win a tie), up to the page's edge. Escape, or a cancelled pointer, ends the drag without filling. A drag is never a click on the table: the click the browser makes of the press and release (on the corner cell, the row or the body) is swallowed, filled or not, so neither the range nor `onRowClick` / `onRowActivate` sees it. On release the cells are staged as ONE undo entry — one Ctrl+Z takes the whole fill back — and the range grows over them. |
+| What is written | Each column of the range (each row, filling left or right) is a seed, continued by `projectSeries`: one cell repeats its value; numbers a constant step apart continue (`1, 2` filled three further gives `3, 4, 5`); `YYYY-MM-DD` dates or `Date`s a constant number of days apart continue that many days apart; texts like `Item 1, Item 2` continue their number (`INV-001` keeps its zeros); any other block repeats in a cycle. Filling up or left runs the series away from the block (`3, 4` filled up gives `2, 1`). Holding Ctrl (Cmd) at release repeats the block instead of continuing it. A hidden column is stepped over. |
+| A cell `editable` refuses | Is skipped: nothing is staged in it and the row is untouched. It is drawn `twm-dt-cell--fill-skipped` until the selection moves, the next fill or new rows. |
+| `fill(to, {forceCopy})` | The fill a drag to cell `to` (`{row, col}`: position shown, data column) makes, from code; `forceCopy` is Ctrl. Returns `{direction, count, staged, skipped}` (`staged` the NUMBER of cells that changed, `skipped` the refused cells as `{row, col, rowIdx}`), or null when nothing was filled. |
+
+`detectSeries(values)` (what a seed is: `{kind, step}` with kind `copy`,
+`number`, `date`, `text-number` or `cycle`, or null for blanks) and
+`projectSeries(values, count, {forceCopy})` (the next `count` values; a
+series keeps its seed's type) are exported as pure functions for a consumer
+that builds its own grid. `values` is the seed in fill order.
 
 ### DataTable: column groups and structural edits (0.17.0)
 

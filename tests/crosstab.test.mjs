@@ -145,6 +145,17 @@ section('§1 a 2-level column axis draws 2 header rows whose spans add up to the
           [[2, false], [2, false], [1, true]]);
     check('…and the spans still add up', spanSum(bands(host)[0]), bodyCols);
 
+    // The band cells are STORY-0066's group cells: the same markup a
+    // `columnGroups` row draws for the same spans and labels.
+    const grouped = mount({
+        headers: quarterHeaders, rows: quarterRows,
+        columnGroups: [{ key: 'a', label: '2024', columns: [1, 2] }, { key: 'b', label: '2025', columns: [3, 4] }],
+    });
+    const groupCells = [...grouped.host.querySelectorAll('table.twm-dt-groups th.twm-dt-group')].slice(-3);
+    // (less the pinned `top` the crosstab writes on every header cell)
+    const markup = (th) => { const c = th.cloneNode(true); c.removeAttribute('style'); return c.outerHTML; };
+    check('…the same markup as a column group row\'s cells', runs(bands(host)[0]).map(markup), groupCells.map(markup));
+
     // Three levels: three rows, each adding up; the corner spans the two bands.
     const three = mount({
         headers: ['Region', 'a', 'b', 'c', 'd'],

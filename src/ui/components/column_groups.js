@@ -1,7 +1,8 @@
 /**
  * column_groups.js — STORY-0066. DataTable's COLUMN GROUPS (`columnGroups`).
- * INTERNAL to the table: imported by `data_table.js` only, and not part of the
- * widgets barrel — it reads the table's private fields.
+ * INTERNAL to the table: imported by `data_table.js` (and its span helpers by
+ * `crosstab.js`) only, and not part of the widgets barrel — it reads the
+ * table's private fields.
  *
  * A group is `{key, label?, columns: number[]}` (data column indices). The
  * groups draw a second header row above the column headers, one cell a run of
@@ -37,15 +38,19 @@
 
 import { callOption, headerActionButton } from './header_actions.js';
 
-/** The groups the table was given, cleaned: a key each, a label, the data
- *  columns that exist, each column in the first group that lists it, and
- *  `index`, the group's place in `columnGroups` (the consumer's object is
- *  looked up there when drawing, never kept). */
-function normalize(spec, n) {
+/**
+ * A row of spanning cells, cleaned (shared with STORY-0091's crosstab header
+ * rows): the data columns that exist, each column in the first cell that lists
+ * it, `key`, a label, and `index`, the cell's place in `spec` (the consumer's
+ * object is looked up there when drawing, never kept). Under `requireKey` a
+ * cell without a key is dropped; a cell without a label is labelled
+ * `defaultLabel(cell)`.
+ */
+export function normalizeSpans(spec, n, { requireKey = false, defaultLabel = () => '' } = {}) {
     const taken = new Set();
     const out = [];
     (Array.isArray(spec) ? spec : []).forEach((g, index) => {
-        if (!g || g.key == null) return;
+        if (!g || (requireKey && g.key == null)) return;
         const columns = [];
         for (const c of Array.isArray(g.columns) ? g.columns : []) {
             const i = Number(c);
@@ -53,9 +58,36 @@ function normalize(spec, n) {
             taken.add(i);
             columns.push(i);
         }
-        out.push({ key: g.key, label: g.label == null ? String(g.key) : String(g.label), columns, index });
+        out.push({ key: g.key, label: g.label == null ? defaultLabel(g) : String(g.label), columns, index });
     });
     return out;
+}
+
+/** The groups the table was given, cleaned: a key each, the key as the label
+ *  when none is given. */
+function normalize(spec, n) {
+    return normalizeSpans(spec, n, { requireKey: true, defaultLabel: (g) => String(g.key) });
+}
+
+/** A spanning header cell over a run of columns in no group (or no cell). */
+export function blankSpanCell(span) {
+    const th = document.createElement('th');
+    th.className = 'twm-dt-group twm-dt-group--none';
+    th.colSpan = span;
+    return th;
+}
+
+/** A spanning header cell holding a label, its tooltip `title`. */
+export function labelSpanCell(span, label, title = label) {
+    const th = document.createElement('th');
+    th.className = 'twm-dt-group';
+    th.colSpan = span;
+    th.title = title;
+    const el = document.createElement('span');
+    el.className = 'twm-dt-group__label';
+    el.textContent = label;
+    th.appendChild(el);
+    return th;
 }
 
 export class ColumnGroups {
@@ -234,7 +266,7 @@ export class ColumnGroups {
             const gi = slots[i].group;
             let j = i + 1;
             while (j < slots.length && slots[j].group === gi) j++;
-            tr.appendChild(gi === null ? this._blankCell(j - i) : this._groupCell(groups[gi], j - i, slots[i].placeholder));
+            tr.appendChild(gi === null ? blankSpanCell(j - i) : this._groupCell(groups[gi], j - i, slots[i].placeholder));
             i = j;
         }
         thead.appendChild(tr);
@@ -242,22 +274,9 @@ export class ColumnGroups {
         return table;
     }
 
-    _blankCell(span) {
-        const th = document.createElement('th');
-        th.className = 'twm-dt-group twm-dt-group--none';
-        th.colSpan = span;
-        return th;
-    }
-
     _groupCell(group, span, empty) {
-        const th = document.createElement('th');
-        th.className = empty ? 'twm-dt-group twm-dt-group--empty' : 'twm-dt-group';
-        th.colSpan = span;
-        th.title = group.label;
-        const label = document.createElement('span');
-        label.className = 'twm-dt-group__label';
-        label.textContent = group.label;
-        th.appendChild(label);
+        const th = labelSpanCell(span, group.label);
+        if (empty) th.classList.add('twm-dt-group--empty');
 
         const actions = document.createElement('span');
         actions.className = 'twm-dt-group__actions';

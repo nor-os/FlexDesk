@@ -46,6 +46,7 @@
  */
 
 import { createRafResizeObserver } from '../utils/raf_resize_observer.js';
+import { normalizeSpans, blankSpanCell, labelSpanCell } from './column_groups.js';
 
 const DEFAULT_EMPTY_LABEL = '(none)';
 
@@ -59,33 +60,12 @@ function unzoom(el) {
     return 1;
 }
 
-/** One header row's cells, cleaned: a label, the data columns that exist, each
- *  column in the first cell that lists it, and `index`, the cell's place in the
- *  consumer's row (its object is looked up there when drawing). */
-function normalizeRow(spec, n) {
-    const taken = new Set();
-    const out = [];
-    (Array.isArray(spec) ? spec : []).forEach((cell, index) => {
-        if (!cell) return;
-        const columns = [];
-        for (const c of Array.isArray(cell.columns) ? cell.columns : []) {
-            const i = Number(c);
-            if (!Number.isInteger(i) || i < 0 || i >= n || taken.has(i)) continue;
-            taken.add(i);
-            columns.push(i);
-        }
-        out.push({ label: cell.label == null ? '' : String(cell.label), columns, index });
-    });
-    return out;
-}
-
 export class Crosstab {
     /** @param {import('./data_table.js').DataTable} table */
     constructor(table) {
         this.table = table;
         /** The pinned columns' `left`, by drawn index, as last measured. */
         this._lefts = [];
-        this._observer = null;
         this._leafRow = null;
     }
 
@@ -125,7 +105,7 @@ export class Crosstab {
         const spec = this._spec().headerRows;
         const n = this.table.config.headers?.length || 0;
         return (Array.isArray(spec) ? spec : []).map((rowSpec) => {
-            const cells = normalizeRow(rowSpec, n);
+            const cells = normalizeSpans(rowSpec, n);
             const cellOf = new Map();
             cells.forEach((c) => { for (const col of c.columns) cellOf.set(col, c); });
             const runs = [];
@@ -212,21 +192,13 @@ export class Crosstab {
         });
     }
 
+    /** A header row's cell: STORY-0066's spanning cells, the consumer's
+     *  `className` and `title` on a labelled one. */
     _bandCell({ cell, span, rowSpec }) {
-        const th = document.createElement('th');
-        th.colSpan = span;
-        if (!cell) {
-            th.className = 'twm-dt-group twm-dt-group--none';
-            return th;
-        }
-        th.className = 'twm-dt-group';
+        if (!cell) return blankSpanCell(span);
         const own = rowSpec[cell.index];
+        const th = labelSpanCell(span, cell.label, own?.title == null ? cell.label : String(own.title));
         if (own?.className) this.table._addClasses(th, own.className);
-        th.title = own?.title == null ? cell.label : String(own.title);
-        const label = document.createElement('span');
-        label.className = 'twm-dt-group__label';
-        label.textContent = cell.label;
-        th.appendChild(label);
         return th;
     }
 
@@ -263,10 +235,8 @@ export class Crosstab {
             const cell = this._leafRow.children[j];
             if (cell) observer.observe(cell);
         }
-        this._observer = observer;
         table._disposers.push(() => {
             try { observer.disconnect(); } catch (_) { /* gone */ }
-            if (this._observer === observer) this._observer = null;
         });
     }
 

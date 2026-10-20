@@ -23,7 +23,9 @@
  *
  * Enter and Tab commit `getValue()` — an input, select or textarea's `value`
  * when the factory returned the field itself; any other editor without a
- * `getValue` calls `commit(value)` itself. Every key
+ * `getValue` calls `commit(value)` itself. Such an editor has no value the host
+ * can read: Enter, Tab and the focus leaving do nothing, and `commit()` from
+ * outside (its row leaving a virtual window) CANCELS it. Every key
  * pressed in the editor stops there: the table's own keys (the arrows, Ctrl+A,
  * Ctrl+C) are not the editor's.
  *

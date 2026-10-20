@@ -462,7 +462,8 @@ export class CellGrid {
     }
 
     /** The virtual window is taking a row out: an editor in it commits, as a
-     *  click elsewhere would — what was typed is not thrown away. */
+     *  click elsewhere would — what was typed is not thrown away. An editor
+     *  with no `getValue` has nothing to commit, and is cancelled. */
     rowLeaving(tr) {
         const s = this.editor.session;
         if (s && tr.contains(s.td)) this.editor.commit(null, 'scroll');

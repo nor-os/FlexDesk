@@ -12,7 +12,10 @@
  *       drawn, that row is brought in, drawn and in view (row 900 of 1,000)
  *   §3  a row ARRIVING in the window carries the selection paint
  *   §4  an editor whose row scrolls out of the window commits what was typed —
- *       not lost, not orphaned — and the table answers the keyboard again
+ *       not lost, not orphaned — and the table answers the keyboard again;
+ *       an editor with no getValue (nothing the table can read) is CANCELLED
+ *       by its row leaving, and Enter or the focus leaving does not close it,
+ *       but its own commit(value) is committed
  *   §5  an open editor holds a redraw back; Escape commits nothing, even after
  *       the blur its repaint causes
  *   §6  a refused commit's mark reaches the row when it is drawn later, and
@@ -172,6 +175,58 @@ section('§4 an editor whose row leaves the window');
     ok('…and the waiting redraw does not run inside the window\'s own', !table.isEditing());
     await tick();
     check('it runs right after: the new rows are drawn', td(table, 900, 0)?.textContent, 'ROW 900');
+    table.dispose();
+}
+{
+    // An editor with no getValue: a `{el}` around an element that is not a
+    // form field. The table cannot read it, so its row leaving the window
+    // cancels it (as documented), and the focus leaving it does nothing.
+    let destroyed = 0;
+    const box = () => {
+        const el = T.document.createElement('div');
+        el.className = 'twm-dt-editor custom-box';
+        el.tabIndex = 0;
+        el.textContent = 'typed into a box';
+        return { el, destroy: () => { destroyed++; } };
+    };
+    const { host, table, commits, rows } = virtual(1000, { editors: { 0: box } });
+    table.setCellSelection({ row: 5, col: 0 });
+    key(tbl(table), 'F2');
+    const el = host.querySelector('.custom-box');
+    ok('a custom editor with no getValue is open in row 5', !!el && rowEl(table, 5).contains(el));
+    key(el, 'Enter');
+    ok('Enter does not close it: there is no value to commit', el.isConnected && table.isEditing());
+    el.dispatchEvent(new window.FocusEvent('focusout', { bubbles: true, relatedTarget: tbl(table) }));
+    ok('the focus leaving does not close it either', el.isConnected && table.isEditing());
+    table.scrollToRow(900);
+    ok('row 5 has left the window', !drawn(host).includes(5));
+    check('the row leaving CANCELS it: nothing is committed', commits, []);
+    check('…and the row keeps its value', rows[5][0], 'row 5');
+    check('the editor was destroyed once', destroyed, 1);
+    check('the table is not left editing', table.isEditing(), false);
+    ok('no editor is left anywhere', !T.document.querySelector('.custom-box'));
+    table.scrollToRow(5);
+    check('row 5 comes back as it was', td(table, 5, 0)?.textContent, 'row 5');
+    table.dispose();
+}
+{
+    // The same kind of editor calling commit(value) itself is committed.
+    let api = null;
+    const box = (o) => {
+        api = o;
+        const el = T.document.createElement('div');
+        el.className = 'twm-dt-editor custom-box';
+        el.tabIndex = 0;
+        return { el };
+    };
+    const { table, commits, rows } = virtual(1000, { editors: { 0: box } });
+    table.setCellSelection({ row: 5, col: 0 });
+    key(tbl(table), 'F2');
+    api.commit('from the box');
+    check('an editor without getValue commits by calling commit(value)', commits, [{ rowIdx: 5, colIdx: 0, value: 'from the box', previous: 'row 5' }]);
+    check('…into the row', rows[5][0], 'from the box');
+    table.scrollToRow(900);
+    check('and its row leaving afterwards calls nothing more', commits.length, 1);
     table.dispose();
 }
 

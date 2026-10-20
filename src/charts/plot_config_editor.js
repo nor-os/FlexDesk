@@ -47,8 +47,7 @@ import { ToggleField } from '../ui/components/toggle_field.js';
 import { selectBox } from '../ui/components/choice_controls.js';
 import { createTabs } from '../ui/components/tabs.js';
 import { CHART_TYPES_2D, CHART_TYPES_3D, is3DChart } from './chart_types.js';
-import { getSeriesColor } from './plotly_wrapper.js';
-import { PLOT_LAYOUTS, makeDefaultSubplot, uid } from './plot_config.js';
+import { PLOT_LAYOUTS, makeDefaultSubplot, makeDefaultYAxis, makeDefaultSeries } from './plot_config.js';
 import { renderSeriesTransformControls } from './series_transforms.js';
 
 const CHART_TYPE_OPTIONS = Object.freeze([
@@ -148,19 +147,6 @@ function select(options, value, onPick, { label = null, empty = null } = {}) {
     return s.box;
 }
 
-function makeYAxis(index) {
-    return {
-        id: uid('y'),
-        label: '',
-        scale: 'linear',
-        position: index % 2 === 0 ? 'left' : 'right',
-        min: null,
-        max: null,
-        step: null,
-        series: [],
-    };
-}
-
 function makeZAxis() {
     return { label: '', scale: 'linear', min: null, max: null, step: null, variable: '' };
 }
@@ -183,7 +169,8 @@ let editorCount = 0;
  *        their toggles are drawn per subplot.
  * @param {Function} [options.extraSeriesFields] - `(el, series, { subplot, axis, onChange })
  *        => { dispose? } | void`: fields of the embedder's own in each series row.
- * @param {Object} [options.logger] - Given to every AutocompleteField (provider errors).
+ * @param {Object} [options.logger] - Given to every AutocompleteField (provider errors);
+ *   its `warn` also hears a part (an `extraSeriesFields` handle, say) that throws on dispose.
  * @returns {{ dispose: Function, refresh: Function, selectSubplot: Function,
  *             readonly activeSubplot: number }}
  */
@@ -286,7 +273,9 @@ function renderPlotConfigEditor(container, config, options = {}) {
         const disposers = bodyDisposers;
         bodyDisposers = [];
         for (const fn of disposers) {
-            try { fn(); } catch (_) { /* a part already gone */ }
+            try { fn(); } catch (error) {
+                opts.logger?.warn?.('[plot config editor] a field failed to dispose', error);
+            }
         }
     }
 
@@ -359,7 +348,7 @@ function renderPlotConfigEditor(container, config, options = {}) {
 
     function normalise(sp) {
         if (!sp.xAxis) sp.xAxis = { useTime: true, variable: '' };
-        if (!Array.isArray(sp.yAxes) || !sp.yAxes.length) sp.yAxes = [makeYAxis(0)];
+        if (!Array.isArray(sp.yAxes) || !sp.yAxes.length) sp.yAxes = [makeDefaultYAxis(0)];
         for (const axis of sp.yAxes) if (!Array.isArray(axis.series)) axis.series = [];
         if (is3DChart(sp.chartType) && !sp.zAxis) sp.zAxis = makeZAxis();
     }
@@ -442,7 +431,7 @@ function renderPlotConfigEditor(container, config, options = {}) {
         const wrap = el('div', 'twm-plot-config__axes');
         sp.yAxes.forEach((axis, i) => wrap.appendChild(yAxisEditor(sp, axis, i, is3D, overlaySources)));
         const add = button('Add Y axis', () => {
-            sp.yAxes.push(makeYAxis(sp.yAxes.length));
+            sp.yAxes.push(makeDefaultYAxis(sp.yAxes.length));
             renderBody();
             notify();
         }, { title: is3D ? 'A 3D chart has one Y axis' : null });
@@ -487,15 +476,7 @@ function renderPlotConfigEditor(container, config, options = {}) {
 
         group.appendChild(button('Add series', () => {
             const count = sp.yAxes.reduce((n, a) => n + (a.series?.length ?? 0), 0);
-            axis.series.push({
-                id: uid('s'),
-                variable: '',
-                label: '',
-                color: getSeriesColor(count),
-                lineWidth: 2,
-                lineStyle: 'solid',
-                stackGroup: null,
-            });
+            axis.series.push(makeDefaultSeries(count));
             renderBody();
             notify();
         }));

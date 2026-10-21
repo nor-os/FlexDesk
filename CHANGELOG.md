@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.17.1 (2026-10-21)
+
+A patch release: everything below is additive. Every entry is documented in a
+README section headed "(0.17.1)"; each entry links to it.
+
+### Added and changed
+
+- [Built-in cell editors](README.md#built-in-cell-editors-0171): an editable DataTable column opens the editor for its type (`text`, `multitext`, `number`, `bool`, `choice`, `datetime`), each with a parse that refuses what it cannot read; `editors` replaces one per type or per column, with `editTypes`, `locale` and `editorMessages`. The editors and their parsers (`CELL_EDITORS`, `createNumberEditor`, `parseNumber`, `parseDateTime` and the rest of `cell_editors.js`) are exported from `@flexdesk/widgets`.
+- [Copying cells as tab-separated values](README.md#copying-cells-as-tab-separated-values-0171): in cell mode Ctrl+C copies the selected cell range as the tab-separated text Excel and Google Sheets paste into cells; `toTSV` and `tsvCell` (from `@flexdesk/widgets`) write it.
+- [Pasting a block from Excel](README.md#pasting-a-block-from-excel-0171): `pasteable: true` beside `staged` pastes a tab-separated block at the cursor cell, each value read by its column's editor, staged as one undo entry, with column and row overrun handling; `fromTSV` (from `@flexdesk/widgets`) reads it.
+- [Building a modeler](README.md#building-a-modeler-0171): the canvas editor's modeler options shown working together, with `demo/flow_modeler.html` (linked from `demo/index.html`).
+- [The `development` condition resolves in the installed package](README.md#the-development-condition-resolves-in-the-installed-package-0171): the nine root entry barrels are in `files`, so the `exports` map's `development` targets ship (BUG-0032). An `import` still resolves to `dist/`.
+
+### Removed or renamed exports
+
+None. Compared with 0.17.0, across every entry point (`core`, `widgets`, `wm`,
+`host`, `canvas`, `flow`, `charts`, `tiles`, `editor`) and the package
+`exports` map, exports were only added.
+
 ## 0.17.0 (2026-10-21)
 
 Every feature below is documented in a README section headed "(0.17.0)"; each

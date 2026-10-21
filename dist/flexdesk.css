@@ -862,6 +862,21 @@ body.twm-dt-col-resizing {
     color: inherit;
     font: inherit;
 }
+/* STORY-0087 the built-in editors: a checkbox keeps its own size, a text
+ * area grows with what it holds, and the choice box shows no empty helper
+ * line under it. */
+.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--editing .twm-dt-editor--bool {
+    width: auto;
+    margin: 4px 6px;
+    outline-offset: 1px;
+}
+.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--editing textarea.twm-dt-editor {
+    resize: vertical;
+    min-height: 3.5em;
+}
+.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--editing .twm-dt-editor--choice .twm-autocomplete-field__helper:empty {
+    display: none;
+}
 .twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--pending {
     opacity: 0.6;
     font-style: italic;
@@ -893,6 +908,11 @@ body.twm-dt-col-resizing {
     outline-offset: -1px;
 }
 .twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--fill-skipped {
+    background-image: repeating-linear-gradient(45deg,
+        color-mix(in srgb, var(--color-danger, #f14c4c) 22%, transparent) 0 4px, transparent 4px 8px);
+}
+/* STORY-0090. A cell a paste skipped (not editable) carries the same mark. */
+.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--paste-skipped {
     background-image: repeating-linear-gradient(45deg,
         color-mix(in srgb, var(--color-danger, #f14c4c) 22%, transparent) 0 4px, transparent 4px 8px);
 }
@@ -1065,6 +1085,10 @@ body.twm-dt-col-resizing {
     --twm-dt-pin-state: linear-gradient(color-mix(in srgb, var(--accent-bright, #007acc) 16%, transparent), color-mix(in srgb, var(--accent-bright, #007acc) 16%, transparent));
 }
 .twm-preview-table.twm-dt-crosstab.twm-dt--cells tbody td.twm-dt-pin.twm-dt-cell--fill-skipped {
+    --twm-dt-pin-mark: repeating-linear-gradient(45deg,
+        color-mix(in srgb, var(--color-danger, #f14c4c) 22%, transparent) 0 4px, transparent 4px 8px);
+}
+.twm-preview-table.twm-dt-crosstab.twm-dt--cells tbody td.twm-dt-pin.twm-dt-cell--paste-skipped {
     --twm-dt-pin-mark: repeating-linear-gradient(45deg,
         color-mix(in srgb, var(--color-danger, #f14c4c) 22%, transparent) 0 4px, transparent 4px 8px);
 }

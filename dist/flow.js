@@ -3,7 +3,7 @@ import {
 } from "./chunk-D3COLZZ2.js";
 import {
   DataTable
-} from "./chunk-Q36EPT2R.js";
+} from "./chunk-LWV23YVE.js";
 import {
   choiceList,
   selectBox,
@@ -6232,7 +6232,7 @@ function createCanvasEditor(host, options = {}) {
     for (const c of g.connections) {
       const source = idOf.get(c.source);
       const target = idOf.get(c.target);
-      if (source && target) connect(graph, catalogue, { ...c, source, target }, { strings: S });
+      if (source && target) connect(graph, catalogue, { ...c, source, target }, { strings: S, dataPorts: dataConnect });
     }
     const noteIds = [];
     for (const from of noting ? g.notes || [] : []) {

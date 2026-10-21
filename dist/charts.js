@@ -1,7 +1,4 @@
 import {
-  AutocompleteField
-} from "./chunk-QWQJUDPD.js";
-import {
   createTabs
 } from "./chunk-HYJYYEPK.js";
 import {
@@ -58,10 +55,11 @@ import {
   strideIndices,
   uid,
   updateChart
-} from "./chunk-MCIXFNVF.js";
+} from "./chunk-RMTRWWEO.js";
 import {
+  AutocompleteField,
   createRafResizeObserver
-} from "./chunk-Q36EPT2R.js";
+} from "./chunk-LWV23YVE.js";
 import {
   ColorField,
   ManagedWindow,

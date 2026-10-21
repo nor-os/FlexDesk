@@ -16,13 +16,17 @@
  *       for real, then removed (a gate that has never failed is not known to
  *       work: BRIEF-flows, definition of done 3)
  *   §3  every word on the list is caught, each in a planted line
+ *   §4  the modeler demo (STORY-0084): every file under src/flow/ or
+ *       src/canvas/ that demo/flow_modeler.js reaches through its imports is
+ *       one the gate scans and passes, and the demo's own page and script
+ *       hold none of the words either — it fetches nothing and stores nothing
  *
  * Every agent building in src/flow/ or src/canvas/ keeps this green.
  *
  *     node tests/flow_kit_vocabulary.test.mjs
  */
 import { existsSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { assertions } from './flow_env.mjs';
 
 const t = assertions('flow kit — vocabulary gate');
@@ -111,6 +115,34 @@ try {
     t.check('a method called prefetch, the word in prose and a longer name are not', scan(t.root), []);
 } finally {
     if (existsSync(plantPath)) unlinkSync(plantPath);
+}
+
+/** Every file `entry` reaches through its relative imports (static, re-exports and dynamic), itself included. */
+export function importClosure(root, entry) {
+    const seen = new Set();
+    const todo = [resolve(root, entry)];
+    const SPEC = /(?:import|export)\s[^'"]*?from\s*['"](\.[^'"]+)['"]|import\s*\(\s*['"](\.[^'"]+)['"]\s*\)|import\s+['"](\.[^'"]+)['"]/g;
+    while (todo.length) {
+        const file = todo.pop();
+        if (seen.has(file)) continue;
+        seen.add(file);
+        for (const m of readFileSync(file, 'utf8').matchAll(SPEC)) todo.push(resolve(dirname(file), m[1] || m[2] || m[3]));
+    }
+    return [...seen].map((f) => relative(root, f).replace(/\\/g, '/')).sort();
+}
+
+t.section('§4 the modeler demo\'s FlexDesk sources pass the gate');
+{
+    const reached = importClosure(t.root, 'demo/flow_modeler.js');
+    const gated = reached.filter((f) => ROOTS.some((r) => f.startsWith(`${r}/`)));
+    t.ok('the demo reaches the modeler\'s own modules', ['src/flow/canvas_editor/editor.js', 'src/flow/canvas_editor/connections.js',
+         'src/canvas/layered_layout.js', 'src/canvas/edge_router.js'].every((f) => gated.includes(f)), JSON.stringify(gated));
+    const hits = scan(t.root);
+    t.check('no file of the flow and canvas sources it reaches holds a word on the list',
+            hits.filter((h) => gated.some((f) => h.startsWith(`${f}:`))), []);
+    const own = ['demo/flow_modeler.js', 'demo/flow_modeler.html'].flatMap((f) => readFileSync(join(t.root, f), 'utf8')
+        .split('\n').flatMap((line, i) => BANNED.filter(([, re]) => re.test(line)).map(([what]) => `${f}:${i + 1}: ${what}`)));
+    t.check('the demo\'s own page and script hold none either: no fetch, no storage', own, []);
 }
 
 t.done();

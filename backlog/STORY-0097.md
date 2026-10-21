@@ -13,7 +13,7 @@ subsystem:
 labels: [release]
 links: [relates-to BUG-0032, blocked-by 84, blocked-by 85, blocked-by 87, blocked-by 90]
 created: 2026-10-21
-updated: 2026-10-21T19:08Z
+updated: 2026-10-21T19:49Z
 ---
 
 ## Description
@@ -42,3 +42,15 @@ Filed and refined on norman's decision (2026-10-21): 4 criteria, 1 point, parent
 ### 2026-10-21T08:31Z · norman_agent
 
 BUG-0032 (the exports map's development condition) is added to 0.17.1.
+
+### 2026-10-21T19:49Z · norman_agent
+
+Blocked. The 0.17.1 release is prepared but not published. The release commit 10db492 "FlexDesk 0.17.1" is on branch release-0.17.1 (pushed to origin/release-0.17.1), in worktree /mnt/c/Users/Norman/repos/FlexDesk-release-0171. It sits directly on origin/main 64bd9c3, so it fast-forwards. It adds a 0.17.1 section to CHANGELOG.md, bumps package.json and package-lock.json to 0.17.1, and commits the rebuilt dist/.
+
+`git push origin HEAD:main` was refused by the Claude Code auto mode permission classifier: "Permission for this action was denied by the Claude Code auto mode classifier. Reason: [Create Public Surface]." Work stopped there. The commit is not on main, nothing was tagged, and `npm pack --dry-run`, `npm publish` and `npm view flexdesk@0.17.1` were not run. npm is logged in as nor-os; the registry has 0.16.0, 0.16.1 and 0.17.0, not 0.17.1.
+
+Question for norman: will you allow the push to main and the npm publish (for example with a permission rule), or run them yourself from the worktree: `git push origin HEAD:main`, then `npm pack --dry-run`, `npm publish`, `npm view flexdesk@0.17.1 version`? No tag is needed (0.16.0, 0.16.1 and 0.17.0 were not tagged).
+
+The CHANGELOG section has one linked entry for each of the five README headings marked "(0.17.1)": Built-in cell editors, Copying cells as tab-separated values, Pasting a block from Excel, Building a modeler, and The `development` condition resolves in the installed package (BUG-0032). "Removed or renamed exports" says none, checked by comparing the export lists of all nine dist entry files between 10b3e1a and the new build: the only change is 20 new widgets exports (CELL_EDITORS, EDITOR_MESSAGES, the create*Editor and parse*/format* helpers, toTSV, tsvCell, fromTSV). The exports map is unchanged; only the nine root barrels were added to `files`.
+
+Notes: BUG-0032 is still at status testing on main. `npm run check` through the Windows npm cannot load esbuild through the WSL node_modules symlink; the same check with the Linux node passed.

@@ -1324,8 +1324,7 @@ grid.getCellSelection();   // { anchor, focus, range }
 | The keys (focused table) | Arrows move the cursor (Shift extends the range). Ctrl+arrow jumps to the edge of the block of filled cells, as a spreadsheet does. Home/End go to the row's first and last cell (Ctrl: the page's first and last cell). Tab moves right and wraps to the next row (Shift+Tab back); on the last cell (Shift+Tab: the first) the table does not take the key, so focus moves on out of the table. ArrowDown on the last row stays put. Ctrl+A selects every cell of the page; Escape collapses the range onto the cursor. The cursor stays on the page drawn and is scrolled into view; under `virtualize` its row is drawn. |
 | `getCellSelection()` | `{anchor, focus, range}`. A cell is `{row, col, rowIdx}`: `row` is the position in the order shown (as `getDisplayedRows()` lists them, after sort and filter), `col` the data column, `rowIdx` the original row index. `range` is `{top, bottom, left, right, rows, columns}`: positions, the data columns at its edges, and the original row indices and data columns it covers (a hidden column inside it is not one of them). Null outside cell mode. |
 | `setCellSelection(focus, anchor?)` | Puts the cursor on `{row, col}`, or selects from `anchor` to it; `null` clears. The row is brought into view. |
-| `getSelection()`, `setSelection()` | Still about rows: `getSelection()` returns the rows the range touches and `onSelectionChange` hears them. `setSelection(indices)` selects the cells of those rows, first to last as shown. |
-| Ctrl+C, the copy menu, `copyToClipboard()` | With `copyable` (the default), copy the CELLS selected, not their rows: a 3×4 range is 3 lines of 4 tab-separated values, in the order shown after sort and filter, its shown columns only (a hidden column inside it is left out), with no header line. With no range beyond the cursor, the cursor cell's value alone. A cell is its RAW value, not the text it shows: no `formatValue`, typed-column format, rounding or `nullDisplay` (a Price drawn `1,234.50`, value 1234.5, copies as `1234.5`); the value the cell holds now, a staged, pending or refused one included; `null` is empty. Dates copy as ISO 8601: a `Date` as `toISOString()`, in a column declared `'date'` as its day `YYYY-MM-DD` in the table's zone (`dateTimeZone`); a number in a declared `'date'`/`'datetime'` column is read as epoch ms the same way; text is copied as it is. A value holding a tab, a newline or a quote is quoted the way Excel quotes it (`"say ""hi"""`), so Excel and Google Sheets paste it back into one cell. Cell mode has no CSV copy: the right-click menu's copy item is "Copy Cells" alone (the same text as Ctrl+C), Ctrl+Shift+C is not bound (the key is left to the page), and `copyToClipboard('csv')` copies nothing and warns. Without cell mode, Ctrl+C, Ctrl+Shift+C and the copy menu ("Copy Row(s)", "Copy as CSV") copy the selected rows with a header line, as in 0.16. |
+| `getSelection()`, `setSelection()` | Still about rows: `getSelection()` returns the rows the range touches and `onSelectionChange` hears them. `setSelection(indices)` selects the cells of those rows, first to last as shown. Ctrl+C and the copy menu copy cells, not rows, from 0.17.1 (below). |
 | `onCellSelectionChange(sel)` | Called with `getCellSelection()` after every change. |
 | `editable` | Which cells open an editor: `true`, an array of data column indices, or `(colIdx, row, rowIdx) => boolean`. Needs cell mode. F2, Enter, a double-click or a printable key opens it on the cursor cell (a printable key replaces the value with that character). In the editor Enter commits and moves down, Tab commits and moves right (Shift: up, left), Escape restores the cell and calls nothing; the focus leaving it commits without moving. `editCell(row, col)` opens one from code; `isEditing()` says whether one is open. |
 | `editors: {[colIdx \| type]: factory}` | The editor for a column, looked up by column index and then by type (`columnTypes`, else the detected `num`/`text`). A factory gets `{value, row, rowIdx, colIdx, column: {index, header, type}, initialText, commit(value), cancel()}` and returns an element or `{el, getValue?, focus?, destroy?}`. An input, select or textarea commits its `value` on Enter and Tab; any other editor calls `commit(value)` itself. The default is a text box (`createTextEditor`). |
@@ -1337,10 +1336,21 @@ The two modules behind cell mode are exported for a consumer that builds its
 own grid: `CellSelection` (the anchor, the cursor and every key's move, with no
 DOM), `CellEditorHost` (one cell's editor, opened and closed exactly once) and
 `createTextEditor` (the default text box). The table's own half of cell mode
-is internal. `toTSV(matrix)` and `tsvCell(value)` write tab-separated text with
-Excel's quoting (a cell holding a tab, a newline or a quote is quoted and its
-quotes doubled; `null` is empty; no newline after the last row): the writer
-cell mode copies with.
+is internal.
+
+#### Copying cells as tab-separated values (0.17.1)
+
+In cell mode Ctrl+C copies the cells selected, as the tab-separated text Excel
+and Google Sheets paste into cells.
+
+| What | What it does |
+|---|---|
+| Ctrl+C, the copy menu, `copyToClipboard()` | With `copyable` (the default), copy the CELLS selected, not their rows: a 3×4 range is 3 lines of 4 tab-separated values, in the order shown after sort and filter, its shown columns only (a hidden column inside it is left out), with no header line. With no range beyond the cursor, the cursor cell's value alone. A cell is its RAW value, not the text it shows: no `formatValue`, typed-column format, rounding or `nullDisplay` (a Price drawn `1,234.50`, value 1234.5, copies as `1234.5`); the value the cell holds now, a staged, pending or refused one included; `null` is empty. Dates copy as ISO 8601: a `Date` as `toISOString()`, in a column declared `'date'` as its day `YYYY-MM-DD` in the table's zone (`dateTimeZone`); a number in a declared `'date'`/`'datetime'` column is read as epoch ms the same way; text is copied as it is. A value holding a tab, a newline or a quote is quoted the way Excel quotes it (`"say ""hi"""`), so Excel and Google Sheets paste it back into one cell. Cell mode has no CSV copy: the right-click menu's copy item is "Copy Cells" alone (the same text as Ctrl+C), Ctrl+Shift+C is not bound (the key is left to the page), and `copyToClipboard('csv')` copies nothing and warns. Without cell mode, Ctrl+C, Ctrl+Shift+C and the copy menu ("Copy Row(s)", "Copy as CSV") copy the selected rows with a header line, as in 0.16. |
+
+`toTSV(matrix)` and `tsvCell(value)` write tab-separated text with Excel's
+quoting (a cell holding a tab, a newline or a quote is quoted and its quotes
+doubled; `null` is empty; no newline after the last row): the writer cell mode
+copies with.
 
 #### Staged edits, undo and redo, one commit (0.17.0)
 

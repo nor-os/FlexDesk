@@ -37,11 +37,6 @@ const ARROWS = {
 };
 
 /**
- * DataTable's cell mode. Built by the table when `selectionMode` is 'cells';
- * it reads the table, never the other way round, except through the few hooks
- * the table calls (`decorateRow`, `install`, `rowLeaving`, `isEditing`).
- */
-/**
  * STORY-0085. A cell's raw value as the text a copy carries — never the text
  * it is drawn as (no `formatValue`, typed-column format, rounding or
  * `nullDisplay`): `null`/`undefined` (and an invalid Date) are empty, a
@@ -62,6 +57,11 @@ function copyText(value, { kind, utc }) {
     return String(value);
 }
 
+/**
+ * DataTable's cell mode. Built by the table when `selectionMode` is 'cells';
+ * it reads the table, never the other way round, except through the few hooks
+ * the table calls (`decorateRow`, `install`, `rowLeaving`, `isEditing`).
+ */
 export class CellGrid {
     /** @param {import('./data_table.js').DataTable} table */
     constructor(table) {

@@ -1,17 +1,30 @@
 import {
   modalHost
-} from "./chunk-NNFTETK3.js";
+} from "./chunk-D3COLZZ2.js";
 import {
   DataTable
-} from "./chunk-FBGP5KN5.js";
-import "./chunk-6JSOVNID.js";
-import "./chunk-FL5KFNQH.js";
+} from "./chunk-Q36EPT2R.js";
 import {
+  choiceList,
+  selectBox,
+  shownValue,
+  toggleChips
+} from "./chunk-CVMCZZX2.js";
+import "./chunk-HNU6MM2B.js";
+import "./chunk-WVFGV5FT.js";
+import {
+  CONNECTOR_STRINGS,
   CanvasAdapter,
+  ConnectorRouter,
+  NodePlatform,
+  OBSTACLE_ROUTING_NODE_LIMIT,
   arrange,
+  crowsFoot,
+  footAnchor,
+  layeredLayout,
   returnEdge,
   routeEdge
-} from "./chunk-SN4LSOAR.js";
+} from "./chunk-GOQLR5WR.js";
 import {
   __export
 } from "./chunk-JYWURG5T.js";
@@ -56,7 +69,9 @@ var FLOW_STRINGS = Object.freeze({
   value: "Value",
   formula: "Formula",
   textOrValue: "Text, or insert a value",
-  noColumns: "There are no columns to choose from yet: connect a step before this one.",
+  noColumns: "Columns not known yet: type the name.",
+  columnName: "Column name",
+  columnNames: "Column name, then Enter",
   noColumnsChosen: "None chosen",
   fieldFinding: "Fix this before publishing",
   // ── reference chips and Insert a value ─────────────────────────────
@@ -274,8 +289,11 @@ var UI_HINTS = Object.freeze([
   "x-ui-when",
   "x-ui-placeholder",
   "x-ui-enum-labels",
+  "x-ui-enum-descriptions",
   "x-ui-multiline",
-  "x-ui-fold"
+  "x-ui-fold",
+  "x-ui-add-label",
+  "x-ui-formula-references"
 ]);
 var isPlainObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 function pyRepr(value) {
@@ -381,6 +399,35 @@ function defaultIdBase(type) {
 function cleanStem(stem) {
   return String(stem ?? "").replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 40) || "step";
 }
+var positive = (v) => typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
+function readSize(raw) {
+  if (raw === void 0 || raw === null) return { size: null, problem: null };
+  const refused = { size: null, problem: "size must be {w, h} in positive pixels; it is not used." };
+  if (!isPlainObject2(raw)) return refused;
+  const w = raw.w === void 0 ? null : positive(raw.w);
+  const h = raw.h === void 0 ? null : positive(raw.h);
+  if (raw.w !== void 0 && w === null || raw.h !== void 0 && h === null || w === null && h === null) {
+    return refused;
+  }
+  return { size: Object.freeze({ w, h }), problem: null };
+}
+function readInline(raw, schema, id, problems) {
+  if (raw === void 0 || raw === null) return Object.freeze([]);
+  if (!Array.isArray(raw)) {
+    problems.push({ type_id: id, message: `"${id}"'s inline must be a list of setting names; it is not used.` });
+    return Object.freeze([]);
+  }
+  const known = new Set(fieldsFromSchema(schema).map((f) => f.key));
+  const keys = [];
+  for (const key of raw) {
+    if (typeof key === "string" && known.has(key)) {
+      if (!keys.includes(key)) keys.push(key);
+    } else {
+      problems.push({ type_id: id, message: `"${id}"'s inline names "${String(key)}", which its settings do not have; it is not drawn.` });
+    }
+  }
+  return Object.freeze(keys);
+}
 function normalisePort(p) {
   return {
     ...p,
@@ -396,6 +443,10 @@ function createStepCatalogue(types, { categories = [], idBase = defaultIdBase } 
   const problems = [];
   const byId = /* @__PURE__ */ new Map();
   const order = [];
+  const sizes = /* @__PURE__ */ new Map();
+  const accents = /* @__PURE__ */ new Map();
+  const inlines = /* @__PURE__ */ new Map();
+  const ranks = /* @__PURE__ */ new Map();
   for (const raw of Array.isArray(types) ? types : []) {
     if (!isPlainObject2(raw)) {
       problems.push({ type_id: null, message: "A step type must be an object." });
@@ -434,6 +485,24 @@ function createStepCatalogue(types, { categories = [], idBase = defaultIdBase } 
     });
     byId.set(id, type);
     order.push(type);
+    const { size, problem } = readSize(raw.size);
+    if (problem) problems.push({ type_id: id, message: `"${id}"'s ${problem}` });
+    if (size) sizes.set(id, size);
+    if (raw.accent !== void 0 && raw.accent !== null) {
+      if (TONES.includes(raw.accent)) accents.set(id, raw.accent);
+      else problems.push({ type_id: id, message: `"${id}"'s accent "${raw.accent}" is not a tone; it is not used.` });
+    }
+    const inline = readInline(raw.inline, schema, id, problems);
+    if (inline.length) inlines.set(id, inline);
+    if (raw.rank !== void 0 && raw.rank !== null) {
+      if (raw.rank === "source" || raw.rank === "sink") ranks.set(id, raw.rank);
+      else problems.push({ type_id: id, message: `"${id}"'s rank "${String(raw.rank)}" is not 'source' or 'sink'; it is not used.` });
+    }
+    for (const hook of ["render", "update"]) {
+      if (raw[hook] !== void 0 && typeof raw[hook] !== "function") {
+        problems.push({ type_id: id, message: `"${id}"'s ${hook} is not a function; it is not used.` });
+      }
+    }
   }
   const cats = (Array.isArray(categories) ? categories : []).filter(isPlainObject2).map((c) => Object.freeze({
     id: String(c.id),
@@ -452,11 +521,11 @@ function createStepCatalogue(types, { categories = [], idBase = defaultIdBase } 
     extra.push(Object.freeze({ id: "", label: "", tone: "grey", layout: "list" }));
   }
   const allCats = Object.freeze([...cats, ...extra]);
-  const rank = (t) => {
+  const categoryIndex = (t) => {
     const id = t.category === null ? "" : t.category;
     return allCats.findIndex((c) => c.id === id);
   };
-  const sorted2 = [...order].sort((a, b) => rank(a) - rank(b) || String(a.label).localeCompare(String(b.label)));
+  const sorted2 = [...order].sort((a, b) => categoryIndex(a) - categoryIndex(b) || String(a.label).localeCompare(String(b.label)));
   const portsOf2 = (typeId, direction, flow) => {
     const t = byId.get(typeId);
     if (!t) return [];
@@ -477,6 +546,20 @@ function createStepCatalogue(types, { categories = [], idBase = defaultIdBase } 
     tone: (typeId) => {
       const t = byId.get(typeId);
       return t && allCats.find((c) => c.id === (t.category ?? ""))?.tone || "grey";
+    },
+    /** The type's own box, `{w, h}` (either null), or null when it has none. */
+    size: (typeId) => sizes.get(typeId) ?? null,
+    /** The type's accent tone, or null when it has none. */
+    accent: (typeId) => accents.get(typeId) ?? null,
+    /** The setting names the type draws on its node (`inline`), in order; `[]` when none. */
+    inline: (typeId) => inlines.get(typeId) ?? Object.freeze([]),
+    /** The type's layered-layout hint, 'source' or 'sink', or null when it has none. */
+    rank: (typeId) => ranks.get(typeId) ?? null,
+    /** The type's `{render, update}` (`update` may be null), or null when it has no `render`. */
+    body: (typeId) => {
+      const t = byId.get(typeId);
+      const render = typeof t?.render === "function" ? t.render : null;
+      return render ? { render, update: typeof t.update === "function" ? t.update : null } : null;
     },
     inputs: (typeId, { flow = false } = {}) => portsOf2(typeId, "input", flow),
     outputs: (typeId, { flow = false } = {}) => portsOf2(typeId, "output", flow),
@@ -1044,7 +1127,6 @@ function createChipInput({
 }
 
 // src/flow/kit/widgets.js
-var shownValue = (v) => v === void 0 ? "" : typeof v === "string" ? v : JSON.stringify(v);
 function typedValue(text, stored) {
   if (text === shownValue(stored) && stored !== void 0) return stored;
   if (stored === void 0 || typeof stored === "string") return text;
@@ -1062,30 +1144,6 @@ function textBox(value, { type = "text", placeholder = "", label = "" } = {}) {
   if (placeholder) input.placeholder = placeholder;
   if (label) input.setAttribute("aria-label", label);
   return input;
-}
-function selectBox(options, value, { empty = null, label = "", notFound = (v) => `${v} (not found)` } = {}) {
-  const box = el("select", "twm-flow-input twm-flow-input--select");
-  if (label) box.setAttribute("aria-label", label);
-  const values = [];
-  if (empty !== null) {
-    box.appendChild(new Option(empty, ""));
-    values.push(void 0);
-  }
-  options.forEach((opt) => {
-    const o = new Option(opt.label, String(values.length));
-    if (opt.disabled) o.disabled = true;
-    box.appendChild(o);
-    values.push(opt.value);
-  });
-  const at = values.findIndex((v, i) => i >= (empty !== null ? 1 : 0) && v === value);
-  if (value !== void 0 && value !== null && value !== "" && at < 0) {
-    box.appendChild(new Option(notFound(shownValue(value)), String(values.length)));
-    values.push(value);
-    box.value = String(values.length - 1);
-  } else {
-    box.value = at >= 0 ? String(at) : empty !== null ? "" : "0";
-  }
-  return { box, valueOf: () => box.value === "" ? void 0 : values[Number(box.value)] };
 }
 function fitToText(area, maxLines = 12) {
   let width = -1;
@@ -1376,50 +1434,6 @@ function stringListWidget(spec, value, ctx) {
   });
   return { el: rows.el, destroy: rows.destroy };
 }
-function toggleChips({ options, value, label, readOnly, onChange, notFound }) {
-  const root = el("div", "twm-flow-togglechips");
-  root.setAttribute("role", "group");
-  if (label) root.setAttribute("aria-label", label);
-  const known = options.map((o) => o.value);
-  const chosen = new Set((Array.isArray(value) ? value : []).filter((v) => known.includes(v)));
-  const strays = (Array.isArray(value) ? value : []).filter((v) => !known.includes(v));
-  const emit = () => {
-    const out = [...known.filter((v) => chosen.has(v)), ...strays];
-    onChange(out.length ? out : void 0);
-  };
-  const chipFor = (text, pressed, toggle, stray = false) => {
-    const b = el("button", `twm-flow-togglechip${stray ? " twm-flow-togglechip--missing" : ""}`, text);
-    b.type = "button";
-    b.setAttribute("aria-pressed", pressed ? "true" : "false");
-    b.disabled = Boolean(readOnly);
-    b.addEventListener("click", () => {
-      const on = toggle();
-      b.setAttribute("aria-pressed", on ? "true" : "false");
-      emit();
-    });
-    return b;
-  };
-  for (const o of options) {
-    root.appendChild(chipFor(o.label, chosen.has(o.value), () => {
-      if (chosen.has(o.value)) chosen.delete(o.value);
-      else chosen.add(o.value);
-      return chosen.has(o.value);
-    }));
-  }
-  for (const v of [...strays]) {
-    const b = chipFor(notFound(shownValue(v)), true, () => {
-      const i = strays.indexOf(v);
-      if (i >= 0) {
-        strays.splice(i, 1);
-        return false;
-      }
-      strays.push(v);
-      return true;
-    }, true);
-    root.appendChild(b);
-  }
-  return root;
-}
 function enumChipsWidget(spec, value, ctx) {
   const S = ctx.strings;
   const itemSpec = spec.items && typeof spec.items === "object" ? spec.items : {};
@@ -1433,48 +1447,41 @@ function enumChipsWidget(spec, value, ctx) {
       readOnly: ctx.readOnly,
       onChange: (v) => ctx.set(v),
       notFound: (v) => say(S, "notFound", v)
-    })
+    }).el
   };
 }
 function choiceCardsWidget(spec, value, ctx) {
   const values = Array.isArray(spec.enum) ? spec.enum : [];
   const descriptions = spec["x-ui-enum-descriptions"] && typeof spec["x-ui-enum-descriptions"] === "object" ? spec["x-ui-enum-descriptions"] : {};
-  const root = el("div", "twm-flow-choices");
-  root.setAttribute("role", "radiogroup");
-  if (ctx.label) root.setAttribute("aria-label", ctx.label);
-  const name = uid("choice");
-  const current = value !== void 0 ? value : spec.default;
-  const radios = [];
-  for (const v of values) {
-    const row = el("label", "twm-flow-choice");
-    const radio = el("input", "twm-flow-choice__radio");
-    radio.type = "radio";
-    radio.name = name;
-    radio.checked = v === current;
-    radio.disabled = Boolean(ctx.readOnly);
-    radio.addEventListener("change", () => {
-      if (radio.checked) ctx.set(v);
-    });
-    radios.push(radio);
-    const words3 = el("span", "twm-flow-choice__words");
-    words3.appendChild(el("span", "twm-flow-choice__label", enumLabel(spec, v)));
-    if (descriptions[v] !== void 0) words3.appendChild(el("span", "twm-flow-choice__sub", descriptions[v]));
-    row.append(radio, words3);
-    root.appendChild(row);
-  }
-  if (current !== void 0 && !values.includes(current)) {
-    root.appendChild(el("p", "twm-flow-field__note", say(ctx.strings, "notFound", shownValue(current))));
-  }
-  return { el: root, focus: () => (radios.find((r) => r.checked) || radios[0])?.focus({ preventScroll: true }) };
+  const list = choiceList({
+    options: values.map((v) => ({ value: v, label: enumLabel(spec, v), description: descriptions[v] })),
+    value: value !== void 0 ? value : spec.default,
+    name: uid("choice"),
+    label: ctx.label,
+    readOnly: ctx.readOnly,
+    onChange: (v) => ctx.set(v),
+    notFound: (v) => say(ctx.strings, "notFound", v)
+  });
+  return { el: list.el, focus: list.focus };
 }
 var columnWords = (c) => c.type ? `${c.name} \xB7 ${c.type}` : String(c.name);
+function columnsNotKnownNote(S) {
+  return el("p", "twm-flow-field__note", say(S, "noColumns"));
+}
 function upstreamColumnWidget(spec, value, ctx) {
   const S = ctx.strings;
   const columns = ctx.columns?.();
   if (!Array.isArray(columns)) {
-    const note = el("p", "twm-flow-field__note", say(S, "noColumns"));
-    if (value !== void 0) note.appendChild(el("span", "twm-flow-field__kept", ` ${shownValue(value)}`));
-    return { el: note };
+    const root = el("div", "twm-flow-field__typed");
+    const box2 = textBox(shownValue(value), {
+      label: ctx.label,
+      placeholder: spec["x-ui-placeholder"] ?? say(S, "columnName")
+    });
+    box2.spellcheck = false;
+    box2.readOnly = Boolean(ctx.readOnly);
+    box2.addEventListener("input", () => ctx.set(clean(typedValue(box2.value, value))));
+    root.append(box2, columnsNotKnownNote(S));
+    return { el: root, focus: () => box2.focus({ preventScroll: true }) };
   }
   const { box, valueOf } = selectBox(
     columns.map((c) => ({ value: String(c.name), label: columnWords(c) })),
@@ -1489,15 +1496,68 @@ function upstreamColumnWidget(spec, value, ctx) {
   box.addEventListener("change", () => ctx.set(clean(valueOf())));
   return { el: box };
 }
+function typedChips({ value, label, placeholder, readOnly, onChange, strings }) {
+  const root = el("div", "twm-flow-togglechips twm-flow-typedchips");
+  root.setAttribute("role", "group");
+  if (label) root.setAttribute("aria-label", label);
+  const list = Array.isArray(value) ? [...value] : [];
+  const input = textBox("", { label, placeholder });
+  input.classList.add("twm-flow-typedchips__input");
+  input.spellcheck = false;
+  input.readOnly = Boolean(readOnly);
+  const emit = () => onChange(list.length ? [...list] : void 0);
+  const chipFor = (v) => {
+    const text = shownValue(v);
+    const b = el("button", "twm-flow-togglechip", text);
+    b.type = "button";
+    b.setAttribute("aria-pressed", "true");
+    b.setAttribute("aria-label", say(strings, "removeNamed", text));
+    b.title = say(strings, "removeNamed", text);
+    b.disabled = Boolean(readOnly);
+    b.addEventListener("click", () => {
+      const i = list.indexOf(v);
+      if (i >= 0) list.splice(i, 1);
+      b.remove();
+      emit();
+      input.focus({ preventScroll: true });
+    });
+    return b;
+  };
+  const take = () => {
+    const name = input.value.replace(/,+$/, "").trim();
+    input.value = "";
+    if (!name || list.includes(name)) return;
+    list.push(name);
+    root.insertBefore(chipFor(name), input);
+    emit();
+  };
+  for (const v of list) root.appendChild(chipFor(v));
+  root.appendChild(input);
+  input.addEventListener("keydown", (ev) => {
+    if (ev.isComposing || ev.key !== "Enter" && ev.key !== ",") return;
+    ev.preventDefault();
+    take();
+  });
+  input.addEventListener("blur", () => {
+    if (input.value.trim()) take();
+  });
+  return { el: root, input };
+}
 function upstreamColumnsWidget(spec, value, ctx) {
   const S = ctx.strings;
   const columns = ctx.columns?.();
   if (!Array.isArray(columns)) {
-    const note = el("p", "twm-flow-field__note", say(S, "noColumns"));
-    if (Array.isArray(value) && value.length) {
-      note.appendChild(el("span", "twm-flow-field__kept", ` ${value.map(shownValue).join(", ")}`));
-    }
-    return { el: note };
+    const root = el("div", "twm-flow-field__typed");
+    const chips = typedChips({
+      value,
+      label: ctx.label,
+      readOnly: ctx.readOnly,
+      strings: S,
+      placeholder: spec["x-ui-placeholder"] ?? say(S, "columnNames"),
+      onChange: (v) => ctx.set(v)
+    });
+    root.append(chips.el, columnsNotKnownNote(S));
+    return { el: root, focus: () => chips.input.focus({ preventScroll: true }) };
   }
   return {
     el: toggleChips({
@@ -1507,7 +1567,7 @@ function upstreamColumnsWidget(spec, value, ctx) {
       readOnly: ctx.readOnly,
       onChange: (v) => ctx.set(v),
       notFound: (v) => say(S, "notFound", v)
-    })
+    }).el
   };
 }
 var GENERIC_WIDGETS = Object.freeze({
@@ -2137,6 +2197,18 @@ function bindFlowKeys(root, handlers = {}) {
         run("paste", ev);
         return;
       }
+      if (lower === "a") {
+        run("selectAll", ev);
+        return;
+      }
+      if (lower === "g") {
+        run("group", ev);
+        return;
+      }
+      return;
+    }
+    if (mod && lower === "g") {
+      run("ungroup", ev);
       return;
     }
     if (ev.altKey && !ev.ctrlKey && !ev.metaKey) {
@@ -3041,21 +3113,70 @@ var LOGIC_GRAPH_STRINGS = Object.freeze({
   connectNoOutput: (port) => `This step has no output called ${port}.`,
   connectNoInput: (port) => `That step has no input called ${port}.`,
   connectNotFlow: (how) => how ? `Only flow ports connect; a data port is read as ${how}.` : "Only flow ports connect; a data port is read, not connected.",
+  connectKinds: "A flow port connects to a flow port, and a data port to a data port.",
   connectTwice: "These two are already connected.",
   connectOneLine: (port) => `The ${port} port takes one connection; use a step that runs several branches.`
 });
 function emptyGraph() {
   return { nodes: [], connections: [] };
 }
+var round = (v) => Math.round(Number(v) || 0);
+function groupsOf(list, nodeIds) {
+  const out = [];
+  const ids = /* @__PURE__ */ new Set();
+  const placed = /* @__PURE__ */ new Set();
+  for (const gr of Array.isArray(list) ? list : []) {
+    if (!gr || typeof gr !== "object" || gr.id === void 0 || gr.id === null || gr.id === "") continue;
+    const id = String(gr.id);
+    if (ids.has(id)) continue;
+    const nodes = [];
+    for (const raw of Array.isArray(gr.nodes) ? gr.nodes : []) {
+      const n = String(raw);
+      if (!nodeIds.has(n) || placed.has(n)) continue;
+      placed.add(n);
+      nodes.push(n);
+    }
+    if (!nodes.length) continue;
+    ids.add(id);
+    out.push({
+      id,
+      ...gr.label ? { label: String(gr.label) } : {},
+      ...gr.tone ? { tone: String(gr.tone) } : {},
+      nodes
+    });
+  }
+  return out;
+}
+function notesOf(list) {
+  const out = [];
+  const ids = /* @__PURE__ */ new Set();
+  for (const note of Array.isArray(list) ? list : []) {
+    if (!note || typeof note !== "object" || note.id === void 0 || note.id === null || note.id === "") continue;
+    const id = String(note.id);
+    if (ids.has(id)) continue;
+    ids.add(id);
+    const w = round(note.size?.w);
+    const h = round(note.size?.h);
+    const size = { ...w > 0 ? { w } : {}, ...h > 0 ? { h } : {} };
+    out.push({
+      id,
+      text: note.text === void 0 || note.text === null ? "" : String(note.text),
+      position: { x: round(note.position?.x), y: round(note.position?.y) },
+      ...Object.keys(size).length ? { size } : {}
+    });
+  }
+  return out;
+}
 function normalise(graph) {
   const g = graph && typeof graph === "object" ? graph : emptyGraph();
-  return {
+  const out = {
     nodes: (Array.isArray(g.nodes) ? g.nodes : []).map((n) => ({
       id: String(n.id),
       type: String(n.type),
       ...n.label ? { label: String(n.label) } : {},
       config: n.config && typeof n.config === "object" ? structuredClone(n.config) : {},
-      position: { x: Math.round(Number(n.position?.x) || 0), y: Math.round(Number(n.position?.y) || 0) }
+      position: { x: Math.round(Number(n.position?.x) || 0), y: Math.round(Number(n.position?.y) || 0) },
+      ...n.collapsed === true ? { collapsed: true } : {}
     })),
     connections: (Array.isArray(g.connections) ? g.connections : []).map((c) => ({
       source: String(c.source),
@@ -3064,6 +3185,11 @@ function normalise(graph) {
       targetPort: String(c.targetPort || "in")
     }))
   };
+  const groups = groupsOf(g.groups, new Set(out.nodes.map((n) => n.id)));
+  if (groups.length) out.groups = groups;
+  const notes = notesOf(g.notes);
+  if (notes.length) out.notes = notes;
+  return out;
 }
 function sortedKeys(value) {
   if (Array.isArray(value)) return value.map(sortedKeys);
@@ -3080,14 +3206,17 @@ function serialise(graph) {
       type: n.type,
       ...n.label ? { label: n.label } : {},
       config: sortedKeys(n.config),
-      position: n.position
+      position: n.position,
+      ...n.collapsed ? { collapsed: true } : {}
     })),
     connections: g.connections.map((c) => ({
       source: c.source,
       target: c.target,
       sourcePort: c.sourcePort,
       targetPort: c.targetPort
-    }))
+    })),
+    ...g.groups ? { groups: g.groups } : {},
+    ...g.notes ? { notes: g.notes } : {}
   });
 }
 function nextId(graph, typeId, { catalogue = null } = {}) {
@@ -3118,6 +3247,11 @@ function addNode(graph, typeId, position = null, {
 function removeNode(graph, nodeId) {
   graph.nodes = graph.nodes.filter((n) => n.id !== nodeId);
   graph.connections = graph.connections.filter((c) => c.source !== nodeId && c.target !== nodeId);
+  if (Array.isArray(graph.groups)) {
+    for (const gr of graph.groups) gr.nodes = gr.nodes.filter((id) => id !== nodeId);
+    graph.groups = graph.groups.filter((gr) => gr.nodes.length);
+    if (!graph.groups.length) delete graph.groups;
+  }
 }
 function moveNode(graph, nodeId, position) {
   const node = graph.nodes.find((n) => n.id === nodeId);
@@ -3130,7 +3264,7 @@ function portOf(catalogue, node, name, direction) {
   const def = catalogue?.get?.(node.type);
   return def?.ports?.find((p) => p.name === name && p.direction === direction) || null;
 }
-function canConnect(graph, catalogue, { source, sourcePort, target, targetPort }, { strings = null, dataRead = null } = {}) {
+function canConnect(graph, catalogue, { source, sourcePort, target, targetPort }, { strings = null, dataRead = null, dataPorts = false } = {}) {
   const S = createStrings(LOGIC_GRAPH_STRINGS, strings);
   if (source === target) return { ok: false, reason: S.connectSelf };
   const from = graph.nodes.find((n) => n.id === source);
@@ -3140,28 +3274,25 @@ function canConnect(graph, catalogue, { source, sourcePort, target, targetPort }
   const inp = portOf(catalogue, to, targetPort, "input");
   if (!out) return { ok: false, reason: S.connectNoOutput(sourcePort) };
   if (!inp) return { ok: false, reason: S.connectNoInput(targetPort) };
-  if ((out.port_type || "FLOW") !== "FLOW" || (inp.port_type || "FLOW") !== "FLOW") {
-    return { ok: false, reason: S.connectNotFlow(dataRead) };
-  }
+  const flowOut = (out.port_type || "FLOW") === "FLOW";
+  const flowIn = (inp.port_type || "FLOW") === "FLOW";
+  if (!dataPorts && (!flowOut || !flowIn)) return { ok: false, reason: S.connectNotFlow(dataRead) };
+  if (flowOut !== flowIn) return { ok: false, reason: S.connectKinds };
   if (graph.connections.some((c) => c.source === source && c.sourcePort === sourcePort && c.target === target && c.targetPort === targetPort)) {
     return { ok: false, reason: S.connectTwice };
   }
-  if (!out.multiple && graph.connections.some((c) => c.source === source && c.sourcePort === sourcePort)) {
+  if (flowOut && !out.multiple && graph.connections.some((c) => c.source === source && c.sourcePort === sourcePort)) {
     return { ok: false, reason: S.connectOneLine(out.label || sourcePort) };
   }
   return { ok: true };
 }
 function connect(graph, catalogue, edge, options = {}) {
   const verdict = canConnect(graph, catalogue, edge, options);
-  if (verdict.ok) {
-    graph.connections.push({
-      source: edge.source,
-      target: edge.target,
-      sourcePort: edge.sourcePort,
-      targetPort: edge.targetPort
-    });
-  }
+  if (verdict.ok) addConnection(graph, edge);
   return verdict;
+}
+function addConnection(graph, { source, target, sourcePort, targetPort }) {
+  graph.connections.push({ source, target, sourcePort, targetPort });
 }
 function disconnect(graph, edge) {
   graph.connections = graph.connections.filter((c) => !sameEdge(c, edge));
@@ -3188,14 +3319,25 @@ function inputNamesOf(graph, syntax, scope) {
 }
 
 // src/flow/canvas_editor/strings.js
+var counted = (steps, notes) => [[steps, "step"], [notes, "note"]].filter(([n]) => n > 0).map(([n, w]) => `${n} ${w}${n === 1 ? "" : "s"}`).join(" and ");
 var CANVAS_STRINGS = Object.freeze({
   palette: "Steps",
   canvasLabel: "Flow canvas",
   toolbarLabel: "Flow",
   arrange: "Arrange",
   arrangeTitle: "Lay the steps out left to right, in the order a run takes them",
+  arrangeLayeredTitle: "Lay the steps out left to right, following their connections",
   fit: "Fit",
   fitTitle: "Show the whole flow",
+  zoomOut: "Zoom out",
+  zoomOutTitle: "Make the flow smaller, one step",
+  zoomIn: "Zoom in",
+  zoomInTitle: "Make the flow larger, one step",
+  zoomReset: "100%",
+  zoomResetTitle: "Show the flow at its natural size",
+  zoomAtMin: "This is as small as the flow is drawn.",
+  zoomAtMax: "This is as large as the flow is drawn.",
+  minimapTitle: "Click to move the view there",
   nothingToUndo: "There is nothing to undo.",
   nothingToRedo: "There is nothing to redo.",
   arrangeNeedsTwo: "Arrange needs two steps or more.",
@@ -3209,13 +3351,134 @@ var CANVAS_STRINGS = Object.freeze({
   returnLine: "Back to the loop for its next pass",
   connectedReturn: "Goes round the loop again.",
   unknownType: (type) => `There is no step type "${type}".`,
+  renderFailed: (name, why) => `${name} could not draw its body${why ? `: ${why}` : "."}`,
+  updateFailed: (name, why) => `${name} could not bring its body up to date${why ? `: ${why}` : "."}`,
   stepId: (id) => `Step id: ${id}`,
+  // `renameInPlace`
+  nameEmpty: "A step needs a name: the one it had is kept.",
+  // `collapsible`
+  collapseNode: "Fold this step to its header",
+  expandNode: "Show this step's ports again",
   connection: "Connection",
   connectionLine: (e) => `${e.source} \xB7 ${e.sourcePort} \u2192 ${e.target} \xB7 ${e.targetPort}`,
   removeConnection: "Remove connection",
   portCount: (n) => `\xD7${n}`,
-  portNotTaken: "not taken"
+  portNotTaken: "not taken",
+  // ── under the `connections` option ───────────────────────────────
+  connectTypes: ({ from, fromStep, to, toStep, accepts, provides }) => `${to} on ${toStep} takes ${accepts.join(" or ")}, and ${from} on ${fromStep} gives ${provides.join(" or ")}.`,
+  connectRefused: "These two cannot be connected.",
+  connectDrag: "Drop it on an input to connect, or on the canvas to add a step there. Esc cancels.",
+  dropOnInput: "Drop the line on an input to connect it.",
+  dropPickerTitle: "Add a step and connect it",
+  dropNothingFits: "No step has an input this output can connect to.",
+  offerAccept: "Accept",
+  offerDismiss: "Not now",
+  // `multiSelect`
+  alignLeft: "Align left edges",
+  alignCenter: "Align centres",
+  alignRight: "Align right edges",
+  alignTop: "Align top edges",
+  alignMiddle: "Align middles",
+  alignBottom: "Align bottom edges",
+  distributeHorizontal: "Distribute horizontally",
+  distributeVertical: "Distribute vertically",
+  alignNeedsTwo: "Pick two steps or more to align them.",
+  distributeNeedsThree: "Pick three steps or more to distribute them.",
+  stepsPicked: (n) => `${n} steps picked`,
+  stepsPickedLine: "Drag one to move them all. The arrow keys nudge them.",
+  removeSteps: (n) => n === 1 ? "Remove 1 step" : `Remove ${n} steps`,
+  // `groups`
+  group: "Group",
+  groupTitle: "Group the picked steps (Ctrl+G)",
+  ungroup: "Ungroup",
+  ungroupTitle: "Ungroup the groups the picked steps are in (Ctrl+Shift+G)",
+  groupNeedsOne: "Pick the steps to group first.",
+  ungroupNeedsGroup: "None of the picked steps is in a group.",
+  groupUntitled: "Group",
+  groupName: "Group name",
+  // `notes`
+  note: "Note",
+  noteTitle: "Add a note to the canvas",
+  noteKind: "Note",
+  noteText: "Note text",
+  noteEmpty: "Empty note \u2014 double-click to write in it",
+  removeNote: "Remove note",
+  itemsPicked: (steps, notes) => `${counted(steps, notes)} picked`,
+  removeItems: (n) => n === 1 ? "Remove 1 item" : `Remove ${n} items`,
+  // `clipboard`
+  copyLabel: (title, n) => n > 1 ? `${title} (copy ${n})` : `${title} (copy)`,
+  copied: (n) => n === 1 ? "Copied 1 step." : `Copied ${n} steps.`,
+  cutDone: (n) => n === 1 ? "Cut 1 step." : `Cut ${n} steps.`,
+  // a copy or a cut that took notes too (`notes`)
+  copiedItems: (steps, notes) => `Copied ${counted(steps, notes)}.`,
+  cutDoneItems: (steps, notes) => `Cut ${counted(steps, notes)}.`,
+  nothingPicked: "Pick a step first.",
+  cannotCopy: "None of the picked steps can be copied.",
+  cannotCut: "None of the picked steps can be removed, so none can be cut.",
+  nothingToPaste: "There is nothing to paste.",
+  pasteNotSteps: "What is on the clipboard is not steps of a flow.",
+  notAddable: (name) => `\u2018${name}\u2019 cannot be added to this flow.`,
+  clipboardFailed: "The clipboard could not be reached.",
+  routingFallback: (n) => `More than ${n} steps: the lines are drawn as plain curves, not routed round the steps.`
 });
+
+// src/flow/canvas_editor/connections.js
+var portId = (direction, name) => `${direction}:${name}`;
+var typeList = (v) => Array.isArray(v) && v.length ? v.map(String) : null;
+function connectionRules({ catalogue, policy = null, dataPorts = false, strings }) {
+  const S = strings;
+  const nameOf2 = (n) => n?.label || catalogue.get(n?.type)?.label || n?.type || "";
+  let asked = null;
+  const typed = (ctx) => {
+    const accepts = typeList(ctx.toPort.accepts);
+    const provides = typeList(ctx.fromPort.provides);
+    if (!accepts || !provides || provides.some((x) => accepts.includes(x))) return null;
+    return {
+      ok: false,
+      reason: say(S, "connectTypes", {
+        from: ctx.fromPort.label || ctx.fromPort.name,
+        fromStep: nameOf2(ctx.fromNode),
+        to: ctx.toPort.label || ctx.toPort.name,
+        toStep: nameOf2(ctx.toNode),
+        accepts,
+        provides
+      })
+    };
+  };
+  const platform = new NodePlatform();
+  const router = new ConnectorRouter({
+    platform,
+    // The generic refusals in the host's words, when its `strings` has them.
+    strings: Object.fromEntries(Object.keys(CONNECTOR_STRINGS).filter((k) => S[k] !== void 0).map((k) => [k, S[k]])),
+    policy: (ctx) => typed(ctx) || (typeof policy === "function" ? policy({ ...ctx, connection: { ...asked.connection }, graph: normalise(asked.graph) }) : null)
+  });
+  return function verdictOf(graph, edge) {
+    const first = canConnect(graph, catalogue, edge, { strings: S, dataPorts });
+    if (!first.ok) return first;
+    platform.hydrate(graph.nodes.map((n) => ({
+      ...n,
+      ports: (catalogue.get(n.type)?.ports || []).map((p) => ({ ...p, id: portId(p.direction, p.name) }))
+    })));
+    router.hydrate(graph.connections.map((c, i) => ({
+      id: i,
+      from: c.source,
+      to: c.target,
+      fromPort: portId("output", c.sourcePort),
+      toPort: portId("input", c.targetPort)
+    })));
+    asked = { connection: edge, graph };
+    try {
+      const v = router.canConnect(
+        { nodeId: edge.source, portId: portId("output", edge.sourcePort) },
+        { nodeId: edge.target, portId: portId("input", edge.targetPort) }
+      );
+      if (!v || v.ok === false) return { ok: false, reason: String(v?.reason || say(S, "connectRefused")) };
+      return v.offer ? { ok: true, offer: v.offer } : { ok: true };
+    } finally {
+      asked = null;
+    }
+  };
+}
 
 // src/flow/canvas_editor/layout.js
 var CANVAS_NODE = Object.freeze({ width: 208, header: 34, row: 22 });
@@ -3223,16 +3486,23 @@ var FOOT = 12;
 var inputsOf = (catalogue, node) => catalogue?.inputs ? catalogue.inputs(node?.type) : [];
 var outputsOf = (catalogue, node) => catalogue?.outputs ? catalogue.outputs(node?.type) : [];
 var roleOf = (catalogue, node) => catalogue?.role ? catalogue.role(node?.type) : "step";
+var sizeOf = (catalogue, node) => catalogue?.size ? catalogue.size(node?.type) : null;
+var foldedOf = (node, box) => typeof box?.folded === "function" ? Boolean(box.folded(node)) : node?.collapsed === true;
+function nodeWidth(catalogue, node, box = CANVAS_NODE) {
+  return sizeOf(catalogue, node)?.w || box.width;
+}
 function portAnchor(catalogue, node, portName, direction, box = CANVAS_NODE) {
+  const x = node.position.x + (direction === "input" ? 0 : nodeWidth(catalogue, node, box));
+  const side = direction === "input" ? "left" : "right";
+  if (foldedOf(node, box)) return { x, y: node.position.y + box.header / 2, side };
   const list = direction === "input" ? inputsOf(catalogue, node) : outputsOf(catalogue, node);
   const i = Math.max(0, list.findIndex((p) => p.name === portName));
-  return {
-    x: node.position.x + (direction === "input" ? 0 : box.width),
-    y: node.position.y + box.header + box.row * i + box.row / 2,
-    side: direction === "input" ? "left" : "right"
-  };
+  return { x, y: node.position.y + box.header + box.row * i + box.row / 2, side };
 }
 function nodeBottom(catalogue, node, box = CANVAS_NODE) {
+  if (foldedOf(node, box)) return node.position.y + box.header;
+  const h = sizeOf(catalogue, node)?.h;
+  if (h) return node.position.y + h;
   const rows = Math.max(inputsOf(catalogue, node).length, outputsOf(catalogue, node).length, 1);
   return node.position.y + box.header + box.row * rows + FOOT;
 }
@@ -3245,7 +3515,9 @@ function layoutGraph(graph, catalogue, {
   row = CANVAS_NODE.row,
   gap = 96,
   rowGap = 40,
-  loopEntry = "in"
+  loopEntry = "in",
+  heightOf = null,
+  folded = void 0
 } = {}) {
   const nodes = graph?.nodes || [];
   const connections = graph?.connections || [];
@@ -3271,15 +3543,85 @@ function layoutGraph(graph, catalogue, {
   }
   for (const n of nodes) if (!order.has(n.id)) order.set(n.id, order.size);
   const rows = (n) => Math.max(inputsOf(catalogue, n).length, outputsOf(catalogue, n).length);
+  const box = { width, header, row, ...folded !== void 0 ? { folded } : {} };
+  const height = (n) => {
+    if (foldedOf(n, box)) return header + 24;
+    const own = sizeOf(catalogue, n)?.h || (typeof heightOf === "function" ? heightOf(n) : null);
+    return own ? own + 2 * FOOT : header + row * rows(n) + 24;
+  };
+  const widest = Math.max(width, ...nodes.map((n) => nodeWidth(catalogue, n, box)));
   return arrange(
-    nodes.map((n) => ({
-      id: n.id,
-      label: String(order.get(n.id)).padStart(6, "0"),
-      height: header + row * rows(n) + 24
-    })),
+    nodes.map((n) => ({ id: n.id, label: String(order.get(n.id)).padStart(6, "0"), height: height(n) })),
     connections.filter((c) => !isReturn(c)).map((c) => ({ from: c.target, to: c.source })),
-    { columnGap: width + gap, rowGap }
+    { columnGap: widest + gap, rowGap }
   );
+}
+var CURVE_STEPS = 24;
+function pathPoints(d, { steps = CURVE_STEPS } = {}) {
+  const tokens = String(d || "").match(/-?\d*\.?\d+(?:[eE][-+]?\d+)?|[A-Za-z]/g) || [];
+  const points = [];
+  let at = null;
+  let lastControl = null;
+  let opened = null;
+  let i = 0;
+  const num2 = () => Number(tokens[i++]);
+  const cubic = (c1, c2, end) => {
+    for (let k = 1; k <= steps; k += 1) {
+      const t = k / steps;
+      const u = 1 - t;
+      points.push({
+        x: u * u * u * at.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * end.x,
+        y: u * u * u * at.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * end.y
+      });
+    }
+    lastControl = c2;
+    at = end;
+  };
+  while (i < tokens.length) {
+    const command = tokens[i++];
+    if (command === "M") {
+      at = { x: num2(), y: num2() };
+      opened = at;
+      points.push(at);
+      lastControl = null;
+    } else if (command === "Z") {
+      at = opened;
+      points.push(at);
+      lastControl = null;
+    } else if (command === "L") {
+      at = { x: num2(), y: num2() };
+      points.push(at);
+      lastControl = null;
+    } else if (command === "C") {
+      const c1 = { x: num2(), y: num2() };
+      const c2 = { x: num2(), y: num2() };
+      cubic(c1, c2, { x: num2(), y: num2() });
+    } else if (command === "S") {
+      const c1 = lastControl ? { x: 2 * at.x - lastControl.x, y: 2 * at.y - lastControl.y } : at;
+      const c2 = { x: num2(), y: num2() };
+      cubic(c1, c2, { x: num2(), y: num2() });
+    } else {
+      throw new Error(`pathPoints reads M, L, C, S and Z only, not "${command}".`);
+    }
+  }
+  return points;
+}
+function pathMidpoint(d) {
+  const points = pathPoints(d);
+  if (points.length < 2) return points[0] ? { ...points[0] } : { x: 0, y: 0 };
+  const lengths = [0];
+  for (let k2 = 1; k2 < points.length; k2 += 1) {
+    lengths.push(lengths[k2 - 1] + Math.hypot(points[k2].x - points[k2 - 1].x, points[k2].y - points[k2 - 1].y));
+  }
+  const half = lengths[lengths.length - 1] / 2;
+  let k = 1;
+  while (k < lengths.length - 1 && lengths[k] < half) k += 1;
+  const span = lengths[k] - lengths[k - 1];
+  const t = span > 0 ? (half - lengths[k - 1]) / span : 0;
+  return {
+    x: points[k - 1].x + (points[k].x - points[k - 1].x) * t,
+    y: points[k - 1].y + (points[k].y - points[k - 1].y) * t
+  };
 }
 
 // src/flow/canvas_editor/editor.js
@@ -3292,12 +3634,61 @@ var CANVAS_ACTIONS = Object.freeze([
   "flow:node:label",
   "flow:node:config",
   "flow:settings",
-  "flow:arrange"
+  "flow:arrange",
+  "flow:nodes:move",
+  "flow:nodes:remove",
+  "flow:nodes:align",
+  "flow:paste",
+  "flow:node:duplicate",
+  "flow:node:collapse",
+  "flow:group:add",
+  "flow:group:remove",
+  "flow:group:label",
+  "flow:group:members",
+  "flow:note:add",
+  "flow:note:remove",
+  "flow:note:edit",
+  "flow:note:move"
 ]);
+var ALIGN = Object.freeze(["left", "center", "right", "top", "middle", "bottom"]);
+var ALIGN_ICON = Object.freeze({
+  left: "align_horizontal_left",
+  center: "align_horizontal_center",
+  right: "align_horizontal_right",
+  top: "align_vertical_top",
+  middle: "align_vertical_center",
+  bottom: "align_vertical_bottom"
+});
+var DISTRIBUTE = Object.freeze(["horizontal", "vertical"]);
+var DISTRIBUTE_ICON = Object.freeze({ horizontal: "horizontal_distribute", vertical: "vertical_distribute" });
+var COPY_OFFSET = 2;
+var NUDGE_FAR = 10;
+var FRAME = Object.freeze({ pad: 16, head: 26 });
+var NOTE_WIDTH = 192;
 var NATURAL = 1;
 var READABLE = 0.8;
+var ZOOM_STEPS = Object.freeze([
+  CanvasAdapter.MIN_SCALE,
+  0.25,
+  0.33,
+  0.5,
+  0.67,
+  0.8,
+  1,
+  1.25,
+  1.5,
+  2,
+  3,
+  CanvasAdapter.MAX_SCALE
+]);
+var ZOOM_EPSILON = 1e-6;
+var WHEEL_SETTLE_MS = 300;
+var MINIMAP = Object.freeze({ width: 180, height: 120, margin: 40 });
 var DRAG_PX = 4;
 var RETURN_DROP = 40;
+var CLEARANCE = 16;
+var ARROW = Object.freeze({ length: 9, half: 4.5 });
+var ROUTINGS = Object.freeze(["simple", "obstacles"]);
 var SVG = "http://www.w3.org/2000/svg";
 var DEFAULT_REFERENCES = Object.freeze({
   template: TEMPLATE_REFERENCES,
@@ -3311,7 +3702,15 @@ function sortedKeys2(value) {
   }
   return value;
 }
+var cap = (word2) => word2.charAt(0).toUpperCase() + word2.slice(1);
 var plainObject = (v) => v && typeof v === "object" && !Array.isArray(v) ? v : {};
+function toCatalogue(value, who) {
+  const catalogue = Array.isArray(value) ? createStepCatalogue(value) : value;
+  if (!catalogue?.get || !catalogue?.byCategory) {
+    throw new Error(`${who} needs a step catalogue (createStepCatalogue(types, \u2026)).`);
+  }
+  return catalogue;
+}
 function createCanvasEditor(host, options = {}) {
   const {
     widgets = createWidgetRegistry(),
@@ -3336,22 +3735,56 @@ function createCanvasEditor(host, options = {}) {
     paletteTypes = null,
     label = null,
     gridSize = 16,
-    waitsForAll = void 0
+    waitsForAll = void 0,
+    connections: linkOptions = null,
+    multiSelect = false,
+    edgeStyle = null,
+    routing = "simple",
+    hoverHighlight = false,
+    onViewportChange = null,
+    zoomControls = false,
+    minimap = false,
+    renameInPlace = false,
+    clipboard = null,
+    prepareCopy = null,
+    collapsible = false,
+    groups: groupsOption = false,
+    notes: notesOption = false,
+    layout = "flow"
   } = options;
-  const catalogue = Array.isArray(options.catalogue) ? createStepCatalogue(options.catalogue) : options.catalogue;
-  if (!catalogue?.get || !catalogue?.byCategory) {
-    throw new Error("createCanvasEditor needs a step catalogue (createStepCatalogue(types, \u2026)).");
+  const folding = Boolean(collapsible);
+  const multi = Boolean(multiSelect);
+  const grouping = Boolean(groupsOption);
+  const noting = Boolean(notesOption);
+  if (layout !== "flow" && layout !== "layered" && typeof layout !== "function") {
+    throw new Error(`createCanvasEditor's layout is 'flow', 'layered' or a function (graph, ctx) \u2192 Map; got ${String(layout)}.`);
   }
+  if (!ROUTINGS.includes(routing)) {
+    throw new Error(`createCanvasEditor: routing is ${ROUTINGS.map((r) => `'${r}'`).join(" or ")}, not '${routing}'.`);
+  }
+  if (clipboard && clipboard !== true && (typeof clipboard.read !== "function" || typeof clipboard.write !== "function")) {
+    throw new Error("createCanvasEditor: clipboard is true or {read(), write(text)}.");
+  }
+  const clip = clipboard === true ? "memory" : clipboard || null;
+  const styled = typeof edgeStyle === "function";
+  let catalogue = toCatalogue(options.catalogue, "createCanvasEditor");
   const S = createStrings(CANVAS_STRINGS, strings);
   const BOX = Object.freeze({
     width: Number(nodeOptions.width) || CANVAS_NODE.width,
     header: Number(nodeOptions.header) || CANVAS_NODE.header,
-    row: Number(nodeOptions.row) || CANVAS_NODE.row
+    row: Number(nodeOptions.row) || CANVAS_NODE.row,
+    /** Is this node drawn folded to its header? Only with `collapsible`. */
+    folded: (n) => folding && n?.collapsed === true
   });
   const loopPorts = Object.freeze({ ...DEFAULT_LOOP_PORTS, ...plainObject(loop) });
   const canRemove = typeof removable === "function" ? removable : (_node, type) => (type?.role || "step") !== "start";
   const offered = typeof paletteTypes === "function" ? paletteTypes : (type) => type.role !== "start";
+  const linking = linkOptions && typeof linkOptions === "object" ? linkOptions : null;
+  const dataConnect = linking?.dataPorts === "connect";
+  const rulesFor = (types) => linking ? connectionRules({ catalogue: types, policy: linking.policy, dataPorts: dataConnect, strings: S }) : null;
+  let verdictOf = rulesFor(catalogue);
   const root = el("div", "twm-flow-graph");
+  if (linking) root.classList.add("twm-flow-graph--linking");
   if (BOX.width !== CANVAS_NODE.width) root.style.setProperty("--twm-canvas-node-width", `${BOX.width}px`);
   if (BOX.header !== CANVAS_NODE.header) root.style.setProperty("--twm-canvas-node-header", `${BOX.header}px`);
   if (BOX.row !== CANVAS_NODE.row) root.style.setProperty("--twm-canvas-node-row", `${BOX.row}px`);
@@ -3367,6 +3800,11 @@ function createCanvasEditor(host, options = {}) {
   message.setAttribute("aria-live", "polite");
   const banner = el("p", "twm-flow-graph__banner");
   banner.hidden = true;
+  const offerBox = linking ? el("div", "twm-flow-graph__offer") : null;
+  if (offerBox) {
+    offerBox.hidden = true;
+    offerBox.setAttribute("role", "status");
+  }
   const body = el("div", "twm-flow-graph__body");
   const palette = el("nav", "twm-flow-graph__palette");
   palette.setAttribute("aria-label", say(S, "palette"));
@@ -3383,19 +3821,46 @@ function createCanvasEditor(host, options = {}) {
   let findings = [];
   let findingsBy = /* @__PURE__ */ new Map();
   let overlay = null;
+  let liveValues = /* @__PURE__ */ new Map();
   let selected = null;
+  let pressed = null;
+  let released = null;
   let connecting = null;
+  let pendingOffer = null;
   let suppressClick = false;
   let dragCleanup = null;
   let destroyed = false;
   let fitFrame = null;
   let travelling = null;
   let lastSelect = "";
+  let hovered = null;
+  let edgeEls = [];
+  let routingFallback = false;
   const nodeEls = /* @__PURE__ */ new Map();
+  const frameEls = /* @__PURE__ */ new Map();
+  const noteEls = /* @__PURE__ */ new Map();
+  let editing = null;
+  const builtFrom = /* @__PURE__ */ new Map();
+  const bodies = /* @__PURE__ */ new Map();
+  const inlines = /* @__PURE__ */ new Map();
+  let renaming = null;
+  const bodyFindings = /* @__PURE__ */ new Map();
+  let painting = false;
   const consumerState = /* @__PURE__ */ new Map();
+  let startView = viewportOf(options.viewport);
+  let reportedView = "";
+  let wheelTimer = null;
+  let pressEnd = null;
+  let zoomLimit = "";
+  let miniMap = null;
+  let copiedText = null;
+  let pasteRun = { text: null, times: 0 };
   const canvas = new CanvasAdapter({ container: canvasHost, gridSize });
+  if (startView) canvas.setViewport(startView);
   canvas.root.setAttribute("role", "application");
   canvas.root.setAttribute("aria-label", label || say(S, "canvasLabel"));
+  const labelLayer = styled ? el("div", "twm-flow-graph__edge-labels") : null;
+  if (labelLayer) canvas.nodeLayer.appendChild(labelLayer);
   canvas.onSelectionChange = () => {
     if (connecting) cancelConnect();
     if (selected && selected.kind !== "flow") select(null);
@@ -3404,6 +3869,17 @@ function createCanvasEditor(host, options = {}) {
   const readOnlyReason = () => ro && typeof ro === "object" && ro.reason ? String(ro.reason) : "";
   const nodeOf = (id) => graph.nodes.find((x) => x.id === id) || null;
   const typeOf = (n) => catalogue.get(n?.type);
+  const pickedIds = () => selected?.kind === "node" ? [selected.id] : selected?.kind === "many" ? selected.ids : [];
+  const pickedSet = () => new Set(pickedIds());
+  const isPicked = (id) => selected?.kind === "node" ? selected.id === id : selected?.kind === "many" ? selected.ids.includes(id) : false;
+  const toggles = (ev) => multi && Boolean(ev.shiftKey || ev.ctrlKey || ev.metaKey);
+  const groupList = () => Array.isArray(graph.groups) ? graph.groups : [];
+  const noteList = () => Array.isArray(graph.notes) ? graph.notes : [];
+  const groupOf = (id) => groupList().find((gr) => gr.id === id) || null;
+  const noteOf = (id) => noteList().find((x) => x.id === id) || null;
+  const pickedNotes = () => selected?.kind === "note" ? [selected.id] : selected?.kind === "many" ? selected.notes || [] : [];
+  const isNotePicked = (id) => pickedNotes().includes(id);
+  const allFindings = () => bodyFindings.size ? [...findings, ...bodyFindings.values()] : findings;
   const snapshot = () => JSON.stringify({ graph: JSON.parse(serialise(graph)), flowSettings: sortedKeys2(settingsValue) });
   const history = new FlowHistory({
     actions: CANVAS_ACTIONS,
@@ -3419,22 +3895,39 @@ function createCanvasEditor(host, options = {}) {
     onChange({ graph: normalise(graph), flowSettings: structuredClone(settingsValue), text, action, key, via });
   }
   function commit(action, key = null) {
+    if (pendingOffer) clearOffer();
     if (history.commit(snapshot(), action, key)) emitChange(action, key);
     paintToolbar();
   }
   function restore(state) {
+    editing?.done(false);
     const p = JSON.parse(state);
     graph = normalise(p.graph);
     settingsValue = plainObject(p.flowSettings);
     if (connecting) cancelConnect();
-    if (selected?.kind === "node" && !nodeOf(selected.id)) selected = null;
-    if (selected?.kind === "edge" && !graph.connections.some((c) => sameEdge(c, selected.edge))) selected = null;
-    findingsBy = groupFindings(findings, { graph });
+    if (pendingOffer) clearOffer();
+    prunePick();
+    findingsBy = groupFindings(allFindings(), { graph });
     paintNodes();
     paintPanel();
     keepFocus();
     emitChange(null, null, travelling);
     announceSelection();
+  }
+  function prunePick() {
+    if (selected?.kind === "node" && !nodeOf(selected.id)) selected = null;
+    if (selected?.kind === "edge" && !graph.connections.some((c) => sameEdge(c, selected.edge))) selected = null;
+    if (selected?.kind === "note" && !noteOf(selected.id)) selected = null;
+    if (selected?.kind === "many") selected = pickOf(selected.ids, selected.notes || []);
+  }
+  function pickOf(ids, noteIds = []) {
+    const live = new Set(graph.nodes.map((x) => x.id));
+    const list = [...new Set(ids)].filter((id) => live.has(id));
+    const liveNotes = new Set(noteList().map((x) => x.id));
+    const notes = [...new Set(noteIds)].filter((id) => liveNotes.has(id));
+    if (list.length + notes.length > 1) return { kind: "many", ids: list, ...notes.length ? { notes } : {} };
+    if (list.length) return { kind: "node", id: list[0] };
+    return notes.length ? { kind: "note", id: notes[0] } : null;
   }
   function keepFocus() {
     if (destroyed || !root.isConnected) return;
@@ -3458,16 +3951,97 @@ function createCanvasEditor(host, options = {}) {
     arrange: tool("arrange", {
       label: say(S, "arrange"),
       icon: "account_tree",
-      title: say(S, "arrangeTitle"),
-      onClick: () => arrangeGraph()
+      title: say(S, layout === "flow" ? "arrangeTitle" : "arrangeLayeredTitle"),
+      onClick: () => {
+        if (arrangeGraph(arrangeTarget())) viewportSettled();
+      }
     }),
     fit: tool("fit", {
       label: say(S, "fit"),
       icon: "fit_screen",
       title: say(S, "fitTitle"),
-      onClick: () => fit({ whole: true })
+      onClick: () => {
+        fit({ whole: true });
+        viewportSettled();
+      }
     })
   };
+  const pickTools = [];
+  if (multi) {
+    for (const kind of ALIGN) {
+      const id = `align-${kind}`;
+      const words3 = say(S, `align${cap(kind)}`);
+      tools[id] = tool(id, {
+        label: words3,
+        title: words3,
+        icon: ALIGN_ICON[kind],
+        iconOnly: true,
+        onClick: () => alignNodes(kind)
+      });
+      pickTools.push(tools[id]);
+    }
+    for (const axis of DISTRIBUTE) {
+      const id = `distribute-${axis}`;
+      const words3 = say(S, `distribute${cap(axis)}`);
+      tools[id] = tool(id, {
+        label: words3,
+        title: words3,
+        icon: DISTRIBUTE_ICON[axis],
+        iconOnly: true,
+        onClick: () => distributeNodes(axis)
+      });
+      pickTools.push(tools[id]);
+    }
+  }
+  const itemTools = [];
+  if (grouping) {
+    tools.group = tool("group", {
+      label: say(S, "group"),
+      title: say(S, "groupTitle"),
+      icon: "select_all",
+      iconOnly: true,
+      onClick: () => groupPicked()
+    });
+    tools.ungroup = tool("ungroup", {
+      label: say(S, "ungroup"),
+      title: say(S, "ungroupTitle"),
+      icon: "deselect",
+      iconOnly: true,
+      onClick: () => ungroupPicked()
+    });
+    itemTools.push(tools.group, tools.ungroup);
+  }
+  if (noting) {
+    tools.note = tool("note", {
+      label: say(S, "note"),
+      title: say(S, "noteTitle"),
+      icon: "sticky_note_2",
+      onClick: () => {
+        const n = addNote();
+        if (n) editNote(n.id);
+      }
+    });
+    itemTools.push(tools.note);
+  }
+  if (zoomControls) {
+    tools["zoom-out"] = tool("zoom-out", {
+      label: say(S, "zoomOut"),
+      icon: "zoom_out",
+      title: say(S, "zoomOutTitle"),
+      onClick: () => zoomStep(-1)
+    });
+    tools["zoom-in"] = tool("zoom-in", {
+      label: say(S, "zoomIn"),
+      icon: "zoom_in",
+      title: say(S, "zoomInTitle"),
+      onClick: () => zoomStep(1)
+    });
+    tools["zoom-reset"] = tool("zoom-reset", {
+      label: say(S, "zoomReset"),
+      title: say(S, "zoomResetTitle"),
+      onClick: () => zoomTo(NATURAL)
+    });
+  }
   const own = new Set(Object.keys(tools));
   const consumerTools = [];
   for (const a of Array.isArray(actions) ? actions : []) {
@@ -3489,6 +4063,9 @@ function createCanvasEditor(host, options = {}) {
     tools.redo,
     tools.arrange,
     tools.fit,
+    ...["zoom-out", "zoom-in", "zoom-reset"].filter((id) => tools[id]).map((id) => tools[id]),
+    ...pickTools,
+    ...itemTools,
     ...consumerTools.map((t) => t.el),
     status,
     toolbarEnd
@@ -3496,12 +4073,26 @@ function createCanvasEditor(host, options = {}) {
   if (typeof slots.toolbarEnd === "function") slots.toolbarEnd(toolbarEnd);
   function refusals() {
     const stop = isReadOnly() ? readOnlyReason() || say(S, "readOnlyRefusal") : null;
-    return {
+    const r = {
       undo: stop || (history.canUndo ? null : say(S, "nothingToUndo")),
       redo: stop || (history.canRedo ? null : say(S, "nothingToRedo")),
       arrange: stop || (graph.nodes.length < 2 ? say(S, "arrangeNeedsTwo") : null),
-      fit: null
+      fit: null,
+      "zoom-out": canvas.scale <= ZOOM_STEPS[0] + ZOOM_EPSILON ? say(S, "zoomAtMin") : null,
+      "zoom-in": canvas.scale >= ZOOM_STEPS[ZOOM_STEPS.length - 1] - ZOOM_EPSILON ? say(S, "zoomAtMax") : null,
+      "zoom-reset": null
     };
+    if (multi) {
+      const n = pickedIds().length;
+      for (const kind of ALIGN) r[`align-${kind}`] = stop || (n < 2 ? say(S, "alignNeedsTwo") : null);
+      for (const axis of DISTRIBUTE) r[`distribute-${axis}`] = stop || (n < 3 ? say(S, "distributeNeedsThree") : null);
+    }
+    if (grouping) {
+      r.group = stop || (pickedIds().length ? null : say(S, "groupNeedsOne"));
+      r.ungroup = stop || (groupsOfPick().length ? null : say(S, "ungroupNeedsGroup"));
+    }
+    if (noting) r.note = stop;
+    return r;
   }
   function refuse(control, sentence) {
     control.disabled = Boolean(sentence);
@@ -3557,6 +4148,129 @@ function createCanvasEditor(host, options = {}) {
       travelling = null;
     }
   }
+  const viewKey = (v) => `${v.scale}|${v.tx}|${v.ty}`;
+  function viewportBaseline() {
+    reportedView = viewKey(canvas.viewport());
+  }
+  function viewportSettled() {
+    if (wheelTimer !== null) {
+      clearTimeout(wheelTimer);
+      wheelTimer = null;
+    }
+    if (destroyed) return;
+    const now = canvas.viewport();
+    const key = viewKey(now);
+    if (key === reportedView) return;
+    reportedView = key;
+    onViewportChange?.({ ...now });
+  }
+  function zoomTo(scale) {
+    const r = canvas.root.getBoundingClientRect();
+    const centre = canvas.clientToCanvas(r.left + r.width / 2, r.top + r.height / 2);
+    const s = Math.max(ZOOM_STEPS[0], Math.min(scale, ZOOM_STEPS[ZOOM_STEPS.length - 1]));
+    canvas.setViewport({ scale: s, tx: r.width / 2 - centre.x * s, ty: r.height / 2 - centre.y * s });
+    viewportSettled();
+  }
+  function zoomStep(direction) {
+    const s = canvas.scale;
+    const next = direction > 0 ? ZOOM_STEPS.find((z) => z > s + ZOOM_EPSILON) : [...ZOOM_STEPS].reverse().find((z) => z < s - ZOOM_EPSILON);
+    if (next === void 0) return false;
+    zoomTo(next);
+    return true;
+  }
+  function viewportMoved() {
+    if (destroyed) return;
+    if (zoomControls) {
+      const r = refusals();
+      const limit = `${r["zoom-out"] || ""}|${r["zoom-in"] || ""}`;
+      if (limit !== zoomLimit) {
+        zoomLimit = limit;
+        paintToolbar();
+      }
+    }
+    paintMinimap();
+  }
+  if (zoomControls || minimap) canvas.onViewportChange = () => viewportMoved();
+  if (typeof onViewportChange === "function") {
+    canvas.root.addEventListener("pointerdown", () => {
+      viewportSettled();
+      pressEnd?.();
+      const end = () => {
+        pressEnd?.();
+        viewportSettled();
+      };
+      window.addEventListener("pointerup", end, true);
+      window.addEventListener("pointercancel", end, true);
+      pressEnd = () => {
+        window.removeEventListener("pointerup", end, true);
+        window.removeEventListener("pointercancel", end, true);
+        pressEnd = null;
+      };
+    }, true);
+    canvas.root.addEventListener("wheel", () => {
+      if (wheelTimer !== null) clearTimeout(wheelTimer);
+      wheelTimer = setTimeout(() => {
+        wheelTimer = null;
+        viewportSettled();
+      }, WHEEL_SETTLE_MS);
+    }, { passive: true });
+  }
+  const mini = minimap ? el("div", "twm-flow-graph__minimap") : null;
+  const miniSvg = minimap ? document.createElementNS(SVG, "svg") : null;
+  if (mini) {
+    miniSvg.setAttribute("class", "twm-flow-graph__minimap-map");
+    miniSvg.setAttribute("width", String(MINIMAP.width));
+    miniSvg.setAttribute("height", String(MINIMAP.height));
+    mini.title = say(S, "minimapTitle");
+    mini.setAttribute("aria-hidden", "true");
+    mini.appendChild(miniSvg);
+    mini.addEventListener("click", (ev) => {
+      if (!miniMap) return;
+      const r = miniSvg.getBoundingClientRect();
+      const x = (ev.clientX - r.left - miniMap.ox) / miniMap.k;
+      const y = (ev.clientY - r.top - miniMap.oy) / miniMap.k;
+      const view = canvas.root.getBoundingClientRect();
+      canvas.setViewport({ tx: view.width / 2 - x * canvas.scale, ty: view.height / 2 - y * canvas.scale });
+      viewportSettled();
+    });
+    canvasHost.appendChild(mini);
+  }
+  const miniSized = mini && typeof ResizeObserver === "function" ? new ResizeObserver(() => paintMinimap()) : null;
+  miniSized?.observe(canvas.root);
+  function paintMinimap() {
+    if (!mini || destroyed) return;
+    const view = canvas.visibleBox();
+    const boxes = graph.nodes.map((n) => ({
+      x: n.position.x,
+      y: n.position.y,
+      width: BOX.width,
+      height: bottomOf(n) - n.position.y
+    }));
+    const all = view.width > 0 && view.height > 0 ? [...boxes, view] : boxes;
+    if (!all.length) {
+      miniMap = null;
+      miniSvg.replaceChildren();
+      return;
+    }
+    const x0 = Math.min(...all.map((b) => b.x)) - MINIMAP.margin;
+    const y0 = Math.min(...all.map((b) => b.y)) - MINIMAP.margin;
+    const x1 = Math.max(...all.map((b) => b.x + b.width)) + MINIMAP.margin;
+    const y1 = Math.max(...all.map((b) => b.y + b.height)) + MINIMAP.margin;
+    const k = Math.min(MINIMAP.width / (x1 - x0), MINIMAP.height / (y1 - y0));
+    miniMap = { k, ox: (MINIMAP.width - (x1 - x0) * k) / 2 - x0 * k, oy: (MINIMAP.height - (y1 - y0) * k) / 2 - y0 * k };
+    const rect = (b, cls) => {
+      const r = document.createElementNS(SVG, "rect");
+      r.setAttribute("class", cls);
+      r.setAttribute("x", String(b.x * k + miniMap.ox));
+      r.setAttribute("y", String(b.y * k + miniMap.oy));
+      r.setAttribute("width", String(b.width * k));
+      r.setAttribute("height", String(b.height * k));
+      return r;
+    };
+    const parts = boxes.map((b) => rect(b, "twm-flow-graph__minimap-node"));
+    if (view.width > 0 && view.height > 0) parts.push(rect(view, "twm-flow-graph__minimap-view"));
+    miniSvg.replaceChildren(...parts);
+  }
   function paintPalette() {
     palette.replaceChildren(el("h3", "twm-flow-graph__palette-title", say(S, "palette")));
     for (const { category, types } of catalogue.byCategory()) {
@@ -3593,8 +4307,9 @@ function createCanvasEditor(host, options = {}) {
     let where = at;
     if (!where) {
       const box = canvas.visibleBox();
+      const width = nodeWidth(catalogue, { type: typeId }, BOX);
       where = {
-        x: canvas.snap((box.width ? box.x + box.width / 2 - BOX.width / 2 : 80) + n % 4 * 24),
+        x: canvas.snap((box.width ? box.x + box.width / 2 - width / 2 : 80) + n % 4 * 24),
         y: canvas.snap((box.height ? box.y + box.height / 3 : 80) + n % 4 * 24)
       };
     }
@@ -3653,7 +4368,8 @@ function createCanvasEditor(host, options = {}) {
         return;
       }
       const p = canvas.clientToCanvas(u.clientX, u.clientY);
-      addStep(t.type_id, { x: canvas.snap(p.x - BOX.width / 2), y: canvas.snap(p.y - BOX.header / 2) });
+      const width = nodeWidth(catalogue, { type: t.type_id }, BOX);
+      addStep(t.type_id, { x: canvas.snap(p.x - width / 2), y: canvas.snap(p.y - BOX.header / 2) });
     }
     function onCancel() {
       finish();
@@ -3673,10 +4389,39 @@ function createCanvasEditor(host, options = {}) {
     dragCleanup = finish;
   }
   const anchor = (n, port2, direction) => portAnchor(catalogue, n, port2, direction, BOX);
-  const bottomOf = (n) => nodeBottom(catalogue, n, BOX);
+  const widthOf = (n) => nodeWidth(catalogue, n, BOX);
+  const measured = (n) => (bodies.has(n.id) || inlines.has(n.id)) && !catalogue.size?.(n.type)?.h && !BOX.folded(n) ? nodeEls.get(n.id)?.offsetHeight || 0 : 0;
+  const bottomOf = (n) => Math.max(nodeBottom(catalogue, n, BOX), n.position.y + measured(n));
   const isReturn = (c, target) => isReturnEdge(c, target, catalogue, loopPorts.entry);
-  function buildNode(nodeRow) {
+  const portKey = (p) => {
+    try {
+      return JSON.stringify(p);
+    } catch {
+      return p;
+    }
+  };
+  function buildKey(nodeRow) {
     const def = typeOf(nodeRow);
+    const own2 = def ? catalogue.body?.(nodeRow.type) : null;
+    return {
+      known: Boolean(def),
+      icon: def?.icon || "",
+      label: def?.label ?? null,
+      tone: catalogue.tone(nodeRow.type),
+      ports: [...catalogue.inputs(nodeRow.type), ...catalogue.outputs(nodeRow.type)].map(portKey),
+      render: own2?.render ?? null,
+      update: own2?.update ?? null,
+      inline: def ? portKey(inlineFields(nodeRow)) : ""
+    };
+  }
+  function inlineFields(nodeRow) {
+    const keys = catalogue.inline?.(nodeRow.type) || [];
+    if (!keys.length) return [];
+    const all = fieldsFromSchema(typeOf(nodeRow)?.config_schema);
+    return keys.map((k) => all.find((f) => f.key === k)).filter(Boolean);
+  }
+  const sameBuild = (a, b) => Boolean(a && b) && a.known === b.known && a.icon === b.icon && a.label === b.label && a.tone === b.tone && a.render === b.render && a.update === b.update && a.inline === b.inline && a.ports.length === b.ports.length && a.ports.every((p, i) => p === b.ports[i]);
+  function buildNode(nodeRow, def) {
     const tone = catalogue.tone(nodeRow.type);
     const n = el("div", "twm-flow-graph__node");
     n.dataset.nodeId = nodeRow.id;
@@ -3690,9 +4435,11 @@ function createCanvasEditor(host, options = {}) {
     n.setAttribute("aria-label", name);
     const title = el("span", "twm-flow-graph__node-title", name);
     title.title = name;
+    if (renameInPlace) title.addEventListener("dblclick", () => startRename(nodeRow.id));
     const tag = el("span", "twm-flow-graph__node-tag", nodeRow.id);
     tag.title = say(S, "stepId", nodeRow.id);
     header.append(chip, title, tag);
+    if (folding) header.appendChild(foldButton(nodeRow.id));
     header.addEventListener("pointerdown", (ev) => startMove(ev, nodeRow.id));
     n.appendChild(header);
     const inputs = catalogue.inputs(nodeRow.type);
@@ -3706,19 +4453,331 @@ function createCanvasEditor(host, options = {}) {
       );
       n.appendChild(row);
     }
+    if (def) mountInline(n, nodeRow);
+    const own2 = def ? catalogue.body?.(nodeRow.type) : null;
+    if (own2) mountBody(n, nodeRow, own2);
     if (!def) n.appendChild(el("p", "twm-flow-graph__node-finding", say(S, "unknownType", nodeRow.type)));
     if (typeof summarise === "function") n.appendChild(el("p", "twm-flow-graph__node-summary"));
     const notes = el("div", "twm-flow-graph__node-findings");
     const runLine = el("p", "twm-flow-graph__node-run");
     n.append(notes, runLine);
+    if (multi) {
+      n.addEventListener("pointerdown", (ev) => {
+        released = null;
+        if (ev.button !== 0 || ev.target.closest(".twm-flow-graph__port")) return;
+        pressed = { id: nodeRow.id, moved: false };
+      }, true);
+    }
     n.addEventListener("click", (ev) => {
       if (ev.target.closest(".twm-flow-graph__port")) return;
+      if (multi) {
+        const press = pressed || released;
+        pressed = released = null;
+        if (toggles(ev)) {
+          togglePick(nodeRow.id);
+          return;
+        }
+        if (press?.id === nodeRow.id && press.moved) return;
+      }
       if (!(selected?.kind === "node" && selected.id === nodeRow.id)) select({ kind: "node", id: nodeRow.id });
     });
     n.addEventListener("focus", () => {
+      if (multi && (pressed?.id === nodeRow.id || isPicked(nodeRow.id))) return;
       if (!(selected?.kind === "node" && selected.id === nodeRow.id)) select({ kind: "node", id: nodeRow.id });
     });
+    if (hoverHighlight) {
+      n.addEventListener("pointerenter", () => hover({ kind: "node", id: nodeRow.id }));
+      n.addEventListener("pointerleave", () => {
+        if (hovered?.kind === "node" && hovered.id === nodeRow.id) hover(null);
+      });
+    }
     return n;
+  }
+  function mountInline(n, nodeRow) {
+    const list = inlineFields(nodeRow);
+    if (!list.length) return;
+    const box = el("div", "twm-flow-graph__node-inline");
+    const drawn = { readOnly: isReadOnly(), fields: [] };
+    for (const f of list) {
+      const slot = { key: f.key, spec: f, shown: shownKey(nodeRow.config[f.key]), field: null };
+      slot.field = inlineField(nodeRow.id, slot, nodeRow.config[f.key]);
+      drawn.fields.push(slot);
+      box.appendChild(slot.field.el);
+    }
+    n.appendChild(box);
+    inlines.set(nodeRow.id, drawn);
+  }
+  const shownKey = (v) => v === void 0 ? "" : JSON.stringify(v);
+  function inlineField(id, slot, value) {
+    return renderField(slot.spec, value, {
+      widgets,
+      referenceMap: references,
+      strings: S,
+      services,
+      readOnly: isReadOnly(),
+      step: nodeOf(id),
+      type: typeOf(nodeOf(id)),
+      path: "",
+      set: (key, v) => {
+        const before = slot.shown;
+        slot.shown = shownKey(v);
+        if (!setNodeConfig(id, { [key]: v }, "inline")) slot.shown = before;
+      }
+    });
+  }
+  function paintInline(nodeRow) {
+    const drawn = inlines.get(nodeRow.id);
+    if (!drawn) return;
+    const roNow = isReadOnly();
+    const roChanged = drawn.readOnly !== roNow;
+    drawn.readOnly = roNow;
+    for (const slot of drawn.fields) {
+      const value = nodeRow.config[slot.key];
+      const shown = shownKey(value);
+      if (!roChanged && shown === slot.shown) continue;
+      const held = heldCaret(slot.field);
+      slot.field.destroy();
+      const fresh = inlineField(nodeRow.id, slot, value);
+      slot.field.el.replaceWith(fresh.el);
+      slot.field = fresh;
+      slot.shown = shown;
+      if (held) restoreCaret(fresh, held.caret);
+    }
+  }
+  function heldCaret(field) {
+    const active = document.activeElement;
+    if (!active || !field.el.contains(active)) return null;
+    let caret = field.caret?.() ?? null;
+    if (!caret) {
+      try {
+        if (Number.isInteger(active.selectionStart)) {
+          caret = { start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection };
+        }
+      } catch {
+      }
+    }
+    return { caret };
+  }
+  function restoreCaret(field, caret) {
+    if (!field.focus() || !caret) return;
+    if (field.caret?.()) {
+      field.restoreCaret(caret);
+      return;
+    }
+    const box = document.activeElement;
+    try {
+      const end = box.value.length;
+      box.setSelectionRange(Math.min(caret.start, end), Math.min(caret.end, end), caret.direction || "none");
+    } catch {
+    }
+  }
+  function dropInline(id) {
+    inlines.get(id)?.fields.forEach((slot) => slot.field.destroy());
+    inlines.delete(id);
+  }
+  const shownName = (nodeRow) => nodeRow.label || typeOf(nodeRow)?.label || nodeRow.type;
+  function renameNode(id, text) {
+    const nodeRow = nodeOf(id);
+    if (!nodeRow) return;
+    if (text) nodeRow.label = text;
+    else delete nodeRow.label;
+    const n = nodeEls.get(nodeRow.id);
+    const name = shownName(nodeRow);
+    const title = n?.querySelector(".twm-flow-graph__node-title");
+    if (title) title.textContent = title.title = name;
+    if (n) {
+      n.dataset.shape = `${nodeRow.type}|${nodeRow.label || ""}`;
+      n.setAttribute("aria-label", name);
+    }
+    commit("flow:node:label", `label:${id}`);
+  }
+  function startRename(id) {
+    if (!renameInPlace || isReadOnly() || destroyed) return false;
+    renaming?.finish(false);
+    const nodeRow = nodeOf(id);
+    const n = nodeEls.get(id);
+    const title = n?.querySelector(".twm-flow-graph__node-title");
+    if (!nodeRow || !title) return false;
+    const before = shownName(nodeRow);
+    const input = el("input", "twm-flow-graph__node-title-input");
+    input.type = "text";
+    input.value = before;
+    input.setAttribute("aria-label", say(S, "rename"));
+    const edit = { id };
+    let done = false;
+    edit.finish = (keep, { enter = false } = {}) => {
+      if (done) return;
+      const text = input.value.trim();
+      if (keep && !text) {
+        setMessage(say(S, "nameEmpty"), "warning");
+        input.setAttribute("aria-invalid", "true");
+        if (enter && input.isConnected) return;
+      } else if (input.getAttribute("aria-invalid")) setMessage("");
+      done = true;
+      if (renaming === edit) renaming = null;
+      const hadFocus = input === document.activeElement;
+      input.remove();
+      title.hidden = false;
+      if (keep && text && text !== before && nodeOf(id)) {
+        renameNode(id, text);
+        if (selected?.kind === "node" && selected.id === id) paintPanel();
+      }
+      if (hadFocus && n.isConnected) n.focus({ preventScroll: true });
+    };
+    input.addEventListener("keydown", (ev) => {
+      if (ev.isComposing) return;
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        edit.finish(true, { enter: true });
+      } else if (ev.key === "Escape") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        edit.finish(false);
+      }
+    });
+    input.addEventListener("blur", () => edit.finish(true));
+    input.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+    title.hidden = true;
+    title.after(input);
+    renaming = edit;
+    input.focus({ preventScroll: true });
+    input.select();
+    return true;
+  }
+  const nodeCopy = (nodeRow) => normalise({ nodes: [nodeRow], connections: [] }).nodes[0];
+  function mountBody(n, nodeRow, own2) {
+    const id = nodeRow.id;
+    const box = el("div", "twm-flow-graph__node-body");
+    const ctx = Object.freeze({
+      get readOnly() {
+        return isReadOnly();
+      },
+      /** What the host shows on this node now (`setNodeValues`), a copy; null when nothing. */
+      get values() {
+        return valuesCopy(id);
+      },
+      services,
+      setConfig: (patch) => setNodeConfig(id, patch)
+    });
+    try {
+      own2.render(box, nodeCopy(nodeRow), ctx);
+    } catch (err) {
+      bodyFailed(nodeRow, "render", err);
+      return;
+    }
+    n.appendChild(box);
+    bodies.set(id, { el: box, ctx, update: own2.update });
+  }
+  function bodyFailed(nodeRow, stage, err) {
+    const name = nodeRow.label || typeOf(nodeRow)?.label || nodeRow.type;
+    const why2 = err && typeof err === "object" && "message" in err ? err.message : err;
+    bodyFindings.set(nodeRow.id, Object.freeze({
+      code: `node-${stage}`,
+      severity: "error",
+      node_id: nodeRow.id,
+      message: say(S, stage === "render" ? "renderFailed" : "updateFailed", name, String(why2 ?? ""))
+    }));
+  }
+  function setNodeConfig(id, patch, from = "config") {
+    if (destroyed || painting || isReadOnly()) return false;
+    const nodeRow = nodeOf(id);
+    if (!nodeRow || !patch || typeof patch !== "object" || Array.isArray(patch)) return false;
+    const keys = Object.keys(patch).sort();
+    if (!keys.length) return false;
+    let next;
+    try {
+      next = structuredClone(patch);
+    } catch {
+      return false;
+    }
+    for (const k of keys) {
+      if (next[k] === void 0) delete nodeRow.config[k];
+      else nodeRow.config[k] = next[k];
+    }
+    paintNodes();
+    if (selected?.kind === "node" && selected.id === id) paintPanel();
+    commit("flow:node:config", `${from}:${id}:${keys.join(",")}`);
+    return true;
+  }
+  function foldButton(id) {
+    const b = el("button", "twm-flow-graph__node-fold");
+    b.type = "button";
+    b.appendChild(icon("expand_less"));
+    b.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+    b.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const nodeRow = nodeOf(id);
+      if (nodeRow) setCollapsed(id, nodeRow.collapsed !== true);
+    });
+    return b;
+  }
+  function setCollapsed(id, collapsed) {
+    if (!folding || destroyed || isReadOnly()) return false;
+    const nodeRow = nodeOf(id);
+    if (!nodeRow || nodeRow.collapsed === true === Boolean(collapsed)) return false;
+    if (collapsed) nodeRow.collapsed = true;
+    else delete nodeRow.collapsed;
+    if (connecting?.source === id) cancelConnect();
+    paintNodes();
+    commit("flow:node:collapse");
+    return true;
+  }
+  function valueEntry(v) {
+    if (!v || typeof v !== "object") return null;
+    const text = (x) => x === void 0 || x === null || x === "" ? null : String(x);
+    const ports = {};
+    for (const [name, x] of Object.entries(plainObject(v.ports))) {
+      const shown = text(x);
+      if (shown !== null) ports[name] = shown;
+    }
+    const badge = text(v.badge);
+    if (badge === null && !Object.keys(ports).length) return null;
+    return Object.freeze({ badge, tone: TONES.includes(v.tone) ? v.tone : null, ports: Object.freeze(ports) });
+  }
+  const valuesCopy = (id) => {
+    const v = liveValues.get(id);
+    return v ? { badge: v.badge, tone: v.tone, ports: { ...v.ports } } : null;
+  };
+  function paintValues(n, nodeRow) {
+    const v = liveValues.get(nodeRow.id) || null;
+    const header = n.querySelector(".twm-flow-graph__node-head");
+    let badge = header.querySelector(".twm-flow-graph__node-badge");
+    if (v?.badge !== null && v?.badge !== void 0) {
+      if (!badge) {
+        badge = el("span", "twm-flow-graph__node-badge");
+        header.insertBefore(badge, header.querySelector(".twm-flow-graph__node-tag"));
+      }
+      if (badge.textContent !== v.badge) badge.textContent = badge.title = v.badge;
+      if (v.tone) badge.dataset.tone = v.tone;
+      else delete badge.dataset.tone;
+    } else badge?.remove();
+    for (const b of n.querySelectorAll(".twm-flow-graph__port")) {
+      const shown = v && Object.hasOwn(v.ports, b.dataset.port) ? v.ports[b.dataset.port] : null;
+      let tag = b.querySelector(".twm-flow-graph__port-value");
+      if (shown === null) {
+        tag?.remove();
+        continue;
+      }
+      if (!tag) {
+        tag = el("span", "twm-flow-graph__port-value");
+        b.insertBefore(tag, b.querySelector(".twm-flow-graph__port-count"));
+      }
+      if (tag.textContent !== shown) tag.textContent = shown;
+    }
+  }
+  function runUpdate(nodeRow) {
+    const own2 = bodies.get(nodeRow.id);
+    if (typeof own2?.update !== "function") return false;
+    try {
+      own2.update(own2.el, nodeCopy(nodeRow), own2.ctx);
+      if (bodyFindings.get(nodeRow.id)?.code !== "node-update") return false;
+      bodyFindings.delete(nodeRow.id);
+      return true;
+    } catch (err) {
+      const before = bodyFindings.get(nodeRow.id)?.message;
+      bodyFailed(nodeRow, "update", err);
+      return before !== bodyFindings.get(nodeRow.id).message;
+    }
   }
   function port(nodeRow, p) {
     const b = el("button", `twm-flow-graph__port twm-flow-graph__port--${p.direction === "input" ? "in" : "out"}`);
@@ -3730,23 +4789,29 @@ function createCanvasEditor(host, options = {}) {
       el("span", "twm-flow-graph__port-label", p.label || p.name),
       el("span", "twm-flow-graph__port-count")
     );
-    if ((p.port_type || "FLOW") !== "FLOW") {
+    const isData = (p.port_type || "FLOW") !== "FLOW";
+    if (isData) {
       b.classList.add("twm-flow-graph__port--data");
-      b.disabled = true;
-      b.dataset.data = "";
-      b.title = say(S, "dataPort", dataPortRead ? dataPortRead(nodeRow, p) : null);
-      return b;
+      if (!dataConnect) {
+        b.disabled = true;
+        b.dataset.data = "";
+        b.title = say(S, "dataPort", dataPortRead ? dataPortRead(nodeRow, p) : null);
+        return b;
+      }
     }
     b.title = p.direction === "output" ? say(S, "connectFrom") : say(S, "connectTo");
     b.addEventListener("click", (ev) => {
       ev.stopPropagation();
+      if (linking && suppressClick) return;
       portClicked(nodeRow.id, p);
     });
+    if (linking && p.direction === "output") b.addEventListener("pointerdown", (ev) => startConnectDrag(ev, nodeRow.id, p));
     return b;
   }
   function portClicked(nodeId, p) {
     if (isReadOnly()) return;
     if (p.direction === "output") {
+      if (pendingOffer) clearOffer();
       connecting = { source: nodeId, sourcePort: p.name };
       root.classList.add("twm-flow-graph--connecting");
       paintNodes();
@@ -3758,6 +4823,11 @@ function createCanvasEditor(host, options = {}) {
       return;
     }
     const edge = { ...connecting, target: nodeId, targetPort: p.name };
+    if (verdictOf) {
+      cancelConnect();
+      linkTo(edge);
+      return;
+    }
     const verdict = connect(graph, catalogue, edge, { strings: S });
     cancelConnect();
     if (!verdict.ok) {
@@ -3773,15 +4843,244 @@ function createCanvasEditor(host, options = {}) {
     root.classList.remove("twm-flow-graph--connecting");
     paintNodes();
   }
+  function linkTo(edge) {
+    const verdict = verdictOf(graph, edge);
+    if (!verdict.ok) {
+      setMessage(verdict.reason, "warning");
+      return;
+    }
+    const build = () => addConnection(graph, edge);
+    if (verdict.offer) {
+      showOffer(verdict.offer, build, "flow:edge:connect");
+      return;
+    }
+    build();
+    setMessage(isReturn(edge, nodeOf(edge.target)) ? say(S, "connectedReturn") : "");
+    paintEdges();
+    commit("flow:edge:connect");
+  }
+  function showOffer(offer, build, action, after = null) {
+    const words3 = String(offer?.message ?? "");
+    pendingOffer = { offer, build, action, after };
+    const accept = button({
+      label: offer?.accept ? String(offer.accept) : say(S, "offerAccept"),
+      primary: true,
+      className: "twm-flow-graph__offer-accept",
+      onClick: () => acceptOffer()
+    });
+    accept.dataset.action = "accept-offer";
+    const dismiss = button({
+      label: say(S, "offerDismiss"),
+      className: "twm-flow-graph__offer-dismiss",
+      onClick: () => {
+        clearOffer();
+        keepFocus();
+      }
+    });
+    dismiss.dataset.action = "dismiss-offer";
+    offerBox.replaceChildren(el("p", "twm-flow-graph__offer-text", words3), accept, dismiss);
+    offerBox.hidden = false;
+    setMessage("");
+  }
+  function clearOffer() {
+    pendingOffer = null;
+    if (!offerBox) return;
+    offerBox.hidden = true;
+    offerBox.replaceChildren();
+  }
+  function acceptOffer() {
+    const held = pendingOffer;
+    if (!held || destroyed) return;
+    clearOffer();
+    if (isReadOnly()) return;
+    const made = held.build();
+    if (typeof held.offer?.apply === "function") {
+      const draft = normalise(graph);
+      const back = held.offer.apply(draft);
+      graph = normalise(back && typeof back === "object" ? back : draft);
+    }
+    held.after?.(made);
+    prunePick();
+    findingsBy = groupFindings(allFindings(), { graph });
+    paintNodes();
+    paintPanel();
+    announceSelection();
+    commit(held.action);
+    keepFocus();
+  }
+  function startConnectDrag(ev, nodeId, p) {
+    if (ev.button !== 0 || ev.isPrimary === false || isReadOnly()) return;
+    dragCleanup?.();
+    const start = { x: ev.clientX, y: ev.clientY };
+    let draft = null;
+    const onMove = (m) => {
+      if (!draft) {
+        if (Math.abs(m.clientX - start.x) + Math.abs(m.clientY - start.y) < DRAG_PX) return;
+        if (pendingOffer) clearOffer();
+        connecting = { source: nodeId, sourcePort: p.name };
+        root.classList.add("twm-flow-graph--connecting");
+        paintNodes();
+        setMessage(say(S, "connectDrag"));
+        draft = document.createElementNS(SVG, "path");
+        draft.setAttribute("class", "twm-flow-graph__edge twm-flow-graph__edge--draft");
+      }
+      const from = nodeOf(nodeId);
+      if (!from) return;
+      if (!draft.isConnected) canvas.edgeLayer.appendChild(draft);
+      draft.setAttribute("d", routeEdge(
+        anchor(from, p.name, "output"),
+        canvas.clientToCanvas(m.clientX, m.clientY),
+        { simple: true }
+      ));
+    };
+    const finish = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+      window.removeEventListener("keydown", onKey, true);
+      draft?.remove();
+      dragCleanup = null;
+    };
+    function onUp(u) {
+      const dragged = Boolean(draft);
+      finish();
+      if (!dragged) return;
+      swallowNextClick({ afterRelease: true });
+      dropConnection(u);
+    }
+    function onCancel() {
+      const dragged = Boolean(draft);
+      finish();
+      if (dragged) {
+        cancelConnect();
+        setMessage("");
+      }
+    }
+    function onKey(k) {
+      if (k.key !== "Escape") return;
+      k.preventDefault();
+      k.stopPropagation();
+      const dragged = Boolean(draft);
+      finish();
+      if (!dragged) return;
+      cancelConnect();
+      setMessage("");
+      swallowNextClick();
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
+    window.addEventListener("keydown", onKey, true);
+    dragCleanup = finish;
+  }
+  function dropConnection(u) {
+    const from = connecting;
+    const under = document.elementFromPoint(u.clientX, u.clientY);
+    const nodeHit = under?.closest("[data-node-id]");
+    const onNode = Boolean(nodeHit && canvas.nodeLayer.contains(nodeHit));
+    const portHit = onNode ? under.closest(".twm-flow-graph__port") : null;
+    if (portHit && portHit.dataset.direction === "input") {
+      portClicked(nodeHit.dataset.nodeId, { direction: "input", name: portHit.dataset.port });
+      return;
+    }
+    cancelConnect();
+    if (onNode) {
+      setMessage(say(S, "dropOnInput"));
+      return;
+    }
+    if (under && canvas.root.contains(under) || overCanvas(u.clientX, u.clientY)) {
+      openDropPicker(from, u);
+      return;
+    }
+    setMessage("");
+  }
+  function openDropPicker(from, u) {
+    const p = canvas.clientToCanvas(u.clientX, u.clientY);
+    const where = { x: canvas.snap(p.x), y: canvas.snap(p.y - BOX.header / 2) };
+    const fits = /* @__PURE__ */ new Map();
+    for (const t of catalogue.list()) {
+      if (t.unavailable || !offered(t)) continue;
+      const trial = normalise(graph);
+      const added = addNode(trial, t.type_id, where, { catalogue });
+      let pick = null;
+      for (const inp of catalogue.inputs(t.type_id)) {
+        const v = verdictOf(trial, { ...from, target: added.id, targetPort: inp.name });
+        if (v.ok && (!pick || pick.offer && !v.offer)) pick = { port: inp.name, offer: v.offer || null };
+        if (pick && !pick.offer) break;
+      }
+      if (pick) fits.set(t.type_id, pick);
+    }
+    if (!fits.size) {
+      setMessage(say(S, "dropNothingFits"), "warning");
+      return;
+    }
+    const mark = el("span", "twm-flow-graph__drop-anchor");
+    const box = canvasHost.getBoundingClientRect();
+    mark.style.left = `${Math.round(u.clientX - box.left)}px`;
+    mark.style.top = `${Math.round(u.clientY - box.top)}px`;
+    canvasHost.appendChild(mark);
+    const asked = snapshot();
+    openStepPicker({
+      anchor: mark,
+      strings: S,
+      title: say(S, "dropPickerTitle"),
+      categories: catalogue.categories.map((c) => ({ id: c.id, label: c.label, layout: c.layout })),
+      entries: catalogue.list().filter((t) => fits.has(t.type_id)).map((t) => ({
+        id: t.type_id,
+        label: t.label,
+        description: t.description,
+        icon: t.icon || "widgets",
+        tone: catalogue.tone(t.type_id),
+        category: t.category ?? ""
+      }))
+    }).then((choice) => {
+      mark.remove();
+      if (destroyed) return;
+      if (!choice?.entry || isReadOnly() || snapshot() !== asked) {
+        keepFocus();
+        return;
+      }
+      const fitting = fits.get(choice.entry.id);
+      const build = () => {
+        const added = addNode(graph, choice.entry.id, where, { catalogue });
+        addConnection(graph, { ...from, target: added.id, targetPort: fitting.port });
+        return added.id;
+      };
+      const after = (id) => {
+        if (nodeOf(id)) selected = { kind: "node", id };
+      };
+      if (fitting.offer) {
+        showOffer(fitting.offer, build, "flow:node:add", after);
+        keepFocus();
+        return;
+      }
+      after(build());
+      paintNodes();
+      paintPanel();
+      announceSelection();
+      commit("flow:node:add");
+      keepFocus();
+    });
+  }
   function startMove(ev, nodeId) {
     if (ev.button !== 0) return;
     ev.stopPropagation();
-    select({ kind: "node", id: nodeId });
+    if (toggles(ev)) return;
+    if (!(multi && isPicked(nodeId))) select({ kind: "node", id: nodeId });
     if (isReadOnly()) return;
-    const nodeRow = nodeOf(nodeId);
-    const n = nodeEls.get(nodeId);
-    if (!nodeRow || !n) return;
-    const from = { ...nodeRow.position };
+    const ids = selected?.kind === "many" ? selected.ids : [nodeId];
+    if (!ids.includes(nodeId)) return;
+    dragItems(ev, ids, pickedNotes(), () => {
+      if (pressed?.id === nodeId) pressed.moved = true;
+    });
+  }
+  function dragItems(ev, nodeIds, noteIds, onFirstMove = null) {
+    const rows = [
+      ...nodeIds.map((id) => ({ item: nodeOf(id), n: nodeEls.get(id) })),
+      ...noteIds.map((id) => ({ item: noteOf(id), n: noteEls.get(id), note: true }))
+    ].filter((r) => r.item && r.n);
+    if (!rows.length) return;
+    const from = rows.map((r) => ({ ...r.item.position }));
     const start = { x: ev.clientX, y: ev.clientY };
     let moved = false;
     const onMove = (m) => {
@@ -3789,16 +5088,21 @@ function createCanvasEditor(host, options = {}) {
       const dy = (m.clientY - start.y) / canvas.scale;
       if (!moved && Math.abs(dx) + Math.abs(dy) < 3) return;
       moved = true;
-      nodeRow.position = { x: canvas.snap(from.x + dx), y: canvas.snap(from.y + dy) };
-      n.style.left = `${nodeRow.position.x}px`;
-      n.style.top = `${nodeRow.position.y}px`;
+      onFirstMove?.();
+      rows.forEach(({ item, n }, i) => {
+        item.position = { x: canvas.snap(from[i].x + dx), y: canvas.snap(from[i].y + dy) };
+        n.style.left = `${item.position.x}px`;
+        n.style.top = `${item.position.y}px`;
+      });
       paintEdges();
     };
     const onUp = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
-      if (moved) commit("flow:node:move");
+      if (!moved) return;
+      const nodes = rows.filter((r) => !r.note).length;
+      commit(!nodes ? "flow:note:move" : rows.length > 1 ? "flow:nodes:move" : "flow:node:move");
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -3806,69 +5110,187 @@ function createCanvasEditor(host, options = {}) {
   }
   function paintNodes() {
     if (destroyed) return;
-    const live = new Set(graph.nodes.map((x) => x.id));
-    for (const [id, n] of nodeEls) {
-      if (!live.has(id)) {
-        n.remove();
-        nodeEls.delete(id);
+    painting = true;
+    let bodyChanged = false;
+    try {
+      const live = new Set(graph.nodes.map((x) => x.id));
+      for (const [id, n] of nodeEls) {
+        if (!live.has(id)) {
+          n.remove();
+          nodeEls.delete(id);
+          builtFrom.delete(id);
+          bodies.delete(id);
+          dropInline(id);
+          if (renaming?.id === id) renaming.finish(false);
+          bodyChanged = bodyFindings.delete(id) || bodyChanged;
+        }
       }
+      if (bodyChanged) findingsBy = groupFindings(allFindings(), { graph });
+      const picks = pickedSet();
+      for (const nodeRow of graph.nodes) bodyChanged = paintNode(nodeRow, picks) || bodyChanged;
+      paintNotes();
+    } finally {
+      painting = false;
     }
-    for (const nodeRow of graph.nodes) {
-      let n = nodeEls.get(nodeRow.id);
-      const shape = `${nodeRow.type}|${nodeRow.label || ""}`;
-      if (!n || n.dataset.shape !== shape) {
-        const fresh = buildNode(nodeRow);
-        fresh.dataset.shape = shape;
-        const focused = n && n.contains(document.activeElement);
-        if (n) n.replaceWith(fresh);
-        else canvas.nodeLayer.appendChild(fresh);
-        nodeEls.set(nodeRow.id, fresh);
-        n = fresh;
-        if (focused) fresh.focus({ preventScroll: true });
-      }
-      n.style.left = `${nodeRow.position.x}px`;
-      n.style.top = `${nodeRow.position.y}px`;
-      n.style.width = `${BOX.width}px`;
-      const picked = selected?.kind === "node" && selected.id === nodeRow.id;
-      n.classList.toggle("twm-flow-graph__node--picked", picked);
-      if (picked) n.setAttribute("aria-current", "true");
-      else n.removeAttribute("aria-current");
-      n.classList.toggle("twm-flow-graph__node--connect-source", connecting?.source === nodeRow.id);
-      const mine = findingsBy.get(nodeRow.id) || [];
-      const errors = mine.filter((f) => f.severity !== "warning");
-      n.classList.toggle("twm-flow-graph__node--error", errors.length > 0);
-      n.classList.toggle("twm-flow-graph__node--warning", errors.length === 0 && mine.length > 0);
-      n.querySelector(".twm-flow-graph__node-findings").replaceChildren(...mine.slice(0, 2).map((f) => el(
-        "p",
-        `twm-flow-graph__node-finding${f.severity === "warning" ? " twm-flow-graph__node-finding--warning" : ""}`,
-        String(f.message ?? "")
-      )));
-      const summary = n.querySelector(".twm-flow-graph__node-summary");
-      if (summary) summary.textContent = summarise(nodeRow, typeOf(nodeRow)) || "";
-      const step = overlay?.steps?.[nodeRow.id] || null;
-      const line = n.querySelector(".twm-flow-graph__node-run");
-      line.textContent = step ? String(step.line ?? step.state ?? "") : "";
-      if (step?.state) line.dataset.state = String(step.state);
-      else delete line.dataset.state;
-      if (step?.tone) line.dataset.tone = String(step.tone);
-      else delete line.dataset.tone;
-      n.classList.toggle("twm-flow-graph__node--skipped", step?.state === "skipped" || step?.state === "not-reached");
-      const ports = overlay?.ports?.[nodeRow.id] || null;
-      for (const b of n.querySelectorAll(".twm-flow-graph__port")) {
-        if (!("data" in b.dataset)) b.disabled = isReadOnly();
-        const mark = b.dataset.direction === "output" ? ports?.[b.dataset.port] : null;
-        b.classList.toggle("twm-flow-graph__port--taken", Boolean(mark?.taken));
-        b.classList.toggle("twm-flow-graph__port--untaken", Boolean(mark) && !mark.taken);
-        const count2 = b.querySelector(".twm-flow-graph__port-count");
-        count2.textContent = mark?.taken && Number.isFinite(Number(mark.count)) && mark.count !== null ? say(S, "portCount", mark.count) : mark && !mark.taken ? say(S, "portNotTaken") : "";
-      }
+    if (bodyChanged) {
+      paintStrip();
+      panel.setFindings(allFindings());
     }
     paintEdges();
   }
+  function edgeLook(c, source, target, back) {
+    const look = edgeStyle({ ...c }, { source, target, back });
+    if (!look || typeof look !== "object") return null;
+    const width = Number(look.width);
+    return {
+      tone: TONES.includes(look.tone) ? look.tone : null,
+      dashed: Boolean(look.dashed),
+      width: Number.isFinite(width) && width > 0 ? width : null,
+      marker: typeof look.marker === "string" && look.marker ? look.marker : null,
+      label: look.label === void 0 || look.label === null || look.label === "" ? null : String(look.label)
+    };
+  }
+  function applyLook(element, look) {
+    if (look.tone) element.style.setProperty("--twm-canvas-edge-stroke", `var(--twm-flow-${look.tone}-fg)`);
+    if (look.width) element.style.setProperty("--twm-canvas-edge-width", String(look.width));
+  }
+  function arrowHead(tip, side) {
+    const out = side === "right" ? 1 : -1;
+    const baseX = tip.x + out * ARROW.length;
+    const head = document.createElementNS(SVG, "path");
+    head.setAttribute("class", "twm-flow-graph__edge-arrow");
+    head.setAttribute("d", `M ${tip.x} ${tip.y} L ${baseX} ${tip.y - ARROW.half} L ${baseX} ${tip.y + ARROW.half} Z`);
+    return head;
+  }
+  function lineEnd(to, marker) {
+    if (marker === "arrow") return { ...to, x: to.x + (to.side === "right" ? 1 : -1) * ARROW.length };
+    return marker ? footAnchor(to, to.side, marker) : to;
+  }
+  const touches = (c) => hovered?.kind === "node" ? c.source === hovered.id || c.target === hovered.id : hovered?.kind === "edge" ? sameEdge(c, hovered.edge) : false;
+  function hover(next) {
+    hovered = next;
+    for (const { c, line } of edgeEls) line.classList.toggle("twm-flow-graph__edge--highlighted", touches(c));
+  }
+  function paintStrip() {
+    strip.set(routingFallback ? [...allFindings(), {
+      code: "canvas-routing-simple",
+      severity: "warning",
+      message: say(S, "routingFallback", OBSTACLE_ROUTING_NODE_LIMIT)
+    }] : allFindings());
+  }
+  function paintNode(nodeRow, picks) {
+    let bodyChanged = false;
+    let n = nodeEls.get(nodeRow.id);
+    const def = typeOf(nodeRow);
+    const shape = `${nodeRow.type}|${nodeRow.label || ""}`;
+    const key = buildKey(nodeRow);
+    if (!n || n.dataset.shape !== shape || !sameBuild(builtFrom.get(nodeRow.id), key)) {
+      if (renaming?.id === nodeRow.id) renaming.finish(false);
+      bodies.delete(nodeRow.id);
+      dropInline(nodeRow.id);
+      bodyChanged = bodyFindings.delete(nodeRow.id);
+      const fresh = buildNode(nodeRow, def);
+      bodyChanged = bodyChanged || bodyFindings.has(nodeRow.id);
+      fresh.dataset.shape = shape;
+      const focused = n && n.contains(document.activeElement);
+      if (n) n.replaceWith(fresh);
+      else canvas.nodeLayer.appendChild(fresh);
+      nodeEls.set(nodeRow.id, fresh);
+      builtFrom.set(nodeRow.id, key);
+      n = fresh;
+      if (focused) fresh.focus({ preventScroll: true });
+    } else paintInline(nodeRow);
+    bodyChanged = runUpdate(nodeRow) || bodyChanged;
+    if (bodyChanged) findingsBy = groupFindings(allFindings(), { graph });
+    n.style.left = `${nodeRow.position.x}px`;
+    n.style.top = `${nodeRow.position.y}px`;
+    n.style.width = `${widthOf(nodeRow)}px`;
+    const folded = BOX.folded(nodeRow);
+    const h = folded ? null : catalogue.size?.(nodeRow.type)?.h;
+    if (h) n.style.height = `${h}px`;
+    else n.style.removeProperty("height");
+    n.classList.toggle("twm-flow-graph__node--sized", Boolean(h));
+    if (folding) paintFold(n, folded);
+    if (liveValues.size || n.querySelector(".twm-flow-graph__node-badge, .twm-flow-graph__port-value")) {
+      paintValues(n, nodeRow);
+    }
+    const accent = catalogue.accent?.(nodeRow.type) || null;
+    if (accent) n.dataset.accent = accent;
+    else delete n.dataset.accent;
+    const picked = picks.has(nodeRow.id);
+    n.classList.toggle("twm-flow-graph__node--picked", picked);
+    if (picked) n.setAttribute("aria-current", "true");
+    else n.removeAttribute("aria-current");
+    n.classList.toggle("twm-flow-graph__node--connect-source", connecting?.source === nodeRow.id);
+    const mine = findingsBy.get(nodeRow.id) || [];
+    const errors = mine.filter((f) => f.severity !== "warning");
+    n.classList.toggle("twm-flow-graph__node--error", errors.length > 0);
+    n.classList.toggle("twm-flow-graph__node--warning", errors.length === 0 && mine.length > 0);
+    n.querySelector(".twm-flow-graph__node-findings").replaceChildren(...mine.slice(0, 2).map((f) => el(
+      "p",
+      `twm-flow-graph__node-finding${f.severity === "warning" ? " twm-flow-graph__node-finding--warning" : ""}`,
+      String(f.message ?? "")
+    )));
+    const summary = n.querySelector(".twm-flow-graph__node-summary");
+    if (summary) summary.textContent = summarise(nodeRow, typeOf(nodeRow)) || "";
+    const step = overlay?.steps?.[nodeRow.id] || null;
+    const line = n.querySelector(".twm-flow-graph__node-run");
+    line.textContent = step ? String(step.line ?? step.state ?? "") : "";
+    if (step?.state) line.dataset.state = String(step.state);
+    else delete line.dataset.state;
+    if (step?.tone) line.dataset.tone = String(step.tone);
+    else delete line.dataset.tone;
+    n.classList.toggle("twm-flow-graph__node--skipped", step?.state === "skipped" || step?.state === "not-reached");
+    const ports = overlay?.ports?.[nodeRow.id] || null;
+    for (const b of n.querySelectorAll(".twm-flow-graph__port")) {
+      if (!("data" in b.dataset)) b.disabled = isReadOnly();
+      if (verdictOf && b.dataset.direction === "input") {
+        b.classList.toggle("twm-flow-graph__port--can-drop", Boolean(connecting) && verdictOf(graph, {
+          ...connecting,
+          target: nodeRow.id,
+          targetPort: b.dataset.port
+        }).ok);
+      }
+      const mark = b.dataset.direction === "output" ? ports?.[b.dataset.port] : null;
+      b.classList.toggle("twm-flow-graph__port--taken", Boolean(mark?.taken));
+      b.classList.toggle("twm-flow-graph__port--untaken", Boolean(mark) && !mark.taken);
+      const count2 = b.querySelector(".twm-flow-graph__port-count");
+      count2.textContent = mark?.taken && Number.isFinite(Number(mark.count)) && mark.count !== null ? say(S, "portCount", mark.count) : mark && !mark.taken ? say(S, "portNotTaken") : "";
+    }
+    return bodyChanged;
+  }
+  function paintFold(n, folded) {
+    n.classList.toggle("twm-flow-graph__node--collapsed", folded);
+    const b = n.querySelector(".twm-flow-graph__node-fold");
+    if (!b) return;
+    b.disabled = isReadOnly();
+    b.setAttribute("aria-expanded", String(!folded));
+    b.title = say(S, folded ? "expandNode" : "collapseNode");
+    b.setAttribute("aria-label", b.title);
+    const glyph = b.querySelector(".material-symbols-outlined");
+    const name = folded ? "expand_more" : "expand_less";
+    if (glyph && glyph.textContent !== name) glyph.textContent = name;
+  }
   function paintEdges() {
     if (destroyed) return;
+    const fallback = routing === "obstacles" && graph.nodes.length > OBSTACLE_ROUTING_NODE_LIMIT;
+    if (fallback !== routingFallback) {
+      routingFallback = fallback;
+      paintStrip();
+    }
+    const routed = routing === "obstacles" && !fallback;
     const byId = new Map(graph.nodes.map((x) => [x.id, x]));
+    const copies = styled ? new Map(normalise(graph).nodes.map((x) => [x.id, x])) : null;
+    const boxes = routed ? graph.nodes.map((x) => ({
+      id: x.id,
+      x: x.position.x - CLEARANCE,
+      y: x.position.y - CLEARANCE,
+      width: widthOf(x) + 2 * CLEARANCE,
+      height: bottomOf(x) - x.position.y + 2 * CLEARANCE
+    })) : null;
     const paths = [];
+    const labels = [];
+    edgeEls = [];
     graph.connections.forEach((c) => {
       const a = byId.get(c.source);
       const b = byId.get(c.target);
@@ -3876,18 +5298,23 @@ function createCanvasEditor(host, options = {}) {
       const from = anchor(a, c.sourcePort, "output");
       const to = anchor(b, c.targetPort, "input");
       const back = isReturn(c, b);
-      const d = back ? returnEdge(from, to, { floor: Math.max(bottomOf(a), bottomOf(b)) + RETURN_DROP }) : routeEdge(from, to, { simple: true });
+      const look = styled ? edgeLook(c, copies.get(c.source), copies.get(c.target), back) : null;
+      const end = look?.marker ? lineEnd(to, look.marker) : to;
+      const d = back ? returnEdge(from, end, { floor: Math.max(bottomOf(a), bottomOf(b)) + RETURN_DROP }) : routed ? routeEdge(from, end, { obstacles: boxes.filter((x) => x.id !== a.id && x.id !== b.id) }) : routeEdge(from, end, { simple: true });
       const picked = selected?.kind === "edge" && sameEdge(selected.edge, c);
       const mark = overlay?.ports?.[c.source]?.[c.sourcePort];
       const line = document.createElementNS(SVG, "path");
       line.setAttribute("class", [
         "twm-flow-graph__edge",
         back ? "twm-flow-graph__edge--back" : "",
+        look?.dashed ? "twm-flow-graph__edge--dashed" : "",
         picked ? "twm-flow-graph__edge--picked" : "",
         mark?.taken ? "twm-flow-graph__edge--taken" : "",
-        mark && !mark.taken ? "twm-flow-graph__edge--untaken" : ""
+        mark && !mark.taken ? "twm-flow-graph__edge--untaken" : "",
+        hovered && touches(c) ? "twm-flow-graph__edge--highlighted" : ""
       ].filter(Boolean).join(" "));
       line.setAttribute("d", d);
+      if (look) applyLook(line, look);
       const hit = document.createElementNS(SVG, "path");
       hit.setAttribute("class", "twm-flow-graph__edge-hit");
       hit.setAttribute("d", d);
@@ -3896,41 +5323,433 @@ function createCanvasEditor(host, options = {}) {
         title.textContent = say(S, "returnLine");
         hit.appendChild(title);
       }
-      hit.addEventListener("pointerdown", (ev) => {
+      const pick = (ev) => {
         ev.stopPropagation();
         select({ kind: "edge", edge: { ...c } });
-      });
-      paths.push(line, hit);
+      };
+      hit.addEventListener("pointerdown", pick);
+      if (hoverHighlight) {
+        hit.addEventListener("pointerenter", () => hover({ kind: "edge", edge: { ...c } }));
+        hit.addEventListener("pointerleave", () => {
+          if (hovered?.kind === "edge" && sameEdge(hovered.edge, c)) hover(null);
+        });
+      }
+      paths.push(line);
+      if (look?.marker) {
+        const head = look.marker === "arrow" ? arrowHead(to, to.side) : crowsFoot(to, to.side, look.marker);
+        if (look.marker !== "arrow") head.classList.add("twm-flow-graph__edge-foot");
+        applyLook(head, look);
+        paths.push(head);
+      }
+      paths.push(hit);
+      if (look?.label !== null && look?.label !== void 0) {
+        const at = pathMidpoint(d);
+        const tag = el("div", "twm-flow-graph__edge-label", look.label);
+        tag.style.left = `${at.x}px`;
+        tag.style.top = `${at.y}px`;
+        applyLook(tag, look);
+        tag.addEventListener("pointerdown", pick);
+        labels.push(tag);
+      }
+      edgeEls.push({ c, line });
     });
     canvas.edgeLayer.replaceChildren(...paths);
+    labelLayer?.replaceChildren(...labels);
+    paintFrames();
+    paintMinimap();
   }
   function fit({ whole = false } = {}) {
     if (!graph.nodes.length || destroyed) return;
-    const xs = graph.nodes.map((x2) => x2.position.x);
-    const ys = graph.nodes.map((x2) => x2.position.y);
-    const x = Math.min(...xs);
-    const y = Math.min(...ys);
-    const height = Math.max(...graph.nodes.map(bottomOf)) - y;
-    canvas.fit({ x, y, width: Math.max(...xs) + BOX.width - x, height });
+    const notes = noting ? noteList().map((n) => ({
+      x: n.position.x,
+      y: n.position.y,
+      right: n.position.x + (n.size?.w || NOTE_WIDTH),
+      bottom: n.position.y + (n.size?.h || noteEls.get(n.id)?.offsetHeight || 0)
+    })) : [];
+    const x = Math.min(...graph.nodes.map((n) => n.position.x), ...notes.map((n) => n.x));
+    const y = Math.min(...graph.nodes.map((n) => n.position.y), ...notes.map((n) => n.y));
+    const height = Math.max(...graph.nodes.map(bottomOf), ...notes.map((n) => n.bottom)) - y;
+    const right = Math.max(...graph.nodes.map((n) => n.position.x + widthOf(n)), ...notes.map((n) => n.right));
+    canvas.fit({ x, y, width: right - x, height });
     const scale = canvas.scale > NATURAL ? NATURAL : !whole && canvas.scale < READABLE ? READABLE : null;
     if (scale !== null) {
       const box = canvas.root.getBoundingClientRect();
       canvas.setViewport({ scale, tx: 40 - x * scale, ty: box.height / 2 - (y + height / 2) * scale });
     }
   }
-  function arrangeGraph() {
+  function placeSteps(part, ids) {
+    if (layout === "flow") {
+      return layoutGraph(part, catalogue, { ...BOX, loopEntry: loopPorts.entry, heightOf: (n) => measured(n) || null });
+    }
+    const sizeOf2 = (n) => ({ width: widthOf(n), height: heightOf(n) });
+    if (layout === "layered") {
+      return layeredLayout(part.nodes, part.connections.map((c) => ({ from: c.source, to: c.target })), {
+        rank: (n) => catalogue.rank(n.type),
+        sizeOf: sizeOf2,
+        columnGap: 96,
+        rowGap: 40,
+        componentGap: 80
+      });
+    }
+    const at = layout(normalise(part), { catalogue, node: BOX, ids, sizeOf: sizeOf2, layeredLayout });
+    if (!(at instanceof Map)) throw new Error("The canvas editor's layout function must return a Map of id \u2192 {x, y}.");
+    for (const [id, p] of at) {
+      if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) {
+        throw new Error(`The canvas editor's layout function placed "${id}" at ${JSON.stringify(p)}; a place must be finite numbers {x, y}.`);
+      }
+    }
+    return at;
+  }
+  const arrangeTarget = () => selected?.kind === "many" && selected.ids.length >= 2 ? { ids: [...selected.ids] } : {};
+  function arrangeGraph({ ids = null } = {}) {
     if (refusals().arrange) return false;
-    const at = layoutGraph(graph, catalogue, { ...BOX, loopEntry: loopPorts.entry });
-    const ox = Math.min(...graph.nodes.map((x) => x.position.x));
-    const oy = Math.min(...graph.nodes.map((x) => x.position.y));
-    for (const nodeRow of graph.nodes) {
+    const only = Array.isArray(ids) ? new Set(ids.map(String)) : null;
+    const nodes = only ? graph.nodes.filter((n) => only.has(n.id)) : graph.nodes;
+    if (nodes.length < 2) return false;
+    const part = only ? { nodes, connections: graph.connections.filter((c) => only.has(c.source) && only.has(c.target)) } : graph;
+    const at = placeSteps(part, only ? nodes.map((n) => n.id) : null);
+    const ox = Math.min(...nodes.map((x) => x.position.x));
+    const oy = Math.min(...nodes.map((x) => x.position.y));
+    for (const nodeRow of nodes) {
       const p = at.get(nodeRow.id);
-      if (p) nodeRow.position = { x: canvas.snap(ox + p.x), y: canvas.snap(oy + p.y) };
+      if (p) {
+        nodeRow.position = { x: canvas.snap(ox + p.x), y: canvas.snap(oy + p.y) };
+      }
     }
     paintNodes();
     commit("flow:arrange");
-    fit();
+    if (!only) fit();
     return true;
+  }
+  function freshId(list, stem) {
+    const taken = new Set(list.map((x) => x.id));
+    if (!taken.has(stem)) return stem;
+    for (let i = 2; ; i += 1) if (!taken.has(`${stem}-${i}`)) return `${stem}-${i}`;
+  }
+  const groupsOfPick = () => {
+    const ids = pickedSet();
+    return groupList().filter((gr) => gr.nodes.some((id) => ids.has(id)));
+  };
+  function ungroupNodes(ids) {
+    const out = new Set(ids);
+    for (const gr of groupList()) gr.nodes = gr.nodes.filter((id) => !out.has(id));
+    setGroups(groupList().filter((gr) => gr.nodes.length));
+  }
+  function setGroups(list) {
+    if (list.length) graph.groups = list;
+    else delete graph.groups;
+  }
+  function groupNodes(ids, { label: label2 = "", tone = null } = {}) {
+    if (!grouping || isReadOnly()) return null;
+    const want = new Set(ids);
+    const members = graph.nodes.filter((x) => want.has(x.id)).map((x) => x.id);
+    if (!members.length) return null;
+    ungroupNodes(members);
+    const id = freshId(groupList(), "group");
+    setGroups([...groupList(), {
+      id,
+      ...label2 ? { label: String(label2) } : {},
+      ...tone ? { tone: String(tone) } : {},
+      nodes: members
+    }]);
+    paintFrames();
+    commit("flow:group:add");
+    paintToolbar();
+    return id;
+  }
+  function groupPicked() {
+    if (refusals().group) return false;
+    return groupNodes(pickedIds()) !== null;
+  }
+  function ungroupGroups(groupIds) {
+    if (!grouping || isReadOnly()) return false;
+    const gone = new Set(groupIds.filter((id) => groupOf(id)));
+    if (!gone.size) return false;
+    setGroups(groupList().filter((gr) => !gone.has(gr.id)));
+    paintFrames();
+    commit("flow:group:remove");
+    paintToolbar();
+    return true;
+  }
+  function ungroupPicked() {
+    if (refusals().ungroup) return false;
+    return ungroupGroups(groupsOfPick().map((gr) => gr.id));
+  }
+  function setGroupLook(id, { label: label2, tone } = {}) {
+    const gr = grouping && !isReadOnly() ? groupOf(id) : null;
+    if (!gr) return false;
+    const name = label2 === void 0 ? gr.label || "" : String(label2 ?? "");
+    const look = tone === void 0 ? gr.tone || "" : String(tone ?? "");
+    if (name === (gr.label || "") && look === (gr.tone || "")) return false;
+    setGroups(groupList().map((x) => x.id !== id ? x : {
+      id,
+      ...name ? { label: name } : {},
+      ...look ? { tone: look } : {},
+      nodes: x.nodes
+    }));
+    paintFrames();
+    commit("flow:group:label", `group:${id}`);
+    return true;
+  }
+  function setGroupMembers(id, ids) {
+    const gr = grouping && !isReadOnly() ? groupOf(id) : null;
+    if (!gr) return false;
+    const want = new Set(ids);
+    const members = graph.nodes.filter((x) => want.has(x.id)).map((x) => x.id);
+    if (members.length === gr.nodes.length && members.every((m, i) => m === gr.nodes[i])) return false;
+    const taken = new Set(members);
+    setGroups(groupList().map((x) => x.id === id ? { ...x, nodes: members } : { ...x, nodes: x.nodes.filter((n) => !taken.has(n)) }).filter((x) => x.nodes.length));
+    paintFrames();
+    commit("flow:group:members");
+    paintToolbar();
+    return true;
+  }
+  function frameBox(gr) {
+    const rows = gr.nodes.map(nodeOf).filter(Boolean);
+    if (!rows.length) return null;
+    const x = Math.min(...rows.map((n) => n.position.x)) - FRAME.pad;
+    const y = Math.min(...rows.map((n) => n.position.y)) - FRAME.pad - FRAME.head;
+    const right = Math.max(...rows.map((n) => n.position.x + widthOf(n))) + FRAME.pad;
+    const bottom = Math.max(...rows.map(bottomOf)) + FRAME.pad;
+    return { x, y, width: right - x, height: bottom - y };
+  }
+  function buildFrame(id) {
+    const f = el("div", "twm-flow-graph__group");
+    f.dataset.groupId = id;
+    const head = el("div", "twm-flow-graph__group-head");
+    head.appendChild(el("span", "twm-flow-graph__group-label"));
+    head.addEventListener("pointerdown", (ev) => {
+      if (ev.button !== 0 || editing?.kind === "group" && editing.id === id) return;
+      ev.stopPropagation();
+      const gr = groupOf(id);
+      if (!gr) return;
+      if (multi) pickNodes(gr.nodes);
+      if (!isReadOnly()) dragItems(ev, gr.nodes, []);
+    });
+    head.addEventListener("dblclick", () => editGroupLabel(id));
+    f.appendChild(head);
+    return f;
+  }
+  function paintFrames() {
+    if (!grouping || destroyed) return;
+    const live = new Set(groupList().map((gr) => gr.id));
+    if (editing?.kind === "group" && !live.has(editing.id)) editing.done(false);
+    for (const [id, f] of frameEls) if (!live.has(id)) {
+      f.remove();
+      frameEls.delete(id);
+    }
+    for (const gr of groupList()) {
+      let f = frameEls.get(gr.id);
+      if (!f) {
+        f = buildFrame(gr.id);
+        frameEls.set(gr.id, f);
+      }
+      const box = frameBox(gr);
+      Object.assign(f.style, {
+        left: `${box.x}px`,
+        top: `${box.y}px`,
+        width: `${box.width}px`,
+        height: `${box.height}px`
+      });
+      if (TONES.includes(gr.tone)) f.dataset.tone = gr.tone;
+      else delete f.dataset.tone;
+      const name = gr.label || say(S, "groupUntitled");
+      f.setAttribute("aria-label", name);
+      if (editing?.kind !== "group" || editing.id !== gr.id) {
+        const tag = f.querySelector(".twm-flow-graph__group-label");
+        tag.textContent = name;
+        tag.title = name;
+        tag.classList.toggle("twm-flow-graph__group-label--untitled", !gr.label);
+      }
+    }
+    const order = groupList().map((gr) => frameEls.get(gr.id));
+    const lead = [...canvas.nodeLayer.children].slice(0, order.length);
+    if (order.some((f, i) => lead[i] !== f)) canvas.nodeLayer.prepend(...order);
+  }
+  function typeInPlace(kind, id, shown, input, keep) {
+    editing?.done(true);
+    input.value = kind === "note" ? noteOf(id)?.text ?? "" : groupOf(id)?.label ?? "";
+    shown.hidden = true;
+    shown.after(input);
+    let over = false;
+    const done = (save) => {
+      if (over) return;
+      over = true;
+      editing = null;
+      const text = input.value;
+      input.remove();
+      shown.hidden = false;
+      if (save) keep(text);
+      if (kind === "note") paintNotes();
+      else paintFrames();
+      keepFocus();
+    };
+    input.addEventListener("keydown", (k) => {
+      if (k.key === "Escape") {
+        k.preventDefault();
+        k.stopPropagation();
+        done(false);
+        return;
+      }
+      if (k.key === "Enter" && (kind !== "note" || k.ctrlKey || k.metaKey)) {
+        k.preventDefault();
+        k.stopPropagation();
+        done(true);
+      }
+    });
+    input.addEventListener("blur", () => done(true));
+    input.addEventListener("pointerdown", (p) => p.stopPropagation());
+    editing = { kind, id, done };
+    input.focus({ preventScroll: true });
+    input.select?.();
+  }
+  function editGroupLabel(id) {
+    const f = frameEls.get(id);
+    if (!f || !groupOf(id) || isReadOnly()) return false;
+    if (editing?.kind === "group" && editing.id === id) return true;
+    const input = el("input", "twm-flow-graph__group-input");
+    input.type = "text";
+    input.setAttribute("aria-label", say(S, "groupName"));
+    typeInPlace(
+      "group",
+      id,
+      f.querySelector(".twm-flow-graph__group-label"),
+      input,
+      (text) => setGroupLook(id, { label: text.trim() })
+    );
+    return true;
+  }
+  function addNote({ text = "", position = null, size = null } = {}) {
+    if (!noting || isReadOnly()) return null;
+    let where = position;
+    if (!where) {
+      const box = canvas.visibleBox();
+      where = {
+        x: canvas.snap(box.width ? box.x + box.width / 2 - NOTE_WIDTH / 2 : 80),
+        y: canvas.snap(box.height ? box.y + box.height / 3 : 80)
+      };
+    }
+    const id = freshId(noteList(), "note");
+    const next = normalise({ nodes: [], connections: [], notes: [{ id, text, position: where, size }] }).notes[0];
+    graph.notes = [...noteList(), next];
+    selected = { kind: "note", id };
+    paintNodes();
+    paintPanel();
+    announceSelection();
+    commit("flow:note:add");
+    return structuredClone(next);
+  }
+  function setNoteText(id, text) {
+    const note = noting && !isReadOnly() ? noteOf(id) : null;
+    if (!note || note.text === String(text ?? "")) return false;
+    note.text = String(text ?? "");
+    paintNotes();
+    if (selected?.kind === "note" && selected.id === id) paintPanel();
+    commit("flow:note:edit", `note:${id}`);
+    return true;
+  }
+  function moveNote(id, position) {
+    const note = noting && !isReadOnly() ? noteOf(id) : null;
+    const x = Math.round(Number(position?.x));
+    const y = Math.round(Number(position?.y));
+    if (!note || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+    if (note.position.x === x && note.position.y === y) return false;
+    note.position = { x, y };
+    paintNotes();
+    commit("flow:note:move");
+    return true;
+  }
+  function dropNotes(ids, commitAs = "flow:note:remove") {
+    const gone = new Set(ids);
+    const kept = noteList().filter((x) => !gone.has(x.id));
+    if (kept.length === noteList().length) return false;
+    if (kept.length) graph.notes = kept;
+    else delete graph.notes;
+    if (commitAs) {
+      prunePick();
+      paintNodes();
+      paintPanel();
+      announceSelection();
+      commit(commitAs);
+    }
+    return true;
+  }
+  function editNote(id) {
+    const box = noteEls.get(id);
+    if (!box || !noteOf(id) || isReadOnly()) return false;
+    if (editing?.kind === "note" && editing.id === id) return true;
+    const input = el("textarea", "twm-flow-graph__note-input");
+    input.setAttribute("aria-label", say(S, "noteText"));
+    typeInPlace(
+      "note",
+      id,
+      box.querySelector(".twm-flow-graph__note-text"),
+      input,
+      (text) => setNoteText(id, text)
+    );
+    return true;
+  }
+  function buildNote(id) {
+    const box = el("div", "twm-flow-graph__note");
+    box.dataset.noteId = id;
+    box.setAttribute("data-twm-flow-item", "");
+    box.setAttribute("role", "note");
+    box.tabIndex = 0;
+    box.appendChild(el("p", "twm-flow-graph__note-text"));
+    box.addEventListener("pointerdown", (ev) => {
+      if (ev.button !== 0 || editing?.kind === "note" && editing.id === id) return;
+      ev.stopPropagation();
+      if (toggles(ev)) return;
+      if (!isNotePicked(id)) select({ kind: "note", id });
+      if (isReadOnly()) return;
+      dragItems(ev, selected?.kind === "many" ? selected.ids : [], pickedNotes());
+    });
+    box.addEventListener("click", (ev) => {
+      if (!toggles(ev)) return;
+      const notes = pickedNotes();
+      pickItems(pickedIds(), notes.includes(id) ? notes.filter((x) => x !== id) : [...notes, id]);
+    });
+    box.addEventListener("dblclick", () => editNote(id));
+    return box;
+  }
+  function paintNotes() {
+    if (!noting || destroyed) return;
+    const live = new Set(noteList().map((x) => x.id));
+    if (editing?.kind === "note" && !live.has(editing.id)) editing.done(false);
+    for (const [id, box] of noteEls) if (!live.has(id)) {
+      box.remove();
+      noteEls.delete(id);
+    }
+    const picks = new Set(pickedNotes());
+    for (const note of noteList()) {
+      let box = noteEls.get(note.id);
+      if (!box) {
+        box = buildNote(note.id);
+        noteEls.set(note.id, box);
+        canvas.nodeLayer.appendChild(box);
+      }
+      box.style.left = `${note.position.x}px`;
+      box.style.top = `${note.position.y}px`;
+      box.style.width = `${note.size?.w || NOTE_WIDTH}px`;
+      if (note.size?.h) box.style.height = `${note.size.h}px`;
+      else box.style.removeProperty("height");
+      const picked = picks.has(note.id);
+      box.classList.toggle("twm-flow-graph__note--picked", picked);
+      if (picked) box.setAttribute("aria-current", "true");
+      else box.removeAttribute("aria-current");
+      const shown = box.querySelector(".twm-flow-graph__note-text");
+      shown.textContent = note.text || say(S, "noteEmpty");
+      shown.classList.toggle("twm-flow-graph__note-text--empty", !note.text);
+      box.setAttribute("aria-label", note.text || say(S, "noteEmpty"));
+    }
+  }
+  function notesIn(box) {
+    return noteList().filter((x) => {
+      const el2 = noteEls.get(x.id);
+      const w = x.size?.w || NOTE_WIDTH;
+      const h = x.size?.h || el2?.offsetHeight || FRAME.head;
+      return x.position.x < box.x + box.width && x.position.x + w > box.x && x.position.y < box.y + box.height && x.position.y + h > box.y;
+    }).map((x) => x.id);
   }
   const panel = createSettingsPanel({
     widgets,
@@ -3955,19 +5774,7 @@ function createCanvasEditor(host, options = {}) {
     },
     onRename: (stepId, text) => {
       if (isReadOnly()) return;
-      const nodeRow = nodeOf(stepId);
-      if (!nodeRow) return;
-      if (text) nodeRow.label = text;
-      else delete nodeRow.label;
-      const n = nodeEls.get(nodeRow.id);
-      const name = text || typeOf(nodeRow)?.label || nodeRow.type;
-      const title = n?.querySelector(".twm-flow-graph__node-title");
-      if (title) title.textContent = title.title = name;
-      if (n) {
-        n.dataset.shape = `${nodeRow.type}|${nodeRow.label || ""}`;
-        n.setAttribute("aria-label", name);
-      }
-      commit("flow:node:label", `label:${stepId}`);
+      renameNode(stepId, text);
     },
     onFocusLost: () => keepFocus(),
     values: typeof values === "function" ? (q) => values({
@@ -4002,9 +5809,10 @@ function createCanvasEditor(host, options = {}) {
         canvas.bringIntoView({
           x: n.position.x,
           y: n.position.y,
-          width: BOX.width,
+          width: widthOf(n),
           height: bottomOf(n) - n.position.y
         });
+        viewportSettled();
       }
       if (!(f.field && panel.focusField(f.field))) focusFirstField();
     }
@@ -4019,33 +5827,63 @@ function createCanvasEditor(host, options = {}) {
   }
   function select(next) {
     selected = next;
+    const picks = pickedSet();
     for (const [id, n] of nodeEls) {
-      const picked = next?.kind === "node" && next.id === id;
+      const picked = picks.has(id);
       n.classList.toggle("twm-flow-graph__node--picked", picked);
       if (picked) n.setAttribute("aria-current", "true");
       else n.removeAttribute("aria-current");
     }
+    paintNotes();
     paintEdges();
     paintPanel();
     announceSelection();
+    if (multi || grouping) paintToolbar();
+  }
+  function pickItems(ids, noteIds = []) {
+    const next = pickOf(ids, noteIds);
+    if (JSON.stringify(next) !== JSON.stringify(selected)) select(next);
+  }
+  const pickNodes = (ids) => pickItems(ids);
+  function togglePick(id) {
+    const ids = pickedIds();
+    pickItems(ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id], pickedNotes());
+  }
+  function nodesIn(box) {
+    return graph.nodes.filter((x) => x.position.x < box.x + box.width && x.position.x + widthOf(x) > box.x && x.position.y < box.y + box.height && bottomOf(x) > box.y).map((x) => x.id);
   }
   function announceSelection() {
-    const now = selected?.kind === "node" ? `step:${selected.id}` : selected?.kind === "edge" ? `connection:${JSON.stringify(selected.edge)}` : selected?.kind === "flow" ? "flow" : "";
+    const now = selected?.kind === "node" ? `step:${selected.id}` : selected?.kind === "many" ? `many:${JSON.stringify([selected.ids, selected.notes || []])}` : selected?.kind === "note" ? `note:${selected.id}` : selected?.kind === "edge" ? `connection:${JSON.stringify(selected.edge)}` : selected?.kind === "flow" ? "flow" : "";
     if (now === lastSelect) return;
     lastSelect = now;
     if (!onSelect || destroyed) return;
     if (selected?.kind === "node") onSelect({ kind: "step", id: selected.id });
+    else if (selected?.kind === "many") {
+      onSelect({ kind: "many", ids: [...selected.ids], ...selected.notes ? { notes: [...selected.notes] } : {} });
+    } else if (selected?.kind === "note") onSelect({ kind: "note", id: selected.id });
     else if (selected?.kind === "edge") onSelect({ kind: "connection", id: null, connection: { ...selected.edge } });
     else if (selected?.kind === "flow") onSelect({ kind: "flow", id: null });
     else onSelect({ kind: null, id: null });
   }
   function removeSelected() {
     if (!selected || isReadOnly()) return false;
-    if (selected.kind === "node") {
+    if (selected.kind === "many") {
+      const doomed = removableOf(selected.ids);
+      const notes = selected.notes || [];
+      if (!doomed.length && !notes.length) return false;
+      for (const id of doomed) removeNode(graph, id);
+      dropNotes(notes, null);
+      findingsBy = groupFindings(allFindings(), { graph });
+      select(null);
+      paintNodes();
+      commit(doomed.length ? "flow:nodes:remove" : "flow:note:remove");
+    } else if (selected.kind === "note") {
+      if (!dropNotes([selected.id])) return false;
+    } else if (selected.kind === "node") {
       const nodeRow = nodeOf(selected.id);
       if (!nodeRow || !canRemove(nodeRow, typeOf(nodeRow))) return false;
       removeNode(graph, selected.id);
-      findingsBy = groupFindings(findings, { graph });
+      findingsBy = groupFindings(allFindings(), { graph });
       select(null);
       paintNodes();
       commit("flow:node:remove");
@@ -4058,30 +5896,76 @@ function createCanvasEditor(host, options = {}) {
     keepFocus();
     return true;
   }
-  function paintConnection() {
-    const e = selected.edge;
+  const removableOf = (ids) => ids.filter((id) => {
+    const nodeRow = nodeOf(id);
+    return nodeRow && canRemove(nodeRow, typeOf(nodeRow));
+  });
+  function paintPickBox({ title, line, removeLabel, removeIcon, action, refused: refused2 = false }) {
     const remove = button({
-      label: say(S, "removeConnection"),
-      icon: "link_off",
+      label: removeLabel,
+      icon: removeIcon,
       danger: true,
       className: "twm-flow-graph__connection-remove",
       onClick: () => removeSelected()
     });
-    remove.dataset.action = "remove-connection";
-    remove.disabled = isReadOnly();
+    remove.dataset.action = action;
+    remove.disabled = isReadOnly() || refused2;
     connectionBox.replaceChildren(
-      el("h3", "twm-flow-graph__connection-title", say(S, "connection")),
-      el("p", "twm-flow-graph__connection-line", say(S, "connectionLine", e)),
+      el("h3", "twm-flow-graph__connection-title", title),
+      el("p", "twm-flow-graph__connection-line", line),
       remove
     );
     connectionBox.hidden = false;
   }
+  function paintConnection() {
+    paintPickBox({
+      title: say(S, "connection"),
+      line: say(S, "connectionLine", selected.edge),
+      removeLabel: say(S, "removeConnection"),
+      removeIcon: "link_off",
+      action: "remove-connection"
+    });
+  }
+  function paintMany() {
+    const n = removableOf(selected.ids).length;
+    const notes = selected.notes?.length || 0;
+    if (!notes) {
+      paintPickBox({
+        title: say(S, "stepsPicked", selected.ids.length),
+        line: say(S, "stepsPickedLine"),
+        removeLabel: say(S, "removeSteps", n),
+        removeIcon: "delete",
+        action: "remove-steps",
+        refused: n === 0
+      });
+      return;
+    }
+    paintPickBox({
+      title: say(S, "itemsPicked", selected.ids.length, notes),
+      line: say(S, "stepsPickedLine"),
+      removeLabel: say(S, "removeItems", n + notes),
+      removeIcon: "delete",
+      action: "remove-steps"
+    });
+  }
+  function paintNote() {
+    const text = noteOf(selected.id)?.text || "";
+    paintPickBox({
+      title: say(S, "noteKind"),
+      line: text || say(S, "noteEmpty"),
+      removeLabel: say(S, "removeNote"),
+      removeIcon: "delete",
+      action: "remove-note"
+    });
+  }
   function paintPanel() {
     if (destroyed) return;
-    if (selected?.kind === "edge") {
+    if (selected?.kind === "edge" || selected?.kind === "many" || selected?.kind === "note") {
       panel.clear();
       panel.el.hidden = true;
-      paintConnection();
+      if (selected.kind === "edge") paintConnection();
+      else if (selected.kind === "note") paintNote();
+      else paintMany();
       return;
     }
     connectionBox.hidden = true;
@@ -4128,8 +6012,304 @@ function createCanvasEditor(host, options = {}) {
         slots: { after }
       });
     }
-    panel.setFindings(findings);
+    panel.setFindings(allFindings());
   }
+  const heightOf = (n) => bottomOf(n) - n.position.y;
+  const pickedRows = () => pickedIds().map(nodeOf).filter(Boolean);
+  function alignNodes(kind) {
+    if (!ALIGN.includes(kind)) throw new Error(`align("${kind}"): the kinds are ${ALIGN.join(", ")}.`);
+    if (refusals()[`align-${kind}`]) return false;
+    const rows = pickedRows();
+    const left = Math.min(...rows.map((n) => n.position.x));
+    const right = Math.max(...rows.map((n) => n.position.x + widthOf(n)));
+    const top = Math.min(...rows.map((n) => n.position.y));
+    const bottom = Math.max(...rows.map(bottomOf));
+    for (const n of rows) {
+      const { x, y } = n.position;
+      const w = widthOf(n);
+      const h = heightOf(n);
+      n.position = {
+        x: kind === "left" ? left : kind === "right" ? right - w : kind === "center" ? Math.round((left + right - w) / 2) : x,
+        y: kind === "top" ? top : kind === "bottom" ? bottom - h : kind === "middle" ? Math.round((top + bottom - h) / 2) : y
+      };
+    }
+    paintNodes();
+    commit("flow:nodes:align");
+    return true;
+  }
+  function distributeNodes(axis) {
+    if (!DISTRIBUTE.includes(axis)) throw new Error(`distribute("${axis}"): the axes are ${DISTRIBUTE.join(", ")}.`);
+    if (refusals()[`distribute-${axis}`]) return false;
+    const across = axis === "horizontal";
+    const at = (n) => across ? n.position.x : n.position.y;
+    const size = (n) => across ? widthOf(n) : heightOf(n);
+    const rows = pickedRows().sort((a, b) => at(a) - at(b));
+    const first = at(rows[0]);
+    const end = Math.max(...rows.map((n) => at(n) + size(n)));
+    const gap = (end - first - rows.reduce((sum, n) => sum + size(n), 0)) / (rows.length - 1);
+    let cursor = first;
+    for (const n of rows) {
+      const p = Math.round(cursor);
+      n.position = across ? { x: p, y: n.position.y } : { x: n.position.x, y: p };
+      cursor += size(n) + gap;
+    }
+    paintNodes();
+    commit("flow:nodes:align");
+    return true;
+  }
+  function nudge(dx, dy, ev) {
+    if (!multi || !canvas.root.contains(ev.target)) return false;
+    const rows = pickedRows();
+    const notes = pickedNotes().map(noteOf).filter(Boolean);
+    if (!(rows.length + notes.length) || isReadOnly()) return false;
+    const step = (canvas.gridSize || 1) * (ev.shiftKey ? NUDGE_FAR : 1);
+    for (const n of [...rows, ...notes]) {
+      n.position = { x: n.position.x + dx * step, y: n.position.y + dy * step };
+      const box = (rows.includes(n) ? nodeEls : noteEls).get(n.id);
+      if (box) {
+        box.style.left = `${n.position.x}px`;
+        box.style.top = `${n.position.y}px`;
+      }
+    }
+    paintEdges();
+    const action = !rows.length ? "flow:note:move" : rows.length + notes.length > 1 ? "flow:nodes:move" : "flow:node:move";
+    commit(action, `nudge:${[...rows, ...notes].map((n) => n.id).join(",")}`);
+    return void 0;
+  }
+  function onTab(ev) {
+    if (ev.key !== "Tab" || ev.ctrlKey || ev.metaKey || ev.altKey || ev.defaultPrevented) return;
+    const from = ev.target.closest?.("[data-node-id]");
+    if (!from && (ev.target !== canvas.root || ev.shiftKey)) return;
+    const ids = graph.nodes.map((x) => x.id);
+    const i = from ? ids.indexOf(from.dataset.nodeId) : -1;
+    const next = nodeEls.get(ids[ev.shiftKey ? i - 1 : i + 1]);
+    if (!next) return;
+    ev.preventDefault();
+    next.focus({ preventScroll: true });
+    const n = nodeOf(next.dataset.nodeId);
+    canvas.bringIntoView({ x: n.position.x, y: n.position.y, width: widthOf(n), height: heightOf(n) });
+  }
+  function pressLetGo(ev) {
+    released = ev.type === "pointerup" ? pressed : null;
+    pressed = null;
+  }
+  if (multi) {
+    canvas.onMarquee = (box) => pickItems(nodesIn(box), noting ? notesIn(box) : []);
+    canvas.root.addEventListener("keydown", onTab);
+    window.addEventListener("pointerup", pressLetGo, true);
+    window.addEventListener("pointercancel", pressLetGo, true);
+  }
+  const CLIPBOARD_OFF = Object.freeze({ ok: false, reason: null });
+  function refused(reason) {
+    setMessage(reason, "warning");
+    return { ok: false, reason };
+  }
+  const roRefusal = () => refused(readOnlyReason() || say(S, "readOnlyRefusal"));
+  const titleOf2 = (n) => n.label || typeOf(n)?.label || n.type;
+  const addable = (type) => Boolean(type) && !type.unavailable && offered(type);
+  const copyRows = () => {
+    const picks = pickedSet();
+    return graph.nodes.filter((n) => picks.has(n.id) && addable(typeOf(n)));
+  };
+  const copyNoteRows = () => {
+    if (!noting) return [];
+    const picks = new Set(pickedNotes());
+    return noteList().filter((x) => picks.has(x.id));
+  };
+  const pickedAny = () => pickedIds().length > 0 || copyNoteRows().length > 0;
+  function copyText(rows, notes = []) {
+    const ids = new Set(rows.map((n) => n.id));
+    const groups = grouping ? groupList().filter((gr) => gr.nodes.every((id) => ids.has(id))) : [];
+    return serialise({
+      nodes: rows,
+      connections: graph.connections.filter((c) => ids.has(c.source) && ids.has(c.target)),
+      ...groups.length ? { groups } : {},
+      ...notes.length ? { notes } : {}
+    });
+  }
+  const tookSay = (key, rows, notes) => notes.length ? say(S, `${key}Items`, rows.length, notes.length) : say(S, key, rows.length);
+  const tookIds = (rows, notes) => ({
+    ok: true,
+    ids: rows.map((n) => n.id),
+    ...notes.length ? { notes: notes.map((x) => x.id) } : {}
+  });
+  function writeClipboard(text, times) {
+    pasteRun = { text, times };
+    if (clip === "memory") {
+      copiedText = text;
+      return true;
+    }
+    const failed = () => setMessage(say(S, "clipboardFailed"), "warning");
+    try {
+      const done = clip.write(text);
+      if (done && typeof done.then === "function") done.then(null, failed);
+    } catch {
+      failed();
+      return false;
+    }
+    return true;
+  }
+  function copyNodes() {
+    if (!clip) return CLIPBOARD_OFF;
+    if (!pickedAny()) return refused(say(S, "nothingPicked"));
+    const rows = copyRows();
+    const notes = copyNoteRows();
+    if (!rows.length && !notes.length) return refused(say(S, "cannotCopy"));
+    if (!writeClipboard(copyText(rows, notes), 0)) return { ok: false, reason: say(S, "clipboardFailed") };
+    setMessage(tookSay("copied", rows, notes), "ok");
+    return tookIds(rows, notes);
+  }
+  function cutNodes() {
+    if (!clip) return CLIPBOARD_OFF;
+    if (isReadOnly()) return roRefusal();
+    if (!pickedAny()) return refused(say(S, "nothingPicked"));
+    const rows = copyRows().filter((n) => canRemove(n, typeOf(n)));
+    const notes = copyNoteRows();
+    if (!rows.length && !notes.length) return refused(say(S, "cannotCut"));
+    if (!writeClipboard(copyText(rows, notes), -1)) return { ok: false, reason: say(S, "clipboardFailed") };
+    for (const n of rows) removeNode(graph, n.id);
+    dropNotes(notes.map((x) => x.id), null);
+    findingsBy = groupFindings(allFindings(), { graph });
+    select(null);
+    paintNodes();
+    commit(!rows.length ? "flow:note:remove" : rows.length + notes.length > 1 ? "flow:nodes:remove" : "flow:node:remove");
+    setMessage(tookSay("cutDone", rows, notes), "ok");
+    keepFocus();
+    return tookIds(rows, notes);
+  }
+  function stepsOf(text) {
+    if (typeof text !== "string" || !text.trim()) return { reason: say(S, "nothingToPaste") };
+    let raw;
+    try {
+      raw = JSON.parse(text);
+    } catch {
+      return { reason: say(S, "pasteNotSteps") };
+    }
+    const notesToo = noting && Array.isArray(raw?.notes) && raw.notes.length > 0;
+    if (!raw || !Array.isArray(raw.nodes) || !raw.nodes.length && !notesToo || raw.nodes.some((n) => !n || typeof n !== "object" || !n.id || !n.type)) {
+      return { reason: say(S, "pasteNotSteps") };
+    }
+    const g = normalise(raw);
+    if (!g.nodes.length && !g.notes?.length) return { reason: say(S, "pasteNotSteps") };
+    const odd = g.nodes.find((n) => !addable(typeOf(n)));
+    if (odd) return { reason: typeOf(odd) ? say(S, "notAddable", titleOf2(odd)) : say(S, "unknownType", odd.type) };
+    return { g };
+  }
+  function addCopies(g, offset, via, action) {
+    const step = (canvas.gridSize || CANVAS_NODE.row) * offset;
+    const titles = new Set(graph.nodes.map(titleOf2));
+    const made = [];
+    const idOf = /* @__PURE__ */ new Map();
+    for (const from of g.nodes) {
+      const id = nextId({ nodes: [...graph.nodes, ...made] }, from.type, { catalogue });
+      const title = titleOf2(from);
+      let label2 = from.label || null;
+      if (titles.has(title)) {
+        let i = 1;
+        label2 = say(S, "copyLabel", title, i);
+        while (titles.has(label2)) {
+          i += 1;
+          label2 = say(S, "copyLabel", title, i);
+        }
+        titles.add(label2);
+      }
+      const copy = {
+        id,
+        type: from.type,
+        ...label2 ? { label: label2 } : {},
+        config: structuredClone(from.config),
+        position: { x: from.position.x + step, y: from.position.y + step }
+      };
+      if (typeof prepareCopy === "function") prepareCopy(copy, { from: from.id, via });
+      const [clean2] = normalise({
+        nodes: [{ ...copy, id, type: from.type, position: { ...copy.position } }],
+        connections: []
+      }).nodes;
+      made.push(clean2);
+      idOf.set(from.id, id);
+    }
+    graph.nodes.push(...made);
+    for (const c of g.connections) {
+      const source = idOf.get(c.source);
+      const target = idOf.get(c.target);
+      if (source && target) connect(graph, catalogue, { ...c, source, target }, { strings: S });
+    }
+    const noteIds = [];
+    for (const from of noting ? g.notes || [] : []) {
+      const id = freshId(noteList(), "note");
+      graph.notes = [...noteList(), {
+        ...structuredClone(from),
+        id,
+        position: { x: from.position.x + step, y: from.position.y + step }
+      }];
+      noteIds.push(id);
+    }
+    const groupIds = [];
+    for (const gr of grouping ? g.groups || [] : []) {
+      const members = gr.nodes.map((id2) => idOf.get(id2)).filter(Boolean);
+      if (!members.length || members.length !== gr.nodes.length) continue;
+      const id = freshId(groupList(), "group");
+      setGroups([...groupList(), {
+        id,
+        ...gr.label ? { label: gr.label } : {},
+        ...gr.tone ? { tone: gr.tone } : {},
+        nodes: members
+      }]);
+      groupIds.push(id);
+    }
+    const ids = made.map((n) => n.id);
+    if (connecting) cancelConnect();
+    paintNodes();
+    if (multi) pickItems(ids, noteIds);
+    else select(ids.length ? { kind: "node", id: ids[0] } : { kind: "note", id: noteIds[0] });
+    commit(action);
+    setMessage("");
+    return {
+      ok: true,
+      ids,
+      ...noteIds.length ? { notes: noteIds } : {},
+      ...groupIds.length ? { groups: groupIds } : {}
+    };
+  }
+  function pasteNodes(text) {
+    if (!clip) return CLIPBOARD_OFF;
+    if (isReadOnly()) return roRefusal();
+    const settle = (t) => {
+      if (destroyed) return CLIPBOARD_OFF;
+      if (isReadOnly()) return roRefusal();
+      const { g, reason } = stepsOf(t);
+      if (!g) return refused(reason);
+      const times = pasteRun.text === t ? pasteRun.times + 1 : 1;
+      pasteRun = { text: t, times };
+      return addCopies(g, COPY_OFFSET * times, "paste", "flow:paste");
+    };
+    if (text !== void 0) return settle(text);
+    if (clip === "memory") return settle(copiedText);
+    let got;
+    try {
+      got = clip.read();
+    } catch {
+      return refused(say(S, "clipboardFailed"));
+    }
+    if (got && typeof got.then === "function") {
+      return got.then(settle, () => destroyed ? CLIPBOARD_OFF : refused(say(S, "clipboardFailed")));
+    }
+    return settle(got);
+  }
+  function duplicateNodes() {
+    if (!clip) return CLIPBOARD_OFF;
+    if (isReadOnly()) return roRefusal();
+    if (!pickedAny()) return refused(say(S, "nothingPicked"));
+    const rows = copyRows();
+    const notes = copyNoteRows();
+    if (!rows.length && !notes.length) return refused(say(S, "cannotCopy"));
+    return addCopies(JSON.parse(copyText(rows, notes)), COPY_OFFSET, "duplicate", "flow:node:duplicate");
+  }
+  const clipKey = (run, needsPick = true) => () => {
+    if (!clip || needsPick && !pickedAny()) return false;
+    run();
+    return void 0;
+  };
   const unbindKeys = bindFlowKeys(root, {
     undo: () => {
       undo();
@@ -4148,6 +6328,8 @@ function createCanvasEditor(host, options = {}) {
     },
     open: (ev) => {
       if (ev.target.closest?.(".twm-flow-graph__port")) return false;
+      const noteEl = noting ? ev.target.closest?.("[data-note-id]") : null;
+      if (noteEl && canvas.nodeLayer.contains(noteEl)) return editNote(noteEl.dataset.noteId) ? void 0 : false;
       const nodeEl = ev.target.closest?.("[data-node-id]");
       if (nodeEl && canvas.nodeLayer.contains(nodeEl)) {
         if (!(selected?.kind === "node" && selected.id === nodeEl.dataset.nodeId)) {
@@ -4158,14 +6340,37 @@ function createCanvasEditor(host, options = {}) {
       return false;
     },
     escape: () => {
-      if (!connecting) return false;
+      if (!connecting) {
+        if (!pickedNotes().length && !(multi && pickedIds().length)) return false;
+        select(null);
+        return void 0;
+      }
       cancelConnect();
       setMessage("");
       return void 0;
-    }
+    },
+    copy: clipKey(copyNodes),
+    cut: clipKey(cutNodes),
+    paste: clipKey(() => pasteNodes(), false),
+    duplicate: clipKey(duplicateNodes),
+    selectAll: () => {
+      if (!multi) return false;
+      pickItems(graph.nodes.map((x) => x.id), noting ? noteList().map((x) => x.id) : []);
+      return void 0;
+    },
+    group: () => grouping && groupPicked() ? void 0 : false,
+    ungroup: () => grouping && ungroupPicked() ? void 0 : false,
+    up: (ev) => nudge(0, -1, ev),
+    down: (ev) => nudge(0, 1, ev),
+    left: (ev) => nudge(-1, 0, ev),
+    right: (ev) => nudge(1, 0, ev)
   });
-  root.append(toolbar, why, readonlyBanner, message, strip.el, banner, body);
+  root.append(toolbar, why, readonlyBanner, message, ...offerBox ? [offerBox] : [], strip.el, banner, body);
   if (host) host.appendChild(root);
+  function cancelFit() {
+    if (fitFrame !== null) globalThis.cancelAnimationFrame?.(fitFrame);
+    fitFrame = null;
+  }
   function paintReadOnly() {
     root.classList.toggle("twm-flow-graph--readonly", isReadOnly());
     readonlyBanner.textContent = readOnlyReason() || (isReadOnly() ? say(S, "readOnlyRefusal") : "");
@@ -4182,18 +6387,19 @@ function createCanvasEditor(host, options = {}) {
      * was loaded is where undo starts. With `baseline: false` the stacks are
      * kept and the loaded content is the present they undo from.
      */
-    load({ graph: g = null, flowSettings: fs } = {}, { baseline = true, fit: andFit = true } = {}) {
+    load({ graph: g = null, flowSettings: fs } = {}, { baseline = true, fit: andFit = true, viewport } = {}) {
       if (destroyed) return;
+      editing?.done(false);
       if (connecting) cancelConnect();
+      if (pendingOffer) clearOffer();
       graph = normalise(g);
       if (fs !== void 0) {
         settingsSchema = fs?.schema ?? settingsSchema;
         settingsTitle = fs?.title ?? settingsTitle;
         settingsValue = structuredClone(plainObject(fs?.value));
       }
-      if (selected?.kind === "node" && !nodeOf(selected.id)) selected = null;
-      if (selected?.kind === "edge" && !graph.connections.some((c) => sameEdge(c, selected.edge))) selected = null;
-      findingsBy = groupFindings(findings, { graph });
+      prunePick();
+      findingsBy = groupFindings(allFindings(), { graph });
       paintNodes();
       paintPanel();
       const state = snapshot();
@@ -4201,13 +6407,52 @@ function createCanvasEditor(host, options = {}) {
       else if (state !== history.settled) history.adopt({ ...history.keep(), settled: state }, state);
       paintToolbar();
       announceSelection();
-      if (andFit) {
-        if (fitFrame !== null) globalThis.cancelAnimationFrame?.(fitFrame);
+      const at = viewportOf(viewport) || startView;
+      startView = null;
+      if (at) {
+        cancelFit();
+        canvas.setViewport(at);
+        viewportBaseline();
+      } else if (andFit) {
+        cancelFit();
+        const fitNow = () => {
+          fit();
+          viewportBaseline();
+        };
         fitFrame = globalThis.requestAnimationFrame ? globalThis.requestAnimationFrame(() => {
           fitFrame = null;
-          fit();
-        }) : (fit(), null);
+          fitNow();
+        }) : (fitNow(), null);
       }
+    },
+    /**
+     * Swap the step types while the editor is open — a type registered
+     * after `load`. The palette is redrawn; a node whose type's definition
+     * changed — what it is built from, not the object — is rebuilt (so a node
+     * of a type that was unknown now draws); the rest keep their elements;
+     * the graph, and so the history, are untouched.
+     */
+    setCatalogue(next) {
+      if (destroyed) return;
+      catalogue = toCatalogue(next, "setCatalogue");
+      verdictOf = rulesFor(catalogue);
+      if (connecting) cancelConnect();
+      if (pendingOffer) clearOffer();
+      paintPalette();
+      paintNodes();
+      paintPanel();
+    },
+    /** `{scale, tx, ty}`, as the kernel holds it. */
+    getViewport: () => canvas.viewport(),
+    /** Put the view there (clamped to the kernel's limits) — a fit still waiting
+     *  for its frame is dropped, and nothing is reported back. */
+    setViewport(next) {
+      const at = viewportOf(next);
+      if (!at || destroyed) return false;
+      cancelFit();
+      canvas.setViewport(at);
+      viewportBaseline();
+      return true;
     },
     getGraph: () => normalise(graph),
     serialise: () => serialise(graph),
@@ -4216,11 +6461,51 @@ function createCanvasEditor(host, options = {}) {
     getFlowSettings: () => structuredClone(settingsValue),
     setFindings(list) {
       findings = findingsList(list);
-      findingsBy = groupFindings(findings, { graph });
-      strip.set(findings);
+      findingsBy = groupFindings(allFindings(), { graph });
+      paintStrip();
       paintNodes();
-      panel.setFindings(findings);
+      panel.setFindings(allFindings());
     },
+    /**
+     * What the host shows on the nodes now — `{[id]: {badge, tone, ports:
+     * {[name]: text}}}`, or null for none — replacing what it showed
+     * before. Painted in place: nothing is rebuilt or recorded, `onChange`
+     * is not called and the panel is not touched. A type's own `update`
+     * runs for each node whose values changed, and reads them as `ctx.values`.
+     */
+    setNodeValues(next) {
+      if (destroyed) return;
+      const fresh = /* @__PURE__ */ new Map();
+      for (const [id, v] of Object.entries(plainObject(next))) {
+        const entry = valueEntry(v);
+        if (entry) fresh.set(String(id), entry);
+      }
+      const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+      const changed = [.../* @__PURE__ */ new Set([...liveValues.keys(), ...fresh.keys()])].filter((id) => !same(liveValues.get(id), fresh.get(id)));
+      liveValues = fresh;
+      let bodyChanged = false;
+      painting = true;
+      try {
+        for (const id of changed) {
+          const nodeRow = nodeOf(id);
+          const n = nodeEls.get(id);
+          if (!nodeRow || !n) continue;
+          paintValues(n, nodeRow);
+          bodyChanged = runUpdate(nodeRow) || bodyChanged;
+        }
+      } finally {
+        painting = false;
+      }
+      if (bodyChanged) {
+        findingsBy = groupFindings(allFindings(), { graph });
+        paintNodes();
+        paintStrip();
+        panel.setFindings(allFindings());
+      }
+    },
+    /** `collapsible`: fold a node to its header (true) or unfold it, one
+     *  `flow:node:collapse` entry; false when refused or nothing changes. */
+    setCollapsed: (id, collapsed) => setCollapsed(String(id), collapsed),
     /** Draw a run on the canvas — never changes the graph and rebuilds no field. */
     setRunOverlay(next) {
       overlay = next && typeof next === "object" ? next : null;
@@ -4232,6 +6517,9 @@ function createCanvasEditor(host, options = {}) {
     setReadOnly(next) {
       ro = next;
       if (ro && connecting) cancelConnect();
+      if (ro) editing?.done(false);
+      if (isReadOnly()) renaming?.finish(false);
+      if (ro && pendingOffer) clearOffer();
       dragCleanup?.();
       paintReadOnly();
       paintPalette();
@@ -4251,6 +6539,7 @@ function createCanvasEditor(host, options = {}) {
     select(target) {
       if (target === null || target === void 0) select(null);
       else if (target === "flow") select({ kind: "flow" });
+      else if (multi && Array.isArray(target)) pickNodes(target.map(String));
       else if (nodeOf(String(target))) select({ kind: "node", id: String(target) });
     },
     /** Rebuild the panel's fields, keeping the focus and the caret — for a
@@ -4263,14 +6552,62 @@ function createCanvasEditor(host, options = {}) {
     },
     undo,
     redo,
-    arrange: () => arrangeGraph(),
-    fit,
+    arrange: (opts) => {
+      const done = arrangeGraph(opts);
+      viewportBaseline();
+      return done;
+    },
+    /** `multiSelect`: line the picked nodes up — left, center, right, top,
+     *  middle or bottom. False when refused (fewer than two, read only). */
+    align: (kind) => multi ? alignNodes(kind) : false,
+    /** `multiSelect`: equal gaps, horizontal or vertical (three or more). */
+    distribute: (axis) => multi ? distributeNodes(axis) : false,
+    fit: (opts) => {
+      fit(opts);
+      viewportBaseline();
+    },
+    /** `groups`: group these steps (default: the picked ones), each leaving
+     *  the group it was in — one `flow:group:add`. The new group's id, or null. */
+    group: (ids = null, look = {}) => ids === null ? refusals().group ? null : groupNodes(pickedIds(), look) : groupNodes(Array.isArray(ids) ? ids.map(String) : [], look),
+    /** `groups`: remove these groups (default: the ones the pick is in), their
+     *  steps staying where they are — one `flow:group:remove`. */
+    ungroup: (ids = null) => ids === null ? ungroupPicked() : ungroupGroups((Array.isArray(ids) ? ids : [ids]).map(String)),
+    /** `groups`: a group's `{label, tone}` — one `flow:group:label`. */
+    setGroup: (id, look) => setGroupLook(String(id), look || {}),
+    /** `groups`: exactly these steps in the group — one `flow:group:members`. */
+    setGroupMembers: (id, ids) => setGroupMembers(String(id), Array.isArray(ids) ? ids.map(String) : []),
+    /** `notes`: add a note — one `flow:note:add`. A copy of it, or null. */
+    addNote: (note) => addNote(note || {}),
+    /** `notes`: a note's text — one `flow:note:edit`. */
+    editNote: (id, text) => setNoteText(String(id), text),
+    /** `notes`: put a note at `{x, y}` — one `flow:note:move`. */
+    moveNote: (id, position) => moveNote(String(id), position),
+    /** `notes`: take a note away — one `flow:note:remove`. */
+    removeNote: (id) => noting && !isReadOnly() ? dropNotes([String(id)]) : false,
+    /** `clipboard`: copy the picked steps and the lines among them (and the picked notes, the groups wholly
+     *  inside); `{ok, ids, notes?}` or `{ok: false, reason}`. */
+    copy: () => copyNodes(),
+    /** `clipboard`: copy, then remove what was copied (one remove entry). Refused read only. */
+    cut: () => cutNodes(),
+    /** `clipboard`: paste `text`, or what the clipboard holds — a promise when the consumer's `read` is async. */
+    paste: (text) => pasteNodes(text),
+    /** `clipboard`: a copy of the picked steps beside them, one `flow:node:duplicate` entry. */
+    duplicate: () => duplicateNodes(),
     destroy() {
       if (destroyed) return;
+      editing?.done(false);
+      if (wheelTimer !== null) viewportSettled();
+      pressEnd?.();
       dragCleanup?.();
-      if (fitFrame !== null) globalThis.cancelAnimationFrame?.(fitFrame);
+      cancelFit();
+      renaming?.finish(false);
+      for (const id of [...inlines.keys()]) dropInline(id);
+      miniSized?.disconnect();
       closeFlowPopovers();
       unbindKeys();
+      canvas.root.removeEventListener("keydown", onTab);
+      window.removeEventListener("pointerup", pressLetGo, true);
+      window.removeEventListener("pointercancel", pressLetGo, true);
       panel.destroy();
       strip.destroy();
       destroyed = true;
@@ -4283,8 +6620,17 @@ function createCanvasEditor(host, options = {}) {
   paintNodes();
   paintPanel();
   paintToolbar();
+  viewportBaseline();
   history.baseline(snapshot());
   return api;
+}
+function viewportOf(v) {
+  if (!v || typeof v !== "object") return null;
+  const scale = Number(v.scale);
+  const tx = Number(v.tx);
+  const ty = Number(v.ty);
+  if (!(scale > 0) || !Number.isFinite(scale) || !Number.isFinite(tx) || !Number.isFinite(ty)) return null;
+  return { scale, tx, ty };
 }
 
 // src/flow/outline/strings.js
@@ -8045,9 +10391,11 @@ var pipeline_exports = {};
 __export(pipeline_exports, {
   LANE_ACTIONS: () => LANE_ACTIONS,
   PARAMETER_NAME: () => PARAMETER_NAME,
+  PIPELINE_STRINGS: () => PIPELINE_STRINGS,
   addSource: () => addSource,
   addStepAfter: () => addStepAfter,
   downstreamOf: () => downstreamOf,
+  duplicateStep: () => duplicateStep,
   emptyPipeline: () => emptyPipeline,
   inputCandidates: () => inputCandidates,
   inputOf: () => inputOf,
@@ -8069,6 +10417,8 @@ var LANE_ACTIONS = Object.freeze([
   "flow:step:remove",
   "flow:step:label",
   "flow:step:config",
+  "flow:step:duplicate",
+  "flow:step:menu",
   "flow:join:set",
   "flow:source:add",
   "flow:parameter:add",
@@ -8076,6 +10426,11 @@ var LANE_ACTIONS = Object.freeze([
   "flow:parameter:remove",
   "flow:settings"
 ]);
+var PIPELINE_STRINGS = Object.freeze({
+  copyLabel: (title, n) => n > 1 ? `${title} (copy ${n})` : `${title} (copy)`,
+  duplicateNoStep: (id) => `There is no step \u2018${id}\u2019 to copy.`,
+  duplicateUnavailable: (title, why) => `\u2018${title}\u2019 cannot be copied: ${why}`
+});
 var PARAMETER_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 var ID_OK2 = /^[A-Za-z0-9_-]{1,64}$/;
 var isObject3 = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -8247,6 +10602,29 @@ function removeStep(pipeline, catalogue, id) {
   pipeline.connections = kept;
   pipeline.nodes = pipeline.nodes.filter((n) => n.id !== id);
   return true;
+}
+function duplicateStep(pipeline, catalogue, id, { strings = null } = {}) {
+  const S = { ...PIPELINE_STRINGS, ...isObject3(strings) ? strings : {} };
+  const original = findNode(pipeline, id);
+  if (!original) return { ok: false, reason: S.duplicateNoStep(String(id)) };
+  const type = catalogue?.get?.(original.type) ?? null;
+  const title = original.label || type?.label || String(original.type);
+  if (type?.unavailable) return { ok: false, reason: S.duplicateUnavailable(title, String(type.unavailable)) };
+  const titles = new Set(pipeline.nodes.map((n) => n.label || catalogue?.get?.(n.type)?.label || String(n.type)));
+  let label = S.copyLabel(title, 1);
+  for (let i = 2; titles.has(label); i += 1) label = S.copyLabel(title, i);
+  const copy = {
+    id: nextStepId(pipeline, original.type, catalogue),
+    type: original.type,
+    label,
+    config: isObject3(original.config) ? clone2(original.config) : {}
+  };
+  for (const [k, v] of Object.entries(original)) if (!NODE_KEYS.includes(k)) copy[k] = clone2(v);
+  pipeline.nodes.splice(pipeline.nodes.indexOf(original) + 1, 0, copy);
+  for (const c of pipeline.connections.filter((x) => x.targetId === id)) {
+    pipeline.connections.push({ ...clone2(c), id: nextConnectionId(pipeline), targetId: copy.id });
+  }
+  return { ok: true, node: copy };
 }
 function mayFeed(pipeline, stepId, sourceId) {
   if (!sourceId || sourceId === stepId) return false;
@@ -8435,6 +10813,7 @@ var LANE_STRINGS = Object.freeze({
   stepMenu: (title) => `${title}: what to do`,
   openSettings: "Open its settings",
   addStepAfter: "Add a step after it",
+  unavailable: "Not available here.",
   // ── the toolbar ────────────────────────────────────────────────────
   toolbar: "Flow",
   readOnlyTitle: "This flow is open to read only.",
@@ -8559,6 +10938,7 @@ function createLaneEditor(host, options = {}) {
   let travelling = null;
   let shownColumns = "";
   let panelReadOnly = false;
+  let panelPainting = false;
   const node = (id) => pipeline.nodes.find((n) => n.id === id) ?? null;
   const typeOf = (n) => catalogue.get(n?.type) ?? null;
   const typeLabel = (n) => typeOf(n)?.label ?? String(n?.type ?? "");
@@ -8590,6 +10970,7 @@ function createLaneEditor(host, options = {}) {
   let undoBtn = null;
   let redoBtn = null;
   let statusEl = null;
+  let noticeEl = null;
   let showPreviewBtn = null;
   let showRunBtn = null;
   const actionButtons = /* @__PURE__ */ new Map();
@@ -8635,6 +11016,10 @@ function createLaneEditor(host, options = {}) {
     statusEl = el("span", "twm-flow-lanes__status");
     statusEl.setAttribute("aria-live", "polite");
     toolbar.appendChild(statusEl);
+    noticeEl = el("span", "twm-flow-lanes__notice");
+    noticeEl.setAttribute("role", "status");
+    noticeEl.hidden = true;
+    toolbar.appendChild(noticeEl);
     toolbar.appendChild(el("span", "twm-flow-lanes__spacer"));
     const showId = uid("lanes-show");
     const showLabel = el("span", "twm-flow-lanes__show-label", say(S, "stepsShow"));
@@ -8797,6 +11182,7 @@ function createLaneEditor(host, options = {}) {
   function commit(action, key = null, { preview = true } = {}) {
     const moved = history.commit(snapshot(), action, key);
     if (!moved) return false;
+    notice("");
     report(action, key);
     if (preview) runner.schedule();
     return true;
@@ -9207,6 +11593,15 @@ function createLaneEditor(host, options = {}) {
     }
     const n = selected && selected !== "flow" ? node(selected) : null;
     settingsHint.hidden = true;
+    panelPainting = true;
+    try {
+      paintPanelBody(n);
+    } finally {
+      panelPainting = false;
+    }
+    panel.setFindings(findings);
+  }
+  function paintPanelBody(n) {
     if (n) {
       panel.show(stepPanelSpec(n));
       shownColumns = JSON.stringify(inputColumns(n.id));
@@ -9227,13 +11622,12 @@ function createLaneEditor(host, options = {}) {
       settingsHint.hidden = false;
       shownColumns = "";
     }
-    panel.setFindings(findings);
   }
-  function reshowForColumns() {
+  function reshowForColumns({ leaving = false } = {}) {
     if (!panel || !selected || selected === "flow" || !node(selected)) return;
     const now = JSON.stringify(inputColumns(selected));
     if (now === shownColumns) return;
-    if (panel.el.contains(root.ownerDocument.activeElement)) return;
+    if (!leaving && panel.el.contains(root.ownerDocument.activeElement)) return;
     paintPanel();
   }
   function availableDataTabs() {
@@ -9513,6 +11907,46 @@ function createLaneEditor(host, options = {}) {
     options.onSelect?.({ kind: selected ? "step" : null, id: selected });
     return true;
   }
+  function duplicateRefusal(id) {
+    if (isReadOnly()) return readOnlyReason()[0] ?? say(S, "readOnlyTitle");
+    const r = duplicateStep(normalisePipeline(pipeline), catalogue, id, { strings: options.strings });
+    return r.ok ? null : r.reason;
+  }
+  function duplicate(id) {
+    if (isReadOnly() || !node(id)) return false;
+    const r = duplicateStep(pipeline, catalogue, id, { strings: options.strings });
+    if (!r.ok) {
+      notice(r.reason);
+      return false;
+    }
+    selected = r.node.id;
+    commit("flow:step:duplicate");
+    afterShapeChange(r.node.id);
+    options.onSelect?.({ kind: "step", id: r.node.id });
+    return true;
+  }
+  function notice(text) {
+    if (!noticeEl) return;
+    noticeEl.textContent = String(text ?? "");
+    noticeEl.hidden = !noticeEl.textContent;
+  }
+  async function runHostItem(item, id) {
+    if (isReadOnly() || !node(id)) return false;
+    const before = serialisePipeline(pipeline);
+    const draft = normalisePipeline(pipeline);
+    const step = clone3(node(id));
+    const answer = await item.run?.({ step, pipeline: draft, editor: api });
+    if (answer === false || destroyed || isReadOnly()) return false;
+    if (serialisePipeline(pipeline) !== before) return false;
+    if (serialisePipeline(draft) === before) return false;
+    pipeline = normalisePipeline(draft);
+    relayout();
+    if (selected && selected !== "flow" && !node(selected)) selected = firstStep();
+    commit("flow:step:menu");
+    paintAll();
+    focusCard(selected);
+    return true;
+  }
   function changeSetting(stepId, key, value) {
     if (isReadOnly()) return;
     if (stepId === null) {
@@ -9667,27 +12101,56 @@ function createLaneEditor(host, options = {}) {
     const menu = el("div", "twm-flow-lanes__menu");
     menu.setAttribute("role", "menu");
     let handle = null;
-    const item = (label, glyph, run, { danger = false, disabled = false } = {}) => {
+    const item = (label, glyph, run, { danger = false, refusal = null, id: itemId = null } = {}) => {
       const b = el("button", `twm-flow-lanes__menu-item${danger ? " twm-flow-lanes__menu-item--danger" : ""}`);
+      b.classList.toggle("twm-flow-lanes__menu-item--refused", Boolean(refusal));
       b.type = "button";
       b.setAttribute("role", "menuitem");
-      b.disabled = disabled;
-      b.append(icon(glyph), el("span", "", label));
+      if (itemId) b.dataset.item = itemId;
+      const words3 = el("span", "twm-flow-lanes__menu-words");
+      words3.appendChild(el("span", "twm-flow-lanes__menu-label", label));
+      if (refusal) {
+        b.disabled = true;
+        b.setAttribute("aria-disabled", "true");
+        words3.appendChild(el("span", "twm-flow-lanes__menu-reason", refusal));
+      }
+      b.append(icon(glyph || ""), words3);
       b.addEventListener("click", () => {
+        if (b.disabled) return;
         handle?.close("chosen");
         run();
       });
       menu.appendChild(b);
       return b;
     };
-    const first = item(say(S, "openSettings"), "tune", () => openSettingsOf(id));
+    const first = item(say(S, "openSettings"), "tune", () => openSettingsOf(id), { id: "settings" });
     if (canAddAfter(id)) {
       item(say(S, "addStepAfter"), "add", () => {
         const add = [...surface.querySelectorAll(".twm-flow-lanes__node")].find((w) => w.dataset.step === id)?.querySelector(".twm-flow-lanes__add");
         if (add) pickAfter(id, add);
-      });
+      }, { id: "add" });
     }
-    if (!isReadOnly()) item(say(S, "removeStep"), "delete", () => remove(id), { danger: true });
+    item(say(S, "duplicate"), "content_copy", () => duplicate(id), { refusal: duplicateRefusal(id), id: "duplicate" });
+    if (!isReadOnly()) item(say(S, "removeStep"), "delete", () => remove(id), { danger: true, id: "remove" });
+    const extra = typeof options.menuItems === "function" ? options.menuItems(clone3(node(id))) : null;
+    const hosts = (Array.isArray(extra) ? extra : []).filter((x) => isObject4(x) && x.label !== void 0);
+    if (hosts.length) {
+      const sep = el("div", "twm-flow-lanes__menu-sep");
+      sep.setAttribute("role", "separator");
+      menu.appendChild(sep);
+    }
+    const roWhy = isReadOnly() ? readOnlyReason()[0] ?? say(S, "readOnlyTitle") : null;
+    for (const h of hosts) {
+      const refusal = roWhy ?? (h.disabled ? String(h.reason || say(S, "unavailable")) : null);
+      item(
+        String(h.label),
+        h.icon || "",
+        () => {
+          runHostItem(h, id);
+        },
+        { danger: Boolean(h.danger), refusal, id: h.id !== void 0 ? String(h.id) : null }
+      );
+    }
     menu.addEventListener("keydown", (ev) => {
       if (ev.key !== "ArrowDown" && ev.key !== "ArrowUp") return;
       ev.preventDefault();
@@ -9733,6 +12196,14 @@ function createLaneEditor(host, options = {}) {
       remove(id);
       return true;
     },
+    duplicate: (ev) => {
+      if (!(inSurface(ev) || inTabs(ev))) return false;
+      const id = stepAt(ev) ?? selected;
+      if (!id || id === "flow" || !node(id)) return false;
+      if (isReadOnly()) notice(readOnlyReason()[0] ?? say(S, "readOnlyTitle"));
+      else duplicate(id);
+      return true;
+    },
     rename: () => {
       if (!selected || selected === "flow" || !panel) return false;
       const t = panel.el.querySelector("[data-twm-flow-title]");
@@ -9762,6 +12233,12 @@ function createLaneEditor(host, options = {}) {
     if (focusCard(selected)) ev.preventDefault();
   };
   settingsCol?.addEventListener("keydown", onPanelKey);
+  const onPanelLeave = (ev) => {
+    const to = ev.relatedTarget;
+    if (panelPainting || to && (panel.el.contains(to) || to.closest?.(".twm-flow-popover"))) return;
+    reshowForColumns({ leaving: true });
+  };
+  settingsCol?.addEventListener("focusout", onPanelLeave);
   function arrow(ev, dir) {
     if (inTabs(ev)) {
       if (dir !== "left" && dir !== "right") return false;
@@ -9907,6 +12384,7 @@ function createLaneEditor(host, options = {}) {
       lastRunAsk?.abort();
       unbindKeys();
       settingsCol?.removeEventListener("keydown", onPanelKey);
+      settingsCol?.removeEventListener("focusout", onPanelLeave);
       closeFlowPopovers();
       table?.dispose?.();
       table = null;
@@ -9943,6 +12421,7 @@ export {
   LANE_GEOMETRY,
   LAYOUT_STRINGS as LANE_LAYOUT_STRINGS,
   LANE_PAD,
+  PIPELINE_STRINGS as LANE_PIPELINE_STRINGS,
   LANE_STRINGS,
   LOGIC_GRAPH_STRINGS,
   OUTLINE_ACTIONS,
@@ -9955,6 +12434,7 @@ export {
   TEMPLATE_REFERENCES,
   TONES,
   UI_HINTS,
+  addConnection,
   addNode,
   admittedTypes,
   alwaysBefore,
@@ -9963,6 +12443,9 @@ export {
   button,
   canConnect,
   nodeBottom as canvasNodeBottom,
+  nodeWidth as canvasNodeWidth,
+  pathMidpoint as canvasPathMidpoint,
+  pathPoints as canvasPathPoints,
   portAnchor as canvasPortAnchor,
   checkSettingsSchema,
   closeFlowPopovers,

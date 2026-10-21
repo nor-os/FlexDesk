@@ -4,6 +4,10 @@ var MAX_SCALE = 4;
 var COARSE_GRID_EVERY = 5;
 var SUB_PIXEL = 0.5;
 var CanvasAdapter = class {
+  /** The zoom limits every `setViewport`, `zoomAt` and `fit` clamps to, for an
+   *  embedder whose own zoom controls must stop where the kernel stops. */
+  static MIN_SCALE = MIN_SCALE;
+  static MAX_SCALE = MAX_SCALE;
   /**
    * @param {object} o
    * @param {HTMLElement} o.container        the box the canvas fills (it needs a height)
@@ -518,6 +522,448 @@ function arrange(nodes, edges, { columnGap = 340, rowGap = 40 } = {}) {
   return positions;
 }
 
+// src/canvas/layered_layout.js
+var DEFAULT_SIZE = Object.freeze({ width: 160, height: 80 });
+var defaultSizeOf = (node) => ({
+  width: Number(node?.width) || DEFAULT_SIZE.width,
+  height: Number(node?.height) || DEFAULT_SIZE.height
+});
+function crossingsBetween(pairs) {
+  let n = 0;
+  for (let i = 0; i < pairs.length; i++) {
+    const [a1, b1] = pairs[i];
+    for (let j = i + 1; j < pairs.length; j++) {
+      const [a2, b2] = pairs[j];
+      if ((a1 - a2) * (b1 - b2) < 0) n++;
+    }
+  }
+  return n;
+}
+function layeredLayout(nodes, edges, {
+  rank = null,
+  sizeOf = null,
+  columnGap = 64,
+  rowGap = 32,
+  componentGap = 80,
+  passes = 8
+} = {}) {
+  const list = [];
+  const index = /* @__PURE__ */ new Map();
+  for (const node of Array.isArray(nodes) ? nodes : []) {
+    if (!node || node.id === void 0 || node.id === null || index.has(String(node.id))) continue;
+    index.set(String(node.id), list.length);
+    list.push(node);
+  }
+  const count = list.length;
+  const positions = /* @__PURE__ */ new Map();
+  if (!count) return positions;
+  const hint = list.map((n) => {
+    const r = typeof rank === "function" ? rank(n) : null;
+    return r === "source" || r === "sink" ? r : null;
+  });
+  const measure = typeof sizeOf === "function" ? sizeOf : defaultSizeOf;
+  const size = list.map((n) => {
+    const s = measure(n) || {};
+    return { width: Math.max(0, Number(s.width) || 0), height: Math.max(0, Number(s.height) || 0) };
+  });
+  const out = Array.from({ length: count }, () => []);
+  const near = Array.from({ length: count }, () => []);
+  const seen = /* @__PURE__ */ new Set();
+  const lines = [];
+  for (const e of Array.isArray(edges) ? edges : []) {
+    const u = index.get(String(e?.from));
+    const v = index.get(String(e?.to));
+    if (u === void 0 || v === void 0 || u === v) continue;
+    const key = `${u}>${v}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out[u].push(v);
+    lines.push([u, v]);
+    if (!seen.has(`${u}~${v}`)) {
+      seen.add(`${u}~${v}`);
+      seen.add(`${v}~${u}`);
+      near[u].push(v);
+      near[v].push(u);
+    }
+  }
+  const componentOf = new Int32Array(count).fill(-1);
+  const components = [];
+  for (let s = 0; s < count; s++) {
+    if (componentOf[s] >= 0) continue;
+    const members = [];
+    const stack = [s];
+    componentOf[s] = components.length;
+    while (stack.length) {
+      const u = stack.pop();
+      members.push(u);
+      for (const v of near[u]) if (componentOf[v] < 0) {
+        componentOf[v] = components.length;
+        stack.push(v);
+      }
+    }
+    members.sort((a, b) => a - b);
+    components.push(members);
+  }
+  const ordered = components.map((m, i) => ({ m, i })).sort((a, b) => b.m.length - a.m.length || a.i - b.i);
+  const linesOf = components.map(() => []);
+  for (const line of lines) linesOf[componentOf[line[0]]].push(line);
+  const reversed = /* @__PURE__ */ new Set();
+  const state = new Uint8Array(count);
+  for (let s = 0; s < count; s++) {
+    if (state[s]) continue;
+    const stack = [[s, 0]];
+    state[s] = 1;
+    while (stack.length) {
+      const top2 = stack[stack.length - 1];
+      const [u, k] = top2;
+      if (k < out[u].length) {
+        top2[1] = k + 1;
+        const v = out[u][k];
+        if (state[v] === 1) reversed.add(`${u}>${v}`);
+        else if (state[v] === 0) {
+          state[v] = 1;
+          stack.push([v, 0]);
+        }
+      } else {
+        state[u] = 2;
+        stack.pop();
+      }
+    }
+  }
+  const preds = Array.from({ length: count }, () => []);
+  const succs = Array.from({ length: count }, () => []);
+  for (const [u0, v0] of lines) {
+    const [u, v] = reversed.has(`${u0}>${v0}`) ? [v0, u0] : [u0, v0];
+    if (hint[v] === "source" || hint[u] === "sink") continue;
+    preds[v].push(u);
+    succs[u].push(v);
+  }
+  const layer = new Int32Array(count);
+  const waiting = preds.map((p) => p.length);
+  const queue = [];
+  for (let u = 0; u < count; u++) if (!waiting[u]) queue.push(u);
+  for (let q = 0; q < queue.length; q++) {
+    const u = queue[q];
+    for (const v of succs[u]) {
+      if (layer[u] + 1 > layer[v]) layer[v] = layer[u] + 1;
+      if (--waiting[v] === 0) queue.push(v);
+    }
+  }
+  let top = 0;
+  for (const { m, i: c } of ordered) {
+    let last = -1;
+    for (const u of m) if (hint[u] !== "sink") last = Math.max(last, hint[u] === "source" ? 0 : layer[u]);
+    for (const u of m) {
+      if (hint[u] === "source") layer[u] = 0;
+      else if (hint[u] === "sink") layer[u] = last + 1;
+    }
+    const used = [...new Set(m.map((u) => layer[u]))].sort((a, b) => a - b);
+    const renumber = new Map(used.map((l, i) => [l, i]));
+    const columns = used.map(() => []);
+    for (const u of m) {
+      layer[u] = renumber.get(layer[u]);
+      columns[layer[u]].push(u);
+    }
+    const place = /* @__PURE__ */ new Map();
+    const remember = () => {
+      for (const c2 of columns) c2.forEach((u, i) => place.set(u, i));
+    };
+    remember();
+    const between = columns.map(() => []);
+    for (const [u, v] of linesOf[c]) {
+      const a = Math.min(layer[u], layer[v]);
+      if (Math.abs(layer[u] - layer[v]) === 1) between[a].push(layer[u] < layer[v] ? [u, v] : [v, u]);
+    }
+    const crossings = () => {
+      let n = 0;
+      for (let l = 0; l + 1 < columns.length; l++) {
+        n += crossingsBetween(between[l].map(([u, v]) => [place.get(u), place.get(v)]));
+      }
+      return n;
+    };
+    const sweep = (l, from) => {
+      const column = columns[l];
+      const centre = /* @__PURE__ */ new Map();
+      for (const u of column) {
+        let sum = 0;
+        let k = 0;
+        for (const v of near[u]) {
+          if (from(layer[v])) {
+            sum += place.get(v);
+            k++;
+          }
+        }
+        centre.set(u, k ? sum / k : place.get(u));
+      }
+      column.sort((a, b) => centre.get(a) - centre.get(b) || place.get(a) - place.get(b));
+      column.forEach((u, i) => place.set(u, i));
+    };
+    let best = crossings();
+    let bestColumns = columns.map((c2) => [...c2]);
+    for (let p = 0; p < passes && best > 0; p++) {
+      for (let l = 1; l < columns.length; l++) sweep(l, (x2) => x2 < l);
+      for (let l = columns.length - 2; l >= 0; l--) sweep(l, (x2) => x2 > l);
+      const now = crossings();
+      if (now < best) {
+        best = now;
+        bestColumns = columns.map((c2) => [...c2]);
+      }
+    }
+    const widths = bestColumns.map((c2) => Math.max(0, ...c2.map((u) => size[u].width)));
+    const heights = bestColumns.map((c2) => c2.reduce((h, u) => h + size[u].height, 0) + rowGap * Math.max(0, c2.length - 1));
+    const tallest = Math.max(0, ...heights);
+    let x = 0;
+    bestColumns.forEach((c2, l) => {
+      let y = top + (tallest - heights[l]) / 2;
+      for (const u of c2) {
+        positions.set(String(list[u].id), { x, y });
+        y += size[u].height + rowGap;
+      }
+      x += widths[l] + columnGap;
+    });
+    top += tallest + componentGap;
+  }
+  return positions;
+}
+
+// src/canvas/graph/node_platform.js
+var NodePlatform = class {
+  /**
+   * @param {object} [options]
+   * @param {(node: object) => object[]} [options.collapsedPorts]  the ports a COLLAPSED node
+   *        still offers; by default none
+   */
+  constructor({ collapsedPorts = null } = {}) {
+    this.nodes = /* @__PURE__ */ new Map();
+    this.listeners = /* @__PURE__ */ new Map();
+    this.collapsedPorts = typeof collapsedPorts === "function" ? collapsedPorts : null;
+  }
+  on(event, handler) {
+    if (!this.listeners.has(event)) this.listeners.set(event, /* @__PURE__ */ new Set());
+    this.listeners.get(event).add(handler);
+    return () => this.listeners.get(event).delete(handler);
+  }
+  emit(event, payload) {
+    for (const handler of this.listeners.get(event) || []) handler(payload);
+  }
+  /**
+   * Replace the whole graph. Hydration, not an edit — see `HistoryService`.
+   *
+   * Each node is `{id, position?, size?, collapsed?, ports?, …}`: the position
+   * is copied (a missing one is (0, 0)), `size` is `{w, h}` or null, `ports`
+   * an array (none when absent), and every other key is kept as it is.
+   */
+  hydrate(nodes) {
+    this.nodes.clear();
+    for (const raw of Array.isArray(nodes) ? nodes : []) {
+      if (!raw || raw.id === void 0 || raw.id === null) continue;
+      const id = raw.id;
+      this.nodes.set(id, {
+        ...raw,
+        id,
+        // `size` and `collapsed` are in the snapshot, not derived: at
+        // hundreds of nodes a node showing forty ports is unreadable, and
+        // a collapsed node's ports fold away.
+        position: raw.position ? { x: raw.position.x, y: raw.position.y } : { x: 0, y: 0 },
+        size: raw.size ? { w: raw.size.w, h: raw.size.h } : null,
+        collapsed: Boolean(raw.collapsed),
+        ports: Array.isArray(raw.ports) ? raw.ports : []
+      });
+    }
+    this.emit("hydrated", { count: this.nodes.size });
+  }
+  get(id) {
+    return this.nodes.get(id);
+  }
+  all() {
+    return [...this.nodes.values()];
+  }
+  port(nodeId, portId) {
+    return this.nodes.get(nodeId)?.ports.find((p) => p.id === portId) || null;
+  }
+  setPosition(id, position, { silent = false } = {}) {
+    const node = this.nodes.get(id);
+    if (!node) return null;
+    const before = { ...node.position };
+    node.position = { ...position };
+    if (!silent) this.emit("moved", { id, before, after: { ...position } });
+    return before;
+  }
+  setCollapsed(id, collapsed, { silent = false } = {}) {
+    const node = this.nodes.get(id);
+    if (!node) return null;
+    const before = node.collapsed;
+    node.collapsed = Boolean(collapsed);
+    if (!silent) this.emit("collapsed", { id, before, after: node.collapsed });
+    return before;
+  }
+  /**
+   * Ports that are visible right now.
+   *
+   * A collapsed node offers only what `collapsedPorts` says it keeps (by
+   * default nothing). Answering from one place is what stops a renderer and
+   * the legality guard disagreeing about what can be dropped on.
+   */
+  visiblePorts(id) {
+    const node = this.nodes.get(id);
+    if (!node) return [];
+    if (node.collapsed) return this.collapsedPorts ? this.collapsedPorts(node) : [];
+    return node.ports;
+  }
+};
+
+// src/canvas/graph/connector_router.js
+var CONNECTOR_STRINGS = Object.freeze({
+  nodeGone: "That node is no longer on the canvas.",
+  portGone: "That port is no longer on the canvas.",
+  portDisabled: "That port cannot be connected.",
+  selfReference: "A node cannot connect to itself on this canvas.",
+  portFull: (max) => max === 1 ? "That port already carries its one connection." : `That port already carries its ${max} connections.`
+});
+var say = (strings, key, ...args) => {
+  const s = strings[key];
+  return typeof s === "function" ? s(...args) : String(s);
+};
+var defaultEndsOf = (edge) => ({ from: edge?.fromPort ?? null, to: edge?.toPort ?? null });
+function capacityOf(port) {
+  if (Number.isFinite(port?.maxConnections)) return port.maxConnections;
+  if (port?.allowMultiple === false) return 1;
+  return Infinity;
+}
+var ConnectorRouter = class {
+  /**
+   * @param {object} o
+   * @param {object} o.platform                        a `NodePlatform`
+   * @param {boolean} [o.selfReference]                may a node connect to itself
+   * @param {(ctx: object) => object|null|undefined} [o.policy]  the embedder's rules, asked last
+   * @param {(edge: object) => {from, to}} [o.endsOf]  the port ids an edge uses at each end
+   * @param {('source'|'target')[]} [o.disabledEnds]   which ends a disabled port refuses
+   * @param {object} [o.strings]                       the generic refusals' words
+   */
+  constructor({
+    platform,
+    selfReference = false,
+    policy = null,
+    endsOf = null,
+    disabledEnds = ["source", "target"],
+    strings = null
+  } = {}) {
+    this.platform = platform;
+    this.selfReference = selfReference;
+    this.policy = typeof policy === "function" ? policy : null;
+    this.endsOf = typeof endsOf === "function" ? endsOf : defaultEndsOf;
+    this.disabledEnds = new Set(disabledEnds);
+    this.strings = Object.freeze({ ...CONNECTOR_STRINGS, ...strings || {} });
+    this.edges = /* @__PURE__ */ new Map();
+  }
+  hydrate(edges) {
+    this.edges.clear();
+    for (const edge of edges) this.edges.set(edge.id, edge);
+  }
+  /** Every edge already touching this node, in either direction. */
+  edgesFor(nodeId) {
+    return [...this.edges.values()].filter((e) => e.from === nodeId || e.to === nodeId);
+  }
+  /** How many edges (applied and `pending`) already use this port at this node. */
+  connectionsAt(nodeId, portId, { pendingEdges = [] } = {}) {
+    let n = 0;
+    for (const edge of [...this.edges.values(), ...pendingEdges]) {
+      const ends = this.endsOf(edge) || {};
+      if (edge.from === nodeId && ends.from === portId) n += 1;
+      if (edge.to === nodeId && ends.to === portId) n += 1;
+    }
+    return n;
+  }
+  /**
+   * Can this drop become an edge?
+   *
+   * `source` and `target` are `{nodeId, portId}`. The answer is a verdict the
+   * caller can render directly — the reason strings ARE the notice text, so a
+   * policy should name the objects rather than describe the rule.
+   */
+  canConnect(source, target, { pendingEdges = [] } = {}) {
+    const S = this.strings;
+    const fromNode = this.platform.get(source.nodeId);
+    const toNode = this.platform.get(target.nodeId);
+    if (!fromNode || !toNode) return { ok: false, reason: say(S, "nodeGone") };
+    const fromPort = this.platform.port(source.nodeId, source.portId);
+    const toPort = this.platform.port(target.nodeId, target.portId);
+    if (!fromPort || !toPort) return { ok: false, reason: say(S, "portGone") };
+    if (fromPort.disabled && this.disabledEnds.has("source")) {
+      return { ok: false, reason: fromPort.disabledReason || say(S, "portDisabled") };
+    }
+    if (toPort.disabled && this.disabledEnds.has("target")) {
+      return { ok: false, reason: toPort.disabledReason || say(S, "portDisabled") };
+    }
+    const selfReference = fromNode.id === toNode.id;
+    if (selfReference && !this.selfReference) return { ok: false, reason: say(S, "selfReference") };
+    for (const [node, port] of [[fromNode, fromPort], [toNode, toPort]]) {
+      const max = capacityOf(port);
+      if (max !== Infinity && this.connectionsAt(node.id, port.id, { pendingEdges }) >= max) {
+        return { ok: false, reason: say(S, "portFull", max) };
+      }
+    }
+    if (this.policy) {
+      const verdict = this.policy({
+        source,
+        target,
+        fromNode,
+        toNode,
+        fromPort,
+        toPort,
+        pendingEdges,
+        selfReference,
+        edges: [...this.edges.values()],
+        router: this
+      });
+      if (verdict && typeof verdict === "object") return verdict;
+    }
+    return { ok: true, selfReference };
+  }
+  /**
+   * Record a STAGED edge. Nothing here talks to a server — the embedder turns
+   * a staged edge into whatever its own write is, and only that makes it real.
+   */
+  stage(edge) {
+    this.edges.set(edge.id, edge);
+    return edge;
+  }
+  unstage(id) {
+    const edge = this.edges.get(id);
+    this.edges.delete(id);
+    return edge || null;
+  }
+  /**
+   * Re-map edges when a node's port set is rebuilt.
+   *
+   * A node gains or loses a port constantly in a live diagram. Matches by port
+   * id, drops what cannot be mapped, and reports both — a silently dropped
+   * edge is a line that vanished from the drawing while what it stands for
+   * still exists. `endsOf` (else the router's own) names the ports an edge
+   * uses; an end that names none is not checked.
+   */
+  remapNodeConnections(nodeId, portIds, { endsOf = null } = {}) {
+    const ends = typeof endsOf === "function" ? endsOf : this.endsOf;
+    const available = new Set(portIds);
+    let remapped = 0;
+    const removed = [];
+    for (const [id, edge] of [...this.edges]) {
+      const at = ends(edge) || {};
+      const touches = [];
+      if (edge.from === nodeId && at.from !== null && at.from !== void 0) touches.push(at.from);
+      if (edge.to === nodeId && at.to !== null && at.to !== void 0) touches.push(at.to);
+      if (edge.from !== nodeId && edge.to !== nodeId) continue;
+      if (touches.every((portId) => available.has(portId))) {
+        remapped += 1;
+        continue;
+      }
+      this.edges.delete(id);
+      removed.push(edge);
+    }
+    return { remapped, removed };
+  }
+};
+
 export {
   CanvasAdapter,
   OBSTACLE_ROUTING_NODE_LIMIT,
@@ -527,6 +973,10 @@ export {
   cardinality,
   selfLoop,
   returnEdge,
-  arrange
+  arrange,
+  layeredLayout,
+  NodePlatform,
+  CONNECTOR_STRINGS,
+  ConnectorRouter
 };
-//# sourceMappingURL=chunk-SN4LSOAR.js.map
+//# sourceMappingURL=chunk-GOQLR5WR.js.map

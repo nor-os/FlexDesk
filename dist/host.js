@@ -17,11 +17,19 @@ var HOST_CONTRACT = Object.freeze({
     // `chrome()` answers 'native' or 'custom', or a promise of one.
     optional: Object.freeze(["startNativeDrag", "startNativeResize"])
   }),
-  dialogs: Object.freeze({ required: Object.freeze(["saveFile"]), optional: Object.freeze([]) }),
+  // `openFile({accept, kind, encoding})` answers {ok: true, name, path?, text | data},
+  // {ok: false, cancelled: true}, {ok: false, error}, or null when there is
+  // no dialog behind it. Optional: pickFile() (file_picker.js) falls back to
+  // the browser's file chooser without it.
+  dialogs: Object.freeze({ required: Object.freeze(["saveFile"]), optional: Object.freeze(["openFile"]) }),
   state: Object.freeze({ required: Object.freeze(["read", "write"]), optional: Object.freeze([]) }),
   // `openExternal(url)` hands a web address to the OS's default browser and
   // resolves true when it did. See external_links.js.
-  shell: Object.freeze({ required: Object.freeze(["openExternal"]), optional: Object.freeze([]) })
+  shell: Object.freeze({ required: Object.freeze(["openExternal"]), optional: Object.freeze([]) }),
+  // `list(kind)` answers the starter entries `[{id, kind, label, description?,
+  // fields?}]` for one kind (every kind when `kind` is null), or a promise of
+  // them. Backs mountGalleryPicker() when it is given no `entries`.
+  gallery: Object.freeze({ required: Object.freeze(["list"]), optional: Object.freeze([]) })
 });
 function validateCapability(name, cap) {
   const spec = HOST_CONTRACT[name];
@@ -102,7 +110,17 @@ function createPywebviewHost({ bridgeRef = null, resolvePath = (k) => `${k}.json
       // treats it exactly like an absent `dialogs` capability: fall back to a
       // Blob download, never report a failed save. Covered by
       // tests/ui/test_host_save_fallback.mjs.
-      saveFile: ({ data, filename, kind }) => call("save_file_dialog", [data, filename, kind])
+      saveFile: ({ data, filename, kind }) => call("save_file_dialog", [data, filename, kind]),
+      // POSITIONAL on the wire like save_file_dialog: read_file_dialog(accept,
+      // kind, encoding), where `accept` is a list of extensions or MIME types
+      // (may be empty), `kind` a label for the filter or null, and `encoding`
+      // 'text' or 'base64'. The reply is openFile's result shape (host.js);
+      // null when the transport has no read_file_dialog, and pickFile() then
+      // opens the browser's file chooser instead. See the README host contract.
+      async openFile({ accept = [], kind = null, encoding = "text" } = {}) {
+        const r = await call("read_file_dialog", [accept, kind, encoding]);
+        return r && typeof r === "object" ? r : null;
+      }
     },
     state: {
       async read(key) {
@@ -257,6 +275,18 @@ function createPhotinoHost(opts = {}) {
           warn("dialogs", "saveFile", e);
         }
         return r && typeof r === "object" ? r : null;
+      },
+      // `{ok: true, name, path?, text | data}` | `{ok: false, cancelled: true}` |
+      // `{ok: false, error}`, or null when the host refused: pickFile() then
+      // opens the browser's chooser. No timeout, for the same reason as saveFile.
+      async openFile({ accept = [], kind = null, encoding = "text" } = {}) {
+        let r = null;
+        try {
+          r = await request("dialogs", "openFile", [{ accept, kind, encoding }], { wait: 0 });
+        } catch (e) {
+          warn("dialogs", "openFile", e);
+        }
+        return r && typeof r === "object" ? r : null;
       }
     },
     shell: {
@@ -357,6 +387,81 @@ function routeExternalLinks({ host, root, win } = {}) {
     }
   };
 }
+
+// src/host/file_picker.js
+var ENCODINGS = /* @__PURE__ */ new Set(["text", "base64"]);
+function acceptList(accept) {
+  const parts = Array.isArray(accept) ? accept : accept ? String(accept).split(",") : [];
+  return parts.map((a) => String(a).trim()).filter(Boolean);
+}
+function acceptAttr(accept) {
+  return acceptList(accept).join(",");
+}
+function readFile(file, encoding, FileReaderCtor) {
+  return new Promise((resolve) => {
+    const reader = new FileReaderCtor();
+    reader.onload = () => {
+      const name = file.name;
+      if (encoding === "base64") {
+        const url = String(reader.result ?? "");
+        resolve({ ok: true, name, data: url.slice(url.indexOf(",") + 1) });
+      } else {
+        resolve({ ok: true, name, text: String(reader.result ?? "") });
+      }
+    };
+    reader.onerror = () => resolve({ ok: false, error: String(reader.error?.message || reader.error || "The file could not be read.") });
+    if (encoding === "base64") reader.readAsDataURL(file);
+    else reader.readAsText(file);
+  });
+}
+function browserChooser({ accept, encoding, doc }) {
+  const FileReaderCtor = doc?.defaultView?.FileReader ?? globalThis.FileReader;
+  if (!doc?.body || typeof FileReaderCtor !== "function") {
+    return Promise.resolve({ ok: false, error: "No file chooser is available here." });
+  }
+  return new Promise((resolve) => {
+    const input = doc.createElement("input");
+    input.type = "file";
+    const a = acceptAttr(accept);
+    if (a) input.accept = a;
+    input.style.display = "none";
+    let done = false;
+    const finish = (result) => {
+      if (done) return;
+      done = true;
+      input.removeEventListener("change", onChange);
+      input.removeEventListener("cancel", onCancel);
+      input.remove();
+      resolve(result);
+    };
+    const onChange = () => {
+      const file = input.files && input.files[0];
+      if (!file) {
+        finish({ ok: false, cancelled: true });
+        return;
+      }
+      readFile(file, encoding, FileReaderCtor).then(finish);
+    };
+    const onCancel = () => finish({ ok: false, cancelled: true });
+    input.addEventListener("change", onChange);
+    input.addEventListener("cancel", onCancel);
+    doc.body.appendChild(input);
+    input.click();
+  });
+}
+async function pickFile(host, { accept = [], kind = null, encoding = "text", document: doc } = {}) {
+  if (!ENCODINGS.has(encoding)) throw new TypeError(`pickFile: unknown encoding '${encoding}' (use 'text' or 'base64')`);
+  if (typeof host?.dialogs?.openFile === "function") {
+    let r = null;
+    try {
+      r = await host.dialogs.openFile({ accept: acceptList(accept), kind, encoding });
+    } catch {
+      r = null;
+    }
+    if (r && typeof r === "object") return r;
+  }
+  return browserChooser({ accept, encoding, doc: doc ?? (typeof document !== "undefined" ? document : null) });
+}
 export {
   HOST_CONTRACT,
   NULL_HOST,
@@ -365,6 +470,7 @@ export {
   createPhotinoTransport,
   createPywebviewHost,
   isPhotinoWindow,
+  pickFile,
   routeExternalLinks,
   usesCustomWindowChrome,
   validateCapability

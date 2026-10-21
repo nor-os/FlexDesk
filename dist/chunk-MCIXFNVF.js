@@ -1,10 +1,10 @@
 import {
   DataTable,
   createRafResizeObserver
-} from "./chunk-FBGP5KN5.js";
+} from "./chunk-Q36EPT2R.js";
 import {
   ManagedWindow
-} from "./chunk-6JSOVNID.js";
+} from "./chunk-CVMCZZX2.js";
 
 // src/charts/plotly_wrapper.js
 var _plotlySrc = null;
@@ -96,6 +96,7 @@ var DARK_THEME_LAYOUT = {
     bgcolor: "rgba(0,0,0,0)"
   }
 };
+var DEFAULT_CHART_EXPORT_FILENAME = "chart";
 var DEFAULT_CONFIG = {
   responsive: true,
   displaylogo: false,
@@ -105,10 +106,16 @@ var DEFAULT_CONFIG = {
   // Allow zoom with scroll wheel instead
   toImageButtonOptions: {
     format: "png",
-    filename: "ecosim_chart",
+    filename: DEFAULT_CHART_EXPORT_FILENAME,
     scale: 2
   }
 };
+function setChartExportFilename(filename = DEFAULT_CHART_EXPORT_FILENAME) {
+  DEFAULT_CONFIG.toImageButtonOptions.filename = typeof filename === "string" && filename ? filename : DEFAULT_CHART_EXPORT_FILENAME;
+}
+function getChartExportFilename() {
+  return DEFAULT_CONFIG.toImageButtonOptions.filename;
+}
 async function ensurePlotly() {
   if (typeof Plotly !== "undefined") {
     return Plotly;
@@ -1071,6 +1078,29 @@ var PLOT_LAYOUTS = Object.freeze({
   "wide-top": { label: "1 + 2", slots: 3, grid: { columns: "1fr 1fr", rows: "1fr 1fr" }, areas: [{ slot: 0, gridArea: "1/1/2/3" }, { slot: 1, gridArea: "2/1/3/2" }, { slot: 2, gridArea: "2/2/3/3" }] },
   "wide-bottom": { label: "2 + 1", slots: 3, grid: { columns: "1fr 1fr", rows: "1fr 1fr" }, areas: [{ slot: 0, gridArea: "1/1/2/2" }, { slot: 1, gridArea: "1/2/2/3" }, { slot: 2, gridArea: "2/1/3/3" }] }
 });
+function makeDefaultYAxis(index = 0) {
+  return {
+    id: uid("y"),
+    label: "",
+    scale: "linear",
+    position: index % 2 === 0 ? "left" : "right",
+    min: null,
+    max: null,
+    step: null,
+    series: []
+  };
+}
+function makeDefaultSeries(index = 0) {
+  return {
+    id: uid("s"),
+    variable: "",
+    label: "",
+    color: getSeriesColor(index),
+    lineWidth: 2,
+    lineStyle: "solid",
+    stackGroup: null
+  };
+}
 function makeDefaultSubplot(index) {
   return {
     id: uid("sp"),
@@ -1080,21 +1110,9 @@ function makeDefaultSubplot(index) {
     interpolation: "linear",
     nanHandling: "gap",
     showDataPoints: false,
-    showHpTrend: false,
-    showHpCycle: false,
-    hpLambda: 1600,
     xAxis: { useTime: true, variable: "" },
     zAxis: null,
-    yAxes: [{
-      id: uid("y"),
-      label: "",
-      scale: "linear",
-      position: "left",
-      min: null,
-      max: null,
-      step: null,
-      series: []
-    }]
+    yAxes: [makeDefaultYAxis(0)]
   };
 }
 function migrateData(data) {
@@ -1139,23 +1157,496 @@ function migrateSingleChart(data) {
     nanHandling: data?.nanHandling ?? "gap",
     showDataPoints: data?.showDataPoints ?? false,
     yAxes: [{
-      id: uid("y"),
+      ...makeDefaultYAxis(0),
       label: data?.yLabel ?? "",
-      scale: "linear",
-      position: "left",
-      min: null,
-      max: null,
-      series: series.map((s, i) => ({
-        id: s.id ?? uid("s"),
-        variable: s.variable ?? "",
-        label: s.label ?? "",
-        color: s.color ?? getSeriesColor(i),
-        lineWidth: s.lineWidth ?? 2,
-        lineStyle: s.lineStyle ?? "solid",
-        stackGroup: s.stackGroup ?? null,
-        ...s.overlay ? { overlay: s.overlay } : {}
-      }))
+      series: series.map((s, i) => {
+        const d = makeDefaultSeries(i);
+        return {
+          id: s.id ?? d.id,
+          variable: s.variable ?? d.variable,
+          label: s.label ?? d.label,
+          color: s.color ?? d.color,
+          lineWidth: s.lineWidth ?? d.lineWidth,
+          lineStyle: s.lineStyle ?? d.lineStyle,
+          stackGroup: s.stackGroup ?? d.stackGroup,
+          ...s.overlay ? { overlay: s.overlay } : {}
+        };
+      })
     }]
+  };
+}
+
+// src/charts/series_transforms.js
+function resolveParams(transform, state) {
+  const params = {};
+  for (const [name, spec] of Object.entries(transform.params ?? {})) {
+    params[name] = spec?.default;
+  }
+  return { ...params, ...state?.params ?? {} };
+}
+function enabledOutputs(transform, state) {
+  return Object.keys(transform.outputs ?? {}).filter((name) => state?.outputs?.[name] === true);
+}
+function isEligible(trace) {
+  const type = trace.type ?? "scatter";
+  return (type === "scatter" || type === "scattergl") && Array.isArray(trace.y);
+}
+async function deriveSeriesTraces(traces, subplot, seriesTransforms, { onError } = {}) {
+  const derived = [];
+  if (!seriesTransforms) return derived;
+  const sources = traces.filter(isEligible);
+  for (const [transformId, transform] of Object.entries(seriesTransforms)) {
+    const state = subplot?.transforms?.[transformId];
+    const outputs = enabledOutputs(transform, state);
+    if (!outputs.length || typeof transform?.run !== "function") continue;
+    const params = resolveParams(transform, state);
+    for (const source of sources) {
+      let result;
+      try {
+        result = await transform.run(source.y, params);
+      } catch (error) {
+        onError?.({ transformId, traceName: source.name, error });
+        continue;
+      }
+      if (!result || typeof result !== "object") {
+        onError?.({
+          transformId,
+          traceName: source.name,
+          error: new Error(`transform "${transformId}" resolved no outputs`)
+        });
+        continue;
+      }
+      const color = source.line?.color || source.marker?.color;
+      for (const name of outputs) {
+        const y = result[name];
+        if (!Array.isArray(y)) continue;
+        const spec = transform.outputs[name];
+        derived.push({
+          ...buildTrace({
+            chartType: "line",
+            x: source.x,
+            y,
+            name: `${source.name}${spec.suffix ?? ` (${spec.label ?? name})`}`,
+            color,
+            lineWidth: spec.lineWidth ?? 2,
+            lineStyle: spec.lineStyle ?? "solid",
+            yAxisId: source.yaxis || "y"
+          }),
+          showlegend: true
+        });
+      }
+    }
+  }
+  return derived;
+}
+function renderSeriesTransformControls(container, subplot, seriesTransforms, { onChange } = {}) {
+  const entries = Object.entries(seriesTransforms ?? {});
+  if (!entries.length) return { dispose() {
+  } };
+  const root = document.createElement("div");
+  root.className = "twm-series-transforms";
+  const stateOf = (transformId) => {
+    subplot.transforms ??= {};
+    subplot.transforms[transformId] ??= {};
+    return subplot.transforms[transformId];
+  };
+  for (const [transformId, transform] of entries) {
+    const group = document.createElement("fieldset");
+    group.className = "twm-series-transforms__group";
+    const legend = document.createElement("legend");
+    legend.className = "twm-series-transforms__label";
+    legend.textContent = transform.label ?? transformId;
+    group.appendChild(legend);
+    const paramInputs = [];
+    const syncDisabled = () => {
+      const on = enabledOutputs(transform, subplot.transforms?.[transformId]).length > 0;
+      for (const input of paramInputs) input.disabled = !on;
+    };
+    for (const [name, spec] of Object.entries(transform.outputs ?? {})) {
+      const row = document.createElement("label");
+      row.className = "twm-series-transforms__row";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = subplot.transforms?.[transformId]?.outputs?.[name] === true;
+      box.addEventListener("change", () => {
+        const state = stateOf(transformId);
+        state.outputs = { ...state.outputs ?? {}, [name]: box.checked };
+        syncDisabled();
+        onChange?.();
+      });
+      const text = document.createElement("span");
+      text.textContent = spec?.label ?? name;
+      row.append(box, text);
+      group.appendChild(row);
+    }
+    for (const [name, spec] of Object.entries(transform.params ?? {})) {
+      const row = document.createElement("label");
+      row.className = "twm-series-transforms__row";
+      const text = document.createElement("span");
+      text.textContent = spec?.label ?? name;
+      const input = document.createElement("input");
+      input.type = "number";
+      input.className = "twm-series-transforms__param";
+      for (const attr of ["min", "max", "step"]) {
+        if (spec?.[attr] != null) input[attr] = String(spec[attr]);
+      }
+      const current = subplot.transforms?.[transformId]?.params?.[name] ?? spec?.default;
+      input.value = current == null ? "" : String(current);
+      input.addEventListener("change", () => {
+        const value = parseFloat(input.value);
+        const state = stateOf(transformId);
+        const params = { ...state.params ?? {} };
+        if (Number.isFinite(value)) params[name] = value;
+        else delete params[name];
+        state.params = params;
+        onChange?.();
+      });
+      paramInputs.push(input);
+      row.append(text, input);
+      group.appendChild(row);
+    }
+    syncDisabled();
+    root.appendChild(group);
+  }
+  container.appendChild(root);
+  return { dispose() {
+    root.remove();
+  } };
+}
+
+// src/charts/plot_grid.js
+var PLOT_GRID_THEME = Object.freeze({
+  fontFamily: "Inter, -apple-system, BlinkMacSystemFont, sans-serif",
+  fontColor: "#cccccc",
+  fontSize: 11,
+  paperBackground: "transparent",
+  plotBackground: "transparent",
+  gridColor: "rgba(255,255,255,0.05)",
+  lineColor: "rgba(255,255,255,0.08)",
+  tickColor: "rgba(255,255,255,0.3)",
+  zeroLineColor: "rgba(255,255,255,0.06)",
+  hoverBackground: "#1e2228",
+  hoverBorder: "#444444"
+});
+var OVERLAY_DASH = { dashed: "dash", dotted: "dot", solid: "solid" };
+function resolveSeriesData(series, results) {
+  const table = results?.series;
+  const variable = series?.variable;
+  if (!table || !variable) return null;
+  let y = table[series._resultKey ?? variable];
+  if (!y && series._resultKey) y = table[variable];
+  if (!y) {
+    const dot = variable.indexOf(".");
+    if (dot >= 0) y = table[variable.slice(dot + 1)];
+  }
+  if (!y) return null;
+  return series._resultTime ? { y, x: series._resultTime } : { y };
+}
+function renderPlotGrid(container, plotConfig, results, options = {}) {
+  const opts = {
+    resolveSeries: resolveSeriesData,
+    overlays: null,
+    seriesTransforms: null,
+    onTransformError: null,
+    derivedTraces: null,
+    hiddenSeries: null,
+    theme: null,
+    alwaysShowLegend: false,
+    layout: null,
+    emptyMessage: "No data yet.",
+    noSubplotMessage: "No subplot configured.",
+    onError: null,
+    ...options
+  };
+  let config = plotConfig;
+  let data = results;
+  let disposed = false;
+  let cells = [];
+  let cellsLayout = null;
+  let tokens = [];
+  let lastToken = 0;
+  const deferred = /* @__PURE__ */ new Set();
+  const grid = document.createElement("div");
+  grid.className = "twm-plot-grid";
+  container.appendChild(grid);
+  const observer = createRafResizeObserver(() => resize2());
+  observer.observe(grid);
+  const plotted = /* @__PURE__ */ new Set();
+  const drawn = /* @__PURE__ */ new Set();
+  const hasPlot2 = (cell) => plotted.has(cell);
+  const purgeCell = (cell) => {
+    drawn.delete(cell);
+    if (!plotted.delete(cell)) return;
+    try {
+      globalThis.Plotly?.purge(cell);
+    } catch (_) {
+    }
+  };
+  function buildCells() {
+    for (const cell of cells) purgeCell(cell);
+    grid.replaceChildren();
+    const tmpl = PLOT_LAYOUTS[config?.layout] || PLOT_LAYOUTS["1x1"];
+    grid.style.gridTemplateColumns = tmpl.grid.columns;
+    grid.style.gridTemplateRows = tmpl.grid.rows;
+    cells = tmpl.areas.map(({ gridArea }) => {
+      const cell = document.createElement("div");
+      cell.className = "twm-plot-grid__cell";
+      cell.style.gridArea = gridArea;
+      grid.appendChild(cell);
+      return cell;
+    });
+    cellsLayout = config?.layout;
+    tokens = cells.map(() => 0);
+    deferred.clear();
+  }
+  function showMessage(cell, text) {
+    purgeCell(cell);
+    const msg = document.createElement("div");
+    msg.className = "twm-plot-no-data";
+    msg.textContent = text;
+    cell.replaceChildren(msg);
+  }
+  const theme = () => ({ ...PLOT_GRID_THEME, ...opts.theme ?? {} });
+  const isHidden = (name) => {
+    const h = opts.hiddenSeries;
+    if (!h) return false;
+    return typeof h.has === "function" ? h.has(name) : h.includes(name);
+  };
+  const axisColours = (t) => ({
+    gridcolor: t.gridColor,
+    linecolor: t.lineColor,
+    tickcolor: t.tickColor,
+    zerolinecolor: t.zeroLineColor
+  });
+  async function buildFigure(sp, index) {
+    if (!data) return null;
+    const t = theme();
+    const time = data.time ?? [];
+    const traces = [];
+    const layoutAxes = {};
+    const yRefByAxisId = {};
+    let ownCount = 0;
+    let hiddenCount = 0;
+    const useX = sp.xAxis && sp.xAxis.useTime === false && sp.xAxis.variable;
+    const xData = useX ? opts.resolveSeries({ variable: sp.xAxis.variable }, data, sp)?.y ?? time : time;
+    const yAxes = sp.yAxes ?? [];
+    yAxes.forEach((axis, a) => {
+      const n = a + 1;
+      const yAxisKey = n === 1 ? "yaxis" : `yaxis${n}`;
+      const yRef = n === 1 ? "y" : `y${n}`;
+      if (axis.id) yRefByAxisId[axis.id] = yRef;
+      layoutAxes[yAxisKey] = {
+        ...buildYAxisLayout({
+          axisId: yAxisKey,
+          title: axis.label || "",
+          position: axis.position || "left",
+          scaleType: axis.scale || "linear",
+          min: axis.min ?? null,
+          max: axis.max ?? null,
+          step: axis.step ?? null,
+          showGrid: yAxes.length === 1,
+          axisPosition: n > 1 ? axis.position === "right" ? 1 : 0 : null
+        }),
+        ...axisColours(t)
+      };
+      for (const s of axis.series ?? []) {
+        if (!s.variable) continue;
+        const label = s.label || s.variable;
+        ownCount++;
+        if (isHidden(label)) {
+          hiddenCount++;
+          continue;
+        }
+        const resolved = opts.resolveSeries(s, data, sp);
+        if (!resolved?.y) continue;
+        const x = resolved.x ?? xData;
+        const y = Array.isArray(resolved.y) ? applyNanHandling(resolved.y, sp.nanHandling ?? "gap", x) : resolved.y;
+        traces.push(buildTrace({
+          chartType: sp.chartType || "line",
+          x,
+          y,
+          name: label,
+          color: s.color,
+          lineWidth: s.lineWidth ?? 2,
+          lineStyle: s.lineStyle ?? "solid",
+          interpolation: sp.interpolation ?? "linear",
+          yAxisId: yRef,
+          showMarkers: sp.showDataPoints ?? false,
+          stackGroup: s.stackGroup ?? null
+        }));
+        const overlay = s.overlay ? opts.overlays?.[s.id] : null;
+        if (!overlay?.years?.length) continue;
+        const ov = s.overlay;
+        const ovLabel = ov.label || `${label} (actual)`;
+        if (isHidden(ovLabel)) continue;
+        const ovTrace = {
+          type: "scatter",
+          mode: ov.mode || "markers+lines",
+          x: overlay.years,
+          y: overlay.values,
+          name: ovLabel,
+          yaxis: yRef === "y" ? void 0 : yRef,
+          line: {
+            color: ov.color || s.color,
+            width: ov.lineWidth ?? 2,
+            dash: OVERLAY_DASH[ov.lineStyle] || "dash"
+          },
+          marker: { color: ov.color || s.color, size: 4, symbol: "circle" },
+          showlegend: true
+        };
+        if ((sp.chartType || "line") === "area-stacked") {
+          ovTrace.stackgroup = `overlay-${yRef}`;
+          ovTrace.groupnorm = "fraction";
+          ovTrace.fill = "none";
+          ovTrace.mode = "lines";
+        }
+        traces.push(ovTrace);
+      }
+    });
+    traces.push(...await deriveSeriesTraces(
+      traces,
+      sp,
+      opts.seriesTransforms,
+      { onError: opts.onTransformError ?? void 0 }
+    ));
+    if (opts.derivedTraces) {
+      const extra = await opts.derivedTraces(traces, sp, { results: data, index });
+      if (Array.isArray(extra)) traces.push(...extra);
+    }
+    if (traces.length === 0 && !(ownCount > 0 && hiddenCount === ownCount)) return null;
+    const legendPos = opts.alwaysShowLegend && (sp.legendPosition ?? "hidden") === "hidden" ? "top" : sp.legendPosition ?? "hidden";
+    const xRange = !useX && time.length >= 2 ? [time[0], time[time.length - 1]] : void 0;
+    const { shapes, annotations } = buildOverlayShapes({
+      referenceLines: sp.referenceLines,
+      shadedBands: sp.shadedBands,
+      yRefByAxisId
+    });
+    const font = { family: t.fontFamily, color: t.fontColor };
+    const layout = {
+      ...layoutAxes,
+      ...shapes.length ? { shapes } : {},
+      ...annotations.length ? { annotations } : {},
+      xaxis: {
+        ...useX ? { title: { text: sp.xAxis.label || sp.xAxis.variable, font: { size: t.fontSize } } } : {},
+        ...axisColours(t),
+        automargin: true,
+        ...xRange ? { range: xRange } : {}
+      },
+      ...buildLegendLayout(legendPos),
+      paper_bgcolor: t.paperBackground,
+      plot_bgcolor: t.plotBackground,
+      font: { ...font, size: t.fontSize },
+      margin: { t: 10, r: 20, b: 40, l: 50 },
+      hoverlabel: { bgcolor: t.hoverBackground, bordercolor: t.hoverBorder, font },
+      ...opts.layout ?? {}
+    };
+    return { traces, layout };
+  }
+  const hasSize = (cell) => cell.isConnected && cell.offsetWidth > 0 && cell.offsetHeight > 0;
+  async function drawCell(index) {
+    const cell = cells[index];
+    const token = ++lastToken;
+    tokens[index] = token;
+    const current = () => !disposed && cells[index] === cell && tokens[index] === token;
+    const sp = config?.subplots?.[index];
+    if (!sp) {
+      showMessage(cell, opts.noSubplotMessage);
+      deferred.delete(index);
+      return false;
+    }
+    const figure = await buildFigure(sp, index);
+    if (!current()) return false;
+    if (!figure) {
+      showMessage(cell, opts.emptyMessage);
+      deferred.delete(index);
+      return false;
+    }
+    if (!hasSize(cell)) {
+      deferred.add(index);
+      return false;
+    }
+    deferred.delete(index);
+    const Plotly2 = await ensurePlotly();
+    if (!current()) return false;
+    if (!hasPlot2(cell)) cell.replaceChildren();
+    plotted.add(cell);
+    try {
+      await Plotly2.react(cell, figure.traces, figure.layout, { responsive: true, displayModeBar: false });
+      if (plotted.has(cell)) drawn.add(cell);
+      return true;
+    } catch (_) {
+      drawn.delete(cell);
+      return false;
+    }
+  }
+  function drawCellOrFail(index) {
+    const cell = cells[index];
+    const pending = drawCell(index);
+    const token = tokens[index];
+    return pending.catch((error) => {
+      if (disposed) return false;
+      if (cells[index] === cell && tokens[index] === token) {
+        deferred.delete(index);
+        showMessage(cell, opts.emptyMessage);
+      }
+      opts.onError?.({ index, error });
+      return false;
+    });
+  }
+  async function drawAll() {
+    if (disposed) return false;
+    if (cellsLayout !== config?.layout || !cells.length) buildCells();
+    const results2 = await Promise.all(cells.map((_, i) => drawCellOrFail(i)));
+    return results2.some(Boolean);
+  }
+  function update(patch = {}) {
+    if (disposed) return Promise.resolve(false);
+    if ("plotConfig" in patch) config = patch.plotConfig;
+    if ("results" in patch) data = patch.results;
+    if ("overlays" in patch) opts.overlays = patch.overlays;
+    if ("hiddenSeries" in patch) opts.hiddenSeries = patch.hiddenSeries;
+    return drawAll();
+  }
+  function resize2() {
+    if (disposed) return;
+    for (const index of [...deferred]) {
+      if (!hasSize(cells[index])) continue;
+      drawCellOrFail(index);
+    }
+    const Plotly2 = globalThis.Plotly;
+    if (!Plotly2?.Plots?.resize) return;
+    for (const cell of cells) {
+      if (hasPlot2(cell) && hasSize(cell)) {
+        Promise.resolve().then(() => Plotly2.Plots.resize(cell)).catch(() => {
+        });
+      }
+    }
+  }
+  function dispose() {
+    if (disposed) return;
+    disposed = true;
+    observer.disconnect();
+    for (const cell of cells) purgeCell(cell);
+    cells = [];
+    deferred.clear();
+    grid.remove();
+  }
+  drawAll();
+  return {
+    update,
+    resize: resize2,
+    dispose,
+    /** The cells, one per grid slot, in layout order. */
+    get charts() {
+      return [...cells];
+    },
+    /**
+     * The cells that show a figure now, in layout order — however it got
+     * there: an update, or a deferred draw on a resize.
+     */
+    get plotted() {
+      return cells.filter((cell) => drawn.has(cell));
+    }
   };
 }
 
@@ -1172,7 +1663,21 @@ var PlotPopoutWindow = class {
    *        capability backs Export PNG/CSV; absent => Blob download fallback.
    * @param {Function} [options.onClose] - Called when window closes
    * @param {Object} [options.actuals] - ETL overlay data { seriesId: { years, values } }
-   * @param {Function} [options.configRenderer] - (container) => void — renders config panel
+   * @param {Function} [options.configRenderer] - `(container) => { dispose() } | void` —
+   *        renders the Config tab. What it returns is disposed (`dispose()`) when the
+   *        window closes, so an editor drawn there (renderPlotConfigEditor) goes with it.
+   * @param {Object} [options.seriesTransforms] - `{ [id]: transform }` (series_transforms.js);
+   *        absent => no derived series are drawn
+   * @param {string} [options.refreshEvent='data:changed'] - Bus event after which the
+   *        window re-reads `getResults()` and redraws.
+   * @param {{delta?: string|null, complete?: string|null}} [options.streamEvents] - Bus
+   *        events a live data source emits while it runs (`delta`) and when it ends
+   *        (`complete`); the window redraws on each while live update is on.
+   *        There are no default names: without `streamEvents` (or with a name
+   *        left out or given as null) nothing is listened for, and the window
+   *        updates through `refreshEvent` and explicit calls only.
+   * @param {Function} [options.resolveSeries] - `(series, results, subplot) => { y, x? } | null`
+   *        (plot_grid.js); used by the chart and the data table. Default resolveSeriesData.
    */
   constructor({
     id,
@@ -1184,10 +1689,13 @@ var PlotPopoutWindow = class {
     onClose,
     actuals,
     configRenderer,
+    seriesTransforms,
+    resolveSeries = resolveSeriesData,
     // The window used to listen for 'simulation:run:completed' and tell
     // the user to "run simulation first". A chart window does not know
     // that its data comes from a simulation; the app that opens it does.
     refreshEvent = "data:changed",
+    streamEvents = {},
     emptyMessage = "No data yet.",
     tableEmptyMessage = "No data yet."
   }) {
@@ -1201,17 +1709,21 @@ var PlotPopoutWindow = class {
     });
     this._actuals = actuals ?? null;
     this._configRenderer = configRenderer ?? null;
+    this._seriesTransforms = seriesTransforms ?? null;
+    this._resolveSeries = resolveSeries;
     this.refreshEvent = refreshEvent;
+    this.streamEvents = Object.freeze({
+      delta: streamEvents?.delta ?? null,
+      complete: streamEvents?.complete ?? null
+    });
     this.emptyMessage = emptyMessage;
     this.tableEmptyMessage = tableEmptyMessage;
     this._window = null;
     this._contentEl = null;
-    this._chartDivs = [];
+    this._grid = null;
     this._gridEl = null;
     this._activeTab = "plot";
     this._eventDisposers = [];
-    this._resizeObserver = null;
-    this._chartCreated = false;
     this._lastResults = null;
     this._dataTable = null;
     this._dataTableContainer = null;
@@ -1223,6 +1735,7 @@ var PlotPopoutWindow = class {
     this._plotContent = null;
     this._dataContent = null;
     this._configContent = null;
+    this._configHandle = null;
     this._toolbarActions = null;
     this._zoomBtn = null;
     this._panBtn = null;
@@ -1235,6 +1748,7 @@ var PlotPopoutWindow = class {
     this._lastTogglePanelSignature = null;
     this._outsideClickHandler = null;
     this._renderPending = false;
+    this._configChanged = false;
     this._liveUpdate = true;
     this._liveBtn = null;
   }
@@ -1249,7 +1763,6 @@ var PlotPopoutWindow = class {
     await ensurePlotly();
     this.#createWindow();
     this.#subscribeEvents();
-    this.#setupResizeObserver();
     await this.#render();
   }
   bringToFront() {
@@ -1261,7 +1774,7 @@ var PlotPopoutWindow = class {
   /** Update plot config and re-render. */
   updateConfig(plotConfig) {
     this._plotConfig = migrateData(plotConfig);
-    this.#buildSubplotGrid();
+    this._configChanged = true;
     this.#scheduleRender();
   }
   /** Update actuals overlay data and re-render. */
@@ -1358,7 +1871,24 @@ var PlotPopoutWindow = class {
     this._gridEl = document.createElement("div");
     this._gridEl.className = "twm-plot-window-chart";
     this._plotContent.appendChild(this._gridEl);
-    this.#buildSubplotGrid();
+    this._grid = renderPlotGrid(this._gridEl, this._plotConfig, null, {
+      resolveSeries: this._resolveSeries,
+      overlays: this._actuals,
+      hiddenSeries: this._hiddenSeries,
+      seriesTransforms: this._seriesTransforms,
+      onTransformError: ({ transformId, traceName, error }) => this._services?.logger?.warn?.(
+        `[PlotPopoutWindow] transform "${transformId}" failed on "${traceName}"`,
+        error
+      ),
+      // Popout windows have space — always show the legend.
+      alwaysShowLegend: true,
+      layout: { autosize: true, hovermode: "x unified" },
+      emptyMessage: this.emptyMessage,
+      onError: ({ index, error }) => this._services?.logger?.warn?.(
+        `[PlotPopoutWindow] subplot ${index + 1} failed to draw`,
+        error
+      )
+    });
     this._dataContent = document.createElement("div");
     this._dataContent.className = "twm-plot-tab-content";
     this._dataContent.setAttribute("data-tab", "data");
@@ -1373,7 +1903,7 @@ var PlotPopoutWindow = class {
       this._configContent.className = "twm-plot-tab-content";
       this._configContent.setAttribute("data-tab", "config");
       this._configContent.style.cssText = "display:none; flex-direction:column; overflow:auto; padding:8px 12px;";
-      this._configRenderer(this._configContent);
+      this._configHandle = this._configRenderer(this._configContent) ?? null;
       content.appendChild(this._configContent);
     }
     this._seriesTogglePanel = document.createElement("div");
@@ -1383,36 +1913,6 @@ var PlotPopoutWindow = class {
     container.appendChild(content);
     container.appendChild(this._seriesTogglePanel);
     return container;
-  }
-  // ── Subplot grid ────────────────────────────────────────────────────
-  #buildSubplotGrid() {
-    if (!this._gridEl) return;
-    for (const div of this._chartDivs) {
-      if (div && window.Plotly) {
-        try {
-          purge(div);
-        } catch (_) {
-        }
-      }
-    }
-    this._gridEl.innerHTML = "";
-    this._chartDivs = [];
-    const tmpl = PLOT_LAYOUTS[this._plotConfig.layout] || PLOT_LAYOUTS["1x1"];
-    this._gridEl.style.display = "grid";
-    this._gridEl.style.gridTemplateColumns = tmpl.grid.columns;
-    this._gridEl.style.gridTemplateRows = tmpl.grid.rows;
-    this._gridEl.style.gap = "4px";
-    this._gridEl.style.height = "100%";
-    this._gridEl.style.width = "100%";
-    for (let i = 0; i < tmpl.slots; i++) {
-      const div = document.createElement("div");
-      div.className = "plot-tile-chart";
-      div.style.gridArea = tmpl.areas[i].gridArea;
-      div.style.minHeight = "0";
-      this._gridEl.appendChild(div);
-      this._chartDivs.push(div);
-    }
-    this._chartCreated = false;
   }
   // ── Toolbar helpers ─────────────────────────────────────────────────
   #toolbarGroup() {
@@ -1433,9 +1933,16 @@ var PlotPopoutWindow = class {
     return btn;
   }
   // ── Plotly toolbar actions ───────────────────────────────────────────
+  get #charts() {
+    return this._grid?.charts ?? [];
+  }
+  /** The subplots that show a figure — the grid knows, however it drew them. */
+  get #plottedCharts() {
+    return this._grid?.plotted ?? [];
+  }
   #setDragMode(mode) {
-    if (!this._chartCreated) return;
-    for (const div of this._chartDivs) {
+    if (!this.#plottedCharts.length) return;
+    for (const div of this.#charts) {
       if (div._fullLayout) {
         window.Plotly.relayout(div, { dragmode: mode }).catch(() => {
         });
@@ -1445,7 +1952,7 @@ var PlotPopoutWindow = class {
     this._panBtn?.classList.toggle("twm-is-active", mode === "pan");
   }
   #zoom(factor) {
-    for (const div of this._chartDivs) {
+    for (const div of this.#charts) {
       if (!div._fullLayout) continue;
       const xa = div._fullLayout.xaxis;
       const ya = div._fullLayout.yaxis;
@@ -1464,7 +1971,7 @@ var PlotPopoutWindow = class {
     }
   }
   #autoscale() {
-    for (const div of this._chartDivs) {
+    for (const div of this.#charts) {
       if (!div._fullLayout) continue;
       window.Plotly.relayout(div, {
         "xaxis.autorange": true,
@@ -1472,20 +1979,6 @@ var PlotPopoutWindow = class {
       }).catch(() => {
       });
     }
-  }
-  #setupResizeObserver() {
-    if (!this._plotContent) return;
-    this._resizeObserver = createRafResizeObserver(() => {
-      if (this._activeTab === "plot" && this._chartCreated && window.Plotly) {
-        for (const div of this._chartDivs) {
-          if (div._fullLayout) {
-            Plotly.Plots.resize(div).catch(() => {
-            });
-          }
-        }
-      }
-    });
-    this._resizeObserver.observe(this._plotContent);
   }
   #switchTab(tabName) {
     this._activeTab = tabName;
@@ -1500,14 +1993,7 @@ var PlotPopoutWindow = class {
     if (this._configContent) {
       this._configContent.style.display = tabName === "config" ? "flex" : "none";
     }
-    if (tabName === "plot" && this._chartCreated && window.Plotly) {
-      for (const div of this._chartDivs) {
-        if (div._fullLayout) {
-          Plotly.Plots.resize(div).catch(() => {
-          });
-        }
-      }
-    }
+    if (tabName === "plot") this._grid?.resize();
     if (tabName === "data") {
       this.#renderDataTable();
     }
@@ -1666,16 +2152,15 @@ var PlotPopoutWindow = class {
   #subscribeEvents() {
     const { eventBus } = this._services;
     if (!eventBus) return;
-    this._eventDisposers.push(
-      eventBus.on("streaming:delta", () => {
-        if (this._liveUpdate) this.#scheduleRender();
-      })
-    );
-    this._eventDisposers.push(
-      eventBus.on("streaming:complete", () => {
-        if (this._liveUpdate) this.#scheduleRender();
-      })
-    );
+    const { delta, complete } = this.streamEvents;
+    for (const name of /* @__PURE__ */ new Set([delta, complete])) {
+      if (!name) continue;
+      this._eventDisposers.push(
+        eventBus.on(name, () => {
+          if (this._liveUpdate) this.#scheduleRender();
+        })
+      );
+    }
     this._eventDisposers.push(
       eventBus.on(this.refreshEvent, () => {
         if (this._liveUpdate) this.#scheduleRender();
@@ -1704,10 +2189,28 @@ var PlotPopoutWindow = class {
   async #render() {
     if (!this._window?.isVisible) return;
     const results = this._getResults?.();
-    if (!results) return;
+    const configChanged = this._configChanged;
+    this._configChanged = false;
+    if (!results) {
+      if (configChanged) {
+        await this._grid.update({
+          plotConfig: this._plotConfig,
+          results: null,
+          overlays: this._actuals,
+          hiddenSeries: this._hiddenSeries
+        });
+      }
+      return;
+    }
     this._lastResults = results;
     this.#collectSeriesInfo();
-    this.#renderAllCharts(results);
+    await this._grid.update({
+      plotConfig: this._plotConfig,
+      results,
+      overlays: this._actuals,
+      hiddenSeries: this._hiddenSeries
+    });
+    if (!this._window) return;
     this.#updateTableData(results);
     if (this._activeTab === "data") {
       this.#renderDataTable();
@@ -1730,7 +2233,7 @@ var PlotPopoutWindow = class {
             subplotName: sp.displayName || `Subplot ${spIdx + 1}`
           });
           this._allSeriesLabels.push(label);
-          if (s.overlay?.etlKey) {
+          if (s.overlay) {
             const ovLabel = s.overlay.label || `${label} (actual)`;
             this._allSeriesInfo.push({
               label: ovLabel,
@@ -1764,184 +2267,6 @@ var PlotPopoutWindow = class {
       }
     }
   }
-  #renderAllCharts(results) {
-    if (!window.Plotly) return;
-    const subplots = this._plotConfig.subplots ?? [];
-    for (let i = 0; i < this._chartDivs.length; i++) {
-      const chartDiv = this._chartDivs[i];
-      const sp = subplots[i];
-      if (!chartDiv) continue;
-      if (!sp) {
-        chartDiv.innerHTML = '<div class="twm-plot-no-data" style="color:rgba(255,255,255,0.3);text-align:center;padding:16px;">No subplot configured.</div>';
-        continue;
-      }
-      this.#renderSubplotChart(chartDiv, sp, results);
-    }
-  }
-  async #renderSubplotChart(chartDiv, sp, results) {
-    const { time, series } = results;
-    const traces = [];
-    const layoutAxes = {};
-    const yRefByAxisId = {};
-    let axisCount = 0;
-    for (const axis of sp.yAxes ?? []) {
-      axisCount++;
-      const yAxisKey = axisCount === 1 ? "yaxis" : `yaxis${axisCount}`;
-      const yRef = axisCount === 1 ? "y" : `y${axisCount}`;
-      if (axis.id) yRefByAxisId[axis.id] = yRef;
-      layoutAxes[yAxisKey] = buildYAxisLayout({
-        axisId: yAxisKey,
-        title: axis.label || "",
-        position: axis.position || "left",
-        scaleType: axis.scale || "linear",
-        min: axis.min,
-        max: axis.max,
-        showGrid: (sp.yAxes ?? []).length === 1,
-        axisPosition: axisCount > 1 ? axis.position === "right" ? 1 : 0 : null
-      });
-      for (const s of axis.series ?? []) {
-        if (!s.variable) continue;
-        const label = s.label || s.variable;
-        if (this._hiddenSeries.has(label)) continue;
-        let rawY = series?.[s._resultKey ?? s.variable];
-        if (!rawY && s._resultKey) {
-          rawY = series?.[s.variable];
-        }
-        if (!rawY) {
-          const dotIdx = s.variable.indexOf(".");
-          if (dotIdx >= 0) rawY = series?.[s.variable.slice(dotIdx + 1)];
-        }
-        if (!rawY) continue;
-        const y = Array.isArray(rawY) ? applyNanHandling(rawY, sp.nanHandling ?? "gap", time) : rawY;
-        const seriesTime = s._resultTime ?? time;
-        traces.push(buildTrace({
-          chartType: sp.chartType || "line",
-          x: seriesTime,
-          y,
-          name: label,
-          color: s.color,
-          lineWidth: s.lineWidth ?? 2,
-          lineStyle: s.lineStyle ?? "solid",
-          interpolation: sp.interpolation ?? "linear",
-          yAxisId: yRef,
-          showMarkers: sp.showDataPoints ?? false,
-          stackGroup: s.stackGroup ?? null
-        }));
-        if (s.overlay?.etlKey && this._actuals?.[s.id]) {
-          const ovLabel = s.overlay.label || `${label} (actual)`;
-          if (!this._hiddenSeries.has(ovLabel)) {
-            const act = this._actuals[s.id];
-            if (act?.years?.length) {
-              const ov = s.overlay;
-              const dashMap = { dashed: "dash", dotted: "dot", solid: "solid" };
-              traces.push({
-                type: "scatter",
-                mode: ov.mode || "markers+lines",
-                x: act.years,
-                y: act.values,
-                name: ov.label || `${label} (actual)`,
-                yaxis: yRef === "y" ? void 0 : yRef,
-                line: {
-                  color: ov.color || s.color,
-                  width: ov.lineWidth ?? 2,
-                  dash: dashMap[ov.lineStyle] || "dash"
-                },
-                marker: {
-                  color: ov.color || s.color,
-                  size: 4,
-                  symbol: "circle"
-                },
-                showlegend: true
-              });
-            }
-          }
-        }
-      }
-    }
-    if ((sp.showHpTrend || sp.showHpCycle) && window.pywebview?.api?.hp_filter) {
-      const hpLambda = sp.hpLambda ?? 1600;
-      for (const trace of [...traces]) {
-        if (trace.type && trace.type !== "scatter" && trace.type !== "scattergl") continue;
-        try {
-          const hpResult = await window.pywebview.api.hp_filter({
-            data: trace.y,
-            lambda: hpLambda
-          });
-          if (!hpResult?.ok) continue;
-          const { trend, cycle } = hpResult;
-          const origColor = trace.line?.color || trace.marker?.color || getSeriesColor(0);
-          if (sp.showHpTrend && trend) {
-            traces.push({
-              x: trace.x,
-              y: trend,
-              type: "scatter",
-              mode: "lines",
-              name: `${trace.name} (HP Trend)`,
-              yaxis: trace.yaxis || "y",
-              line: { color: origColor, width: 2, dash: "dash" },
-              showlegend: true
-            });
-          }
-          if (sp.showHpCycle && cycle) {
-            traces.push({
-              x: trace.x,
-              y: cycle,
-              type: "scatter",
-              mode: "lines",
-              name: `${trace.name} (HP Cycle)`,
-              yaxis: trace.yaxis || "y",
-              line: { color: origColor, width: 1, dash: "dot" },
-              showlegend: true
-            });
-          }
-        } catch (_) {
-        }
-      }
-    }
-    if (traces.length === 0 && this._hiddenSeries.size === 0) {
-      chartDiv.innerHTML = `<div class="twm-plot-no-data" style="color:rgba(255,255,255,0.3);text-align:center;padding:16px;font-size:11px;">${this.emptyMessage}</div>`;
-      return;
-    }
-    const legendPos = sp.legendPosition === "hidden" ? "top" : sp.legendPosition ?? "top";
-    const legend = buildLegendLayout(legendPos);
-    const xRange = time?.length >= 2 ? [time[0], time[time.length - 1]] : void 0;
-    const { shapes, annotations } = buildOverlayShapes({
-      referenceLines: sp.referenceLines,
-      shadedBands: sp.shadedBands,
-      yRefByAxisId
-    });
-    const layout = {
-      ...layoutAxes,
-      ...shapes.length ? { shapes } : {},
-      ...annotations.length ? { annotations } : {},
-      xaxis: {
-        gridcolor: "rgba(255,255,255,0.05)",
-        linecolor: "rgba(255,255,255,0.08)",
-        tickcolor: "rgba(255,255,255,0.3)",
-        zerolinecolor: "rgba(255,255,255,0.06)",
-        automargin: true,
-        ...xRange ? { range: xRange } : {}
-      },
-      ...legend,
-      paper_bgcolor: "transparent",
-      plot_bgcolor: "transparent",
-      font: { family: "Inter, -apple-system, BlinkMacSystemFont, sans-serif", color: "#cccccc", size: 11 },
-      margin: { t: 10, r: 20, b: 40, l: 50 },
-      hoverlabel: {
-        bgcolor: "#1e2228",
-        bordercolor: "#444444",
-        font: { family: "Inter, -apple-system, BlinkMacSystemFont, sans-serif", color: "#cccccc" }
-      },
-      autosize: true,
-      hovermode: "x unified"
-    };
-    if (!chartDiv.isConnected || chartDiv.offsetWidth === 0) return;
-    try {
-      await Plotly.react(chartDiv, traces, layout, { responsive: true, displayModeBar: false });
-      this._chartCreated = true;
-    } catch (_) {
-    }
-  }
   // ── Data table ──────────────────────────────────────────────────────
   #updateTableData(results) {
     if (!results) {
@@ -1951,21 +2276,14 @@ var PlotPopoutWindow = class {
     }
     const headers = ["Time"];
     const seriesColumns = [];
-    const { time, series } = results;
+    const { time } = results;
     const subplots = this._plotConfig.subplots ?? [];
     for (const sp of subplots) {
       for (const axis of sp.yAxes ?? []) {
         for (const s of axis.series ?? []) {
           if (!s.variable) continue;
           const label = s.label || s.variable;
-          let rawY = series?.[s._resultKey ?? s.variable];
-          if (!rawY && s._resultKey) {
-            rawY = series?.[s.variable];
-          }
-          if (!rawY) {
-            const dotIdx = s.variable.indexOf(".");
-            if (dotIdx >= 0) rawY = series?.[s.variable.slice(dotIdx + 1)];
-          }
+          const rawY = this._resolveSeries(s, results, sp)?.y;
           if (!rawY) continue;
           headers.push(label);
           seriesColumns.push(rawY);
@@ -2057,8 +2375,8 @@ var PlotPopoutWindow = class {
     return str;
   }
   async #downloadPNG() {
-    const targetDiv = this._chartDivs.length === 1 ? this._chartDivs[0] : this._chartDivs[0];
-    if (!targetDiv || !window.Plotly || !this._chartCreated) {
+    const targetDiv = this.#plottedCharts[0];
+    if (!targetDiv || !window.Plotly) {
       this.#notify("Download", "Plot not ready", "warn");
       return;
     }
@@ -2105,10 +2423,6 @@ var PlotPopoutWindow = class {
       this._dataTable = null;
     }
     this.#hideSeriesPanel();
-    if (this._resizeObserver) {
-      this._resizeObserver.disconnect();
-      this._resizeObserver = null;
-    }
     for (const disposer of this._eventDisposers) {
       try {
         disposer?.dispose?.();
@@ -2116,18 +2430,17 @@ var PlotPopoutWindow = class {
       }
     }
     this._eventDisposers = [];
-    for (const div of this._chartDivs) {
-      if (div && window.Plotly) {
-        try {
-          purge(div);
-        } catch (_) {
-        }
-      }
+    try {
+      this._configHandle?.dispose?.();
+    } catch (error) {
+      this._services?.logger?.warn?.("[PlotPopoutWindow] the config panel failed to dispose", error);
     }
+    this._configHandle = null;
+    this._grid?.dispose();
+    this._grid = null;
     this._window = null;
     this._contentEl = null;
     this._gridEl = null;
-    this._chartDivs = [];
     this._plotTab = null;
     this._dataTab = null;
     this._plotContent = null;
@@ -2142,7 +2455,6 @@ var PlotPopoutWindow = class {
     this._hiddenSeries = null;
     this._allSeriesInfo = null;
     this._allSeriesLabels = null;
-    this._chartCreated = false;
     this._lastResults = null;
   }
 };
@@ -2435,7 +2747,10 @@ async function openRawTracesWindow({ id, title, traces, layout, frames, tableHea
 export {
   setPlotlySource,
   DARK_THEME_LAYOUT,
+  DEFAULT_CHART_EXPORT_FILENAME,
   DEFAULT_CONFIG,
+  setChartExportFilename,
+  getChartExportFilename,
   ensurePlotly,
   createChart,
   updateChart,
@@ -2470,11 +2785,18 @@ export {
   uid,
   applyNanHandling,
   PLOT_LAYOUTS,
+  makeDefaultYAxis,
+  makeDefaultSeries,
   makeDefaultSubplot,
   migrateData,
   migrateSingleChart,
+  deriveSeriesTraces,
+  renderSeriesTransformControls,
+  PLOT_GRID_THEME,
+  resolveSeriesData,
+  renderPlotGrid,
   PlotPopoutWindow,
   openPlotPopoutWindow,
   openRawTracesWindow
 };
-//# sourceMappingURL=chunk-RQM5Z2MU.js.map
+//# sourceMappingURL=chunk-MCIXFNVF.js.map

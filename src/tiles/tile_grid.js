@@ -78,12 +78,22 @@ export class TileGrid {
          */
         this._managed = new Map();
         /**
-         * Managed tiles the user removed, with the size they had. Held here and
-         * nowhere else: never written into the layout, so reopening the grid —
-         * a new grid over the same saved layout — brings every one of them back.
+         * Managed tiles the user removed, with the size they had. Saved as a
+         * `hidden` entry that carries only the size, so reopening the grid — a
+         * new grid over the same saved layout — brings every one of them back,
+         * at that size, after the others.
          * @type {Map<string, {w: number, h: number}>}
          */
         this._hiddenManaged = new Map();
+        /**
+         * Saved entries marked `managed` that a layout brought in while no managed
+         * set was declared (the embedder's list had not arrived yet). They keep
+         * their marker in `getLayout` until a `setManagedTiles` settles them: a
+         * declared id becomes managed, any other is dropped. Without this, the
+         * first autosave would save them as tiles the user added, for good.
+         * @type {Map<string, {hidden: boolean, type: string, w: number, h: number}>}
+         */
+        this._unsettled = new Map();
         // While true, layout changes are not reported (construction only).
         this._quiet = false;
 
@@ -302,6 +312,16 @@ export class TileGrid {
             this._emitLayoutChanged();
             return;
         }
+        // Not yet settled: hidden the same way, so the declaration that settles
+        // it brings it back at its size rather than at a seed's.
+        const unsettled = this._unsettled.get(tileId);
+        if (unsettled) {
+            const item = this.layout.find(l => l.id === tileId);
+            this._unsettled.set(tileId, { ...unsettled, hidden: true, w: item?.w, h: item?.h });
+            this._discardTile(tileId);
+            this._emitLayoutChanged();
+            return;
+        }
 
         this._discardTile(tileId);
         this._emitLayoutChanged();
@@ -337,7 +357,9 @@ export class TileGrid {
      *   - a dropped id's tile goes, and so does everything the grid remembered
      *     about it (the next saved layout no longer has it);
      *   - an id still hidden stays hidden, unless `restore` asks for a new seed;
-     *   - an id already shown keeps its tile, its size and its config.
+     *   - an id already shown keeps its tile, its size and its config;
+     *   - a saved entry marked `managed` that a layout brought in before any
+     *     set was declared is settled: kept if declared, dropped if not.
      *
      * @param {Array<{id: string, type: string, config?: Object, w?: number, h?: number}>} tiles
      *        `type` is the widget type; `w`/`h` the size a NEW tile gets
@@ -357,8 +379,21 @@ export class TileGrid {
             this._hiddenManaged.delete(id);
             this._discardTile(id);
         }
-        const sizes = restore ? new Map(this._hiddenManaged) : null;
-        if (restore) this._hiddenManaged.clear();
+        // A saved entry that came in before the set did: an opening, late.
+        const sizes = new Map();
+        this._unsettled.forEach((entry, id) => {
+            if (!this._managed.has(id)) {
+                removed.push(id);
+                this._discardTile(id);
+            } else if (entry.hidden) {
+                sizes.set(id, entry);
+            }
+        });
+        this._unsettled.clear();
+        if (restore) {
+            this._hiddenManaged.forEach((size, id) => sizes.set(id, size));
+            this._hiddenManaged.clear();
+        }
 
         const added = this._seedManaged(sizes);
         if (removed.length && !added.length) this._emitLayoutChanged();
@@ -506,7 +541,7 @@ export class TileGrid {
      * @returns {Array} Layout array
      */
     getLayout() {
-        return this.layout.map(l => {
+        const shown = this.layout.map(l => {
             const entry = {
                 id: l.id,
                 type: l.type,
@@ -519,9 +554,19 @@ export class TileGrid {
             // Only on a managed tile, so a grid without any saves what it always did.
             // It is how a later `setLayout` knows a saved entry whose id has left
             // the managed set is a forgotten tile, not one the user added.
-            if (this._managed.has(l.id)) entry.managed = true;
+            if (this._managed.has(l.id) || this._unsettled.has(l.id)) entry.managed = true;
             return entry;
         });
+        // A removed managed tile is saved as its size alone: reopening shows it
+        // again (after the others), and at the size the user gave it.
+        const hidden = [];
+        this._hiddenManaged.forEach(({ w, h }, id) => {
+            hidden.push({ id, type: this._managed.get(id)?.type, w, h, managed: true, hidden: true });
+        });
+        this._unsettled.forEach(({ hidden: isHidden, type, w, h }, id) => {
+            if (isHidden) hidden.push({ id, type, w, h, managed: true, hidden: true });
+        });
+        return hidden.length ? [...shown, ...hidden] : shown;
     }
 
     /**
@@ -529,8 +574,10 @@ export class TileGrid {
      *
      * With managed tiles this is an OPENING: every managed tile is shown again
      * (none stays hidden), a saved one where the layout puts it, a missing one
-     * after the saved tiles. A saved entry marked `managed` whose id is no longer
-     * declared is dropped. Without managed tiles it is exactly what it was.
+     * after the saved tiles (a saved `hidden` entry at the size it holds). A
+     * saved entry marked `managed` whose id is no longer declared is dropped.
+     * With no managed set declared yet, such entries wait for `setManagedTiles`
+     * to settle them. Without managed tiles it is exactly what it was.
      *
      * @param {Array|Object} layout - Layout array or object with tiles property
      * @returns {boolean} with managed tiles, whether reconciling changed the
@@ -550,13 +597,20 @@ export class TileGrid {
 
         const managed = this._managed.size > 0;
         let changed = false;
-        if (managed) this._hiddenManaged.clear();
+        this._hiddenManaged.clear();
+        this._unsettled.clear();
+        const sizes = new Map();
 
         // Rebuild from layout
         tilesArray.forEach(item => {
             let { type, config } = item;
+            if (!managed && item.managed) {
+                this._unsettled.set(item.id, { hidden: !!item.hidden, type, w: item.w, h: item.h });
+                if (item.hidden) return;
+            }
             if (managed) {
                 if (item.managed && !this._managed.has(item.id)) { changed = true; return; }
+                if (item.hidden) { sizes.set(item.id, item); return; }
                 const spec = this._managed.get(item.id);
                 // The embedder owns a managed tile's widget; its declaration seeds
                 // the config keys the saved one lacks, and what was saved wins.
@@ -573,15 +627,16 @@ export class TileGrid {
             }, config, item.id);
         });
 
-        if (managed && this._seedManaged().length) changed = true;
+        if (managed && this._seedManaged(sizes).length) changed = true;
         return changed;
     }
 
     /**
-     * Find the first free position that comes AFTER every tile on the grid in
-     * reading order (row, then column): the rest of the last row, then below.
-     * Unlike `findNextPosition` it never fills a gap the user left higher up,
-     * so a tile that joins comes after the ones already arranged.
+     * Find the first free position that comes AFTER every tile on the grid: the
+     * rest of the last row, then below the last row's tiles. Unlike
+     * `findNextPosition` it never fills a gap the user left higher up — nor the
+     * one beside a tall tile of the last row — so a tile that joins comes after
+     * the ones already arranged.
      * @param {number} w - Width in cells
      * @param {number} h - Height in cells
      * @returns {{x: number, y: number}}
@@ -590,9 +645,14 @@ export class TileGrid {
         if (!this.layout.length) return { x: 0, y: 0 };
         const last = this.layout.reduce((a, b) => (b.y > a.y || (b.y === a.y && b.x > a.x) ? b : a));
         const fits = (x, y) => this.layout.every(l => !this._tilesOverlap({ x, y, w, h }, l));
+        for (let x = last.x + 1; x <= this.columns - w; x++) {
+            if (fits(x, last.y)) return { x, y: last.y };
+        }
+        // Below the last row: from its lowest bottom edge, never beside it.
+        const below = Math.max(...this.layout.filter(l => l.y === last.y).map(l => l.y + l.h));
         const maxY = Math.max(...this.layout.map(l => l.y + l.h));
-        for (let y = last.y; y <= maxY; y++) {
-            for (let x = (y === last.y ? last.x + 1 : 0); x <= this.columns - w; x++) {
+        for (let y = below; y <= maxY; y++) {
+            for (let x = 0; x <= this.columns - w; x++) {
                 if (fits(x, y)) return { x, y };
             }
         }

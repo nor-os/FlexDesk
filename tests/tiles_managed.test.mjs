@@ -15,6 +15,7 @@
  *   §4  an id dropped from the set goes, and its saved position is forgotten
  *   §5  sizes and order persist through `configureLayoutPersistence`
  *   §6  a grid without managed tiles is exactly what it was
+ *   §7  a layout loaded before the managed set is declared waits for it
  *
  * ── HOW TO RUN ───────────────────────────────────────────────────────────
  *
@@ -125,9 +126,11 @@ function mount(opts = {}) {
     return { grid, container, events, saves };
 }
 
+/** The tiles on the grid, in layout order: a removed managed tile is saved as `hidden`. */
+const shown = (grid) => grid.getLayout().filter(l => !l.hidden);
 /** Geometry only, in the grid's layout order. */
-const geometry = (grid) => grid.getLayout().map(({ id, x, y, w, h }) => ({ id, x, y, w, h }));
-const ids = (grid) => grid.getLayout().map(l => l.id);
+const geometry = (grid) => shown(grid).map(({ id, x, y, w, h }) => ({ id, x, y, w, h }));
+const ids = (grid) => shown(grid).map(l => l.id);
 const at = (grid, id) => geometry(grid).find(l => l.id === id);
 
 /** A resize the way the pointer does one, minus the pixels jsdom does not have. */
@@ -196,6 +199,25 @@ console.log('§1 a grid opened with a saved layout shows every managed tile');
     ok('a managed tile with no id is refused', threw);
     grid.dispose();
 }
+{
+    // The last row has a gap on its left, beside a tile taller than one row.
+    const saved = [
+        { id: 'A', type: 'seat', x: 0, y: 0, w: 12, h: 4, config: {}, managed: true },
+        { id: 'B', type: 'seat', x: 6, y: 4, w: 6, h: 3, config: {}, managed: true },
+    ];
+    const { grid } = mount({ managedTiles: declare(['A', 'B', 'new']), layout: saved });
+    check('a new tile goes below the last row, not into the gap beside it',
+        at(grid, 'new'), { id: 'new', x: 0, y: 7, w: 4, h: 3 });
+    grid.dispose();
+}
+{
+    const { grid } = mount({ managedTiles: declare(['a', 'b', 'c']) });
+    grid.removeTile('a');
+    grid.restoreManagedTiles();
+    check('a restored tile comes back below the others, not in its old slot in front of them',
+        at(grid, 'a'), { id: 'a', x: 0, y: 3, w: 4, h: 3 });
+    grid.dispose();
+}
 
 // ── §2 removing ─────────────────────────────────────────────────────────
 console.log('§2 removing a managed tile hides it');
@@ -211,7 +233,10 @@ console.log('§2 removing a managed tile hides it');
     ok('`grid:managed-tile-hidden` names it',
         events.some(([n, p]) => n === 'grid:managed-tile-hidden' && p.tileId === 'review'));
     ok('and the layout without it was reported (an autosave keeps the others\' sizes)',
-        !saves.at(-1).some(l => l.id === 'review'));
+        !saves.at(-1).some(l => l.id === 'review' && !l.hidden));
+    check('saved as a hidden entry that holds only its size',
+        saves.at(-1).find(l => l.id === 'review'),
+        { id: 'review', type: 'seat', w: 6, h: 4, managed: true, hidden: true });
 
     const r = grid.setManagedTiles(declare([...SEATS, 'ops']));
     check('a changed managed set adds the new id', r.added, ['ops']);
@@ -237,6 +262,21 @@ console.log('§2 removing a managed tile hides it');
     const again = mount({ managedTiles: declare(SEATS), layout: saved }).grid;
     ok('reopening brings a removed tile back', again.tiles.has('git'));
     check('after the others', ids(again).at(-1), 'git');
+    check('nothing is hidden after reopening', again.getHiddenManagedTiles(), []);
+    again.dispose();
+}
+{
+    // Resized, then closed, then the page reloaded: back at the size the user gave it.
+    const { grid } = mount({ managedTiles: declare(SEATS) });
+    resize(grid, 'build', 8, 5);
+    grid.removeTile('build');
+    const saved = JSON.parse(JSON.stringify(grid.getLayout()));
+    grid.dispose();
+    const { grid: again, saves } = mount({ managedTiles: declare(SEATS), layout: saved });
+    check('reopening brings a closed tile back at the size it had, not its default',
+        [at(again, 'build').w, at(again, 'build').h], [8, 5]);
+    ok('and saves the reopened layout, the tile no longer hidden',
+        saves.length === 1 && saves[0].some(l => l.id === 'build' && !l.hidden));
     again.dispose();
 }
 
@@ -254,6 +294,10 @@ console.log('§3 Reset brings back every managed tile and keeps the rest');
     check('the tiles never removed kept their sizes, order and places',
         geometry(grid).slice(0, kept.length), kept);
     check('the returning ones come after them', ids(grid).slice(kept.length), ['build', 'git']);
+    const lowest = Math.max(...kept.map(l => l.y + l.h));
+    ok('below the kept tiles, not in the gaps they left beside them',
+        ['build', 'git'].every(id => at(grid, id).y >= lowest),
+        JSON.stringify(geometry(grid)));
     ok('Reset on a managed grid asks no confirmation: nothing arranged is lost',
         !events.some(([n]) => n === 'grid:reset-layout-confirm'));
     ok('`grid:managed-tiles-restored` names what came back',
@@ -351,6 +395,44 @@ console.log('§6 a grid without managed tiles behaves as it always did');
     ok('Reset still asks the embedder to confirm',
         events.some(([n]) => n === 'grid:reset-layout-confirm'));
     ok('and restores nothing by itself', !events.some(([n]) => n === 'grid:managed-tiles-restored'));
+    grid.dispose();
+}
+
+// ── §7 the managed set arrives after the layout ─────────────────────────
+console.log('§7 a layout loaded before the managed set is declared waits for it');
+const SAVED_EARLY = [
+    { id: 'lead', type: 'seat', x: 0, y: 0, w: 6, h: 4, config: { seat: 'lead' }, managed: true },
+    { id: 'gone', type: 'seat', x: 6, y: 0, w: 6, h: 4, config: { seat: 'gone' }, managed: true },
+    { id: 'mine', type: 'note', x: 0, y: 4, w: 4, h: 2, config: {} },
+    { id: 'closed', type: 'seat', w: 8, h: 5, managed: true, hidden: true },
+];
+for (const [how, open] of [
+    ['`setLayout` and then `setManagedTiles`', () => { const m = mount(); m.grid.setLayout(SAVED_EARLY); return m; }],
+    ['`managedTiles: []` with `layout:`', () => mount({ managedTiles: [], layout: SAVED_EARLY })],
+]) {
+    const { grid, saves } = open();
+    ok(`${how}: before the set, the saved managed entries keep their marker`,
+        grid.getLayout().filter(l => l.managed).map(l => l.id).join() === 'lead,gone,closed');
+    ok(`${how}: a hidden one is not built yet`, !grid.tiles.has('closed'));
+    const r = grid.setManagedTiles(declare(['lead', 'closed']));
+    check(`${how}: the declaration drops the entry whose id left the set`, r.removed, ['gone']);
+    check(`${how}: and keeps the declared one and the user's own tile`, ids(grid).slice(0, 2), ['lead', 'mine']);
+    ok(`${how}: the declared one is managed now`, grid.isManaged('lead') && !grid.isManaged('gone'));
+    check(`${how}: the hidden one is shown again at its saved size (an opening)`,
+        [at(grid, 'closed')?.w, at(grid, 'closed')?.h], [8, 5]);
+    ok(`${how}: and the next save has neither \'gone\' nor an unmanaged copy of it`,
+        !saves.at(-1).some(l => l.id === 'gone'));
+    grid.dispose();
+}
+{
+    const { grid } = mount();
+    grid.setLayout(SAVED_EARLY);
+    grid.removeTile('lead');
+    ok('a not-yet-settled tile removed before the set arrives is hidden, not deleted',
+        grid.getLayout().some(l => l.id === 'lead' && l.hidden && l.w === 6));
+    grid.setManagedTiles(declare(['lead']));
+    check('and comes back at its size when the set settles it',
+        [at(grid, 'lead').w, at(grid, 'lead').h], [6, 4]);
     grid.dispose();
 }
 

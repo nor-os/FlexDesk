@@ -4107,16 +4107,26 @@ grid.setManagedTiles(nextSeats.map(toTile));     // the list changed
 
 - **Opening** (`layout:` or `setLayout`) shows every managed tile: a saved one
   where the layout puts it, a missing one after the saved tiles (the rest of the
-  last row, then below; `findPositionAfter(w, h)`, never a gap above). The
+  last row, then below the last row's tiles; `findPositionAfter(w, h)`, never a
+  gap above or beside them). A tile placed below a gap still rises into it on
+  the next drag, as every tile does (the grid compacts upwards). The
   declared `config` fills the keys a saved config lacks; the saved one wins.
   Built in the constructor, the grid reports a layout change only when that
   differs from what was saved, so an autosaving `onLayoutChange` never saves the
   seeds over the user's sizes. Pass the saved layout as `layout:` so the tiles
   are built once.
+- **The set arriving after the layout** (`setLayout` before any
+  `setManagedTiles`, or `managedTiles: []` because the list is still loading):
+  the saved entries marked `managed` are built as saved and keep the marker in
+  `getLayout()`, so an autosave in between loses nothing. The first
+  `setManagedTiles` settles them as an opening: a declared one becomes managed
+  (a hidden one is shown at its saved size), any other is dropped and reported
+  in `removed`. An empty `setManagedTiles([])` drops them all.
 - **Removing** a managed tile (`removeTile`) disposes it, drops it from the
   layout and emits `grid:managed-tile-hidden {tileId}`. It stays hidden
-  (`getHiddenManagedTiles()`) until Reset or a new seed. Hidden is held by the
-  grid only, never saved: a new grid over the saved layout shows it again.
+  (`getHiddenManagedTiles()`) until Reset or a new seed. `getLayout()` saves it
+  as `{id, type, w, h, managed: true, hidden: true}` (a size, no position): a new
+  grid over the saved layout shows it again, after the others, at that size.
 - **Reset** on a grid with managed tiles calls `restoreManagedTiles()`: every
   hidden tile comes back after the others, at the size it had, and emits
   `grid:managed-tiles-restored {ids}`. Nothing else moves, so there is no

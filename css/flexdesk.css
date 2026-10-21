@@ -682,9 +682,14 @@ body.twm-dt-col-resizing {
     width: auto;
     min-width: 80px;
 }
-/* Alternating row backgrounds */
+/* Alternating row backgrounds. The stripe is the row's `--twm-dt-row-bg`, set
+   at no specificity so a consumer's row class can replace it; a crosstab
+   (STORY-0091) also lays it under its pinned cells. */
+:where(.twm-preview-table tbody tr:nth-child(even)) {
+    --twm-dt-row-bg: rgba(255, 255, 255, 0.02);
+}
 .twm-preview-table tbody tr:nth-child(even) {
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--twm-dt-row-bg);
 }
 /* Hover state (disabled in wizard via modifier) */
 .twm-preview-table:not(.twm-preview-table--readonly) tr:hover td {
@@ -861,11 +866,238 @@ body.twm-dt-col-resizing {
     opacity: 0.6;
     font-style: italic;
 }
+/* STORY-0088 `staged`: a value typed and not yet committed. */
+.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--staged {
+    background: color-mix(in srgb, var(--accent-bright, #007acc) 16%, transparent);
+}
+/* STORY-0089 `fillHandle`: a square on the range's corner cell, the cells a
+ * drag covers dashed, and a cell the fill skipped (not editable) hatched. */
+.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--fill-corner {
+    position: relative;
+}
+.twm-preview-table.twm-dt--cells .twm-dt-fill-handle {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 7px;
+    height: 7px;
+    box-sizing: border-box;
+    background: var(--accent-bright, #007acc);
+    border: 1px solid var(--surface-well, #1e1e1e);
+    cursor: crosshair;
+    z-index: 1;
+    touch-action: none;
+}
+.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--fill-preview {
+    outline: 1px dashed var(--accent-bright, #007acc);
+    outline-offset: -1px;
+}
+.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--fill-skipped {
+    background-image: repeating-linear-gradient(45deg,
+        color-mix(in srgb, var(--color-danger, #f14c4c) 22%, transparent) 0 4px, transparent 4px 8px);
+}
+/* While cells are staged, sort, filters and pages are held: the held control
+ * says why on itself (`data-refusal`). */
+.twm-data-table-component.twm-dt--frozen th.sortable[data-refusal] {
+    cursor: not-allowed !important;
+}
+.twm-data-table-component.twm-dt--frozen [data-refusal]:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
 .twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--error {
     box-shadow: inset 0 0 0 1px var(--color-danger, #f14c4c);
 }
 .twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--error.twm-dt-cell--cursor {
     box-shadow: inset 0 0 0 2px var(--color-danger, #f14c4c);
+}
+/* STORY-0086 `reorderable` — the header being dragged is dimmed, and the one
+ * it would land on carries a bar on the side it lands (inset: no column moves
+ * by a pixel while the pointer passes). */
+.twm-preview-table th.twm-dt-col--movable {
+    cursor: grab;
+}
+.twm-preview-table th.twm-dt-col--dragging {
+    opacity: 0.5;
+}
+.twm-preview-table th.twm-dt-col--drop {
+    box-shadow: inset 2px 0 0 0 var(--accent-bright, #007acc);
+}
+.twm-preview-table th.twm-dt-col--drop.twm-dt-col--drop-after {
+    box-shadow: inset -2px 0 0 0 var(--accent-bright, #007acc);
+}
+/* STORY-0066 `columnGroups` — the group row is a table of its own above the
+ * header table (`twm-dt-groups`), its `<col>`s copied from the header's widths;
+ * no first-column floor or cap of the header's applies to it. A crosstab's
+ * spanned header cells (STORY-0091) are the same group cells. A placeholder
+ * column (an empty group's) is drawn muted. The header action buttons are
+ * small icon buttons that keep to the cell. */
+.twm-preview-table.twm-dt-groups th.twm-dt-group,
+.twm-preview-table.twm-dt-crosstab th.twm-dt-group {
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    text-align: center;
+    border-bottom: 1px solid var(--border-subtle, #333);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.twm-preview-table.twm-dt-groups th.twm-dt-group + th.twm-dt-group,
+.twm-preview-table.twm-dt-crosstab th.twm-dt-group + th.twm-dt-group {
+    border-left: 1px solid var(--border-subtle, #333);
+}
+.twm-preview-table.twm-dt-groups th.twm-dt-group--empty .twm-dt-group__label {
+    opacity: 0.7;
+}
+.twm-preview-table .twm-dt-group__actions,
+.twm-preview-table .twm-dt-col-actions {
+    display: inline-flex;
+    gap: 2px;
+    margin-left: 4px;
+    vertical-align: middle;
+}
+.twm-preview-table .twm-dt-group__add,
+.twm-preview-table .twm-dt-group__action,
+.twm-preview-table .twm-dt-col-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 2px;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    opacity: 0.6;
+    font: inherit;
+}
+.twm-preview-table .twm-dt-group__add .material-symbols-outlined,
+.twm-preview-table .twm-dt-group__action .material-symbols-outlined,
+.twm-preview-table .twm-dt-col-action .material-symbols-outlined {
+    font-size: 16px;
+}
+.twm-preview-table .twm-dt-group__add:hover,
+.twm-preview-table .twm-dt-group__action:hover,
+.twm-preview-table .twm-dt-col-action:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.08);
+}
+.twm-preview-table .twm-dt-group__add:focus-visible,
+.twm-preview-table .twm-dt-group__action:focus-visible,
+.twm-preview-table .twm-dt-col-action:focus-visible {
+    opacity: 1;
+    outline: 1px solid var(--accent-bright, #007acc);
+}
+.twm-preview-table th.twm-dt-col--placeholder,
+.twm-preview-table td.twm-dt-cell--placeholder {
+    background: rgba(255, 255, 255, 0.015);
+}
+.twm-preview-table th .twm-dt-col-rename {
+    width: 100%;
+    box-sizing: border-box;
+    font: inherit;
+}
+/* STORY-0091 `crosstab` — one table in one scroller (`twm-dt-crosstab`).
+ * Every header cell sticks to the top at the `top` crosstab.js measured for its
+ * row; the pinned cells (select, row number and label columns) stick to the
+ * left at the `left` it measured, and the corner — header cells over them — to
+ * both, above everything else. Every crosstab row paints its `--twm-dt-row-bg`,
+ * so a row coloured through it is one colour from the label cells to the last
+ * column.
+ *
+ * A pinned body cell needs an OPAQUE background or the cells scrolling under it
+ * show through, and every state FlexDesk paints on a `td` is translucent. So
+ * the pinned cell's background is one `!important` stack nothing can replace —
+ * not a stronger state rule, not an animation (an important declaration
+ * outranks both) — and the states reach it as LAYERS instead:
+ *   --twm-dt-pin-mark   a mark over everything (the fill's skipped hatch)
+ *   --twm-dt-pin-new    the new-row flash (a registered colour, so it animates)
+ *   --twm-dt-pin-state  the cell's state tint: hover, row and cell selection,
+ *                       staged, placeholder, diff
+ *   --twm-dt-row-bg     the row's background (the stripe or a consumer's colour)
+ *   --surface-0         the opaque surface under all of them.
+ * Each state rule below is the unpinned rule it mirrors, with
+ * `.twm-dt-crosstab` on the table and `.twm-dt-pin` on the cell — the same two
+ * classes on every one, in the same order, so the state a pinned cell shows is
+ * the one its unpinned neighbours show. */
+@property --twm-dt-pin-new {
+    syntax: '<color>';
+    inherits: false;
+    initial-value: transparent;
+}
+.twm-preview-table.twm-dt-crosstab tbody tr {
+    background: var(--twm-dt-row-bg, transparent);
+}
+.twm-preview-table.twm-dt-crosstab thead th {
+    position: sticky;
+    z-index: 3;
+}
+.twm-preview-table.twm-dt-crosstab thead th.twm-dt-pin {
+    z-index: 4;
+}
+.twm-preview-table.twm-dt-crosstab tbody td.twm-dt-pin {
+    position: sticky;
+    z-index: 1;
+    background:
+        var(--twm-dt-pin-mark, none),
+        linear-gradient(var(--twm-dt-pin-new, transparent), var(--twm-dt-pin-new, transparent)),
+        var(--twm-dt-pin-state, none),
+        linear-gradient(var(--twm-dt-row-bg, transparent), var(--twm-dt-row-bg, transparent)) var(--surface-0, #1e1e1e) !important;
+}
+.twm-preview-table.twm-dt-crosstab .twm-dt-pin--last {
+    box-shadow: inset -1px 0 0 var(--border-strong, #3c3c3c);
+}
+.twm-preview-table.twm-dt-crosstab:not(.twm-preview-table--readonly) tr:hover td.twm-dt-pin {
+    --twm-dt-pin-state: linear-gradient(rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.04));
+}
+.twm-preview-table.twm-dt-crosstab:not(.twm-preview-table--readonly) tbody tr.selected td.twm-dt-pin,
+.twm-preview-table.twm-dt-crosstab tbody tr.selected td.twm-dt-pin {
+    --twm-dt-pin-state: linear-gradient(var(--state-selected, rgba(0, 122, 204, 0.15)), var(--state-selected, rgba(0, 122, 204, 0.15)));
+}
+.twm-preview-table.twm-dt-crosstab.twm-dt--clickable tbody tr:not(.twm-dt-spacer):not(.data-table__empty-row):not(.selected):hover td.twm-dt-pin {
+    --twm-dt-pin-state: linear-gradient(var(--state-hover, rgba(255, 255, 255, 0.05)), var(--state-hover, rgba(255, 255, 255, 0.05)));
+}
+.twm-preview-table.twm-dt-crosstab.twm-dt--cells tbody td.twm-dt-pin.twm-dt-cell--selected {
+    --twm-dt-pin-state: linear-gradient(var(--state-selected, rgba(0, 122, 204, 0.15)), var(--state-selected, rgba(0, 122, 204, 0.15)));
+}
+.twm-preview-table.twm-dt-crosstab.twm-dt--cells tbody td.twm-dt-pin.twm-dt-cell--staged {
+    --twm-dt-pin-state: linear-gradient(color-mix(in srgb, var(--accent-bright, #007acc) 16%, transparent), color-mix(in srgb, var(--accent-bright, #007acc) 16%, transparent));
+}
+.twm-preview-table.twm-dt-crosstab.twm-dt--cells tbody td.twm-dt-pin.twm-dt-cell--fill-skipped {
+    --twm-dt-pin-mark: repeating-linear-gradient(45deg,
+        color-mix(in srgb, var(--color-danger, #f14c4c) 22%, transparent) 0 4px, transparent 4px 8px);
+}
+.twm-preview-table.twm-dt-crosstab td.twm-dt-pin.twm-dt-cell--placeholder {
+    --twm-dt-pin-state: linear-gradient(rgba(255, 255, 255, 0.015), rgba(255, 255, 255, 0.015));
+}
+.twm-data-table-component .twm-preview-table.twm-dt-crosstab tbody tr.twm-dt-diff--added:not(.selected) > td.twm-dt-pin {
+    --twm-dt-pin-state: linear-gradient(color-mix(in srgb, var(--color-success, #3fb950) 16%, transparent), color-mix(in srgb, var(--color-success, #3fb950) 16%, transparent));
+}
+.twm-data-table-component .twm-preview-table.twm-dt-crosstab tbody tr.twm-dt-diff--removed:not(.selected) > td.twm-dt-pin {
+    --twm-dt-pin-state: linear-gradient(color-mix(in srgb, var(--color-danger, #c74e4e) 18%, transparent), color-mix(in srgb, var(--color-danger, #c74e4e) 18%, transparent));
+}
+.twm-data-table-component .twm-preview-table.twm-dt-crosstab tbody tr.twm-dt-diff:not(.selected) > td.twm-dt-pin.twm-dt-diff__cell--changed {
+    --twm-dt-pin-state: linear-gradient(color-mix(in srgb, var(--color-warning, #ff9800) 22%, transparent), color-mix(in srgb, var(--color-warning, #ff9800) 22%, transparent));
+}
+.twm-data-table-component .twm-preview-table.twm-dt-crosstab tbody tr.twm-dt-diff--gap > td.twm-dt-pin.twm-dt-diff__gap {
+    --twm-dt-pin-state: repeating-linear-gradient(135deg,
+        transparent 0 6px,
+        color-mix(in srgb, var(--text-muted, #888) 14%, transparent) 6px 7px);
+}
+.twm-preview-table.twm-dt-crosstab tr:hover td.twm-dt-pin {
+    --twm-dt-pin-state: linear-gradient(rgba(255,255,255,0.04), rgba(255,255,255,0.04));
+}
+@keyframes twm-dt-pin-new {
+    from { --twm-dt-pin-new: var(--twm-dt-new-bg, rgba(0, 122, 204, 0.22)); }
+    to { --twm-dt-pin-new: transparent; }
+}
+.twm-preview-table.twm-dt-crosstab tbody tr.twm-dt-row--new > td.twm-dt-pin {
+    animation: twm-dt-pin-new 1.6s ease-out;
+}
+.twm-preview-table.twm-dt-crosstab th.twm-dt-crosstab__none {
+    font-style: italic;
+    opacity: 0.7;
 }
 /* In the mode a click ticks: a pointer on every row, and the keyboard's row
  * (the arrows move it, Space ticks it) drawn as an outline. */
@@ -10496,6 +10728,168 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     font-size: var(--font-size-xs);
 }
 /* ══ end PLOT GRID ══ */
+
+/* ══ PLOT CONFIG EDITOR ═══════════════════════════════════════════════
+ *
+ * `renderPlotConfigEditor` (src/charts/plot_config_editor.js): a layout
+ * picker, a tab per subplot slot and the fields of the subplot in front. */
+.twm-plot-config {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    min-width: 0;
+    font-size: var(--font-size-sm);
+    color: var(--text-primary);
+}
+.twm-plot-config__section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+.twm-plot-config__heading {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-muted);
+}
+.twm-plot-config__layouts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+}
+.twm-plot-config__layout {
+    min-width: 0;
+}
+.twm-plot-config__layout--on {
+    border-color: var(--accent);
+    color: var(--text-bright);
+}
+.twm-plot-config__tabs[hidden] {
+    display: none;
+}
+.twm-plot-config__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+.twm-plot-config__field {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    min-width: 0;
+}
+.twm-plot-config__label {
+    flex: 0 0 96px;
+    color: var(--text-muted);
+}
+.twm-plot-config__input {
+    box-sizing: border-box;
+    min-width: 0;
+    flex: 1 1 auto;
+    padding: var(--space-xxs) var(--space-xs);
+    font: inherit;
+    background: var(--surface-3);
+    color: var(--text-primary);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+}
+.twm-plot-config__input--number {
+    flex: 0 1 80px;
+    width: 80px;
+}
+.twm-plot-config__input:disabled {
+    opacity: 0.5;
+}
+.twm-plot-config__picker {
+    flex: 1 1 140px;
+    min-width: 0;
+}
+.twm-plot-config__axes,
+.twm-plot-config__list,
+.twm-plot-config__series-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+.twm-plot-config__axis {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    margin: 0;
+    padding: var(--space-sm) var(--space-md);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    min-width: 0;
+}
+.twm-plot-config__axis--disabled {
+    opacity: 0.5;
+}
+.twm-plot-config__axis-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: 0 var(--space-xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--text-muted);
+}
+.twm-plot-config__axis-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: var(--space-xs) var(--space-md);
+}
+.twm-plot-config__series {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xxs);
+    padding: var(--space-xs) 0;
+    border-top: 1px solid var(--border-subtle);
+}
+.twm-plot-config__series-main,
+.twm-plot-config__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-xs);
+}
+.twm-plot-config__series-main > .twm-plot-config__input:not(.twm-plot-config__input--number):not(.twm-plot-config__input--select),
+.twm-plot-config__row > .twm-plot-config__input:not(.twm-plot-config__input--number):not(.twm-plot-config__input--select) {
+    flex: 1 1 100px;
+}
+.twm-plot-config__series-main > .twm-plot-config__input--select,
+.twm-plot-config__row > .twm-plot-config__input--select {
+    flex: 0 1 auto;
+}
+.twm-plot-config__series-extra:empty {
+    display: none;
+}
+.twm-plot-config__overlay,
+.twm-plot-config__overlay-fields {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xxs);
+    padding-left: var(--space-md);
+}
+.twm-plot-config__overlay-source {
+    color: var(--text-muted);
+}
+.twm-plot-config__overlay-source--error {
+    color: var(--color-danger);
+}
+.twm-plot-config__empty {
+    color: var(--text-muted);
+    font-style: italic;
+}
+.twm-plot-config__add {
+    align-self: flex-start;
+}
+.twm-plot-config__remove {
+    flex: 0 0 auto;
+    margin-left: auto;
+}
+.twm-plot-config__remove > .material-symbols-outlined {
+    font-size: 16px;
+}
+/* ══ end PLOT CONFIG EDITOR ══ */
 
 /* ══ WIZARD (STORY-0047) ══════════════════════════════════════════════════
  * A step indicator, a body slot and a footer. Steps are drawn done / current /

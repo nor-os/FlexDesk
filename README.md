@@ -44,7 +44,7 @@ manager, and neither of them should drag in a plotting engine or a code editor.
 | `@flexdesk/host` | 5 kB | The host port (below) |
 | `@flexdesk/wm` | 166 kB | Tiling window manager: tabs, splits, desktops, command palette, taxonomy, `createShell()` |
 | `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus, menu bars, a document outline, progress, a conversation view |
-| `@flexdesk/charts` | 26 kB | Plotly wrapper, chart types, subplot layouts, downsampling, a plot grid, plot windows, injected series transforms |
+| `@flexdesk/charts` | 26 kB | Plotly wrapper, chart types, subplot layouts, downsampling, a plot grid, a plot-config editor, plot windows, injected series transforms |
 | `@flexdesk/tiles` | 67 kB | Draggable/resizable widget grid, tile base class, widget registry, layout persistence, figure, chart and KPI tiles |
 | `@flexdesk/editor` | 62 kB | Monaco loader + factory, multi-file tab bar, search, split panes, undo manager |
 | `@flexdesk/canvas` | 14 kB | The canvas kernel: a pannable, zoomable surface, the edge router, a generic graph layer ([Flow editors](#flow-editors)) |
@@ -1204,11 +1204,45 @@ list.setColumnVisible(3, true);
 | `columnChooser: true` | A right-click on the header opens a menu that lists every column, with a check mark on those shown. Choosing one shows or hides it. The last column shown is greyed out and says why. Without the option the header keeps the browser's menu. |
 | `setColumnVisible(colIdx, on)` | Shows or hides a column from code. Returns whether anything changed. The widths of the other columns, dragged or fitted, stay with their columns; a column shown again is measured. |
 | `getHiddenColumns()` | The hidden columns' indices, ascending. |
-| `onColumnsChange(hidden)` | Called after every change of the set: the chooser, `setColumnVisible` and `setData({ hiddenColumns })`. |
+| `onColumnsChange(hidden, { hidden, order })` | Called after every change of the set: the chooser, `setColumnVisible` and `setData({ hiddenColumns })`, and after every change of the column order (see below). `order` is `getColumnOrder()`. |
 | With `persistKey` | The set is saved with the sort and the filters and restored on mount. A saved set wins over `hiddenColumns`, so a column somebody chose stays chosen. A table without these options saves exactly what 0.9.1 saves. |
 
 A column sorted on and then hidden keeps the order; its arrow comes back with
 the column.
+
+### DataTable: columns in the order somebody puts them (0.17.0)
+
+Columns can be dragged into a new order by their headers, or ordered from
+code, and the order is remembered. The order is kept by data index, so
+`hiddenColumns`, the sort, the filters, `renderCell`'s `colIdx` and cell
+mode's `col` stay on their columns. A table that sets none of these options
+draws its columns in their natural order and saves what 0.16 saves.
+
+```js
+const list = DataTable.mount(host, {
+    headers: ['Id', 'Summary', 'Status', 'Owner'],
+    rows,
+    reorderable: true,
+    columnOrder: [0, 3, 1, 2],              // optional starting order
+    stateStore, persistKey: 'bugs:queue',
+    onColumnsChange: (hidden, { order }) => console.log('order now', order),
+});
+list.moveColumn(3, 1);                       // positions in getColumnOrder()
+```
+
+| Option | What it does |
+|---|---|
+| `reorderable: true` | Every data column's header can be dragged onto another; dropped, it takes that column's place (to its left when moved left, to its right when moved right). A press that starts on a column's resize grip resizes it and never starts a drag. The row-number and select columns stay first: they cannot be dragged, and nothing can be dropped on or in front of them. The header's right-click menu offers Move left and Move right, after any `headerMenu` items and before the `columnChooser` items; they pass over hidden columns. |
+| `columnOrder: [colIdx, ...]` | The order to draw the columns in: every data index once, hidden ones included. A list that is not a permutation of the columns is ignored with a console warning, and the natural order is drawn; a table mounted with no headers yet checks it, and warns once, when `setData` brings the first ones. Works without `reorderable`, in which case only code moves columns. `setData({ columnOrder })` applies a new order; `null` goes back to the natural one. |
+| `moveColumn(from, to)` | Moves the column at position `from` of `getColumnOrder()` to position `to`, the others closing up: from the natural order, `moveColumn(3, 1)` draws 0, 3, 1, 2. Returns whether the order changed. Dragged widths stay with their columns. |
+| `getColumnOrder()` | Every data index, hidden ones included, in the order drawn (a copy). |
+| With `persistKey` | The order is saved with the sort, the filters and the widths, and restored on mount. A saved order wins over `columnOrder`. A saved order for a different number of columns than the table has today is ignored: `columnOrder` is drawn, or the natural order when there is none. That holds whether the headers are known when the blob is read or come later with `setData`; likewise, a dragged order that new headers no longer fit gives way to `columnOrder`, or the natural order. A blob saved before 0.17 (no order) loads as it did. |
+| Copies and the CSV | Ctrl+C, the copy menu and `downloadCSV()` write the columns in the order shown. |
+
+The drag is HTML5 drag-and-drop on the header cells. The cell being dragged is
+`twm-dt-col--dragging`, the one under the pointer `twm-dt-col--drop` (plus
+`twm-dt-col--drop-after` when the column would land to its right). The logic
+lives in `column_order.js`, which is internal to the table.
 
 ### DataTable: the CSV button on every table (0.14.1)
 
@@ -1307,6 +1341,188 @@ is internal. `toTSV(matrix)` and `tsvCell(value)` write tab-separated text with
 Excel's quoting (a cell holding a tab, a newline or a quote is quoted and its
 quotes doubled; `null` is empty; no newline after the last row): the writer
 cell mode copies with.
+
+#### Staged edits, undo and redo, one commit (0.17.0)
+
+With `staged: true` beside `editable`, a commit from an editor is STAGED
+rather than sent to `onCellCommit`: it stays in the table, drawn
+`twm-dt-cell--staged`, until `commit()` hands every staged cell to the
+consumer in one call. Ctrl+Z and Ctrl+Y walk the staged edits.
+
+```js
+const grid = DataTable.mount(host, {
+    headers, rows,
+    selectionMode: 'cells',
+    editable: true,
+    staged: true,
+    historyLimit: 100,                      // the default
+    onCommit: async ({ edits }) => {        // [{rowIdx, colIdx, value, previous}, …]
+        const r = await api.saveBatch(edits);
+        return { errors: r.failed };        // [{rowIdx, colIdx, error}] — empty or absent: success
+    },
+    onStagedChange: ({ count, canUndo, canRedo, committing }) => paintSaveButton(count),
+});
+saveButton.onclick = () => grid.commit();
+discardButton.onclick = () => grid.discard();
+```
+
+| Option or method | What it does |
+|---|---|
+| `staged: true` | Needs `editable` (ignored with a warning without it). A commit stages the value: the cell shows it, drawn `twm-dt-cell--staged`, and nothing is called. Staging the value the row holds is no change. The editor opens with the staged value. |
+| Ctrl+Z, Ctrl+Y (focused table) | Ctrl+Z takes the last staged edit back; Ctrl+Y or Ctrl+Shift+Z puts it back. A cell staged as `null` undoes to NO CHANGE, not to a staged null. In an open editor the keys are the editor's. `undo()` and `redo()` do the same from code. |
+| `historyLimit` | The ring keeps the last this-many entries (default 100); the limit counts entries, not cells. The oldest fall off, and their cells stay staged. An entry is one cell's before/after change or one fill (a group of cell changes, undone together), never a copy of the staged set. |
+| `commit()` | Calls `onCommit({edits})` ONCE with every staged cell, `{rowIdx, colIdx, value, previous}` by row then column (`previous` is what the row holds); an open editor's value is staged first. Resolves `{ok: true, committed}` on success: the values are written into the rows the table holds, and the staged cells and the ring are cleared (a Ctrl+Z after a commit does nothing). If `onCommit` resolves `{errors: [{rowIdx, colIdx, error}]}` (non-empty), each of those cells is drawn `twm-dt-cell--error` with the message as its `title` and `data-error`, every staged value stays, and `commit()` resolves `{ok: false, errors}`; `{ok: false, error}`, a rejection or a throw marks every staged cell with the message. Staging a marked cell again clears its mark. While the commit is out no editor opens and undo, redo and `discard()` do nothing. |
+| `discard()` | Drops every staged cell, its marks and the ring. |
+| `getStagedEdits()` | The staged cells, as `onCommit` would get them. |
+| `onStagedChange({count, canUndo, canRedo, committing})` | After every change of the staged cells. |
+| The freeze | While any cell is staged, sorting, filtering and paging are held: the sortable headers, the filter row's controls, the pager's buttons and the `paging` strip are disabled with the reason on them (`data-refusal`, `title`), and `sortBy`, `setFilter`, `clearFilters`, `goToPage`, `goToRow` and the paging calls refuse with a console warning. The export button is not held. `stagedRefusal` (a string, or `(count) => string`) gives the reason in the app's words. |
+| New rows | `setData({rows})` drops the staged cells and the ring: the row indices they named are other rows now. |
+
+`StagedHistory` (the ring, with no DOM: `record`, `beginGroup`/`endGroup`,
+`undo`, `redo`, `reset`, writing through an injected `apply(entry, direction)`)
+is exported with `ACTIONS` and `DEFAULT_HISTORY_LIMIT` for a consumer that
+builds its own grid.
+
+#### Fill handle (0.17.0)
+
+With `fillHandle: true` beside `staged`, the bottom-right cell of the range
+carries a small square (`.twm-dt-fill-handle`). Dragging it up, down, left or
+right over the cells beyond the range fills them as a spreadsheet does, and
+stages the values: nothing is sent until `commit()`.
+
+```js
+const grid = DataTable.mount(host, {
+    headers, rows,
+    selectionMode: 'cells',
+    editable: (colIdx, row) => !row.locked,  // a refused cell is skipped by a fill
+    staged: true,
+    fillHandle: true,
+    onCommit: ({ edits }) => api.saveBatch(edits),
+});
+grid.fill({ row: 20, col: 3 });              // what dragging the handle to (20, 3) does
+```
+
+| Option or method | What it does |
+|---|---|
+| `fillHandle: true` | Needs `staged` (ignored with a warning without it). The handle sits in the range's corner cell (`twm-dt-cell--fill-corner`); it is not drawn while an editor is open or a commit is out. During a drag the cells it covers are drawn `twm-dt-cell--fill-preview`; the direction is the one the pointer is furthest out in (up and down win a tie), up to the page's edge. Escape, or a cancelled pointer, ends the drag without filling. A drag is never a click on the table: the click the browser makes of the press and release (on the corner cell, the row or the body) is swallowed, filled or not, so neither the range nor `onRowClick` / `onRowActivate` sees it. On release the cells are staged as ONE undo entry — one Ctrl+Z takes the whole fill back — and the range grows over them. |
+| What is written | Each column of the range (each row, filling left or right) is a seed, continued by `projectSeries`: one cell repeats its value; numbers a constant step apart continue (`1, 2` filled three further gives `3, 4, 5`); `YYYY-MM-DD` dates or `Date`s a constant number of days apart continue that many days apart; texts like `Item 1, Item 2` continue their number (`INV-001` keeps its zeros); any other block repeats in a cycle. Filling up or left runs the series away from the block (`3, 4` filled up gives `2, 1`). Holding Ctrl (Cmd) at release repeats the block instead of continuing it. A hidden column is stepped over. |
+| A cell `editable` refuses | Is skipped: nothing is staged in it and the row is untouched. It is drawn `twm-dt-cell--fill-skipped` until the selection moves, the next fill or new rows. |
+| `fill(to, {forceCopy})` | The fill a drag to cell `to` (`{row, col}`: position shown, data column) makes, from code; `forceCopy` is Ctrl. Returns `{direction, count, staged, skipped}` (`staged` the NUMBER of cells that changed, `skipped` the refused cells as `{row, col, rowIdx}`), or null when nothing was filled. |
+
+`detectSeries(values)` (what a seed is: `{kind, step}` with kind `copy`,
+`number`, `date`, `text-number` or `cycle`, or null for blanks) and
+`projectSeries(values, count, {forceCopy})` (the next `count` values; a
+series keeps its seed's type) are exported as pure functions for a consumer
+that builds its own grid. `values` is the seed in fill order.
+
+### DataTable: column groups and structural edits (0.17.0)
+
+`columnGroups` draws a second header row over the column headers, and a few
+callbacks let a person add, rename and delete columns and rows from the
+headers and the row menu. The consumer owns the data: every edit is a call,
+and the consumer answers it with `setData`. A table that sets none of these
+options draws exactly as in 0.16.
+
+```js
+const table = DataTable.mount(host, {
+    headers: ['Cash', 'Loans', 'Deposits'],
+    rows,
+    columnGroups: [
+        { key: 'assets', label: 'Assets', columns: [0, 1] },
+        { key: 'liabilities', label: 'Liabilities', columns: [2] },
+        { key: 'equity', label: 'Equity', columns: [] },   // drawn as a placeholder column
+    ],
+    onColumnAdd: (groupKey) => model.addColumn(groupKey),
+    onColumnRename: (colIdx, name) => model.renameColumn(colIdx, name),
+    onColumnDelete: (colIdx) => model.deleteColumn(colIdx),
+    onRowAdd: (afterRowIdx) => model.addRow(afterRowIdx),        // null: from the header
+    onRowDelete: (rowIdx) => model.deleteRow(rowIdx),
+});
+```
+
+| Option | What it does |
+|---|---|
+| `columnGroups: [{key, label?, columns}]` | A group row above the headers: one cell per run of shown columns of a group, spanning them (`th.twm-dt-group`), and a blank cell over the row number, the select column and any column in no group. `columns` are data column indices; a column is in the first group that lists it; a hidden column leaves its group's span; with `columnOrder` the runs follow the order drawn, so a group whose columns are not side by side gets one cell per run. The row is its own table in the header wrap (`table.twm-dt-groups`), which takes the header's column widths, table width and sideways scroll after every fit, auto-size and drag. `setData({columnGroups})` changes the groups. |
+| An empty group | Keeps one placeholder column so it stays visible and its add control reachable: `th.twm-dt-col--placeholder` in the header, an empty filter cell, and an empty `td.twm-dt-cell--placeholder` in every row. It stands after the columns of the groups listed before it, and is no data column: not in a copy, the CSV, a menu's `ctx.colIdx` or cell mode. |
+| `onColumnAdd(groupKey)` | An add button (`.twm-dt-group__add`) in every group's header cell and in a placeholder's header. |
+| `groupActions(group, {key, columns, table}) => items`, `onGroupAction(action, groupKey)` | The consumer's buttons in a group's header cell. Items are `{action, icon?, label?, title?, disabled?}`. |
+| `columnActions(colIdx, {colIdx, header, table}) => items`, `onColumnAction(action, colIdx)` | The consumer's buttons in a column's header (`.twm-dt-col-action`), with the same items. A click on one does not sort. |
+| `onColumnRename(colIdx, name)` | Renames a column in place with `attachInlineRenamer`. "Rename column" in the header's right-click menu, `renameColumn(colIdx)`, or a double-click on the header's label (on a table that is not `sortable`) opens it. Enter, or the focus leaving, with a different non-empty name calls it once. Escape, or the name left as it was, restores the header and calls nothing. The new name shows until the next render; returning `false` or `{ok: false}` (or a Promise of it) restores the old one. |
+| `onColumnDelete(colIdx)` | "Delete column" in the header's right-click menu. |
+| `onRowAdd(afterRowIdx)` | "Insert row below" in a row's right-click menu (the row's original index), and "Add row" in the header's (`null`), so a table with no rows can get its first. |
+| `onRowDelete(rowIdx)` | "Delete row" in a row's right-click menu. |
+
+The structural items follow the consumer's own: in the header menu after the
+`headerMenu` items and before the column chooser, in a row's menu after the
+`contextMenuItems` and before the copy items, each behind a separator.
+
+### DataTable: a crosstab, with spanned header rows and pinned label columns (0.17.0)
+
+`crosstab` draws the table as a matrix: rows of spanned headers over the
+column headers, the leading columns as row labels, and all of it in ONE table
+in ONE scroller. The header rows stick to the top, the label columns (with the
+select and row-number columns in front of them) stick to the left, and the
+corner, the header cells over the label columns, sticks to both. Each header
+row's `top` is the measured height of the rows above it, and each pinned
+column's `left` the measured width of the pinned columns before it. Both are
+read after layout and again whenever a header row or a pinned header cell
+changes size (a label that wraps, a font, a zoom). The consumer supplies every
+value and every label: rows and columns that add others up are ordinary rows
+and columns, marked with `rowClass`, `cellClass` and a header cell's
+`className`. A table without `crosstab` draws exactly as in 0.16.
+
+```js
+const table = DataTable.mount(host, {
+    headers: ['Region', 'City', 'Q1', 'Q2', 'Q1', 'Q2', 'All'],
+    rows,                                   // ['North', 'Oslo', 1, 2, 3, 4, 10], …
+    pagination: false,
+    virtualize: true,                       // a large matrix: draw the rows in view
+    rowClass: (row) => (row[0] === 'All' ? 'my-sum-row' : null),
+    crosstab: {
+        labelColumns: 2,                    // 'Region' and 'City' are row labels
+        headerRows: [[                      // one row of spans per level, top first
+            { label: '2024', columns: [2, 3] },
+            { label: '2025', columns: [4, 5] },
+            { label: 'All', columns: [6], className: 'my-sum-head' },
+        ]],
+    },
+});
+```
+
+| `crosstab` key | What it does |
+|---|---|
+| `labelColumns` | How many of the leading drawn data columns are row labels (default 0). They are marked `twm-dt-pin` in every row, the header and the filter row, and pinned at the measured widths. One column with the depth drawn by the consumer (`cellClass`, `renderCell`), or one per level: both are just a count. |
+| `headerRows: [[{label, columns, className?, title?}]]` | The rows of spans above the column headers, top first. A cell spans the run of drawn body columns it lists (`columns` are data column indices, as in `columnGroups`; a column is in the first cell of its row that lists it); a run of columns in no cell of a row is a blank cell. Every row's spans add up to the body's columns. Above the label columns stands the corner: one `th.twm-dt-crosstab__corner` per pinned column, spanning every header row. |
+| `emptyLabel` | With no body column at all (an empty axis), one column headed with this text (default `'(none)'`) and an empty cell in every row, and no header rows. It is no data column. |
+
+The table carries `twm-dt-crosstab`, the header rows `tr.twm-dt-crosstab__band`
+and the column headers `tr.twm-dt-crosstab__leaf`; the spanned header cells are
+`columnGroups`' group cells (`th.twm-dt-group`) and are styled as those. There
+is no separate header table, so the split layout's column fit, resize grips,
+header right-click menu (`columnChooser`, `headerMenu`, and the header items of
+`onColumnRename`, `onColumnDelete` and `onRowAdd`), `columnActions`,
+`reorderable` and `columnGroups` row do not apply (`columnGroups` is ignored
+with a warning).
+
+A row's background is the custom property `--twm-dt-row-bg` on its `<tr>`
+(the zebra stripe sets it on even rows, at no specificity). Every crosstab row
+paints it, and the pinned label cells lay it over their opaque surface, so a
+coloured row keeps its colour across the label cells too. To colour a row, set
+the property from its `rowClass`, not `background` on the `tr` (the crosstab's
+row rule paints the property instead):
+
+```css
+.my-sum-row { --twm-dt-row-bg: rgba(255, 255, 255, 0.06); }
+```
+The pinned cells' background is one opaque stack the crosstab owns (it is
+`!important`, so neither a state rule nor an animation can make it see-through):
+every tint FlexDesk paints on a cell — hover, the clickable hover, row and cell
+selection, `staged`, the fill's skipped mark, placeholders, `diff` and the
+new-row flash — is drawn as a layer over the row's `--twm-dt-row-bg` over the
+surface (`--surface-0`), the same tint the unpinned cells of that row show.
+Under `virtualize` the columns are held at the widths first measured, so they
+do not shift as rows scroll in and out. With 1,000 rows and 50 body columns
+under `virtualize`, the first draw stays well under 300 ms in jsdom (tests/crosstab.test.mjs §6).
 
 ### Scrollbars
 
@@ -3600,6 +3816,82 @@ figure, where it used to try the first slot whatever it held.
 `tests/plot_grid.test.mjs` pins all of it,
 including that the window draws the same traces, names and axes for the
 fixture configs (`tests/fixtures/plot_grid_fixtures.mjs`) as it did before.
+
+## Editing a plot config: `renderPlotConfigEditor` (0.17.0)
+
+`renderPlotGrid` draws a plot config; `renderPlotConfigEditor` edits one, in
+place, so an embedder no longer writes its own panel for it:
+
+```js
+import { renderPlotConfigEditor, renderPlotGrid, migrateData } from '@flexdesk/charts';
+
+const plotConfig = migrateData(savedConfig);
+const editor = renderPlotConfigEditor(el, plotConfig, {
+    onChange: () => grid.update({ plotConfig }),            // after every edit
+    seriesProvider: ({ value, role, subplot }) => names(value),   // items, or a promise of them
+    seriesTransforms,                                       // their toggles, per subplot
+    overlaySources: () => mySources(),                      // optional
+    extraSeriesFields: (el, series, { subplot, axis, onChange }) => { /* your fields */ },
+});
+editor.dispose();
+```
+
+It draws a layout picker (every `PLOT_LAYOUTS` entry), a tab per subplot slot
+when the layout has more than one, and for the subplot in front: its title;
+its chart type, legend, interpolation, NaN handling and data points; its x
+axis (time, or a series); its y axes (label, scale, position, min, max, step)
+and, under each, its series (a picker, legend label, colour, width, dash and
+stack group); its z axis while the chart type is 3D; its reference lines and
+shaded bands; and the toggles of any `seriesTransforms`. Every edit writes the
+config it was given and then calls `onChange(config)`.
+
+- A layout with more slots than there are subplots adds default subplots
+  (`makeDefaultSubplot`); one with fewer keeps the extra subplots, so switching
+  back restores them.
+- **Add Y axis** adds `makeDefaultYAxis(index)` (left for an even index, right
+  for an odd one) and **Add series** adds `makeDefaultSeries(index)` (coloured
+  by its place among the subplot's series). Both come from `@flexdesk/charts`,
+  and `makeDefaultSubplot` and `migrateData` build their axes and series from
+  them, so an axis added in the editor matches a default subplot's.
+- A 3D chart type gives the subplot a z axis (label, scale, min, max, step and
+  a series) and uses its first y axis only: the other y axes are shown disabled
+  and **Add Y axis** is disabled. A 2D chart type sets `zAxis` back to `null`.
+- Every series picker is an `AutocompleteField` fed by `seriesProvider`, asked
+  `{ value, role, subplot }`, where `role` is `'series'`, `'x'` or `'z'`. It
+  answers AutocompleteField items (`{ label, insertText?, type? }`) or a promise
+  of them. A provider that throws or rejects shows no suggestions and leaves
+  the typed text as it is (`logger.warn` hears it when you pass `logger`).
+  Without `seriesProvider` the pickers suggest nothing and take typed text.
+- `overlaySources()` answers choice options (`{ value, label }`, or
+  `{ group, options }`), or a promise of them, asked once per draw. With it,
+  every series row gets an overlay source select; choosing one writes
+  `series.overlay = { source, ... }` and shows the overlay's label, colour,
+  dash, width and mode. `renderPlotGrid` draws it from the data you pass under
+  the series' id in `overlays`. **None** removes `series.overlay`. Without
+  `overlaySources` there are no overlay controls.
+- `extraSeriesFields(el, series, { subplot, axis, onChange })` puts fields of
+  your own in each series row; call `onChange()` after you edit the series. What
+  it returns is disposed (`dispose()`) when the row is redrawn or the editor
+  is disposed. A `dispose()` that throws is reported to `logger.warn` and does
+  not stop the rest of the editor being disposed.
+
+It returns `{ dispose, refresh, selectSubplot, activeSubplot }`: `dispose()`
+disposes every field it created (every `AutocompleteField` among them) and
+removes the editor; `refresh()` redraws it after the config was changed from
+outside; `selectSubplot(index)` brings a subplot to the front. It fits
+`PlotPopoutWindow`'s `configRenderer` slot, `(container) => { dispose() } | void`:
+the window disposes what the renderer returns when it closes, so return the
+editor and its dropdowns leave `document.body` with the window.
+`openPlotPopoutWindow` is async; await it:
+
+```js
+const win = await openPlotPopoutWindow({ id, title, plotConfig, getResults, services,
+    configRenderer: (el) => renderPlotConfigEditor(el, plotConfig,
+                                { onChange: () => win.updateConfig(plotConfig) }) });
+```
+
+Its classes are under `.twm-plot-config` in `flexdesk.css`.
+`tests/plot_config_editor.test.mjs` pins all of it.
 
 ## Layouts are keyed by whatever you key them by
 

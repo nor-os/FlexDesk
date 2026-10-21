@@ -103,7 +103,12 @@ export class StagedEdits {
      * Returns whether anything changed.
      */
     stage(rowIdx, colIdx, value) {
-        if (this.committing || !this._stageOne(rowIdx, colIdx, value)) return false;
+        if (this.committing) return false;
+        const refusal = this._dropRefusal(rowIdx, colIdx);
+        if (!this._stageOne(rowIdx, colIdx, value)) {
+            if (refusal) this.grid._redraw(rowIdx, colIdx);
+            return false;
+        }
         this.grid._redraw(rowIdx, colIdx);
         this._changed();
         return true;
@@ -121,7 +126,9 @@ export class StagedEdits {
         this.history.beginGroup(label);
         try {
             for (const { rowIdx, colIdx, value } of cells) {
+                const refusal = this._dropRefusal(rowIdx, colIdx);
                 if (this._stageOne(rowIdx, colIdx, value)) { changed++; rows.add(rowIdx); }
+                else if (refusal) rows.add(rowIdx);
             }
         } finally {
             this.history.endGroup();
@@ -129,6 +136,17 @@ export class StagedEdits {
         for (const rowIdx of rows) this.grid._redraw(rowIdx);
         if (changed) this._changed();
         return changed;
+    }
+
+    /** STORY-0087. A text that did not parse stays in its cell, marked, in
+     *  the grid's own marks; anything staged into the cell ends that refusal,
+     *  the value its row holds included. Whether there was one. */
+    _dropRefusal(rowIdx, colIdx) {
+        const k = key(rowIdx, colIdx);
+        if (!this.grid.errors.has(k)) return false;
+        this.grid.errors.delete(k);
+        this.grid.latest.delete(k);
+        return true;
     }
 
     /** One cell's new state and its delta in the ring; whether it changed. */

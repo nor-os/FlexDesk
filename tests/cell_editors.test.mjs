@@ -14,6 +14,8 @@
  *       value not in them is refused unless `allowOther`
  *   §5  an injected editor for a type replaces the built-in one for that
  *       type only
+ *   §6  under `staged` (STORY-0088) a refused text stages nothing, and a
+ *       value staged in the cell afterwards ends the refusal
  *
  * Against 0.16 every section fails (there is no editing); against STORY-0003
  * alone every column opens the text box and commits text.
@@ -331,6 +333,34 @@ section('§5 an injected editor replaces the built-in one for its type only');
     ok('…a number column still gets the built-in number editor', !!td.querySelector('input.twm-dt-editor--number'));
     key(td.querySelector('input'), 'Escape');
     byIdx.table.dispose();
+}
+
+section('§6 under `staged`: a refusal stages nothing, and a later value ends it');
+{
+    const { host, table, commits, rows } = edit({ staged: true, onCommit: () => ({ ok: true }) });
+    let input = open(host, 0, 2).querySelector('input');
+    type(input, 'abc');
+    input.dispatchEvent(new window.FocusEvent('focusout', { bubbles: true, relatedTarget: document.body }));
+    let td = cellAt(host, 0, 2);
+    check('the focus leaving with \'abc\' stages nothing', [table.getStagedEdits().length, commits.length, rows[0][2]], [0, 0, 3]);
+    check('…and the cell keeps the text, marked', [td.textContent, td.classList.contains('twm-dt-cell--error')], ['abc', true]);
+    input = open(host, 0, 2).querySelector('input');
+    type(input, '5');
+    key(input, 'Enter');
+    td = cellAt(host, 0, 2);
+    check('a good value is staged, and shown', [table.getStagedEdits().map((e) => e.value), td.textContent], [[5], '5']);
+    ok('…and the mark goes', !td.classList.contains('twm-dt-cell--error') && !td.hasAttribute('data-error'));
+
+    input = open(host, 1, 2).querySelector('input');
+    type(input, 'abc');
+    input.dispatchEvent(new window.FocusEvent('focusout', { bubbles: true, relatedTarget: document.body }));
+    input = open(host, 1, 2).querySelector('input');
+    type(input, '1234.5');
+    key(input, 'Enter');
+    td = cellAt(host, 1, 2);
+    check('the value the row holds, typed over a refusal, stages nothing and ends it',
+        [table.getStagedEdits().length, td.classList.contains('twm-dt-cell--error'), td.textContent !== 'abc'], [1, false, true]);
+    table.dispose();
 }
 
 await tick();

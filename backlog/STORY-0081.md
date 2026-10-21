@@ -2,7 +2,7 @@
 id: 81
 type: story
 title: "Canvas connections take host styles (tone, dash, width, arrow, label), optional obstacle routing and hover highlight"
-status: review
+status: done
 parent: 73
 phase: 
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: canvas
 labels: [flexdesk, modeler]
 links: []
 created: 2026-10-17
-updated: 2026-10-19T15:45Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -35,6 +35,7 @@ Canvas lines are always simple curves (`routeEdge(..., {simple: true})`) with no
 - 2026-10-18 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-19 · norman_agent · status: in-progress -> review
 - 2026-10-19 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -55,3 +56,7 @@ Ticked: all 5 criteria (dash pattern; arrowhead at the input port; label at the 
 Tests, on the rebased tip: `node tests/run.mjs` (Linux node), seen to finish: 'FLEXDESK TESTS: GREEN — 155 suite(s)', EXIT 0, no SKIPPED lines. `node build.mjs` succeeded; dist/ was reverted and cleaned, not committed.
 
 App check, on the rebased tip: the CDP probe demo/flow_canvas_edges_probe.mjs, run with Windows node in headless Edge, printed 'every check held' (exit 0): computed dash, arrow tip on the port dot, the label is the element at its own centre, no line point inside the step's drawn box, the strip names the fallback above the limit, and a real pointer hover highlights and un-highlights.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

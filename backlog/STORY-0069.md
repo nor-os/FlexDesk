@@ -2,7 +2,7 @@
 id: 69
 type: story
 title: "0.17.0 ships every defect fix and capability an embedder migration needs, in one release"
-status: refined
+status: in-progress
 parent: 68
 phase:
 assignee:
@@ -11,9 +11,9 @@ due:
 points: 3
 subsystem: build
 labels: [release]
-links: [blocked-by 31, blocked-by 32, blocked-by 33, blocked-by 34, blocked-by 35, blocked-by 36, blocked-by 37, blocked-by 38, blocked-by 62, blocked-by 39, blocked-by 43, blocked-by 44, blocked-by 50, blocked-by 30, blocked-by 41, blocked-by 42, blocked-by 45, blocked-by 46, blocked-by 47, blocked-by 48, blocked-by 49, blocked-by 67, blocked-by 52, blocked-by 53, blocked-by 55, blocked-by 57, blocked-by 56, blocked-by 58, blocked-by 60, blocked-by 61, blocked-by 63, blocked-by 64, blocked-by 65, blocked-by 66, blocked-by 3, blocked-by 85, blocked-by 86, blocked-by 87, blocked-by 88, blocked-by 89, blocked-by 90, blocked-by 91, blocked-by 74, blocked-by 75, blocked-by 76, blocked-by 77, blocked-by 78, blocked-by 79, blocked-by 80, blocked-by 81, blocked-by 82, blocked-by 83, blocked-by 84, relates-to BUG-0003, relates-to BUG-0004, relates-to BUG-0005, relates-to BUG-0006, relates-to BUG-0008, relates-to BUG-0009, relates-to BUG-0026, relates-to BUG-0011, relates-to BUG-0012, relates-to BUG-0013, relates-to BUG-0014, relates-to BUG-0015, relates-to BUG-0016, relates-to BUG-0017, relates-to BUG-0018, relates-to BUG-0019, relates-to BUG-0020, relates-to BUG-0023, relates-to BUG-0024, relates-to BUG-0025, relates-to BUG-0027, relates-to BUG-0028, relates-to BUG-0031]
+links: [relates-to 97, blocked-by 31, blocked-by 32, blocked-by 33, blocked-by 34, blocked-by 35, blocked-by 36, blocked-by 37, blocked-by 38, blocked-by 62, blocked-by 39, blocked-by 43, blocked-by 44, blocked-by 50, blocked-by 30, blocked-by 41, blocked-by 42, blocked-by 45, blocked-by 46, blocked-by 47, blocked-by 48, blocked-by 49, blocked-by 67, blocked-by 52, blocked-by 53, blocked-by 55, blocked-by 57, blocked-by 56, blocked-by 58, blocked-by 60, blocked-by 61, blocked-by 63, blocked-by 64, blocked-by 65, blocked-by 66, blocked-by 3, blocked-by 86, blocked-by 88, blocked-by 89, blocked-by 91, blocked-by 74, blocked-by 75, blocked-by 76, blocked-by 77, blocked-by 78, blocked-by 79, blocked-by 80, blocked-by 81, blocked-by 82, blocked-by 83, relates-to BUG-0003, relates-to BUG-0004, relates-to BUG-0005, relates-to BUG-0006, relates-to BUG-0008, relates-to BUG-0009, relates-to BUG-0026, relates-to BUG-0011, relates-to BUG-0012, relates-to BUG-0013, relates-to BUG-0014, relates-to BUG-0015, relates-to BUG-0016, relates-to BUG-0017, relates-to BUG-0018, relates-to BUG-0019, relates-to BUG-0020, relates-to BUG-0023, relates-to BUG-0024, relates-to BUG-0025, relates-to BUG-0027, relates-to BUG-0028, relates-to BUG-0031]
 created: 2026-10-17
-updated: 2026-10-19T20:45Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -35,6 +35,8 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
+- 2026-10-21 · norman_agent · status: refined -> in-progress
+- 2026-10-21 · norman_agent · assignee: (unset) -> norman_agent
 
 ## Comments
 
@@ -61,3 +63,7 @@ Scope added by norman (2026-10-18): the whole editable-grid split ships in 0.17.
 ### 2026-10-19T20:45Z · norman_agent
 
 Criterion amended by norman (2026-10-19): FlexDesk has no CHANGELOG yet; each 0.17.0 story documents itself in a README section headed "(0.17.0)", and this release creates CHANGELOG.md compiling them, with every removed or renamed export and its replacement. Old wording: "The changelog lists every removed or renamed export with its replacement". BUG-0031 (PlotPopoutWindow's default stream event names, filed today) is added to the release.
+
+### 2026-10-21T07:42Z · norman_agent
+
+Taking this on to release. norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Every listed story is now done and every listed bug closed (this commit). STORY-0084, STORY-0085, STORY-0087 and STORY-0090 were still being built, so by norman's decision they move to 0.17.1 (STORY-0097) and are removed from this list. norman has authorised the npm publish.

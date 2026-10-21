@@ -2,7 +2,7 @@
 id: 37
 type: story
 title: "Content can replace its tile chrome actions after mount, with labels, disabled and pressed states"
-status: review
+status: done
 parent: 29
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: shell
 labels: [shell, tile-chrome]
 links: []
 created: 2026-10-17
-updated: 2026-10-19T14:01Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -39,6 +39,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-19 · norman_agent · status: in-progress -> review
 - 2026-10-19 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -81,3 +82,7 @@ Landing: rebased the branch onto origin/main cca1314. The only conflict was READ
 Tests on the rebased tip: full `node tests/run.mjs` (Linux node v18.19.1) ran to completion: 'FLEXDESK TESTS: GREEN — 149 suite(s)', exit 0, no `: SKIPPED` lines. The only line matching FAIL is the passing test 'ok an older request FAILING last is dropped too'. `node build.mjs` exit 0; dist/ restored and not committed.
 
 App check: none run for this handback. This is a library API that EcoSim STORY-0042 (`../EcoSim/backlog/STORY-0042.md`) will use, and it is checked here by the jsdom tests against a real shell.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

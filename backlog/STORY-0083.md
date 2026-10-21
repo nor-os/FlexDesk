@@ -2,7 +2,7 @@
 id: 83
 type: story
 title: "Canvas nodes show host-driven live values and can collapse to their header"
-status: review
+status: done
 parent: 73
 phase: 
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: canvas
 labels: [flexdesk, modeler]
 links: [blocked-by 74, relates-to 7]
 created: 2026-10-17
-updated: 2026-10-19T18:03Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -34,6 +34,7 @@ A modeler shows live values on nodes and ports while something runs (legacy node
 - 2026-10-19 · norman_agent · assignee:  -> norman_agent
 - 2026-10-19 · norman_agent · status: in-progress -> review
 - 2026-10-19 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -60,3 +61,7 @@ Ticked all four criteria: ten setNodeValues calls per second update the badge an
 Tests, on the rebased tip: `node tests/run.mjs` (Linux node) ran to completion, "FLEXDESK TESTS: GREEN — 160 suite(s)", exit 0, no ": SKIPPED" lines (includes tests/flow_canvas_live_values.test.mjs and flow_kit_vocabulary). `node build.mjs` exit 0; dist/ reverted, not committed.
 
 App check: `node.exe demo/flow_canvas_probe.mjs` (headless Edge) on the rebased tip: every check held, including the new `live` section (real keys into a settings field during ten setNodeValues calls 100 ms apart, real fold-button click, real Ctrl+Z) and every existing section.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

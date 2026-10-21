@@ -2,7 +2,7 @@
 id: 47
 type: story
 title: "A wizard with step indicator, Back/Next/Finish and per-step gating"
-status: review
+status: done
 parent: 40
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: widgets
 labels: [widgets, new-component]
 links: []
 created: 2026-10-17
-updated: 2026-10-18T01:56Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -40,6 +40,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-18 · norman_agent · status: in-progress -> review
 - 2026-10-18 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -56,3 +57,7 @@ Ticked all 6 criteria: Next disabled with the hint while canAdvance is {ok:false
 Branch `story-0047`, rebased onto origin/main and landed fast-forward on main at e5aadc8. The rebase had conflicts in README.md, css/flexdesk.css and widgets.js, all from both sides adding entries (ToggleField / tag input / document outline from main, Wizard from this branch). I kept both sides, and the widgets.js barrel header now counts 45 modules.
 
 Tests after the rebase: `node tests/run.mjs` (Linux node v18.19.1), exit 0, "FLEXDESK TESTS: GREEN — 131 suite(s)", 0 lines with ": SKIPPED". `node build.mjs` exit 0, and dist/ was restored afterwards, so no dist changes were committed. App check: not run. This is a library component, so it is covered by the jsdom tests and the build, and no app was launched.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

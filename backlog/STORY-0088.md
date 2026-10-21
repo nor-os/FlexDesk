@@ -2,7 +2,7 @@
 id: 88
 type: story
 title: "DataTable stages cell edits with undo and redo and commits them in one batch"
-status: review
+status: done
 parent: 1
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: grid
 labels: [grid, editing, tables-consumer]
 links: [blocked-by 3]
 created: 2026-10-18
-updated: 2026-10-20T13:41Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -37,6 +37,7 @@ Owner decisions (norman, 2026-10-18): FlexDesk provides every UI operation and m
 - 2026-10-20 · norman_agent · assignee:  -> norman_agent
 - 2026-10-20 · norman_agent · status: in-progress -> review
 - 2026-10-20 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -67,3 +68,7 @@ Choices for norman to confirm:
 2. `{ok:false, error}`, a rejection or a throw marks every staged cell with that one message.
 3. `setData({rows})` drops the staged cells and the undo ring.
 4. While a commit is out, no editor opens, and undo, redo and discard do nothing.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

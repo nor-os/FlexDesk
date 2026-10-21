@@ -2,7 +2,7 @@
 id: 39
 type: story
 title: "Toast helpers, the gallery picker and the plot window read nothing from window globals"
-status: review
+status: done
 parent: 29
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: widgets
 labels: [injection]
 links: [blocked-by 62, relates-to BUG-0022]
 created: 2026-10-17
-updated: 2026-10-18T04:14Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -39,6 +39,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-18 · norman_agent · assignee: (unset) -> norman_agent
 - 2026-10-18 · norman_agent · status: in-progress -> review
 - 2026-10-18 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -67,3 +68,7 @@ Tests: `node tests/run.mjs` (Linux node) on the rebased tip: FLEXDESK TESTS: GRE
 App check: the app was not launched. The tests are the only check.
 
 Related EcoSim work: EcoSim STORY-0071 (`../EcoSim/backlog/STORY-0071.md`). Callers should pass streamEvents if their bus names differ from the defaults, and for the gallery picker pass a `host` built with a `gallery` capability, or pass `entries`.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

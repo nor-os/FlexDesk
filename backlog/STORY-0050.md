@@ -2,7 +2,7 @@
 id: 50
 type: story
 title: "A settings view that renders the registered settings schema"
-status: review
+status: done
 parent: 40
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: settings
 labels: [settings, new-component]
 links: [blocked-by 43, blocked-by 44]
 created: 2026-10-17
-updated: 2026-10-19T18:21Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -40,6 +40,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-19 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-19 · norman_agent · status: in-progress -> review
 - 2026-10-19 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -62,3 +63,7 @@ Landed tip on main: 765c455 (fast-forward fd3aa2d..765c455). The branch was reba
 Tests: on the rebased tip, the full suite `node tests/run.mjs` (Linux /usr/bin/node) ran to completion with exit 0 and printed "FLEXDESK TESTS: GREEN — 161 suite(s)". There were 0 ": SKIPPED" lines and 0 "FAIL " lines. `node tests/settings_view.test.mjs` passed all assertions. `node build.mjs` succeeded, and dist/ was restored and not committed.
 
 App check: none in this round. This is a library component and is checked by the DOM test suite. No running-app check was made.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

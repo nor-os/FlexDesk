@@ -2,7 +2,7 @@
 id: 75
 type: story
 title: "Canvas data ports connect under host rules, with port typing, drag-to-connect and a compatible-type picker on empty drop"
-status: review
+status: done
 parent: 73
 phase: 
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: canvas
 labels: [flexdesk, modeler]
 links: []
 created: 2026-10-17
-updated: 2026-10-19T18:59Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -36,6 +36,7 @@ The canvas editor refuses connections between non-flow ports and allows one line
 - 2026-10-18 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-19 · norman_agent · status: in-progress -> review
 - 2026-10-19 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -54,3 +55,7 @@ Ticked: all 6 criteria. Each is covered by tests/flow_canvas_connections.test.mj
 Landed tip: main b05d903, on top of 4cc71d0 (STORY-0050). Replaying the branch commits one at a time onto main conflicted with main's paintNode split (STORY-0077/0083). So the rebase is a single commit, and its tree is exactly the reviewed merge 371a4f6 combined with main (`git merge-tree` 371a4f6 origin/main was clean, tree 3834d05). origin/story-0075 still holds the pre-rebase history (371a4f6, six commits plus the merge of d6885f0). Its commit list is in the b05d903 message.
 
 Tests: `node tests/run.mjs` (Linux node v18.19.1) on b05d903 ran to completion: "FLEXDESK TESTS: GREEN — 162 suite(s)", exit 0, 0 lines with ': SKIPPED'. `node build.mjs` succeeded, and dist/ was restored afterwards. No app check in a running app was done at landing. The criteria are verified by the suites above.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

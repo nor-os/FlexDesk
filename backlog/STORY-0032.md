@@ -2,7 +2,7 @@
 id: 32
 type: story
 title: "A taxonomy kind can be single-instance: opening it reveals the one that exists"
-status: review
+status: done
 parent: 29
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: shell
 labels: [shell, taxonomy]
 links: []
 created: 2026-10-17
-updated: 2026-10-18T03:04Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -39,6 +39,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-18 · norman_agent · status: in-progress -> review
 - 2026-10-18 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -55,3 +56,7 @@ Ticked all 5 criteria: switching desktop and focusing with no second mount; grey
 Branch `story-0032`, rebased onto origin/main and fast-forwarded to main: landed tip on main is `53c606c`. The rebased branch was not force-pushed (that push was refused here), so origin/story-0032 still points at the pre-rebase tip `434fec6`, which has the same content.
 
 Tests: `node tests/run.mjs` (Linux node) on the rebased tip ends "FLEXDESK TESTS: GREEN — 135 suite(s)", exit 0, 0 lines with ': SKIPPED'; `node tests/single_instance_kinds.test.mjs` prints "all assertions passed"; `node build.mjs` exits 0 (dist/ restored, not committed). App check: no interactive run of the app was done; verification is the test suites above.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

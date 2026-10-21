@@ -2,7 +2,7 @@
 id: 52
 type: story
 title: "Progress bar, keyed progress list, stepped progress and determinate progress dialogs"
-status: review
+status: done
 parent: 51
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: widgets
 labels: [widgets, progress, new-component]
 links: []
 created: 2026-10-17
-updated: 2026-10-18T03:27Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -39,6 +39,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-18 · norman_agent · status: in-progress -> review
 - 2026-10-18 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -55,3 +56,7 @@ Ticked all 5 criteria: in-place `update(0.42)`; stable row elements across keyed
 Branch `story-0052`, rebased onto main and landed by fast-forward. Tip on main: 9607f0e. The rebase had conflicts in README.md and widgets.js, which I resolved by keeping both sides. In README.md, the widgets package row now ends "a document outline, progress", and the main branch's markdown/outline/dropdown/tag-input sections sit before the Progress section. In widgets.js, the barrel header now says 46 modules: main's 45 plus `progress.js`.
 
 Tests: `node tests/run.mjs` (Linux node) on the rebased tip 9607f0e gave "FLEXDESK TESTS: GREEN — 136 suite(s)", exit 0, with 0 `: SKIPPED` lines and no failures. progress.test.mjs printed "all assertions passed". `node build.mjs` exited 0; dist/ was restored afterwards and not committed. App check: not run. These widgets are not wired into an app view on this branch, so the evidence is the jsdom tests only.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

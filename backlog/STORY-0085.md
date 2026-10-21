@@ -2,10 +2,10 @@
 id: 85
 type: story
 title: "DataTable copies a selected cell range as tab-separated text"
-status: in-progress
+status: done
 parent: 1
 phase:
-assignee: norman_agent
+assignee: norman
 reporter: norman
 due:
 points: 2
@@ -13,7 +13,7 @@ subsystem: grid
 labels: [grid, editing, tables-consumer]
 links: [blocked-by 3]
 created: 2026-10-18
-updated: 2026-10-21T06:09Z
+updated: 2026-10-21T09:43Z
 ---
 
 ## Description
@@ -24,19 +24,21 @@ Owner decisions (norman, 2026-10-18): FlexDesk provides every UI operation and m
 
 ## Acceptance criteria
 
-- [ ] A 3×4 range copies 3 lines of 4 tab-separated values, in the order shown after sort and filter
-- [ ] With no range, Ctrl+C copies the cursor cell's value alone
-- [ ] A copied cell is its raw value, not the text it shows: a Price cell showing `1,234.50` (value 1234.5) copies as `1234.5`; dates copy as ISO
-- [ ] In cell mode the right-click menu offers "Copy Cells" (the same tab-separated raw values as Ctrl+C) and no "Copy as CSV"; Ctrl+Shift+C is not bound
-- [ ] Hidden columns are left out, and a value containing a tab, newline or quote is quoted the way Excel quotes it
-- [ ] In row mode, Ctrl+C and the copy menu work as before
-- [ ] The generic behaviour Tables' grid/clipboard tests (TSV writing) checks has a FlexDesk suite under tests/ that passes (ported, not imported from Tables)
+- [x] A 3×4 range copies 3 lines of 4 tab-separated values, in the order shown after sort and filter
+- [x] With no range, Ctrl+C copies the cursor cell's value alone
+- [x] A copied cell is its raw value, not the text it shows: a Price cell showing `1,234.50` (value 1234.5) copies as `1234.5`; dates copy as ISO
+- [x] In cell mode the right-click menu offers "Copy Cells" (the same tab-separated raw values as Ctrl+C) and no "Copy as CSV"; Ctrl+Shift+C is not bound
+- [x] Hidden columns are left out, and a value containing a tab, newline or quote is quoted the way Excel quotes it
+- [x] In row mode, Ctrl+C and the copy menu work as before
+- [x] The generic behaviour Tables' grid/clipboard tests (TSV writing) checks has a FlexDesk suite under tests/ that passes (ported, not imported from Tables)
 
 ## History
 
 - 2026-10-18 · norman_agent · status: draft -> refined
 - 2026-10-20 · norman_agent · status: refined -> in-progress
 - 2026-10-20 · norman_agent · assignee: (none) -> norman_agent
+- 2026-10-21 · norman_agent · status: in-progress -> done
+- 2026-10-21 · norman_agent · assignee: norman_agent -> norman
 
 ## Comments
 
@@ -66,3 +68,13 @@ Open: once norman answers, record his decision here. If he approves all three po
 ### 2026-10-21T06:09Z · norman_agent
 
 Two criteria added by norman (Claude Code session, 2026-10-21), answering the question above: (1) a copy carries raw values, not the shown text; (2) cell mode has no CSV copy at all: the menu offers only "Copy Cells", and Copy as CSV needs no keyboard shortcut anywhere, so Ctrl+Shift+C is not bound. Row mode is unchanged.
+
+### 2026-10-21T09:43Z · norman_agent (status: in-progress -> done)
+
+Done by norman's 2026-10-21 process decision (FlexDesk stories go to done once landed and independently reviewed). Landed on main at 7bf7746.
+
+Built, following norman's 2026-10-21 amendment: in cell mode a copy carries raw values (copyMatrix uses copyText in cell_grid.js; dates copy as ISO, a declared 'date' column copies the day in dateTimeZone). The cell-mode menu offers only "Copy Cells", Ctrl+Shift+C is not bound, and copyToClipboard('csv') in cell mode warns and copies nothing. Row mode is unchanged. The README cell-copy docs and the toTSV/tsvCell exports moved into a new "Copying cells as tab-separated values (0.17.1)" subsection, since 0.17.0 shipped without cell copy. Files: src/ui/components/cell_grid.js, data_table.js, tsv.js, README.md, tests/cell_copy.test.mjs, tests/tsv.test.mjs.
+
+Ticked all 7 criteria: 3x4 range order after sort/filter; cursor cell alone; raw values and ISO dates; "Copy Cells" only, no CSV, no Ctrl+Shift+C; hidden columns left out and Excel quoting; row mode unchanged; ported TSV suite under tests/.
+
+Tests: full suite `node tests/run.mjs` GREEN, 184 suites, exit 0, no SKIPPED lines; `node build.mjs` succeeded (dist restored afterwards); tests/cell_copy.test.mjs and tests/tsv.test.mjs passed on their own.

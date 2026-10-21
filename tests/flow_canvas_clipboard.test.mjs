@@ -18,6 +18,10 @@
  *       change nothing; Copy still copies
  *   §7  Cut: one remove entry, and the paste after it lands where they were
  *   §8  without `multiSelect`: one step copied and pasted is picked as a step
+ *   §9  under `connections: {dataPorts: 'connect'}` the DATA line between two
+ *       copied steps comes along on paste and on duplicate (STORY-0084: the
+ *       copies were connected without `dataPorts`, so `canConnect` refused
+ *       every data line and the copies arrived unwired)
  *
  *     node tests/flow_canvas_clipboard.test.mjs
  */
@@ -281,6 +285,36 @@ t.section('§8 without multiSelect: one step copied and pasted is picked');
     const [made] = fresh(m, before);
     t.check('a fresh copy, picked as a step', [Boolean(made), m.selects.at(-1), picked(m)], [true, { kind: 'step', id: made }, [made]]);
     t.check('with no line (none among one)', edges(m).filter((e) => e.includes(made)), []);
+}
+
+t.section('§9 a data line between copied steps comes along under dataPorts: connect');
+{
+    const D = (name, direction, extra = {}) => ({ name, direction, port_type: 'DATA', ...extra });
+    const dataCatalogue = createStepCatalogue([
+        { type_id: 'wave', label: 'Wave', category: 'work', ports: [D('out', 'output', { provides: ['number'] })] },
+        { type_id: 'scale', label: 'Scale', category: 'work',
+          ports: [D('in', 'input', { accepts: ['number'], maxConnections: 1 }), D('out', 'output', { provides: ['number'] })] },
+    ], { categories: [{ id: 'work', label: 'Work' }] });
+    const graph = { nodes: [node('w', 96, 160, 'wave'), node('s', 400, 160, 'scale')],
+                    connections: [{ source: 'w', sourcePort: 'out', target: 's', targetPort: 'in' }] };
+    const m = mount({ catalogue: dataCatalogue, multiSelect: true, clipboard: true, connections: { dataPorts: 'connect' } }, graph);
+    const before = ids(m);
+    m.editor.select(['w', 's']);
+    m.editor.copy();
+    m.editor.paste();
+    const [w2, s2] = fresh(m, before);
+    t.check('the pasted copies are wired as the originals are', edges(m), ['w.out>s.in', `${w2}.out>${s2}.in`]);
+    t.check('and the line is drawn', m.el.querySelectorAll('path.twm-flow-graph__edge').length, 2);
+    t.check('still one flow:paste entry', [m.changes.length, m.changes.at(-1).action], [1, 'flow:paste']);
+    m.editor.select(['w', 's']);
+    m.editor.duplicate();
+    const [w3, s3] = fresh(m, [...before, w2, s2]);
+    t.ok('a duplicate is wired too', edges(m).includes(`${w3}.out>${s3}.in`), JSON.stringify(edges(m)));
+    const plain = mount({ catalogue: dataCatalogue, multiSelect: true, clipboard: true }, graph);
+    plain.editor.select(['w', 's']);
+    plain.editor.copy();
+    plain.editor.paste();
+    t.check('without the option a data line is still not a line the canvas draws', edges(plain), ['w.out>s.in']);
 }
 
 for (const e of mounted) e.destroy();

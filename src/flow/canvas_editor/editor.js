@@ -2888,7 +2888,7 @@ export function createCanvasEditor(host, options = {}) {
         for (const c of g.connections) {
             const source = idOf.get(c.source);
             const target = idOf.get(c.target);
-            if (source && target) connect(graph, catalogue, { ...c, source, target }, { strings: S });
+            if (source && target) connect(graph, catalogue, { ...c, source, target }, { strings: S, dataPorts: dataConnect });
         }
         const noteIds = [];
         for (const from of noting ? g.notes || [] : []) {

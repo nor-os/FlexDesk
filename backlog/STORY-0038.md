@@ -2,7 +2,7 @@
 id: 38
 type: story
 title: "Storage keys, theme names and drag MIME types are chosen by the embedder, not baked in"
-status: review
+status: done
 parent: 29
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: core
 labels: [injection, settings, windows]
 links: []
 created: 2026-10-17
-updated: 2026-10-18T00:04Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -39,6 +39,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-18 · norman_agent · status: in-progress -> review
 - 2026-10-18 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -61,3 +62,7 @@ Branch `story-0038` was rebased onto origin/main and landed fast-forward. Tip on
 Tests, after the rebase: `node tests/run.mjs` (Linux node) exited 0 with 'FLEXDESK TESTS: GREEN — 126 suite(s)', and the log has 0 SKIPPED lines. `node build.mjs` exited 0, and dist/ was reverted afterwards. `git grep -n -i ecosim -- src` returns nothing.
 
 App check: `node tests/embedder_storage_keys.test.mjs` passed every check, covering the configured keys, the defaults with no console warning, and the tab MIME drag and drop. I did not launch an embedding app; EcoSim still has to pass its old keys and theme names explicitly (EcoSim STORY-0019, `../EcoSim/backlog/STORY-0019.md`).
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

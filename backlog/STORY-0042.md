@@ -2,7 +2,7 @@
 id: 42
 type: story
 title: "openForm number fields enforce min and max, and several fields can share a row"
-status: review
+status: done
 parent: 40
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: widgets
 labels: [widgets, forms]
 links: [blocked-by 41]
 created: 2026-10-17
-updated: 2026-10-19T23:01Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -38,6 +38,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-19 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-19 · norman_agent · status: in-progress -> review
 - 2026-10-19 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -58,3 +59,7 @@ Ticked: all four criteria. (1) Out-of-range value refused with a field error: su
 Tests, on the rebased tip: `node tests/run.mjs` (Linux node) exited 0 with "FLEXDESK TESTS: GREEN — 165 suite(s)" and 0 lines with ': SKIPPED'. `node build.mjs` succeeded. dist/ was reset afterwards and not committed.
 
 App check: the headless-Edge probe (`"/mnt/c/Program Files/nodejs/node.exe" demo/open_form_row_probe.mjs <out-dir>`) on the rebased tip ended with "all checks passed", 10 checks. In 4-leading-row.png I checked by eye that the MIN/MAX row, A and B are evenly spaced.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

@@ -2,7 +2,7 @@
 id: 80
 type: story
 title: "Canvas Arrange takes a pluggable layered layout with rank hints, crossing reduction and separate components"
-status: review
+status: done
 parent: 73
 phase: 
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: canvas
 labels: [flexdesk, modeler]
 links: []
 created: 2026-10-17
-updated: 2026-10-19T23:23Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -36,6 +36,7 @@ Canvas Arrange is flow-specific (orders from start-role steps), and the kernel `
 - 2026-10-18 · norman_agent · assignee:  -> norman_agent
 - 2026-10-19 · norman_agent · status: in-progress -> review
 - 2026-10-19 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -90,3 +91,7 @@ Tests: I ran `node tests/run.mjs` (Linux node v18.19.1) in the worktree on the r
 App check: `demo/flow_canvas_probe.mjs` (Windows node, headless Edge over CDP) passed every check: "every check held". That covers the editor with the default 'flow' layout (Arrange present and hit-testable, marquee multi-select, moves and undo), so default behaviour is unchanged. The probe does not drive `layout: 'layered'` in the browser. That path is covered by the jsdom suites above.
 
 The flake mentioned earlier (`flow_canvas_live_values.test.mjs` §2 measures time with Date.now()) did not show up in this run. It is unchanged and could be filed as a separate bug if wanted.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

@@ -257,7 +257,7 @@ var SCHEMA = Object.freeze({
     label: "Projects directory",
     description: "Default directory for new projects and bundled demos. Leave empty for OS default.",
     defaultValue: null,
-    placeholder: "OS default (%APPDATA%/EcoSim/projects)"
+    placeholder: "OS default"
   },
   // ── AI Assistant ────────────────────────────────────────────────────────
   // Provider, auth, model, and server settings are managed from the chat UI
@@ -356,7 +356,7 @@ var CATEGORIES = Object.freeze([
   { id: "notebook", label: "Notebook", icon: "menu_book", description: "Notebook editor layout and behavior", order: 70 },
   { id: "advanced", label: "Advanced", icon: "code", description: "Debug and developer settings", order: 80 }
 ]);
-var STORAGE_KEY = "ecosim.settings.v1";
+var DEFAULT_SETTINGS_STORAGE_KEY = "flexdesk.settings.v1";
 function _getNestedValue(obj, parts) {
   let current = obj;
   for (const part of parts) {
@@ -420,8 +420,9 @@ function createSettingsStore({
   const _defaults = _clone(defaults) ?? {};
   const _schema = { ...schema };
   let _categories = categories.map((c) => ({ ...c }));
-  const _values = _clone(defaults) ?? {};
+  let _values = _clone(defaults) ?? {};
   let _bus = eventBus;
+  let _storageKey = storageKey;
   const _sortCategories = () => {
     _categories.sort((a, b) => (a.order ?? 1e3) - (b.order ?? 1e3));
   };
@@ -429,8 +430,8 @@ function createSettingsStore({
   const _debug = () => _values.debug?.logSettingsAccess;
   const _load = () => {
     try {
-      if (!storageKey || typeof localStorage === "undefined") return;
-      const raw = localStorage.getItem(storageKey);
+      if (!_storageKey || typeof localStorage === "undefined") return;
+      const raw = localStorage.getItem(_storageKey);
       if (!raw) return;
       const saved = JSON.parse(raw);
       for (const path of Object.keys(_schema)) {
@@ -446,7 +447,7 @@ function createSettingsStore({
   };
   const _save = () => {
     try {
-      if (!storageKey || typeof localStorage === "undefined") return;
+      if (!_storageKey || typeof localStorage === "undefined") return;
       const sparse = {};
       for (const path of Object.keys(_schema)) {
         const parts = path.split(".");
@@ -457,9 +458,9 @@ function createSettingsStore({
         }
       }
       if (Object.keys(sparse).length === 0) {
-        localStorage.removeItem(storageKey);
+        localStorage.removeItem(_storageKey);
       } else {
-        localStorage.setItem(storageKey, JSON.stringify(sparse));
+        localStorage.setItem(_storageKey, JSON.stringify(sparse));
       }
     } catch (err) {
       console.warn("[Settings] Failed to persist settings", err);
@@ -475,13 +476,22 @@ function createSettingsStore({
     _deepMerge(_defaults, d);
     _deepMerge(_values, d);
     Object.assign(_schema, s);
+    const added = [];
     for (const cat of c) {
       if (!cat?.id) continue;
       if (_categories.some((x) => x.id === cat.id)) continue;
       _categories.push({ ...cat });
+      added.push(cat.id);
     }
     _sortCategories();
     _load();
+    if (_bus) _bus.emit("settings:registered", { paths: Object.keys(s), categories: added });
+  };
+  const setStorageKey = (key, { notify = true } = {}) => {
+    _storageKey = key || null;
+    _values = _clone(_defaults) ?? {};
+    _load();
+    if (notify && _bus) _bus.emit("settings:changed", { path: null });
   };
   const get = (path, defaultValue = void 0) => {
     const parts = path.split(".");
@@ -576,15 +586,36 @@ function createSettingsStore({
     getByCategory,
     setEventBus: (bus) => {
       _bus = bus;
-    }
+    },
+    setStorageKey,
+    getStorageKey: () => _storageKey
   });
 }
 var _store = createSettingsStore({
   defaults: DEFAULTS,
   schema: SCHEMA,
   categories: CATEGORIES,
-  storageKey: STORAGE_KEY
+  storageKey: null
 });
+var _bindingKey = DEFAULT_SETTINGS_STORAGE_KEY;
+var _bound = false;
+function _binding() {
+  if (!_bound) {
+    _bound = true;
+    _store.setStorageKey(_bindingKey, { notify: false });
+  }
+  return _store;
+}
+function getSettingsStore() {
+  return _binding();
+}
+function configureSettings({ storageKey = DEFAULT_SETTINGS_STORAGE_KEY } = {}) {
+  _bindingKey = storageKey;
+  if (_bound) _store.setStorageKey(storageKey);
+}
+function getSettingsStorageKey() {
+  return _bindingKey;
+}
 function registerSettings(slice) {
   _store.extend(slice);
 }
@@ -592,25 +623,25 @@ function registerSettingsEventBus(eventBus) {
   _store.setEventBus(eventBus);
 }
 function getSetting(path, defaultValue = void 0) {
-  return _store.get(path, defaultValue);
+  return _binding().get(path, defaultValue);
 }
 function setSetting(path, value) {
-  return _store.set(path, value);
+  return _binding().set(path, value);
 }
 function getDefaultValue(path) {
   return _store.getDefault(path);
 }
 function resetSetting(path) {
-  return _store.resetOne(path);
+  return _binding().resetOne(path);
 }
 function resetCategory(categoryId) {
-  _store.resetCategory(categoryId);
+  _binding().resetCategory(categoryId);
 }
 function resetAllSettings() {
-  _store.resetAll();
+  _binding().resetAll();
 }
 function getAllSettings() {
-  return _store.getAll();
+  return _binding().getAll();
 }
 function getSchema() {
   return _store.getSchema();
@@ -623,7 +654,11 @@ function getSettingsByCategory(categoryId) {
 }
 
 export {
+  DEFAULT_SETTINGS_STORAGE_KEY,
   createSettingsStore,
+  getSettingsStore,
+  configureSettings,
+  getSettingsStorageKey,
   registerSettings,
   registerSettingsEventBus,
   getSetting,
@@ -637,4 +672,4 @@ export {
   getCategories,
   getSettingsByCategory
 };
-//# sourceMappingURL=chunk-FL5KFNQH.js.map
+//# sourceMappingURL=chunk-HNU6MM2B.js.map

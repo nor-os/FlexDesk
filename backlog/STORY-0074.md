@@ -2,7 +2,7 @@
 id: 74
 type: story
 title: "Canvas node types draw their own body, size and accent, and can be registered after the editor opens"
-status: review
+status: done
 parent: 73
 phase: 
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: canvas
 labels: [flexdesk, modeler]
 links: []
 created: 2026-10-17
-updated: 2026-10-19T16:04Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -36,6 +36,7 @@ Today every canvas node is the same header + port rows + summary (`buildNode` in
 - 2026-10-18 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-19 · norman_agent · status: in-progress -> review
 - 2026-10-19 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -61,3 +62,7 @@ Landed tip on main: 2190c39. I rebased story-0074 locally onto origin/main f5a58
 Tests: full suite `node tests/run.mjs` (Linux node), run to completion on the rebased tip: "FLEXDESK TESTS: GREEN — 156 suite(s)", exit 0, no ": SKIPPED" and no failed assertion. `node build.mjs` exit 0, and dist/ was reverted afterwards (not committed).
 
 App check: `node.exe demo/flow_canvas_probe.mjs` (headless Edge) exit 0, every check held, including all `bodies` checks (palette, 280x170 box, body below ports, accent, every line end within 1 px of its dot) and STORY-0076's `many` checks on the merged code. `node.exe demo/flow_canvas_edges_probe.mjs` exit 0, every check held.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

@@ -12,12 +12,15 @@ import {
   tile_registry_exports
 } from "./chunk-FOOS3T5L.js";
 import {
-  ActionDropdown
-} from "./chunk-O5OHMWBB.js";
+  ActionDropdown,
+  SlideOutPanel
+} from "./chunk-4A7SJC3T.js";
 import {
   showContextMenu
-} from "./chunk-B5Q53LAJ.js";
-import "./chunk-NNFTETK3.js";
+} from "./chunk-UWO43BZU.js";
+import {
+  openModal
+} from "./chunk-D3COLZZ2.js";
 import {
   buildHistogramTrace,
   buildLegendLayout,
@@ -32,10 +35,13 @@ import {
   purge,
   resize,
   strideDownsampleShared
-} from "./chunk-RQM5Z2MU.js";
-import "./chunk-FBGP5KN5.js";
-import "./chunk-6JSOVNID.js";
-import "./chunk-FL5KFNQH.js";
+} from "./chunk-MCIXFNVF.js";
+import "./chunk-Q36EPT2R.js";
+import {
+  isHexColor
+} from "./chunk-CVMCZZX2.js";
+import "./chunk-HNU6MM2B.js";
+import "./chunk-WVFGV5FT.js";
 import {
   __toCommonJS
 } from "./chunk-JYWURG5T.js";
@@ -73,6 +79,11 @@ function validateField(value, field) {
     case FieldTypes.SELECT:
       if (field.required && !value) {
         return { valid: false, error: `${field.label} must be selected` };
+      }
+      break;
+    case FieldTypes.COLOR:
+      if (value != null && value !== "" && !isHexColor(value)) {
+        return { valid: false, error: `${field.label} must be a hex colour (#rgb or #rrggbb)` };
       }
       break;
     case FieldTypes.MULTISELECT:
@@ -710,7 +721,7 @@ var TileBase = class {
    * @private
    */
   _onConfigClick() {
-    this.element?.closest(".tile-grid")?.querySelectorAll(".tile.tile--selected").forEach((el2) => el2.classList.remove("tile--selected"));
+    this.element?.closest(".tile-grid")?.querySelectorAll(".tile.tile--selected").forEach((el3) => el3.classList.remove("tile--selected"));
     this.element?.classList.add("tile--selected");
     this.eventBus?.emit?.("tile:config-request", {
       tileId: this.id,
@@ -922,6 +933,234 @@ var TileBase = class {
   }
 };
 
+// src/tiles/figure_tile.js
+var FIGURE_CONFIG = Object.freeze({
+  scrollZoom: false,
+  displayModeBar: false,
+  responsive: true
+});
+var DOWNLOAD_PNG = Object.freeze({ action: "download-png", label: "Download PNG", icon: "image" });
+var FigureTile = class extends TileBase {
+  static TYPE = "flexdesk.figure";
+  static TITLE = "Figure";
+  static EXPANDABLE = true;
+  /** The empty state's text when `figure()` answers `null`. */
+  static EMPTY_MESSAGE = "No data to show.";
+  /**
+   * @param {Object} options - TileBase's, plus:
+   * @param {Function} [options.onPointClick] - `({customdata, point, tile})`
+   *        on a click on a mark. Also assignable later as `tile.onPointClick`.
+   */
+  constructor(options = {}) {
+    super(options);
+    this.onPointClick = typeof options.onPointClick === "function" ? options.onPointClick : null;
+    this._plotEl = null;
+    this._drawn = false;
+    this._drawSeq = 0;
+    this._figure = null;
+  }
+  /**
+   * The one override: what to draw for `data`.
+   * @param {*} _data
+   * @returns {{traces: Array, layout?: Object, config?: Object, frames?: Array}|null}
+   */
+  figure(_data) {
+    throw new Error(`${this.constructor.name}.figure() must be implemented by the subclass`);
+  }
+  /**
+   * Hand this tile its data. Unlike `update()`, an empty or null value is
+   * drawn — as the empty state — rather than ignored.
+   */
+  setData(data) {
+    if (this._disposed) return;
+    this.data = data ?? null;
+    if (this.contentElement) this.render(this.data);
+  }
+  /**
+   * Kick off the draw and return. Deliberately not `async`: nothing awaits
+   * `render`, so a returned promise would be a rejection nobody catches.
+   */
+  render(data) {
+    this._draw(data);
+  }
+  /** One relayout when a resize settles; nothing while a draw is in flight. */
+  onResize() {
+    if (!this._plotEl || !this._drawn) return;
+    resize(this._plotEl).catch(() => {
+    });
+  }
+  menuItems() {
+    return [...super.menuItems(), ...this._figureMenuItems()];
+  }
+  /** The entries this class adds to the menu: Download PNG. For a subclass
+   *  that wants them WITHOUT `TileBase`'s own. @protected */
+  _figureMenuItems() {
+    return [{ ...DOWNLOAD_PNG }];
+  }
+  _onMenuAction(action) {
+    if (action === DOWNLOAD_PNG.action) this._downloadPng();
+    else super._onMenuAction(action);
+  }
+  /** The last figure drawn, for the expand window; `null` while there is none. */
+  getExpandData() {
+    const fig = this._figure;
+    if (!fig) return null;
+    return {
+      title: this.config.title || this.constructor.TITLE,
+      // Copies: Plotly writes onto the trace and layout objects it draws.
+      traces: fig.traces.map((t) => ({ ...t })),
+      layout: { ...fig.layout || {} },
+      frames: Array.isArray(fig.frames) ? fig.frames : void 0
+    };
+  }
+  // ── the three states: each one invalidates the figure ───────────────
+  showLoading() {
+    this._invalidate();
+    super.showLoading();
+  }
+  showEmpty(message) {
+    this._invalidate();
+    super.showEmpty(message);
+  }
+  showError(message) {
+    this._invalidate();
+    super.showError(message);
+  }
+  /** Release the figure BEFORE the element goes — `TileBase.dispose` nulls it. */
+  dispose() {
+    this._invalidate();
+    super.dispose();
+  }
+  /** Any draw in flight is now stale, and the figure on screen is released. */
+  _invalidate() {
+    this._drawSeq += 1;
+    this._releasePlot();
+  }
+  /** Hand the current figure back to Plotly and forget it. Idempotent, and
+   *  not awaited: a rejected purge (Plotly absent, already purged) must not
+   *  surface as an unhandled rejection. */
+  _releasePlot() {
+    const el3 = this._plotEl;
+    this._plotEl = null;
+    this._drawn = false;
+    this._figure = null;
+    if (el3) purge(el3).catch(() => {
+    });
+  }
+  /**
+   * The nodes the content holds while `plotEl` draws `fig`: the plot alone
+   * here. A subclass adds what sits around the figure (a note, a caption).
+   * @param {HTMLElement} plotEl
+   * @param {Object} _fig - what `figure()` answered
+   * @returns {HTMLElement[]}
+   * @protected
+   */
+  _figureContent(plotEl, _fig) {
+    return [plotEl];
+  }
+  // ── the draw ────────────────────────────────────────────────────────
+  async _draw(data) {
+    this._drawSeq += 1;
+    const seq = this._drawSeq;
+    const content = this.contentElement;
+    if (!content) return;
+    const stale = () => this._disposed || seq !== this._drawSeq;
+    this._releasePlot();
+    let fig;
+    try {
+      fig = this.figure(data);
+      if (fig != null && (typeof fig !== "object" || !Array.isArray(fig.traces))) {
+        throw new Error("figure() must answer {traces, layout} or null");
+      }
+    } catch (err) {
+      this._failed(err);
+      return;
+    }
+    if (!fig) {
+      if (!stale()) this.showEmpty(this.constructor.EMPTY_MESSAGE);
+      return;
+    }
+    const host = document.createElement("div");
+    host.className = "fd-figure-tile";
+    content.replaceChildren(...this._figureContent(host, fig));
+    this._plotEl = host;
+    this._drawn = false;
+    try {
+      const P = await ensurePlotly();
+      if (stale()) return;
+      await createChart(host, fig.traces, fig.layout || {}, { ...FIGURE_CONFIG, ...fig.config || {} });
+      if (Array.isArray(fig.frames) && fig.frames.length && !stale()) {
+        await P.addFrames(host, fig.frames);
+      }
+    } catch (err) {
+      if (stale()) return;
+      this._failed(err);
+      return;
+    }
+    if (stale()) {
+      purge(host).catch(() => {
+      });
+      return;
+    }
+    this._drawn = true;
+    this._figure = fig;
+    this._wireClick(host);
+  }
+  /** Plotly's click, reduced to the point's own `customdata`. A pie's point
+   *  carries its slice index as `pointNumber` (older builds: `pointIndex`),
+   *  and its `customdata` is read off the trace by that index. */
+  _wireClick(host) {
+    if (typeof host.on !== "function") return;
+    host.on("plotly_click", (ev) => {
+      const point = ev?.points?.[0];
+      if (!point || typeof this.onPointClick !== "function") return;
+      const trace = point.data || {};
+      let customdata = point.customdata;
+      if (trace.type === "pie" || customdata === void 0) {
+        const i = point.pointNumber ?? point.pointIndex;
+        if (Array.isArray(trace.customdata) && i != null) customdata = trace.customdata[i];
+      }
+      try {
+        this.onPointClick({ customdata, point, tile: this });
+      } catch (err) {
+        console.error(`[${this.constructor.name}] onPointClick threw:`, err);
+      }
+    });
+  }
+  async _downloadPng() {
+    if (!this._plotEl || !this._drawn) return;
+    try {
+      const P = await ensurePlotly();
+      const uri = await P.toImage(this._plotEl, { format: "png", scale: 2 });
+      const filename = `${slug(this.config.title || this.constructor.TITLE)}.png`;
+      const dialogs = this.host?.dialogs;
+      const result = dialogs ? await dialogs.saveFile({ data: uri.split(",")[1], filename, kind: "png" }) : null;
+      if (result) {
+        if (result.ok) this._notify("Download", `Chart saved to ${result.path}`, "success");
+        else if (!result.cancelled) this._notify("Download failed", result.error || "The image could not be saved", "error");
+        return;
+      }
+      const a = document.createElement("a");
+      a.href = uri;
+      a.download = filename;
+      a.click();
+    } catch (err) {
+      this._notify("Download failed", `The image could not be made: ${err?.message || err}`, "error");
+    }
+  }
+  _failed(err) {
+    if (this._disposed) return;
+    this.showError(`This chart could not be drawn: ${err?.message || err}`);
+    this.eventBus?.emit?.("tile:render-failed", {
+      tileId: this.id,
+      message: err?.message || String(err)
+    });
+  }
+};
+function slug(text) {
+  return String(text).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "chart";
+}
+
 // src/tiles/chart_tiles.js
 init_tile_registry();
 var CATEGORICAL_ONLY = /* @__PURE__ */ new Set(["pie", "donut", "funnel"]);
@@ -973,25 +1212,13 @@ function pointCount(s) {
   }
   return 0;
 }
-var ChartTile = class extends TileBase {
+var ChartTile = class extends FigureTile {
   static TYPE = "flexdesk.chart";
   static TITLE = "Chart";
   static ICON = "insert_chart";
   static DESCRIPTION = "Line, bar, area, pie, donut, funnel or histogram over series you supply.";
   static DEFAULT_SIZE = { w: 6, h: 4 };
   static SIZE_CONSTRAINTS = { minW: 3, minH: 3, maxW: 12, maxH: 10 };
-  /**
-   * @param {Object} options - TileBase's, plus:
-   * @param {Function} [options.onPointClick] - `({customdata, point, tile})`
-   *        on a click on a mark. Also assignable later as `tile.onPointClick`.
-   */
-  constructor(options = {}) {
-    super(options);
-    this.onPointClick = typeof options.onPointClick === "function" ? options.onPointClick : null;
-    this._plotEl = null;
-    this._drawn = false;
-    this._drawSeq = 0;
-  }
   /** Pure and static-only — it runs inside `TileBase`'s constructor. */
   getDefaultConfig() {
     return {
@@ -1011,21 +1238,21 @@ var ChartTile = class extends TileBase {
   getConfigSchema() {
     return {
       fields: [
-        { name: "title", type: "text", label: "Tile title" },
+        { key: "title", type: "text", label: "Tile title" },
         {
-          name: "chart_type",
+          key: "chart_type",
           type: "select",
           label: "Chart type",
           options: CHART_TILE_TYPES.map((o) => ({ ...o }))
         },
         {
-          name: "unit",
+          key: "unit",
           type: "text",
           label: "Unit",
-          help: 'Shown with the value axis title, e.g. "pts" or "h".'
+          description: 'Shown with the value axis title, e.g. "pts" or "h".'
         },
         {
-          name: "legend",
+          key: "legend",
           type: "select",
           label: "Legend",
           visibleWhen: { field: "chart_type", in: [...READS.legend] },
@@ -1038,38 +1265,38 @@ var ChartTile = class extends TileBase {
           ]
         },
         {
-          name: "x_title",
+          key: "x_title",
           type: "text",
           label: "X axis title",
           visibleWhen: { field: "chart_type", in: [...READS.axis_titles] }
         },
         {
-          name: "y_title",
+          key: "y_title",
           type: "text",
           label: "Y axis title",
           visibleWhen: { field: "chart_type", in: [...READS.axis_titles] }
         },
         {
-          name: "y_scale",
+          key: "y_scale",
           type: "select",
           label: "Y scale",
           visibleWhen: { field: "chart_type", in: [...READS.y_scale] },
           options: [{ value: "linear", label: "Linear" }, { value: "log", label: "Logarithmic" }]
         },
         {
-          name: "y_min",
+          key: "y_min",
           type: "number",
           label: "Y minimum",
           visibleWhen: { field: "chart_type", in: [...READS.y_range] }
         },
         {
-          name: "y_max",
+          key: "y_max",
           type: "number",
           label: "Y maximum",
           visibleWhen: { field: "chart_type", in: [...READS.y_range] }
         },
         {
-          name: "show_markers",
+          key: "show_markers",
           type: "checkbox",
           label: "Show point markers",
           visibleWhen: { field: "chart_type", in: [...READS.show_markers] }
@@ -1092,145 +1319,28 @@ var ChartTile = class extends TileBase {
     super.update(data === null ? void 0 : data, config);
     if (config) applyTitle(this);
   }
-  /**
-   * Hand this tile its series. Unlike `update()`, an empty or null value is
-   * drawn — as the empty state — rather than ignored.
-   */
-  setData(data) {
-    if (this._disposed) return;
-    this.data = data ?? null;
-    if (this.contentElement) this.render(this.data);
-  }
-  /**
-   * Kick off the draw and return. Deliberately not `async`: nothing awaits
-   * `render`, so a returned promise would be a rejection nobody catches.
-   */
-  render(data) {
-    this._draw(data);
-  }
-  /** One relayout when a resize settles; nothing while a draw is in flight. */
-  onResize() {
-    if (!this._plotEl || !this._drawn) return;
-    resize(this._plotEl).catch(() => {
-    });
-  }
-  menuItems() {
-    return [{ action: "download-png", label: "Download PNG", icon: "image" }];
-  }
-  _onMenuAction(action) {
-    if (action === "download-png") this._downloadPng();
-  }
-  // ── the three states: each one invalidates the figure ───────────────
-  showLoading() {
-    this._invalidate();
-    super.showLoading();
-  }
-  showEmpty(message) {
-    this._invalidate();
-    super.showEmpty(message);
-  }
-  showError(message) {
-    this._invalidate();
-    super.showError(message);
-  }
-  /** Release the figure BEFORE the element goes — `TileBase.dispose` nulls it. */
-  dispose() {
-    this._invalidate();
-    super.dispose();
-  }
-  /** Any draw in flight is now stale, and the figure on screen is released. */
-  _invalidate() {
-    this._drawSeq += 1;
-    this._releasePlot();
-  }
-  /** Hand the current figure back to Plotly and forget it. Idempotent, and
-   *  not awaited: a rejected purge (Plotly absent, already purged) must not
-   *  surface as an unhandled rejection. */
-  _releasePlot() {
-    const el2 = this._plotEl;
-    this._plotEl = null;
-    this._drawn = false;
-    if (el2) purge(el2).catch(() => {
-    });
-  }
-  // ── the draw ────────────────────────────────────────────────────────
-  async _draw(data) {
-    this._drawSeq += 1;
-    const seq = this._drawSeq;
-    const content = this.contentElement;
-    if (!content) return;
-    this._releasePlot();
+  /** `null` (the empty state) when there is nothing to draw. */
+  figure(data) {
     const norm = normalizeChartData(data);
-    if (!norm) {
-      this.showEmpty("No data to show.");
-      return;
-    }
-    let plan;
-    try {
-      plan = this._plan(norm);
-    } catch (err) {
-      this._failed(err);
-      return;
-    }
-    if (!plan) return;
-    const host = document.createElement("div");
-    host.className = "fd-chart-tile";
-    const parts = [host];
-    if (norm.note) {
-      const note = document.createElement("div");
-      note.className = "fd-chart-tile__note";
-      note.setAttribute("role", "note");
-      note.textContent = norm.note;
-      note.title = norm.note;
-      parts.push(note);
-    }
-    content.replaceChildren(...parts);
-    this._plotEl = host;
-    this._drawn = false;
-    try {
-      await createChart(host, plan.traces, plan.layout, {
-        scrollZoom: false,
-        displayModeBar: false,
-        responsive: true
-      });
-    } catch (err) {
-      if (this._disposed || seq !== this._drawSeq) return;
-      this._failed(err);
-      return;
-    }
-    if (this._disposed || seq !== this._drawSeq) {
-      purge(host).catch(() => {
-      });
-      return;
-    }
-    this._drawn = true;
-    this._wireClick(host);
+    if (!norm) return null;
+    return { ...this._plan(norm), note: norm.note };
   }
-  /** Plotly's click, reduced to the point's own `customdata`. A pie's point
-   *  carries its slice index as `pointNumber` (older builds: `pointIndex`),
-   *  and its `customdata` is read off the trace by that index. */
-  _wireClick(host) {
-    if (typeof host.on !== "function") return;
-    host.on("plotly_click", (ev) => {
-      const point = ev?.points?.[0];
-      if (!point || typeof this.onPointClick !== "function") return;
-      const trace = point.data || {};
-      let customdata = point.customdata;
-      if (trace.type === "pie" || customdata === void 0) {
-        const i = point.pointNumber ?? point.pointIndex;
-        if (Array.isArray(trace.customdata) && i != null) customdata = trace.customdata[i];
-      }
-      try {
-        this.onPointClick({ customdata, point, tile: this });
-      } catch (err) {
-        console.error("[ChartTile] onPointClick threw:", err);
-      }
-    });
+  /** Download PNG alone — see the header. */
+  menuItems() {
+    return this._figureMenuItems();
   }
-  /**
-   * Turn normalised data into `{traces, layout}`, or put the tile in the
-   * empty state and answer `null`.
-   */
+  /** The figure, and the note on its own line under it. */
+  _figureContent(plotEl, fig) {
+    plotEl.classList.add("fd-chart-tile");
+    if (!fig.note) return [plotEl];
+    const note = document.createElement("div");
+    note.className = "fd-chart-tile__note";
+    note.setAttribute("role", "note");
+    note.textContent = fig.note;
+    note.title = fig.note;
+    return [plotEl, note];
+  }
+  /** Turn normalised data into `{traces, layout}`. */
   _plan(norm) {
     const type = this.config.chart_type || "line";
     const { series } = norm;
@@ -1364,35 +1474,6 @@ var ChartTile = class extends TileBase {
     }
     return out;
   }
-  async _downloadPng() {
-    if (!this._plotEl || !this._drawn) return;
-    try {
-      const P = await ensurePlotly();
-      const uri = await P.toImage(this._plotEl, { format: "png", scale: 2 });
-      const filename = `${slug(this.config.title || this.constructor.TITLE)}.png`;
-      const dialogs = this.host?.dialogs;
-      const result = dialogs ? await dialogs.saveFile({ data: uri.split(",")[1], filename, kind: "png" }) : null;
-      if (result) {
-        if (result.ok) this._notify("Download", `Chart saved to ${result.path}`, "success");
-        else if (!result.cancelled) this._notify("Download failed", result.error || "The image could not be saved", "error");
-        return;
-      }
-      const a = document.createElement("a");
-      a.href = uri;
-      a.download = filename;
-      a.click();
-    } catch (err) {
-      this._notify("Download failed", `The image could not be made: ${err?.message || err}`, "error");
-    }
-  }
-  _failed(err) {
-    if (this._disposed) return;
-    this.showError(`This chart could not be drawn: ${err?.message || err}`);
-    this.eventBus?.emit?.("tile:render-failed", {
-      tileId: this.id,
-      message: err?.message || String(err)
-    });
-  }
 };
 var KpiTile = class extends TileBase {
   static TYPE = "flexdesk.kpi";
@@ -1419,11 +1500,11 @@ var KpiTile = class extends TileBase {
   getConfigSchema() {
     return {
       fields: [
-        { name: "title", type: "text", label: "Tile title" },
-        { name: "label", type: "text", label: "Label" },
-        { name: "unit", type: "text", label: "Unit", help: 'Shown after the number, e.g. "pts".' },
+        { key: "title", type: "text", label: "Tile title" },
+        { key: "label", type: "text", label: "Label" },
+        { key: "unit", type: "text", label: "Unit", description: 'Shown after the number, e.g. "pts".' },
         {
-          name: "format",
+          key: "format",
           type: "select",
           label: "Format",
           options: [
@@ -1434,23 +1515,23 @@ var KpiTile = class extends TileBase {
             { value: "text", label: "Text" }
           ]
         },
-        { name: "decimals", type: "number", label: "Decimals", min: 0, max: 6 },
+        { key: "decimals", type: "number", label: "Decimals", min: 0, max: 6 },
         {
-          name: "currency",
+          key: "currency",
           type: "text",
           label: "Currency code",
-          help: "ISO 4217, e.g. EUR. Left empty, the number is shown without a symbol."
+          description: "ISO 4217, e.g. EUR. Left empty, the number is shown without a symbol."
         },
-        { name: "prefix", type: "text", label: "Prefix" },
-        { name: "suffix", type: "text", label: "Suffix" },
-        { name: "delta_relative", type: "checkbox", label: "Show the change as a percentage" },
+        { key: "prefix", type: "text", label: "Prefix" },
+        { key: "suffix", type: "text", label: "Suffix" },
+        { key: "delta_relative", type: "checkbox", label: "Show the change as a percentage" },
         {
-          name: "invert_delta",
+          key: "invert_delta",
           type: "checkbox",
           label: "A fall is good",
-          help: "For a cost, a queue length or a latency: a smaller number is the better one."
+          description: "For a cost, a queue length or a latency: a smaller number is the better one."
         },
-        { name: "foot", type: "text", label: "Caption" }
+        { key: "foot", type: "text", label: "Caption" }
       ]
     };
   }
@@ -1501,11 +1582,11 @@ var KpiTile = class extends TileBase {
     if (delta) box.append(delta);
     const foot = [this.config.foot, d.note].filter(Boolean).join(" \xB7 ");
     if (foot) {
-      const el2 = document.createElement("div");
-      el2.className = "fd-kpi__foot";
-      el2.textContent = foot;
-      el2.title = foot;
-      box.append(el2);
+      const el3 = document.createElement("div");
+      el3.className = "fd-kpi__foot";
+      el3.textContent = foot;
+      el3.title = foot;
+      box.append(el3);
     }
     content.append(box);
   }
@@ -1517,19 +1598,19 @@ var KpiTile = class extends TileBase {
     const reference = Number(rawReference);
     if (!Number.isFinite(value) || !Number.isFinite(reference)) return null;
     const change = value - reference;
-    const el2 = document.createElement("div");
-    el2.className = "fd-kpi__delta";
-    if (change > 0) el2.classList.add(this.config.invert_delta ? "fd-kpi__delta--down" : "fd-kpi__delta--up");
-    else if (change < 0) el2.classList.add(this.config.invert_delta ? "fd-kpi__delta--up" : "fd-kpi__delta--down");
+    const el3 = document.createElement("div");
+    el3.className = "fd-kpi__delta";
+    if (change > 0) el3.classList.add(this.config.invert_delta ? "fd-kpi__delta--down" : "fd-kpi__delta--up");
+    else if (change < 0) el3.classList.add(this.config.invert_delta ? "fd-kpi__delta--up" : "fd-kpi__delta--down");
     const arrow = change > 0 ? "\u25B2" : change < 0 ? "\u25BC" : "\u2013";
     const magnitude = this.config.delta_relative ? reference === 0 ? null : formatValue(Math.abs(change / reference), {
       format: "percent",
       decimals: this.config.decimals ?? 1
     }) : this._format(Math.abs(change), false);
     const sign = change > 0 ? "+" : change < 0 ? "-" : "";
-    el2.textContent = magnitude === null ? `${arrow} \u2014` : `${arrow} ${sign}${magnitude}`;
-    el2.title = `Compared with ${this._format(reference, false)}`;
-    return el2;
+    el3.textContent = magnitude === null ? `${arrow} \u2014` : `${arrow} ${sign}${magnitude}`;
+    el3.title = `Compared with ${this._format(reference, false)}`;
+    return el3;
   }
   _format(value, withAffixes) {
     const format = this.config.format || "number";
@@ -1629,9 +1710,6 @@ function formatValue(value, {
     }
   })();
   return `${prefix || ""}${body}${suffix || ""}`;
-}
-function slug(text) {
-  return String(text).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "chart";
 }
 
 // src/tiles/layout_persistence.js
@@ -2205,19 +2283,19 @@ var RowsTile = class extends TileBase {
   getConfigSchema() {
     return {
       fields: [
-        { name: "title", type: "text", label: "Tile title" },
+        { key: "title", type: "text", label: "Tile title" },
         {
-          name: "empty_text",
+          key: "empty_text",
           type: "text",
           label: "When there is nothing",
-          help: 'What the tile says when the list is empty, e.g. "Nothing is late."'
+          description: 'What the tile says when the list is empty, e.g. "Nothing is late."'
         },
         {
-          name: "max_rows",
+          key: "max_rows",
           type: "number",
           label: "Rows at most",
           min: 0,
-          help: "0 shows them all; the tile scrolls."
+          description: "0 shows them all; the tile scrolls."
         }
       ]
     };
@@ -2437,10 +2515,10 @@ var PeopleTile = class extends RowsTile {
   getConfigSchema() {
     const { fields } = super.getConfigSchema();
     return { fields: [...fields, {
-      name: "count_label",
+      key: "count_label",
       type: "text",
       label: "Count reads",
-      help: `After each person's number, e.g. "open" for "3 open".`
+      description: `After each person's number, e.g. "open" for "3 open".`
     }] };
   }
   _renderItem(p) {
@@ -2543,6 +2621,346 @@ function createScopePicker({ options = [], value, label = "Scope", onChange } = 
       element.removeEventListener("keydown", onKey);
       element.remove();
     }
+  };
+}
+
+// src/tiles/tile_config_form.js
+var _seq = 0;
+var FOCUSABLE = 'input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
+function el2(tag, className, text) {
+  const n = document.createElement(tag);
+  if (className) n.className = className;
+  if (text != null) n.textContent = String(text);
+  return n;
+}
+function isVisible(field, values) {
+  const rule = field.visibleWhen;
+  if (!rule) return true;
+  const v = values[rule.field];
+  if (Array.isArray(rule.in)) return rule.in.includes(v);
+  if ("equals" in rule) return v === rule.equals;
+  return true;
+}
+var BUILT_IN = {
+  [FieldTypes.TEXT]: (field, id) => {
+    const input = el2("input", "fd-tile-config__input");
+    input.type = "text";
+    input.id = id;
+    return {
+      element: input,
+      events: ["input"],
+      read: () => input.value,
+      write: (v) => {
+        input.value = v == null ? "" : String(v);
+      }
+    };
+  },
+  [FieldTypes.NUMBER]: (field, id) => numeric(field, id, "number"),
+  [FieldTypes.RANGE]: (field, id) => numeric(field, id, "range"),
+  [FieldTypes.CHECKBOX]: (field, id) => {
+    const input = el2("input", "fd-tile-config__checkbox");
+    input.type = "checkbox";
+    input.id = id;
+    return {
+      element: input,
+      events: ["change"],
+      read: () => input.checked,
+      write: (v) => {
+        input.checked = !!v;
+      }
+    };
+  },
+  [FieldTypes.COLOR]: (field, id) => {
+    const input = el2("input", "fd-tile-config__color");
+    input.type = "color";
+    input.id = id;
+    return {
+      element: input,
+      events: ["input"],
+      read: () => input.value,
+      write: (v) => {
+        if (v) input.value = String(v);
+      }
+    };
+  },
+  [FieldTypes.SELECT]: (field, id, data) => choice(field, id, data, false),
+  [FieldTypes.MULTISELECT]: (field, id, data) => choice(field, id, data, true)
+};
+function numeric(field, id, kind) {
+  const input = el2("input", `fd-tile-config__${kind === "range" ? "range" : "input"}`);
+  input.type = kind;
+  input.id = id;
+  if (field.min != null) input.min = String(field.min);
+  if (field.max != null) input.max = String(field.max);
+  if (field.step != null) input.step = String(field.step);
+  const out = kind === "range" ? el2("output", "fd-tile-config__range-value") : null;
+  const element = out ? el2("span", "fd-tile-config__range-wrap") : input;
+  if (out) element.append(input, out);
+  return {
+    element,
+    events: ["input"],
+    // The raw text goes to `validateField`; the form turns it into a number.
+    read: () => input.value,
+    write: (v) => {
+      input.value = v == null ? "" : String(v);
+      if (out) out.textContent = input.value;
+    },
+    shown: (v) => {
+      if (out) out.textContent = v == null ? "" : String(v);
+    }
+  };
+}
+function choice(field, id, data, multiple) {
+  const select = el2("select", "fd-tile-config__select");
+  select.id = id;
+  select.multiple = multiple;
+  const options = getFieldOptions(field, data);
+  options.forEach((o) => select.append(el2("option", null, o.label ?? o.value)));
+  return {
+    element: select,
+    events: ["change"],
+    read: () => multiple ? options.filter((_, i) => select.options[i].selected).map((o) => o.value) : options[select.selectedIndex]?.value ?? null,
+    write: (v) => {
+      if (multiple) {
+        const want = Array.isArray(v) ? v : [];
+        options.forEach((o, i) => {
+          select.options[i].selected = want.includes(o.value);
+        });
+      } else {
+        select.selectedIndex = options.findIndex((o) => o.value === v);
+      }
+    }
+  };
+}
+function coerce(field, raw) {
+  if (field.type === FieldTypes.NUMBER || field.type === FieldTypes.RANGE) {
+    return raw === "" || raw == null ? null : Number(raw);
+  }
+  return raw;
+}
+function mountTileConfigForm(host, {
+  schema,
+  config = {},
+  data = null,
+  onChange = null,
+  renderers = {},
+  commitOn = "input"
+} = {}) {
+  if (!host) throw new TypeError("mountTileConfigForm: a host element is required");
+  if (commitOn !== "input" && commitOn !== "change") {
+    throw new TypeError(`mountTileConfigForm: unknown commitOn "${commitOn}"`);
+  }
+  const fields = Array.isArray(schema?.fields) ? schema.fields : [];
+  fields.forEach((f, i) => {
+    if (typeof f?.key !== "string" || !f.key) {
+      const called = typeof f?.label === "string" && f.label ? ` "${f.label}"` : "";
+      throw new TypeError(`mountTileConfigForm: field #${i + 1}${called} has no key`);
+    }
+  });
+  let values = mergeWithDefaults(config || {}, schema);
+  const unlisten = [];
+  const root = el2("div", "fd-tile-config");
+  const rows = [];
+  const showError = (r, message) => {
+    r.invalid = !!message;
+    r.error.textContent = message || "";
+    r.error.hidden = !message;
+    r.row.classList.toggle("fd-tile-config__row--invalid", !!message);
+  };
+  const applyVisibility = () => {
+    for (const r of rows) r.row.hidden = !isVisible(r.field, values);
+  };
+  const commit = (r, raw) => {
+    if (r.field.readonly) return { valid: false, error: `${r.named.label} is read-only` };
+    const result = validateField(raw, r.named);
+    if (!result.valid) {
+      showError(r, result.error);
+      return { valid: false, error: result.error };
+    }
+    showError(r, null);
+    const value = coerce(r.field, raw);
+    values = { ...values, [r.field.key]: value };
+    applyVisibility();
+    onChange?.(r.field.key, value, { ...values });
+    return { valid: true };
+  };
+  for (const field of fields) {
+    const id = `fd-tile-config-${++_seq}`;
+    const row = el2("div", `fd-tile-config__row fd-tile-config__row--${field.type}`);
+    row.setAttribute("data-field", field.key);
+    const named = { ...field, label: field.label ?? field.key };
+    const label = el2("label", "fd-tile-config__label", named.label);
+    const error = el2("div", "fd-tile-config__error");
+    error.hidden = true;
+    const r = { field, named, row, error, control: null, invalid: false, pending: null };
+    const custom = renderers?.[field.type];
+    if (typeof custom === "function") {
+      const made = custom({
+        field,
+        key: field.key,
+        value: values[field.key],
+        data,
+        readonly: !!field.readonly,
+        commit: (v) => commit(r, v)
+      });
+      const element = made instanceof HTMLElement ? made : made?.element;
+      if (!(element instanceof HTMLElement)) {
+        throw new TypeError(`mountTileConfigForm: the renderer for "${field.type}" returned no element`);
+      }
+      element.id ||= id;
+      label.htmlFor = element.id;
+      r.control = {
+        element,
+        write: made instanceof HTMLElement ? () => {
+        } : (v) => made.setValue?.(v),
+        dispose: made instanceof HTMLElement ? null : () => made.dispose?.()
+      };
+    } else {
+      const build = BUILT_IN[field.type];
+      if (!build) {
+        throw new TypeError(`mountTileConfigForm: no control for type "${field.type}" (field "${field.key}"); pass a renderer`);
+      }
+      const c = build(field, id, data);
+      label.htmlFor = id;
+      c.write(values[field.key]);
+      const input = c.element.matches("input, select") ? c.element : c.element.querySelector("input, select");
+      if (field.readonly) {
+        input.disabled = true;
+      } else {
+        const listen = (type, fn) => {
+          input.addEventListener(type, fn);
+          unlisten.push(() => input.removeEventListener(type, fn));
+        };
+        const onEdit = () => {
+          r.pending = null;
+          const raw = c.read();
+          c.shown?.(raw);
+          commit(r, raw);
+        };
+        if (commitOn === "change") {
+          listen("change", onEdit);
+          if (c.events.includes("input")) {
+            listen("input", () => {
+              r.pending = onEdit;
+              c.shown?.(c.read());
+            });
+          }
+        } else {
+          for (const type of c.events) listen(type, onEdit);
+        }
+      }
+      r.control = c;
+    }
+    if (field.type === FieldTypes.CHECKBOX) row.append(r.control.element, label);
+    else row.append(label, r.control.element);
+    if (field.description) row.append(el2("div", "fd-tile-config__help", field.description));
+    row.append(error);
+    rows.push(r);
+    root.append(row);
+  }
+  applyVisibility();
+  host.append(root);
+  return {
+    getValues: () => ({ ...values }),
+    setValues(next) {
+      values = mergeWithDefaults(next || {}, schema);
+      for (const r of rows) {
+        r.pending = null;
+        r.control.write(values[r.field.key]);
+        showError(r, null);
+      }
+      applyVisibility();
+    },
+    isValid: () => rows.every((r) => r.row.hidden || !r.invalid),
+    focusFirstInvalid() {
+      const r = rows.find((x) => !x.row.hidden && x.invalid);
+      if (!r) return false;
+      const { element } = r.control;
+      const target = element.matches(FOCUSABLE) ? element : element.querySelector(FOCUSABLE);
+      (target || element).focus();
+      return true;
+    },
+    flush() {
+      for (const r of rows) r.pending?.();
+    },
+    dispose() {
+      unlisten.splice(0).forEach((off) => off());
+      for (const r of rows) {
+        try {
+          r.control.dispose?.();
+        } catch (err) {
+          console.warn("[tile-config] a renderer dispose threw", err);
+        }
+      }
+      rows.length = 0;
+      root.remove();
+    }
+  };
+}
+function openTileConfig(eventBus, { mode = "modal", host = null, width, renderers = {}, title = "Tile settings" } = {}) {
+  if (typeof eventBus?.on !== "function") throw new TypeError("openTileConfig: an event bus with on() is required");
+  if (mode !== "modal" && mode !== "slide-out") throw new TypeError(`openTileConfig: unknown mode "${mode}"`);
+  if (mode === "slide-out" && !(host instanceof HTMLElement)) {
+    throw new TypeError("openTileConfig: a slide-out needs a host element");
+  }
+  let form = null;
+  let panel = null;
+  let modalOpen = false;
+  const drop = () => {
+    form?.flush();
+    form?.dispose();
+    form = null;
+  };
+  const show = (detail = {}) => {
+    if (modalOpen) return;
+    const heading = typeof title === "function" ? title(detail) : title;
+    const base = { schema: detail.schema, config: detail.config, data: detail.data ?? null, renderers };
+    if (mode === "slide-out") {
+      drop();
+      if (!panel) {
+        panel = new SlideOutPanel({ ...width ? { width } : {}, onClose: drop });
+        panel.mount(host);
+      }
+      const body = panel.open(heading, "tune");
+      form = mountTileConfigForm(body, {
+        ...base,
+        commitOn: "change",
+        onChange: (_k, _v, cfg) => detail.onSave?.(cfg)
+      });
+      return;
+    }
+    const content = el2("div", "fd-tile-config-host");
+    const mine = mountTileConfigForm(content, base);
+    modalOpen = true;
+    openModal({
+      title: heading,
+      icon: "tune",
+      content,
+      ...width ? { width } : {},
+      actions: [
+        { label: "Cancel", value: null },
+        // Refused while a field shows an error: its last valid value is
+        // not what the user is looking at, so saving it would be a lie.
+        { label: "Save", value: "save", primary: true, keepOpen: true, onClick: (close) => {
+          if (mine.isValid()) {
+            close("save");
+            return;
+          }
+          mine.focusFirstInvalid();
+        } }
+      ]
+    }).then((v) => {
+      modalOpen = false;
+      if (v === "save") detail.onSave?.(mine.getValues());
+      mine.dispose();
+    });
+  };
+  const sub = eventBus.on("grid:config-modal-show", show);
+  return () => {
+    sub.dispose();
+    drop();
+    panel?.dispose();
+    panel = null;
   };
 }
 
@@ -3218,6 +3636,8 @@ var TileGrid = class {
       tileType,
       config,
       schema,
+      // What `getFieldOptions` reads for a field with dynamic options.
+      data: this.data,
       variables: this.data ? this._getVariableList() : [],
       onSave: (newConfig) => {
         const tile = this.tiles.get(tileId);
@@ -3344,6 +3764,7 @@ export {
   CHART_TILE_TYPES,
   ChartTile,
   FieldTypes,
+  FigureTile,
   KpiTile,
   LayoutPersistence,
   ListTile,
@@ -3366,9 +3787,11 @@ export {
   groupByPerson,
   hasWidget,
   mergeWithDefaults,
+  mountTileConfigForm,
   normalizeChartData,
   normalizeListData,
   normalizePeopleData,
+  openTileConfig,
   registerChartTiles,
   registerListTiles,
   registerWidget,

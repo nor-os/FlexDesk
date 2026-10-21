@@ -2,7 +2,7 @@
 id: 61
 type: story
 title: "A plot-config editor panel for the charts plot_config model"
-status: review
+status: done
 parent: 59
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: charts
 labels: [charts, new-component]
 links: [blocked-by 60]
 created: 2026-10-17
-updated: 2026-10-20T14:45Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -40,6 +40,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-20 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-20 · norman_agent · status: in-progress -> review
 - 2026-10-20 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -70,3 +71,7 @@ Ticked all 6 criteria. Each is checked by its own section of `tests/plot_config_
 Tests: after the rebase, the full suite `node tests/run.mjs` (Linux node) ran to completion with `FLEXDESK TESTS: GREEN — 176 suite(s)`, exit 0, and no `: SKIPPED` lines. `plot_config_editor.test.mjs` reported "all assertions passed". `node build.mjs` succeeded, and dist/ was restored without being committed.
 
 App check: none in the running app. FlexDesk is a library, and the editor is not used in EcoSim yet (EcoSim STORY-0077). It was checked only in the jsdom suite.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

@@ -2,7 +2,7 @@
 id: 79
 type: story
 title: "Canvas node titles, notes and chosen fields edit in place on the canvas"
-status: review
+status: done
 parent: 73
 phase: 
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: canvas
 labels: [flexdesk, modeler]
 links: [blocked-by 74]
 created: 2026-10-17
-updated: 2026-10-19T19:46Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -35,6 +35,7 @@ Renaming a canvas node needs F2 or the settings panel; the legacy modeler edited
 - 2026-10-19 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-19 · norman_agent · status: in-progress -> review
 - 2026-10-19 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -56,3 +57,7 @@ Landed tip on main: f03fe54. The branch was rebased onto origin/main, which had 
 Tests: `node tests/run.mjs` (Linux node) on f03fe54 gave "FLEXDESK TESTS: GREEN — 163 suite(s)", exit 0, with no FAIL and no `: SKIPPED` lines. `node build.mjs` succeeded; dist/ was restored and cleaned, not committed.
 
 App check: `node.exe demo/flow_canvas_probe.mjs` (real headless Edge) on f03fe54 printed "every check held", including the "in place" section.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

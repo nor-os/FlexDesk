@@ -2,7 +2,7 @@
 id: 30
 type: story
 title: "A menu bar widget with submenus, check items and accelerators that the shell can mount and the palette can list"
-status: review
+status: done
 parent: 29
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: shell
 labels: [shell, menu, new-component]
 links: []
 created: 2026-10-17
-updated: 2026-10-19T13:41Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -44,6 +44,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-19 · norman_agent · status: in-progress -> review
 - 2026-10-19 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -75,3 +76,7 @@ Ticked: all 10 criteria. Criteria 1-9 are covered by tests/menu_bar.test.mjs §1
 Tests: `node tests/run.mjs` (Linux node) ran on the rebased tree, which is the tree now on main. I waited for it to finish: `FLEXDESK TESTS: GREEN — 148 suite(s)`, exit 0, with no `: SKIPPED` lines and no failures. `node build.mjs` exited 0, and dist/ was restored afterwards, so it is not committed.
 
 App check: there is no app run. The axe check was done **by hand** and is **not part of the suite**, because putting it in tests/ would need axe-core as a devDependency. I ran axe-core 4.10.2, installed only in a scratch folder, in jsdom against main 8f2d3e1. It ran with tags wcag2a, wcag2aa and best-practice. `color-contrast` was off, since jsdom has no layout or canvas, and the probe page had a title, a lang and a landmark. It found 0 violations in each of four states: bar closed, File open, File with its function submenu open, and View open (1 menuitemcheckbox, 2 menuitemradio). The rules aria-required-children, aria-required-parent, aria-allowed-role and aria-valid-attr-value all ran.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

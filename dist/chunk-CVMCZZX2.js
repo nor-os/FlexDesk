@@ -1,9 +1,10 @@
 import {
   getSetting
-} from "./chunk-FL5KFNQH.js";
+} from "./chunk-HNU6MM2B.js";
 
 // src/ui/components/managed_window.js
-var STORAGE_KEY = "ecosim.managedWindows.v1";
+var DEFAULT_WINDOW_STORAGE_KEY = "flexdesk.managedWindows.v1";
+var _storageKey = DEFAULT_WINDOW_STORAGE_KEY;
 var BASE_Z_INDEX = 6e3;
 var MAX_Z_INDEX = 6999;
 var TOP_BAR_HEIGHT = 35;
@@ -22,10 +23,10 @@ function _collectFocusable(root) {
     "textarea:not([disabled])",
     '[tabindex]:not([tabindex="-1"])'
   ].join(",");
-  return Array.from(root.querySelectorAll(sel)).filter((el) => {
-    if (el.hidden) return false;
-    if (el.closest("[hidden]")) return false;
-    const r = el.getBoundingClientRect();
+  return Array.from(root.querySelectorAll(sel)).filter((el2) => {
+    if (el2.hidden) return false;
+    if (el2.closest("[hidden]")) return false;
+    const r = el2.getBoundingClientRect();
     return r.width > 0 || r.height > 0;
   });
 }
@@ -33,7 +34,7 @@ var _stateCache = null;
 function _loadState() {
   if (_stateCache) return _stateCache;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(_storageKey);
     _stateCache = raw ? JSON.parse(raw) : {};
   } catch {
     _stateCache = {};
@@ -43,7 +44,7 @@ function _loadState() {
 function _saveState(state) {
   _stateCache = state;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(_storageKey, JSON.stringify(state));
   } catch (err) {
     console.warn("[ManagedWindow] Failed to save state:", err);
   }
@@ -639,7 +640,7 @@ var ManagedWindow = class {
    *      x         = max(minX, min(x, maxX))        = max(0, min(x, maxX))                    ✓
    *      y         = max(minY, min(y, maxY))        = max(TOP, min(y, maxY))                  ✓
    *
-   *  EcoAgent's and EcoSim's modals depend on that arithmetic; prove the
+   *  Embedders' modals depend on that arithmetic; prove the
    *  equivalence in review by substitution rather than by testing.
    */
   _bounds() {
@@ -1200,6 +1201,23 @@ var ManagedWindow = class {
   }
   // ========== Static Methods ==========
   /**
+   * Choose where window geometry is saved and restored. Call once at boot,
+   * before the first window opens; from then on windows read and write only
+   * `storageKey`. The geometry already read from another key is dropped, so
+   * a window shown afterwards restores what `storageKey` holds.
+   *
+   * @param {object} [opts]
+   * @param {string} [opts.storageKey=DEFAULT_WINDOW_STORAGE_KEY]
+   */
+  static configure({ storageKey = DEFAULT_WINDOW_STORAGE_KEY } = {}) {
+    _storageKey = storageKey;
+    _stateCache = null;
+  }
+  /** @returns {string} The localStorage key window geometry uses. */
+  static get storageKey() {
+    return _storageKey;
+  }
+  /**
    * Get a window by ID.
    */
   static get(id) {
@@ -1230,6 +1248,602 @@ var ManagedWindow = class {
     }
   }
 };
+
+// src/ui/components/toggle_field.js
+var ToggleField = class {
+  /**
+   * @param {object}    o
+   * @param {boolean}  [o.checked=false]
+   * @param {string?}  [o.label]      text beside the switch, and its accessible name
+   * @param {string?}  [o.ariaLabel]  accessible name when there is no visible label
+   * @param {string?}  [o.onText]     state text shown while on
+   * @param {string?}  [o.offText]    state text shown while off
+   * @param {boolean}  [o.disabled=false]
+   * @param {boolean}  [o.compact=false]  a smaller track, for dense rows
+   * @param {string?}  [o.name]       the input's name, for a surrounding form
+   * @param {string?}  [o.id]         the input's id
+   * @param {Function?}[o.onChange]   `(checked: boolean)` after a user toggle
+   */
+  constructor({
+    checked = false,
+    label = null,
+    ariaLabel = null,
+    onText = null,
+    offText = null,
+    disabled = false,
+    compact = false,
+    name = null,
+    id = null,
+    onChange = null
+  } = {}) {
+    this._initial = !!checked;
+    this._label = label == null ? null : String(label);
+    this._ariaLabel = ariaLabel == null ? null : String(ariaLabel);
+    this._onText = onText == null ? null : String(onText);
+    this._offText = offText == null ? null : String(offText);
+    this._disabled = !!disabled;
+    this._compact = !!compact;
+    this._name = name == null ? null : String(name);
+    this._id = id == null ? null : String(id);
+    this._onChange = typeof onChange === "function" ? onChange : null;
+    this.root = null;
+    this.input = null;
+    this._stateEl = null;
+    this._disposers = [];
+  }
+  /** Build the switch once and hand back its root; later calls return it. */
+  render() {
+    if (this.root) return this.root;
+    const root = document.createElement("label");
+    root.className = "twm-toggle";
+    if (this._compact) root.classList.add("twm-toggle--compact");
+    const control = document.createElement("span");
+    control.className = "twm-toggle__control";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.className = "twm-toggle__input";
+    input.setAttribute("role", "switch");
+    if (this._name) input.name = this._name;
+    if (this._id) input.id = this._id;
+    if (this._ariaLabel && !this._label) input.setAttribute("aria-label", this._ariaLabel);
+    input.checked = this._initial;
+    const track = document.createElement("span");
+    track.className = "twm-toggle__track";
+    track.setAttribute("aria-hidden", "true");
+    const knob = document.createElement("span");
+    knob.className = "twm-toggle__knob";
+    track.appendChild(knob);
+    control.append(input, track);
+    root.appendChild(control);
+    if (this._onText != null || this._offText != null) {
+      this._stateEl = document.createElement("span");
+      this._stateEl.className = "twm-toggle__state";
+      this._stateEl.setAttribute("aria-hidden", "true");
+      root.appendChild(this._stateEl);
+    }
+    if (this._label != null) {
+      const labelEl = document.createElement("span");
+      labelEl.className = "twm-toggle__label";
+      labelEl.textContent = this._label;
+      root.appendChild(labelEl);
+    }
+    this.root = root;
+    this.input = input;
+    this.setDisabled(this._disabled);
+    this._sync();
+    const onKeyDown = (e) => {
+      if (e.key !== " " && e.key !== "Enter") return;
+      e.preventDefault();
+      if (e.repeat) return;
+      input.click();
+    };
+    const onKeyUp = (e) => {
+      if (e.key === " ") e.preventDefault();
+    };
+    const onChange = () => {
+      this._sync();
+      this._onChange?.(input.checked);
+    };
+    input.addEventListener("keydown", onKeyDown);
+    input.addEventListener("keyup", onKeyUp);
+    input.addEventListener("change", onChange);
+    this._disposers.push(
+      () => input.removeEventListener("keydown", onKeyDown),
+      () => input.removeEventListener("keyup", onKeyUp),
+      () => input.removeEventListener("change", onChange)
+    );
+    return root;
+  }
+  /** Whether the switch is on. */
+  get() {
+    return this.input ? this.input.checked : this._initial;
+  }
+  /** Turn it on or off. Does NOT call `onChange`. */
+  set(checked) {
+    if (!this.input) {
+      this._initial = !!checked;
+      return;
+    }
+    this.input.checked = !!checked;
+    this._sync();
+  }
+  /** A disabled switch ignores clicks and keys alike. */
+  setDisabled(disabled) {
+    this._disabled = !!disabled;
+    if (!this.input) return;
+    this.input.disabled = this._disabled;
+    this.root.classList.toggle("twm-toggle--disabled", this._disabled);
+  }
+  dispose() {
+    for (const d of this._disposers) {
+      try {
+        d();
+      } catch {
+      }
+    }
+    this._disposers = [];
+    this.root?.remove();
+    this.root = null;
+    this.input = null;
+    this._stateEl = null;
+  }
+  _sync() {
+    const on = this.input.checked;
+    this.input.setAttribute("aria-checked", on ? "true" : "false");
+    if (this._stateEl) this._stateEl.textContent = (on ? this._onText : this._offText) ?? "";
+  }
+};
+
+// src/ui/components/color_field.js
+var HEX_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+var RGB_RE = /^rgba?\(\s*([^)]*)\)$/i;
+function isHexColor(value) {
+  return typeof value === "string" && HEX_RE.test(value.trim());
+}
+function normalizeHex(value) {
+  if (typeof value !== "string") return null;
+  const s = value.trim();
+  if (HEX_RE.test(s)) {
+    const h = s.slice(1).toLowerCase();
+    return h.length === 3 ? `#${h[0]}${h[0]}${h[1]}${h[1]}${h[2]}${h[2]}` : `#${h}`;
+  }
+  const m = RGB_RE.exec(s);
+  if (!m) return null;
+  const parts = m[1].split(/\s*[,/]\s*|\s+/).filter(Boolean);
+  if (parts.length < 3 || parts.length > 4) return null;
+  const channels = [];
+  for (const p of parts.slice(0, 3)) {
+    const pct = p.endsWith("%");
+    const n = Number(pct ? p.slice(0, -1) : p);
+    if (!Number.isFinite(n)) return null;
+    const v = pct ? n / 100 * 255 : n;
+    if (v < 0 || v > 255) return null;
+    channels.push(Math.round(v));
+  }
+  return `#${channels.map((c) => c.toString(16).padStart(2, "0")).join("")}`;
+}
+function displayText(value) {
+  if (value == null) return "";
+  return normalizeHex(String(value)) ?? String(value);
+}
+var ColorField = class {
+  /**
+   * @param {Object}   [o]
+   * @param {string}   [o.value]     initial colour (hex or rgb()); '' for none
+   * @param {string[]} [o.presets]   preset colours drawn as buttons; ones that
+   *                                 are not colours are left out
+   * @param {string}   [o.name]      `name` of the hex box, for a host form
+   * @param {string}   [o.label]     accessible name of the swatch and the box
+   * @param {Function} [o.onChange]  `(value, { commit })`, value as `getValue()`
+   */
+  constructor({ value = "", presets = [], name = null, label = null, onChange = null } = {}) {
+    this.initial = displayText(value);
+    this.presets = (Array.isArray(presets) ? presets : []).map(normalizeHex).filter(Boolean);
+    this.name = name;
+    this.label = label;
+    this.onChange = typeof onChange === "function" ? onChange : null;
+    this.root = null;
+    this.swatch = null;
+    this.hex = null;
+    this._disposers = [];
+  }
+  render() {
+    if (this.root) return this.root;
+    const root = document.createElement("div");
+    root.className = "twm-color-field";
+    const swatch = document.createElement("input");
+    swatch.type = "color";
+    swatch.className = "twm-color-field__swatch";
+    swatch.value = normalizeHex(this.initial) ?? "#000000";
+    if (this.label) swatch.title = this.label;
+    const hex = document.createElement("input");
+    hex.type = "text";
+    hex.className = "twm-color-field__hex";
+    hex.value = this.initial;
+    hex.placeholder = "#rrggbb";
+    hex.spellcheck = false;
+    hex.autocomplete = "off";
+    hex.maxLength = 7;
+    if (this.name) hex.name = this.name;
+    if (this.label) hex.setAttribute("aria-label", this.label);
+    root.append(swatch, hex);
+    this.root = root;
+    this.swatch = swatch;
+    this.hex = hex;
+    if (this.presets.length) {
+      const strip = document.createElement("div");
+      strip.className = "twm-color-field__presets";
+      for (const color of this.presets) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "twm-color-field__preset";
+        btn.style.backgroundColor = color;
+        btn.title = color;
+        btn.setAttribute("aria-label", color);
+        this.#listen(btn, "click", () => this.#writeBox(color, true));
+        strip.appendChild(btn);
+      }
+      root.appendChild(strip);
+    }
+    this.#listen(swatch, "input", () => this.#writeBox(swatch.value, false));
+    this.#listen(swatch, "change", () => this.#writeBox(swatch.value, true));
+    this.#listen(hex, "input", () => this.#sync(false));
+    this.#listen(hex, "change", () => {
+      const v = this.getValue();
+      if (v) hex.value = v;
+      this.#sync(true);
+    });
+    this.#sync(null);
+    return root;
+  }
+  /** `#rrggbb`, `''` when empty, or `null` when the box holds no hex colour. */
+  getValue() {
+    const text = this.getText().trim();
+    if (text === "") return "";
+    return isHexColor(text) ? normalizeHex(text) : null;
+  }
+  /** The box as it stands. */
+  getText() {
+    return this.hex ? this.hex.value : this.initial;
+  }
+  isValid() {
+    return this.getValue() !== null;
+  }
+  /** Write a colour (hex or rgb()) without firing `onChange`. */
+  setValue(value) {
+    const text = displayText(value);
+    if (!this.hex) {
+      this.initial = text;
+      return;
+    }
+    this.hex.value = text;
+    this.#sync(null);
+  }
+  focus() {
+    this.hex?.focus();
+  }
+  dispose() {
+    for (const d of this._disposers) {
+      try {
+        d();
+      } catch {
+      }
+    }
+    this._disposers = [];
+    this.root = null;
+    this.swatch = null;
+    this.hex = null;
+  }
+  #listen(el2, type, fn) {
+    el2.addEventListener(type, fn);
+    this._disposers.push(() => el2.removeEventListener(type, fn));
+  }
+  /** Put `text` in the box and fire the box's own events, as typing would. */
+  #writeBox(text, commit) {
+    this.hex.value = text;
+    this.hex.dispatchEvent(new Event("input", { bubbles: true }));
+    if (commit) this.hex.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  /** Swatch and invalid mark follow the box; `commit === null` is silent. */
+  #sync(commit) {
+    const v = this.getValue();
+    if (v) this.swatch.value = v;
+    this.root.classList.toggle("twm-color-field--invalid", v === null);
+    if (commit !== null) this.onChange?.(v, { commit });
+  }
+};
+
+// src/ui/components/choice_controls.js
+var shownValue = (v) => v === void 0 ? "" : typeof v === "string" ? v : JSON.stringify(v);
+function el(tag, className, text) {
+  const n = document.createElement(tag);
+  if (className) n.className = className;
+  if (text !== void 0 && text !== null) n.textContent = String(text);
+  return n;
+}
+var isGroup = (o) => o !== null && typeof o === "object" && Array.isArray(o.options) && "group" in o;
+function choiceOption(o) {
+  if (o === null || typeof o !== "object") {
+    return { value: o, label: shownValue(o), description: null, disabled: false, reason: null };
+  }
+  return {
+    value: o.value,
+    label: o.label != null ? String(o.label) : shownValue(o.value),
+    description: o.description != null ? String(o.description) : null,
+    disabled: Boolean(o.disabled),
+    reason: o.reason != null && o.reason !== "" ? String(o.reason) : null
+  };
+}
+function flatChoices(options) {
+  const out = [];
+  for (const o of options || []) {
+    if (isGroup(o)) for (const inner of o.options) out.push(choiceOption(inner));
+    else out.push(choiceOption(o));
+  }
+  return out;
+}
+function groupHeads(options) {
+  const heads = /* @__PURE__ */ new Map();
+  let at = 0;
+  for (const o of options || []) {
+    if (!isGroup(o)) {
+      at += 1;
+      continue;
+    }
+    if (o.options.length) heads.set(at, String(o.group ?? ""));
+    at += o.options.length;
+  }
+  return heads;
+}
+var groupHeading = (text) => el("div", "twm-choice__group", text);
+function sameChoice(v, value, loose = false) {
+  if (v === value) return true;
+  if (!loose || v === void 0 || value === void 0 || v === null || value === null) return false;
+  return String(v) === String(value);
+}
+function choiceIndex(list, v, loose = false, from = 0) {
+  for (let i = from; i < list.length; i += 1) if (list[i].value === v) return i;
+  if (!loose) return -1;
+  for (let i = from; i < list.length; i += 1) if (sameChoice(list[i].value, v, true)) return i;
+  return -1;
+}
+function findChoice(list, v, loose = false) {
+  const i = choiceIndex(list, v, loose);
+  return i >= 0 ? list[i] : void 0;
+}
+var optionText = (o) => o.disabled && o.reason ? `${o.label} \u2014 ${o.reason}` : o.label;
+function selectBox(options, value, {
+  empty = null,
+  label = "",
+  notFound = (v) => `${v} (not found)`,
+  keepMissing = true,
+  valueAttr = "index",
+  loose = false,
+  className = "twm-flow-input twm-flow-input--select"
+} = {}) {
+  const box = el("select", className);
+  if (label) box.setAttribute("aria-label", label);
+  let entries = [];
+  const add = (parent, o) => {
+    const attr = valueAttr === "index" ? String(entries.length) : o.value === void 0 ? "" : String(o.value);
+    const opt = el("option", "", optionText(o));
+    opt.value = attr;
+    if (o.disabled) {
+      opt.disabled = true;
+      if (o.reason) opt.title = o.reason;
+    }
+    parent.appendChild(opt);
+    entries.push(o);
+  };
+  const firstEnabled = () => {
+    const i = entries.findIndex((e) => !e.disabled);
+    return i >= 0 ? i : 0;
+  };
+  const select = (v) => {
+    const start = empty !== null ? 1 : 0;
+    const at = choiceIndex(entries, v, loose, start);
+    if (at < 0 || entries[at].disabled || entries[at].stray) return false;
+    box.selectedIndex = at;
+    return true;
+  };
+  const place = (v) => {
+    if (select(v)) return;
+    if (keepMissing && v !== void 0 && v !== null && v !== "") {
+      add(box, {
+        value: v,
+        label: notFound(shownValue(v)),
+        description: null,
+        disabled: false,
+        reason: null,
+        stray: true
+      });
+      box.selectedIndex = entries.length - 1;
+      return;
+    }
+    box.selectedIndex = empty !== null ? 0 : firstEnabled();
+  };
+  const fill = (opts, v) => {
+    box.replaceChildren();
+    entries = [];
+    if (empty !== null) add(box, {
+      value: void 0,
+      label: String(empty),
+      description: null,
+      disabled: false,
+      reason: null
+    });
+    for (const o of opts || []) {
+      if (isGroup(o)) {
+        const g = el("optgroup");
+        g.label = String(o.group ?? "");
+        for (const inner of o.options) add(g, choiceOption(inner));
+        box.appendChild(g);
+      } else {
+        add(box, choiceOption(o));
+      }
+    }
+    place(v);
+  };
+  const entry = () => box.selectedIndex < 0 ? null : entries[box.selectedIndex] ?? null;
+  const valueOf = () => entry()?.value;
+  fill(options, value);
+  return {
+    box,
+    valueOf,
+    entry,
+    select,
+    setOptions(opts, v = valueOf()) {
+      fill(opts, v);
+    }
+  };
+}
+function toggleChips({
+  options,
+  value,
+  label,
+  readOnly,
+  onChange,
+  notFound = (v) => `${v} (not found)`,
+  keepMissing = true,
+  loose = false
+}) {
+  const root = el("div", "twm-flow-togglechips");
+  root.setAttribute("role", "group");
+  if (label) root.setAttribute("aria-label", label);
+  let shown = [];
+  let list = [];
+  let chosen = /* @__PURE__ */ new Set();
+  let strays = [];
+  const emit = () => {
+    const out = valueOf();
+    onChange?.(out.length ? out : void 0);
+  };
+  const chipFor = (text, pressed, toggle, { stray = false, reason = null, disabled = false } = {}) => {
+    const b = el("button", `twm-flow-togglechip${stray ? " twm-flow-togglechip--missing" : ""}`, text);
+    b.type = "button";
+    b.setAttribute("aria-pressed", pressed ? "true" : "false");
+    b.disabled = Boolean(readOnly) || disabled;
+    if (reason) {
+      b.title = reason;
+      b.appendChild(el("span", "twm-choice__reason", reason));
+    }
+    b.addEventListener("click", () => {
+      const on = toggle();
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+      emit();
+    });
+    return b;
+  };
+  const draw = (opts, stored) => {
+    shown = opts || [];
+    list = flatChoices(shown);
+    const heads = groupHeads(shown);
+    const wanted = Array.isArray(stored) ? stored : [];
+    const offered = (v) => {
+      const o = findChoice(list, v, loose);
+      return o && !o.disabled ? o : void 0;
+    };
+    chosen = new Set(wanted.map(offered).filter(Boolean).map((o) => o.value));
+    strays = keepMissing ? wanted.filter((v) => !offered(v)) : [];
+    root.replaceChildren();
+    list.forEach((o, i) => {
+      if (heads.has(i)) root.appendChild(groupHeading(heads.get(i)));
+      root.appendChild(chipFor(o.label, chosen.has(o.value), () => {
+        if (o.disabled) return false;
+        if (chosen.has(o.value)) chosen.delete(o.value);
+        else chosen.add(o.value);
+        return chosen.has(o.value);
+      }, { disabled: o.disabled, reason: o.disabled ? o.reason : null }));
+    });
+    for (const v of [...strays]) {
+      root.appendChild(chipFor(notFound(shownValue(v)), true, () => {
+        const i = strays.indexOf(v);
+        if (i >= 0) {
+          strays.splice(i, 1);
+          return false;
+        }
+        strays.push(v);
+        return true;
+      }, { stray: true }));
+    }
+  };
+  const valueOf = () => [...list.filter((o) => chosen.has(o.value)).map((o) => o.value), ...strays];
+  draw(options, value);
+  return {
+    el: root,
+    valueOf,
+    setValue: (stored) => draw(shown, stored),
+    setOptions: (opts) => draw(opts, valueOf())
+  };
+}
+function choiceList({
+  options,
+  value,
+  name,
+  label,
+  readOnly,
+  onChange,
+  notFound = (v) => `${v} (not found)`,
+  keepMissing = true,
+  loose = false
+}) {
+  const root = el("div", "twm-flow-choices");
+  root.setAttribute("role", "radiogroup");
+  if (label) root.setAttribute("aria-label", label);
+  let list = [];
+  let radios = [];
+  const draw = (opts, current) => {
+    list = flatChoices(opts);
+    const heads = groupHeads(opts);
+    radios = [];
+    root.replaceChildren();
+    const named = choiceIndex(list, current, loose);
+    const at = named >= 0 && !list[named].disabled ? named : -1;
+    list.forEach((o, i) => {
+      if (heads.has(i)) root.appendChild(groupHeading(heads.get(i)));
+      const row = el("label", `twm-flow-choice${o.disabled ? " twm-choice--disabled" : ""}`);
+      const radio = el("input", "twm-flow-choice__radio");
+      radio.type = "radio";
+      radio.name = name;
+      radio.checked = i === at;
+      radio.disabled = Boolean(readOnly) || o.disabled;
+      radio.addEventListener("change", () => {
+        if (radio.checked) onChange?.(o.value);
+      });
+      radios.push(radio);
+      const words = el("span", "twm-flow-choice__words");
+      words.appendChild(el("span", "twm-flow-choice__label", o.label));
+      if (o.description !== null) words.appendChild(el("span", "twm-flow-choice__sub", o.description));
+      if (o.disabled && o.reason) words.appendChild(el("span", "twm-choice__reason", o.reason));
+      row.append(radio, words);
+      root.appendChild(row);
+    });
+    if (keepMissing && current !== void 0 && named < 0) {
+      root.appendChild(el("p", "twm-flow-field__note", notFound(shownValue(current))));
+    }
+  };
+  const checkedAt = () => radios.findIndex((r) => r.checked);
+  const entry = () => list[checkedAt()] ?? null;
+  const api = {
+    el: root,
+    focus: () => (radios.find((r) => r.checked && !r.disabled) || radios.find((r) => !r.disabled))?.focus({ preventScroll: true }),
+    entry,
+    valueOf: () => entry()?.value,
+    select(v) {
+      const named = choiceIndex(list, v, loose);
+      const at = named >= 0 && !list[named].disabled ? named : -1;
+      radios.forEach((r, i) => {
+        r.checked = i === at;
+      });
+      return at >= 0;
+    },
+    setOptions(opts) {
+      draw(opts, api.valueOf());
+    }
+  };
+  draw(options, value);
+  return api;
+}
 
 // src/ui/components/row_activation.js
 var ROW_CONTROL_SELECTOR = [
@@ -1268,10 +1882,21 @@ function isRowActivation(ev, gesture = "click", { scope = null } = {}) {
 }
 
 export {
+  DEFAULT_WINDOW_STORAGE_KEY,
   ManagedWindow,
+  ToggleField,
+  isHexColor,
+  normalizeHex,
+  ColorField,
+  shownValue,
+  flatChoices,
+  findChoice,
+  selectBox,
+  toggleChips,
+  choiceList,
   ROW_CONTROL_SELECTOR,
   isRowControl,
   endsTextSelection,
   isRowActivation
 };
-//# sourceMappingURL=chunk-6JSOVNID.js.map
+//# sourceMappingURL=chunk-CVMCZZX2.js.map

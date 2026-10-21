@@ -2,7 +2,7 @@
 id: 33
 type: story
 title: "mountNavPanel can be driven from outside, hide its strip and omit its filter per mode"
-status: review
+status: done
 parent: 29
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: shell
 labels: [shell, nav-panel]
 links: []
 created: 2026-10-17
-updated: 2026-10-17T22:48Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -39,6 +39,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-17 · norman_agent · status: in-progress -> review
 - 2026-10-17 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -60,3 +61,7 @@ Ticked all 5 criteria: select mounts and activates, unknown id ignored, showMode
 Branch `story-0033`, rebased onto origin/main and fast-forwarded there. Landed tip on main: 1eb315c.
 
 Tests: after the rebase, `node tests/run.mjs` (Linux node) ended "FLEXDESK TESTS: GREEN — 120 suite(s)" with exit 0 and no `: SKIPPED` lines. `node build.mjs` exited 0, and the dist/ changes were thrown away afterwards. App check: this is a library change, so I did not launch an app. Behaviour is covered by the new suite, plus the outerHTML comparison for existing callers.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

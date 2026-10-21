@@ -3,6 +3,612 @@ import {
   isRowControl
 } from "./chunk-CVMCZZX2.js";
 
+// src/ui/components/autocomplete_field.js
+var AutocompleteField = class {
+  constructor({
+    fieldId,
+    field = {},
+    provider = null,
+    onChange = null,
+    logger = null,
+    namespace = null,
+    namespaceOptions = [],
+    showNamespaceSelect = false,
+    variant = null,
+    showNamespaceChip = false,
+    allowScopeToggle = false,
+    namespaceLabel = null,
+    scopeMode = "current",
+    skipNamespacePrefix = false,
+    // Material symbol per completion type, merged over the generic set. The
+    // framework's map used to include `sector: 'domain'` — an EcoAgent
+    // completion type — so the widget knew one application's ontology.
+    typeIcons = {}
+  } = {}) {
+    if (!fieldId) {
+      throw new Error("AutocompleteField requires a fieldId");
+    }
+    this.fieldId = fieldId;
+    this.field = field;
+    this.provider = typeof provider === "function" ? provider : () => [];
+    this.onChange = typeof onChange === "function" ? onChange : null;
+    this.logger = logger;
+    this.typeIcons = typeIcons ?? {};
+    this.namespace = namespace;
+    this.namespaceOptions = Array.isArray(namespaceOptions) ? [...namespaceOptions] : [];
+    if (this.namespace && !this.namespaceOptions.some((opt) => opt.value === this.namespace)) {
+      const fallbackLabel = this.field.namespaceLabel || "This Tab";
+      this.namespaceOptions.push({ value: this.namespace, label: fallbackLabel, token: fallbackLabel });
+    }
+    this.showNamespaceSelect = Boolean(showNamespaceSelect);
+    this.variant = variant;
+    this.showNamespaceChip = Boolean(showNamespaceChip);
+    this.allowScopeToggle = Boolean(allowScopeToggle);
+    this.namespaceLabel = namespaceLabel;
+    this.scope = scopeMode === "all" ? "all" : "current";
+    this.skipNamespacePrefix = Boolean(skipNamespacePrefix);
+    this.disabled = Boolean(field.disabled);
+    const parsed = this.#parseInitialNamespace(field.value ?? "");
+    this.selectedNamespace = parsed.initialNamespace;
+    this.initialFragment = parsed.initialFragment;
+    this._lastDropdownRect = null;
+    this.root = null;
+    this.input = null;
+    this.dropdown = null;
+    this.helperEl = null;
+    this.scopeControl = null;
+    this.namespaceSelect = null;
+    this.ghost = null;
+    this._items = [];
+    this._activeIndex = -1;
+    this._isOpen = false;
+    this._disposers = [];
+    this._suggestSeq = 0;
+  }
+  getValue() {
+    return this.#composeValue();
+  }
+  setComposedValue(value) {
+    if (!this.input) return;
+    const safeValue = typeof value === "string" ? value : "";
+    if (this.skipNamespacePrefix) {
+      this.input.value = safeValue;
+      this.initialFragment = safeValue;
+      this.#renderGhost();
+      this.#close();
+      return;
+    }
+    const parsed = this.#parseInitialNamespace(safeValue);
+    this.selectedNamespace = parsed.initialNamespace;
+    this.initialFragment = parsed.initialFragment;
+    if (this.namespaceSelect) {
+      this.namespaceSelect.value = this.selectedNamespace;
+    }
+    this.#updateNamespaceChip();
+    this.input.value = parsed.initialFragment;
+    this.#renderGhost();
+    this.#close();
+  }
+  #parseInitialNamespace(rawValue) {
+    const value = typeof rawValue === "string" ? rawValue.trim() : "";
+    const options = this.namespaceOptions;
+    const defaultNs = this.namespace ? options.find((opt) => opt.value === this.namespace)?.value ?? this.namespace : options[0]?.value ?? "__ALL__";
+    if (!options.length) {
+      return { initialNamespace: defaultNs, initialFragment: value };
+    }
+    if (!value) {
+      return { initialNamespace: defaultNs, initialFragment: "" };
+    }
+    const dotIndex = value.indexOf(".");
+    if (dotIndex > 0) {
+      const nsCandidate = value.slice(0, dotIndex);
+      const match = options.find(
+        (opt) => (opt.value || "").toLowerCase() === nsCandidate.toLowerCase() || (opt.label || "").toLowerCase() === nsCandidate.toLowerCase()
+      );
+      if (match) {
+        return { initialNamespace: match.value, initialFragment: value.slice(dotIndex + 1) };
+      }
+    }
+    return { initialNamespace: defaultNs, initialFragment: value };
+  }
+  #resolveNamespaceLabel() {
+    if (this.scope === "all") {
+      return "All Namespaces";
+    }
+    if (typeof this.namespaceLabel === "string" && this.namespaceLabel.trim()) {
+      return this.namespaceLabel.trim();
+    }
+    if (typeof this.field.namespaceLabel === "string" && this.field.namespaceLabel.trim()) {
+      return this.field.namespaceLabel.trim();
+    }
+    if (typeof this.namespace === "string" && this.namespace.trim()) {
+      return this.namespace.trim();
+    }
+    return "This Tab";
+  }
+  #toggleScope() {
+    if (this.disabled) return;
+    this.scope = this.scope === "all" ? "current" : "all";
+    this.root?.classList?.toggle("twm-autocomplete-field--scope-all", this.scope === "all");
+    this.#updateNamespaceChip();
+    this.#updateSuggestions();
+  }
+  #updateNamespaceChip() {
+    if (!this.scopeControl) return;
+    this.scopeControl.textContent = this.#resolveNamespaceLabel();
+    this.scopeControl.dataset.scope = this.scope;
+    this.scopeControl.title = this.scope === "all" ? "Searching across all namespaces (click to limit to this tab)" : "Searching this tab (click to search all namespaces)";
+  }
+  render() {
+    if (this.root) {
+      return this.root;
+    }
+    this.root = document.createElement("div");
+    this.root.className = "twm-autocomplete-field";
+    if (this.variant) {
+      this.root.classList.add(`twm-autocomplete-field--${this.variant}`);
+    }
+    this.root.classList.toggle("twm-autocomplete-field--scope-all", this.scope === "all");
+    const inputWrapper = document.createElement("div");
+    inputWrapper.className = "twm-autocomplete-field__input-wrapper";
+    if (this.showNamespaceSelect && this.namespaceOptions.length) {
+      const select = document.createElement("select");
+      select.className = "twm-autocomplete-field__namespace-select";
+      this.namespaceOptions.forEach((opt) => {
+        const option = document.createElement("option");
+        option.value = opt.value;
+        option.textContent = opt.label ?? opt.value;
+        if (opt.value === this.selectedNamespace) {
+          option.selected = true;
+        }
+        select.appendChild(option);
+      });
+      this.namespaceSelect = select;
+      inputWrapper.appendChild(select);
+    }
+    if (this.showNamespaceChip) {
+      const nsChip = document.createElement(this.allowScopeToggle ? "button" : "span");
+      nsChip.className = "twm-autocomplete-field__namespace";
+      if (this.allowScopeToggle) {
+        nsChip.setAttribute("type", "button");
+      }
+      if (this.allowScopeToggle) {
+        nsChip.classList.add("twm-autocomplete-field__namespace--toggle");
+        nsChip.addEventListener("click", () => this.#toggleScope());
+      }
+      this.scopeControl = nsChip;
+      this.#updateNamespaceChip();
+      inputWrapper.appendChild(nsChip);
+    }
+    this.input = document.createElement("input");
+    this.input.type = "text";
+    this.input.className = "twm-autocomplete-field__input";
+    this.input.id = this.fieldId;
+    this.input.autocomplete = "off";
+    this.input.spellcheck = false;
+    if (this.field.placeholder) {
+      this.input.placeholder = this.field.placeholder;
+    }
+    if (this.field.value != null) {
+      this.input.value = this.initialFragment;
+    }
+    if (this.disabled) {
+      this.input.disabled = true;
+      this.root.classList.add("twm-autocomplete-field--disabled");
+    }
+    inputWrapper.appendChild(this.input);
+    this.ghost = null;
+    this.dropdown = document.createElement("div");
+    this.dropdown.className = "twm-autocomplete-field__dropdown";
+    this.dropdown.setAttribute("role", "listbox");
+    document.body.appendChild(this.dropdown);
+    this.helperEl = document.createElement("div");
+    this.helperEl.className = "twm-autocomplete-field__helper twm-config-hint";
+    if (this.field.helperText) {
+      this.helperEl.textContent = this.field.helperText;
+    }
+    this.root.appendChild(inputWrapper);
+    this.root.appendChild(this.helperEl);
+    this.#wireEvents();
+    this.#renderGhost();
+    return this.root;
+  }
+  #wireEvents() {
+    const onInput = () => {
+      if (this.disabled) return;
+      this.#syncNamespaceFromInput();
+      this.#renderGhost();
+      this.#updateSuggestions();
+    };
+    const onChange = () => {
+      this.onChange?.(this.#composeValue(), { immediate: false, namespace: this.selectedNamespace });
+    };
+    const onPaste = () => {
+    };
+    const onKeyDown = (e) => {
+      if (this.disabled) return;
+      this.#handleKeyDown(e);
+    };
+    const onFocus = () => {
+      if (this.disabled) return;
+      this.#updateSuggestions();
+    };
+    const onBlur = (e) => {
+      setTimeout(() => {
+        if (!this.root?.contains(document.activeElement)) {
+          this.#close();
+          this.onChange?.(this.#composeValue(), { immediate: false, namespace: this.selectedNamespace });
+        }
+      }, 150);
+    };
+    const onDropdownMouseDown = (e) => {
+      e.preventDefault();
+    };
+    const onDropdownClick = (e) => {
+      const item = e.target.closest(".twm-autocomplete-field__item");
+      if (item) {
+        const index = parseInt(item.dataset.index, 10);
+        if (!isNaN(index)) {
+          this.#selectItem(index);
+        }
+      }
+    };
+    this.input.addEventListener("input", onInput);
+    this.input.addEventListener("change", onChange);
+    this.input.addEventListener("paste", onPaste);
+    this.input.addEventListener("keydown", onKeyDown);
+    this.input.addEventListener("focus", onFocus);
+    this.input.addEventListener("blur", onBlur);
+    this.dropdown.addEventListener("mousedown", onDropdownMouseDown);
+    this.dropdown.addEventListener("click", onDropdownClick);
+    if (this.namespaceSelect) {
+      const onSelectChange = () => {
+        this.selectedNamespace = this.namespaceSelect.value;
+        this.#updateSuggestions();
+        this.onChange?.(this.#composeValue(), {
+          immediate: false,
+          namespace: this.selectedNamespace,
+          viewNamespace: this.selectedNamespace
+        });
+      };
+      this.namespaceSelect.addEventListener("change", onSelectChange);
+      this._disposers.push(() => this.namespaceSelect.removeEventListener("change", onSelectChange));
+    }
+    const onWindowResize = () => {
+      if (this._isOpen) {
+        this.#positionDropdown();
+      }
+    };
+    window.addEventListener("resize", onWindowResize);
+    const onScroll = (e) => {
+      if (!this._isOpen) return;
+      if (this.dropdown?.contains(e.target)) return;
+      this.#close();
+    };
+    document.addEventListener("scroll", onScroll, true);
+    this._disposers.push(() => {
+      document.removeEventListener("scroll", onScroll, true);
+    });
+    const onDocumentClick = (e) => {
+      if (!this._isOpen) return;
+      const clickedInRoot = this.root?.contains(e.target);
+      const clickedInDropdown = this.dropdown?.contains(e.target);
+      if (!clickedInRoot && !clickedInDropdown) {
+        this.#close();
+      }
+    };
+    document.addEventListener("click", onDocumentClick, true);
+    this._disposers.push(() => {
+      window.removeEventListener("resize", onWindowResize);
+    });
+    this._disposers.push(() => {
+      document.removeEventListener("click", onDocumentClick, true);
+    });
+    this._disposers.push(() => {
+      this.input.removeEventListener("input", onInput);
+      this.input.removeEventListener("change", onChange);
+      this.input.removeEventListener("paste", onPaste);
+      this.input.removeEventListener("keydown", onKeyDown);
+      this.input.removeEventListener("focus", onFocus);
+      this.input.removeEventListener("blur", onBlur);
+      this.dropdown.removeEventListener("mousedown", onDropdownMouseDown);
+      this.dropdown.removeEventListener("click", onDropdownClick);
+    });
+  }
+  #handleKeyDown(e) {
+    if (!this._isOpen) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        this.#updateSuggestions();
+        e.preventDefault();
+      }
+      return;
+    }
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        this.#moveSelection(1);
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        this.#moveSelection(-1);
+        break;
+      case "Enter":
+        e.preventDefault();
+        if (this._activeIndex >= 0) {
+          this.#selectItem(this._activeIndex);
+        }
+        this.input?.blur();
+        break;
+      case "Tab":
+        if (this._activeIndex >= 0) {
+          e.preventDefault();
+          this.#selectItem(this._activeIndex);
+        }
+        break;
+      case "Escape":
+        e.preventDefault();
+        this.#close();
+        break;
+    }
+  }
+  #updateSuggestions() {
+    const fragment = this.#getInputFragment();
+    const request = ++this._suggestSeq;
+    let produced;
+    try {
+      produced = this.provider({
+        value: fragment,
+        scope: this.scope,
+        namespace: this.selectedNamespace
+      });
+    } catch (err) {
+      this.logger?.warn?.("autocomplete", "Provider error", { err });
+      this._items = [];
+      this.#close();
+      return;
+    }
+    if (produced && typeof produced.then === "function") {
+      produced.then(
+        (items) => {
+          if (request !== this._suggestSeq) return;
+          this.#applySuggestions(items);
+        },
+        (err) => {
+          this.logger?.warn?.("autocomplete", "Provider error", { err });
+          if (request !== this._suggestSeq) return;
+          this._items = [];
+          this.#close();
+        }
+      );
+      return;
+    }
+    this.#applySuggestions(produced);
+  }
+  /** Draw whatever the provider produced. Split out of `#updateSuggestions`
+   *  so the synchronous and the awaited paths cannot drift apart. */
+  #applySuggestions(produced) {
+    const items = Array.isArray(produced) ? produced : [];
+    this._items = items;
+    this._activeIndex = items.length > 0 ? 0 : -1;
+    this.#renderDropdown();
+    if (items.length > 0) {
+      this.#open();
+    } else {
+      this.#close();
+    }
+  }
+  #renderDropdown() {
+    this.dropdown.innerHTML = "";
+    const showingAll = this.selectedNamespace === "__ALL__";
+    this._items.forEach((item, index) => {
+      const el = document.createElement("div");
+      el.className = "twm-autocomplete-field__item";
+      el.setAttribute("role", "option");
+      el.dataset.index = index;
+      el.dataset.type = item.type || item.iconType || "variable";
+      if (index === this._activeIndex) {
+        el.classList.add("active");
+      }
+      const icon = document.createElement("span");
+      icon.className = "twm-autocomplete-field__icon material-symbols-outlined";
+      icon.textContent = this.#getIconForType(item.type || item.iconType);
+      el.appendChild(icon);
+      const label = document.createElement("span");
+      label.className = "twm-autocomplete-field__label";
+      label.textContent = item.label || item.insertText || "";
+      el.appendChild(label);
+      if (showingAll && item.metadata?.namespaceId) {
+        const nsLabel = this.#resolveNamespaceToken(item.metadata.namespaceId);
+        if (nsLabel) {
+          const nsIndicator = document.createElement("span");
+          nsIndicator.className = "twm-autocomplete-field__namespace-indicator";
+          nsIndicator.textContent = nsLabel;
+          el.appendChild(nsIndicator);
+        }
+      }
+      if (item.type && !showingAll) {
+        const badge = document.createElement("span");
+        badge.className = "twm-autocomplete-field__badge";
+        badge.textContent = item.type;
+        el.appendChild(badge);
+      }
+      this.dropdown.appendChild(el);
+    });
+    if (this._isOpen) {
+      this.#positionDropdown();
+    }
+  }
+  #resolveNamespaceToken(namespaceId) {
+    if (!namespaceId) return null;
+    const opt = this.namespaceOptions.find((o) => o.value === namespaceId);
+    return opt?.token || opt?.label || null;
+  }
+  #getIconForType(type) {
+    const icons = {
+      variable: "functions",
+      "variable-qualified": "link",
+      stock: "account_balance",
+      account: "savings",
+      function: "code",
+      constant: "numbers",
+      operator: "calculate",
+      snippet: "content_paste",
+      ...this.typeIcons
+    };
+    return icons[type] || "label";
+  }
+  #moveSelection(delta) {
+    if (this._items.length === 0) return;
+    let newIndex = this._activeIndex + delta;
+    if (newIndex < 0) newIndex = this._items.length - 1;
+    if (newIndex >= this._items.length) newIndex = 0;
+    this._activeIndex = newIndex;
+    this.#renderDropdown();
+    this.#scrollToActive();
+  }
+  #scrollToActive() {
+    const activeEl = this.dropdown.querySelector(".twm-autocomplete-field__item.active");
+    if (activeEl) {
+      activeEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }
+  #selectItem(index) {
+    const item = this._items[index];
+    if (!item) return;
+    const itemNamespace = item.metadata?.namespaceId || null;
+    const insertText = item.insertText || item.label || "";
+    this.input.value = insertText;
+    const viewNamespace = this.selectedNamespace;
+    const resolvedNamespace = viewNamespace === "__ALL__" && itemNamespace ? itemNamespace : viewNamespace;
+    this.#close();
+    this.input.focus();
+    this.onChange?.(this.#composeValue(), {
+      immediate: true,
+      namespace: resolvedNamespace,
+      viewNamespace,
+      metadata: item.metadata || null
+    });
+  }
+  #open() {
+    if (this._isOpen) {
+      return;
+    }
+    this._isOpen = true;
+    this.#positionDropdown();
+    this.dropdown.classList.add("visible");
+  }
+  #close() {
+    if (!this._isOpen) return;
+    this._isOpen = false;
+    this.dropdown.classList.remove("visible");
+    this._activeIndex = -1;
+  }
+  #syncNamespaceFromInput() {
+    if (!this.namespaceOptions.length) return;
+    const value = this.input?.value || "";
+    const dotIndex = value.indexOf(".");
+    if (dotIndex > 0) {
+      const nsCandidate = value.slice(0, dotIndex);
+      const match = this.namespaceOptions.find(
+        (opt) => opt.value !== "__ALL__" && ((opt.value || "").toLowerCase() === nsCandidate.toLowerCase() || (opt.label || "").toLowerCase() === nsCandidate.toLowerCase() || (opt.token || "").toLowerCase() === nsCandidate.toLowerCase())
+      );
+      if (match && this.namespaceSelect && this.namespaceSelect.value !== match.value) {
+        this.namespaceSelect.value = match.value;
+        this.selectedNamespace = match.value;
+      }
+    }
+  }
+  #getInputFragment() {
+    const value = this.input?.value || "";
+    const dotIndex = value.indexOf(".");
+    if (dotIndex > 0) {
+      const nsCandidate = value.slice(0, dotIndex);
+      const match = this.namespaceOptions.find(
+        (opt) => opt.value !== "__ALL__" && ((opt.value || "").toLowerCase() === nsCandidate.toLowerCase() || (opt.label || "").toLowerCase() === nsCandidate.toLowerCase())
+      );
+      if (match) {
+        return value.slice(dotIndex + 1);
+      }
+    }
+    return value;
+  }
+  #composeValue() {
+    const rawInput = this.input?.value || "";
+    if (!rawInput) return "";
+    if (this.skipNamespacePrefix) {
+      return rawInput;
+    }
+    const dotIndex = rawInput.indexOf(".");
+    if (dotIndex > 0) {
+      const nsCandidate = rawInput.slice(0, dotIndex);
+      const match = this.namespaceOptions.find(
+        (opt) => opt.value !== "__ALL__" && ((opt.value || "").toLowerCase() === nsCandidate.toLowerCase() || (opt.label || "").toLowerCase() === nsCandidate.toLowerCase())
+      );
+      if (match) {
+        return rawInput;
+      }
+    }
+    const ns = this.selectedNamespace;
+    if (!ns || ns === "__ALL__") {
+      return rawInput;
+    }
+    const nsOption = this.namespaceOptions.find(
+      (opt) => opt.value === ns || (opt.value || "").toLowerCase() === (ns || "").toLowerCase()
+    );
+    const nsToken = nsOption?.token || nsOption?.label || "";
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (ns === "__ALL__" || (nsToken || "").toUpperCase() === "__ALL__") {
+      return rawInput;
+    }
+    if (!nsToken || uuidPattern.test(nsToken)) {
+      return rawInput;
+    }
+    return `${nsToken}.${rawInput}`;
+  }
+  #renderGhost() {
+    if (this.ghost) {
+      this.ghost.style.display = "none";
+    }
+  }
+  #positionDropdown() {
+    if (!this.dropdown || !this.root) return;
+    const wrapper = this.root.querySelector(".twm-autocomplete-field__input-wrapper");
+    if (!wrapper) return;
+    const rect = wrapper.getBoundingClientRect();
+    this._lastDropdownRect = rect;
+    const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+    const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+    const width = Math.min(rect.width, viewportWidth - rect.left - 8);
+    const maxHeight = Math.max(120, viewportHeight - rect.bottom - 12);
+    Object.assign(this.dropdown.style, {
+      position: "fixed",
+      top: `${rect.bottom}px`,
+      left: `${rect.left}px`,
+      width: `${width}px`,
+      maxWidth: `${width}px`,
+      maxHeight: `${maxHeight}px`
+    });
+  }
+  dispose() {
+    this._suggestSeq += 1;
+    this.#close();
+    this._disposers.forEach((fn) => {
+      try {
+        fn();
+      } catch (e) {
+      }
+    });
+    this._disposers = [];
+    if (this.dropdown && this.dropdown.parentNode) {
+      this.dropdown.parentNode.removeChild(this.dropdown);
+    }
+    this.root = null;
+    this.input = null;
+    this.dropdown = null;
+    this.helperEl = null;
+  }
+};
+
 // src/ui/components/cell_editor_host.js
 function createTextEditor({ value, initialText = null }) {
   const input = document.createElement("input");
@@ -33,13 +639,29 @@ function normalise(made) {
   const own = isNode ? {} : made;
   let getValue = typeof own.getValue === "function" ? own.getValue : null;
   if (!getValue && el.matches?.("input, select, textarea")) getValue = () => el.value;
+  const parse = typeof own.parse === "function" ? own.parse : null;
+  let read = null;
+  if (parse) {
+    read = () => {
+      let r;
+      try {
+        r = parse();
+      } catch (err) {
+        r = { ok: false, error: err?.message || String(err) };
+      }
+      return r && r.ok === false ? { ok: false, error: String(r.error ?? "Not valid") } : { ok: true, value: r ? r.value : void 0 };
+    };
+  } else if (getValue) read = () => ({ ok: true, value: getValue() });
   return {
     el,
     getValue,
+    read,
+    multiline: !!own.multiline,
     focus: typeof own.focus === "function" ? own.focus : null,
     destroy: typeof own.destroy === "function" ? own.destroy : null
   };
 }
+var MOVES = /* @__PURE__ */ new Set(["down", "up", "right", "left"]);
 var CellEditorHost = class {
   /**
    * @param {object} o
@@ -47,17 +669,22 @@ var CellEditorHost = class {
    *   cell is drawn as it was again; `move` is 'down', 'up', 'right', 'left'
    *   or null; `reason` is 'key', 'blur', 'editor' or 'scroll'.
    * @param {(session, reason) => void} o.onCancel
+   * @param {(session, error, text, reason) => void} [o.onRefuse]  a value
+   *   that did not parse, when the editor closed with it (the focus left,
+   *   `commit()` from outside); without it such a close is a cancel.
    */
-  constructor({ onCommit, onCancel }) {
+  constructor({ onCommit, onCancel, onRefuse = null }) {
     this._onCommit = onCommit;
     this._onCancel = onCancel;
+    this._onRefuse = onRefuse;
     this.session = null;
   }
   /**
-   * Open an editor in `td`. Returns whether one opened (a factory that
+   * Open an editor in `td`; `args` go to the factory beside the cell's own
+   * (DataTable's `locale`, `utc`, `messages`). Returns whether one opened (a factory that
    * throws or returns nothing opens none, and the cell is untouched).
    */
-  open({ td, factory, value, row, rowIdx, colIdx, column, initialText = null, ...extra }) {
+  open({ td, factory, value, row, rowIdx, colIdx, column, initialText = null, args = {}, ...extra }) {
     if (this.session) return false;
     const s = {
       ...extra,
@@ -76,13 +703,14 @@ var CellEditorHost = class {
     let made = null;
     try {
       made = factory({
+        ...args,
         value,
         row,
         rowIdx,
         colIdx,
         column,
         initialText,
-        commit: (v) => this._finish(s, v, null, "editor"),
+        commit: (v, move = null) => this._finish(s, v, MOVES.has(move) ? move : null, "editor"),
         cancel: () => this._cancel(s, "editor")
       });
     } catch (err) {
@@ -94,6 +722,10 @@ var CellEditorHost = class {
     s.editor = editor;
     s.saved = [...td.childNodes];
     s.savedTitle = td.getAttribute("title");
+    s.savedError = {
+      on: td.classList.contains("twm-dt-cell--error"),
+      message: td.getAttribute("data-error")
+    };
     this.session = s;
     td.classList.add("twm-dt-cell--editing");
     td.replaceChildren(editor.el);
@@ -107,24 +739,25 @@ var CellEditorHost = class {
       if (ev.key === "Escape") {
         ev.preventDefault();
         this._cancel(s, "key");
-      } else if (ev.key === "Enter" && !ev.altKey && !ev.ctrlKey && !ev.metaKey && editor.getValue) {
+      } else if (ev.key === "Enter" && !ev.altKey && editor.read && (editor.multiline ? ev.ctrlKey || ev.metaKey : !(ev.ctrlKey || ev.metaKey))) {
         ev.preventDefault();
-        this._finish(s, editor.getValue(), ev.shiftKey ? "up" : "down", "key");
-      } else if (ev.key === "Tab" && !ev.altKey && !ev.ctrlKey && !ev.metaKey && editor.getValue) {
+        this._tryKey(s, ev.shiftKey ? "up" : "down");
+      } else if (ev.key === "Tab" && !ev.altKey && !ev.ctrlKey && !ev.metaKey && editor.read) {
         ev.preventDefault();
-        this._finish(s, editor.getValue(), ev.shiftKey ? "left" : "right", "key");
+        this._tryKey(s, ev.shiftKey ? "left" : "right");
       }
     });
+    on("input", () => this._unmark(s));
     for (const type of ["click", "dblclick", "mousedown", "contextmenu"]) {
       on(type, (ev) => ev.stopPropagation());
     }
     on("focusout", (ev) => {
-      if (s.closed || !editor.getValue) return;
+      if (s.closed || !editor.read) return;
       const to = ev.relatedTarget;
       if (to && editor.el.contains(to)) return;
       const doc = editor.el.ownerDocument;
       if (!to && doc && typeof doc.hasFocus === "function" && !doc.hasFocus()) return;
-      this._finish(s, editor.getValue(), null, "blur");
+      this._settle(s, null, "blur");
     });
     try {
       if (editor.focus) editor.focus();
@@ -137,11 +770,51 @@ var CellEditorHost = class {
   commit(move = null, reason = "editor") {
     const s = this.session;
     if (!s) return false;
-    if (!s.editor.getValue) {
+    if (!s.editor.read) {
       this._cancel(s, reason);
       return false;
     }
-    return this._finish(s, s.editor.getValue(), move, reason);
+    return this._settle(s, move, reason);
+  }
+  /** Enter or Tab: commit what parses; a refusal keeps the editor open,
+   *  the message on its cell. */
+  _tryKey(s, move) {
+    const r = s.editor.read();
+    if (r.ok) return this._finish(s, r.value, move, "key");
+    s.td.classList.add("twm-dt-cell--error");
+    s.td.setAttribute("data-error", r.error);
+    s.td.setAttribute("title", r.error);
+    s.marked = true;
+    return false;
+  }
+  _unmark(s) {
+    if (!s.marked) return;
+    s.marked = false;
+    this._restoreMark(s);
+  }
+  _restoreMark(s) {
+    const { on, message } = s.savedError;
+    s.td.classList.toggle("twm-dt-cell--error", on);
+    if (message == null) s.td.removeAttribute("data-error");
+    else s.td.setAttribute("data-error", message);
+    if (s.savedTitle == null) s.td.removeAttribute("title");
+    else s.td.setAttribute("title", s.savedTitle);
+  }
+  /** The editor closing with what it holds (the focus left, `commit()`):
+   *  committed when it parses, else handed to `onRefuse`. */
+  _settle(s, move, reason) {
+    const r = s.editor.read();
+    if (r.ok) return this._finish(s, r.value, move, reason);
+    if (s.closed) return false;
+    let text = "";
+    try {
+      text = s.editor.getValue ? s.editor.getValue() : "";
+    } catch (_) {
+    }
+    this._close(s);
+    if (this._onRefuse) this._onRefuse(s, r.error, text, reason);
+    else this._onCancel?.(s, reason);
+    return true;
   }
   /** Cancel the open session: the cell is drawn as it was. */
   cancel(reason = "editor") {
@@ -167,8 +840,7 @@ var CellEditorHost = class {
     }
     s.td.classList.remove("twm-dt-cell--editing");
     s.td.replaceChildren(...s.saved);
-    if (s.savedTitle == null) s.td.removeAttribute("title");
-    else s.td.setAttribute("title", s.savedTitle);
+    this._restoreMark(s);
   }
   _finish(s, value, move, reason) {
     if (s.closed) return false;
@@ -183,6 +855,363 @@ var CellEditorHost = class {
     return true;
   }
 };
+
+// src/ui/components/cell_editors.js
+var EDITOR_MESSAGES = Object.freeze({
+  number: "Not a number",
+  datetime: "Not a date",
+  bool: "Not true or false",
+  choice: "Not one of the options"
+});
+var ok = (value) => ({ ok: true, value });
+var refuse = (ctx, type) => ({ ok: false, error: (ctx?.messages || {})[type] || EDITOR_MESSAGES[type] });
+var isBlank = (text) => text == null || String(text).trim() === "";
+var ALIASES = { num: "number", date: "datetime" };
+function editorTypeOf(type) {
+  const t = type == null ? "text" : String(type);
+  return ALIASES[t] || t;
+}
+function safeLocale(locale) {
+  if (!locale) return void 0;
+  try {
+    return Intl.NumberFormat.supportedLocalesOf(locale).length ? locale : void 0;
+  } catch (_) {
+    return void 0;
+  }
+}
+function numberSeparators(locale) {
+  const parts = new Intl.NumberFormat(safeLocale(locale)).formatToParts(12345675e-1);
+  return {
+    group: parts.find((p) => p.type === "group")?.value ?? ",",
+    decimal: parts.find((p) => p.type === "decimal")?.value ?? "."
+  };
+}
+var SPACES = /[\s\u00a0\u202f]/g;
+function parseNumber(text, ctx = {}) {
+  if (isBlank(text)) return ok(null);
+  const { group, decimal } = numberSeparators(ctx.locale);
+  let s = String(text).trim().replace(/\u2212/g, "-");
+  let sign = "";
+  if (s[0] === "-" || s[0] === "+") {
+    sign = s[0] === "-" ? "-" : "";
+    s = s.slice(1);
+  }
+  const halves = s.split(decimal);
+  if (halves.length > 2) return refuse(ctx, "number");
+  let [whole, frac = null] = halves;
+  let exp = "";
+  const tail = frac ?? whole;
+  const e = /[eE][+-]?\d+$/.exec(tail);
+  if (e) {
+    exp = e[0];
+    if (frac != null) frac = frac.slice(0, -exp.length);
+    else whole = whole.slice(0, -exp.length);
+  }
+  const spaceGroup = group !== "" && group.replace(SPACES, "") === "";
+  const g = spaceGroup ? " " : group;
+  if (spaceGroup) whole = whole.replace(SPACES, " ");
+  if (g && whole.includes(g)) {
+    const esc = g.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (!new RegExp(`^\\d{1,3}(${esc}\\d{3})+$`).test(whole)) return refuse(ctx, "number");
+    whole = whole.split(g).join("");
+  }
+  if (!/^\d*$/.test(whole) || frac != null && !/^\d*$/.test(frac)) return refuse(ctx, "number");
+  if (!whole && !frac) return refuse(ctx, "number");
+  const n = Number(`${sign}${whole || "0"}.${frac || "0"}${exp}`);
+  return Number.isFinite(n) ? ok(n) : refuse(ctx, "number");
+}
+function formatNumberForEdit(value, ctx = {}) {
+  if (value == null) return "";
+  if (typeof value !== "number" || !Number.isFinite(value)) return String(value);
+  const { decimal } = numberSeparators(ctx.locale);
+  return String(value).replace(".", decimal);
+}
+var TRUE_WORDS = /* @__PURE__ */ new Set(["true", "yes", "y", "1", "on", "x", "\u2713", "\u2714"]);
+var FALSE_WORDS = /* @__PURE__ */ new Set(["false", "no", "n", "0", "off", ""]);
+function parseBool(text, ctx = {}) {
+  if (typeof text === "boolean") return ok(text);
+  const t = String(text ?? "").trim().toLowerCase();
+  if (TRUE_WORDS.has(t)) return ok(true);
+  if (FALSE_WORDS.has(t)) return ok(false);
+  return refuse(ctx, "bool");
+}
+function truthy(value) {
+  if (typeof value === "boolean") return value;
+  if (value == null) return false;
+  const r = parseBool(String(value));
+  return r.ok ? r.value : true;
+}
+function dateOrder(locale) {
+  let loc;
+  try {
+    loc = Intl.DateTimeFormat.supportedLocalesOf(locale || []).length ? locale : void 0;
+  } catch (_) {
+    loc = void 0;
+  }
+  return new Intl.DateTimeFormat(loc, { year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(2026, 11, 31)).map((p) => p.type).filter((t) => t === "day" || t === "month" || t === "year");
+}
+function daysIn(y, m) {
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+function makeDate({ y, mo, d, h = 0, mi = 0, s = 0, ms = 0 }, utc, offsetMin = null) {
+  if (!(mo >= 1 && mo <= 12) || !(d >= 1 && d <= daysIn(y, mo))) return null;
+  if (h > 23 || mi > 59 || s > 59) return null;
+  if (offsetMin != null) return new Date(Date.UTC(y, mo - 1, d, h, mi, s, ms) - offsetMin * 6e4);
+  if (utc) return new Date(Date.UTC(y, mo - 1, d, h, mi, s, ms));
+  const date = new Date(y, mo - 1, d, h, mi, s, ms);
+  date.setFullYear(y);
+  return date;
+}
+var ISO = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d{1,3})\d*)?)?\s*(Z|[+-]\d{2}:?\d{2})?)?$/i;
+var LOCAL = /^(\d{1,4})[./-](\d{1,2})[./-](\d{1,4})\.?(?:[,\sT]+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([ap])?\.?m?\.?)?$/i;
+function parseDateTime(text, ctx = {}) {
+  if (isBlank(text)) return ok(null);
+  const t = String(text).trim();
+  const iso = ISO.exec(t);
+  if (iso) {
+    const [, y, mo, d, h2, mi2, s, ms, zone] = iso;
+    let offset = null;
+    if (zone) {
+      if (zone.toUpperCase() === "Z") offset = 0;
+      else {
+        const z = zone.replace(":", "");
+        offset = (z[0] === "-" ? -1 : 1) * (Number(z.slice(1, 3)) * 60 + Number(z.slice(3, 5)));
+      }
+    }
+    const date2 = makeDate({
+      y: +y,
+      mo: +mo,
+      d: +d,
+      h: +(h2 || 0),
+      mi: +(mi2 || 0),
+      s: +(s || 0),
+      ms: ms ? Number(ms.padEnd(3, "0")) : 0
+    }, !!ctx.utc, offset);
+    return date2 ? ok(date2) : refuse(ctx, "datetime");
+  }
+  const m = LOCAL.exec(t);
+  if (!m) return refuse(ctx, "datetime");
+  const [, a, b, c, hh, mi, ss, ap] = m;
+  let h = hh == null ? 0 : +hh;
+  if (ap) {
+    if (h < 1 || h > 12) return refuse(ctx, "datetime");
+    h = h % 12 + (ap.toLowerCase() === "p" ? 12 : 0);
+  }
+  const time = { h, mi: +(mi || 0), s: +(ss || 0) };
+  const order = dateOrder(ctx.locale);
+  const nums = [a, b, c];
+  const read = (ord) => {
+    const at = {};
+    ord.forEach((type, i) => {
+      at[type] = nums[i];
+    });
+    if (!at.year || at.year.length !== 4) return null;
+    return makeDate({ y: +at.year, mo: +at.month, d: +at.day, ...time }, !!ctx.utc);
+  };
+  let date = read(order);
+  if (!date) {
+    const swapped = order.map((p) => p === "day" ? "month" : p === "month" ? "day" : p);
+    date = read(swapped);
+  }
+  return date ? ok(date) : refuse(ctx, "datetime");
+}
+var pad = (n, w = 2) => String(n).padStart(w, "0");
+function formatDateTimeForEdit(value, ctx = {}) {
+  if (value == null || value === "") return "";
+  if (!(value instanceof Date)) return String(value);
+  if (Number.isNaN(value.getTime())) return "";
+  const u = !!ctx.utc;
+  const y = u ? value.getUTCFullYear() : value.getFullYear();
+  const mo = (u ? value.getUTCMonth() : value.getMonth()) + 1;
+  const d = u ? value.getUTCDate() : value.getDate();
+  const h = u ? value.getUTCHours() : value.getHours();
+  const mi = u ? value.getUTCMinutes() : value.getMinutes();
+  const s = u ? value.getUTCSeconds() : value.getSeconds();
+  const day = `${pad(y, 4)}-${pad(mo)}-${pad(d)}`;
+  if (!h && !mi && !s) return day;
+  return `${day} ${pad(h)}:${pad(mi)}${s ? `:${pad(s)}` : ""}`;
+}
+function normalizeOptions(options) {
+  if (!Array.isArray(options)) return [];
+  return options.map((o) => o && typeof o === "object" ? { value: o.value, label: String(o.label ?? o.value ?? "") } : { value: o, label: String(o ?? "") });
+}
+function parseChoice(text, ctx = {}) {
+  if (isBlank(text)) return ok(null);
+  const t = String(text).trim();
+  const lower = t.toLowerCase();
+  const opts = normalizeOptions(ctx.options);
+  const hit = opts.find((o) => o.label.trim().toLowerCase() === lower) || opts.find((o) => String(o.value ?? "").trim().toLowerCase() === lower);
+  if (hit) return ok(hit.value);
+  return ctx.allowOther ? ok(t) : refuse(ctx, "choice");
+}
+function labelOf(value, ctx) {
+  if (value == null) return "";
+  const hit = normalizeOptions(ctx.options).find((o) => Object.is(o.value, value) || String(o.value) === String(value));
+  return hit ? hit.label : String(value);
+}
+function contextOf(args) {
+  const col = args.column || {};
+  return {
+    locale: args.locale,
+    utc: !!args.utc,
+    messages: args.messages,
+    options: col.options,
+    allowOther: !!col.allowOther
+  };
+}
+function parsedField(el, args, start, parse) {
+  const { value, initialText = null } = args;
+  el.value = initialText != null ? String(initialText) : start;
+  const ctx = contextOf(args);
+  return {
+    el,
+    getValue: () => el.value,
+    parse: () => initialText == null && el.value === start ? ok(value) : parse(el.value, ctx),
+    focus: () => {
+      el.focus({ preventScroll: true });
+      const end = el.value.length;
+      try {
+        el.setSelectionRange(end, end);
+      } catch (_) {
+      }
+    }
+  };
+}
+function textInput(kind) {
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = `twm-dt-editor twm-dt-editor--${kind}`;
+  input.spellcheck = false;
+  input.setAttribute("autocomplete", "off");
+  return input;
+}
+function createNumberEditor(args) {
+  const input = textInput("number");
+  input.inputMode = "decimal";
+  return parsedField(input, args, formatNumberForEdit(args.value, contextOf(args)), parseNumber);
+}
+function createDateTimeEditor(args) {
+  const input = textInput("datetime");
+  return parsedField(input, args, formatDateTimeForEdit(args.value, contextOf(args)), parseDateTime);
+}
+function createMultiTextEditor(args) {
+  const area = document.createElement("textarea");
+  area.className = "twm-dt-editor twm-dt-editor--multitext";
+  area.spellcheck = false;
+  area.rows = Number(args.column?.rows) > 0 ? Number(args.column.rows) : 3;
+  const start = args.value == null ? "" : String(args.value);
+  const field = parsedField(area, args, start, (text) => ok(text));
+  return { ...field, multiline: true };
+}
+function createBoolEditor(args) {
+  const { value, initialText = null, commit } = args;
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.className = "twm-dt-editor twm-dt-editor--bool";
+  const start = truthy(value);
+  box.checked = start;
+  if (initialText === " ") box.checked = !start;
+  else if (initialText != null) {
+    const r = parseBool(initialText);
+    if (r.ok) box.checked = r.value;
+  }
+  box.addEventListener("change", () => commit(box.checked));
+  const read = () => box.checked === start && initialText == null ? ok(value) : ok(box.checked);
+  return {
+    el: box,
+    getValue: () => box.checked,
+    parse: read,
+    focus: () => box.focus({ preventScroll: true })
+  };
+}
+var uid = 0;
+function createChoiceEditor(args) {
+  const { value, initialText = null, commit } = args;
+  const ctx = contextOf(args);
+  const opts = normalizeOptions(ctx.options);
+  const start = labelOf(value, ctx);
+  const shown = initialText != null ? String(initialText) : start;
+  let picked = null;
+  let keying = null;
+  let done = false;
+  const ac = new AutocompleteField({
+    fieldId: `twm-dt-choice-${++uid}`,
+    field: { value: shown },
+    skipNamespacePrefix: true,
+    typeIcons: { option: "list" },
+    provider: ({ value: term }) => {
+      const q = String(term ?? "").trim().toLowerCase();
+      const all = !q || initialText == null && term === start;
+      return opts.filter((o) => all || o.label.toLowerCase().includes(q)).map((o) => ({ label: o.label, insertText: o.label, iconType: "option", metadata: { value: o.value } }));
+    },
+    onChange: (text, meta) => {
+      if (done || !meta?.immediate || !meta.metadata) return;
+      picked = { label: String(text ?? ""), value: meta.metadata.value };
+      const move = keying ? keying.key === "Tab" ? keying.shift ? "left" : "right" : keying.shift ? "up" : "down" : null;
+      commit(picked.value, move);
+    }
+  });
+  const root = ac.render();
+  root.classList.add("twm-dt-editor--choice");
+  const input = ac.input;
+  input.classList.add("twm-dt-editor");
+  let browsed = false;
+  const onCapture = (ev) => {
+    const commitKey = (ev.key === "Enter" || ev.key === "Tab") && !ev.ctrlKey && !ev.metaKey && !ev.altKey;
+    keying = commitKey ? { key: ev.key, shift: ev.shiftKey } : null;
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") browsed = true;
+    if (commitKey && !browsed && !String(input.value).trim() && !ev.isComposing) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const move = ev.key === "Tab" ? ev.shiftKey ? "left" : "right" : ev.shiftKey ? "up" : "down";
+      commit(null, move);
+    }
+  };
+  const onInput = () => {
+    browsed = false;
+  };
+  const onAfter = (ev) => {
+    keying = null;
+    if (ev.key === "Escape" && ev.defaultPrevented) ev.stopPropagation();
+  };
+  root.addEventListener("keydown", onCapture, true);
+  input.addEventListener("keydown", onAfter);
+  input.addEventListener("input", onInput);
+  return {
+    el: root,
+    getValue: () => ac.input?.value ?? "",
+    parse: () => {
+      const text = ac.input?.value ?? "";
+      if (initialText == null && text === start) return ok(value);
+      if (picked && text === picked.label) return ok(picked.value);
+      return parseChoice(text, ctx);
+    },
+    focus: () => {
+      ac.input?.focus({ preventScroll: true });
+      const end = ac.input?.value.length ?? 0;
+      try {
+        ac.input?.setSelectionRange(end, end);
+      } catch (_) {
+      }
+    },
+    destroy: () => {
+      done = true;
+      root.removeEventListener("keydown", onCapture, true);
+      input.removeEventListener("keydown", onAfter);
+      input.removeEventListener("input", onInput);
+      ac.dispose();
+    }
+  };
+}
+var identity = (text) => ok(text == null ? "" : String(text));
+var CELL_EDITORS = Object.freeze({
+  text: Object.freeze({ create: createTextEditor, parse: identity }),
+  multitext: Object.freeze({ create: createMultiTextEditor, parse: identity }),
+  number: Object.freeze({ create: createNumberEditor, parse: parseNumber }),
+  bool: Object.freeze({ create: createBoolEditor, parse: parseBool }),
+  choice: Object.freeze({ create: createChoiceEditor, parse: parseChoice }),
+  datetime: Object.freeze({ create: createDateTimeEditor, parse: parseDateTime })
+});
 
 // src/ui/components/cell_selection.js
 var CellSelection = class {
@@ -406,7 +1435,7 @@ var WEEKDAYS = [
 var ISO_DATE = "YYYY-MM-DD";
 var ISO_DATETIME = "YYYY-MM-DD HH:mm";
 var ISO_RE = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:[.,](\d{1,9}))?)?)?\s*(Z|[+-]\d{2}(?::?\d{2})?)?$/i;
-var pad = (n, w = 2) => String(Math.trunc(Math.abs(n))).padStart(w, "0");
+var pad2 = (n, w = 2) => String(Math.trunc(Math.abs(n))).padStart(w, "0");
 function daysInMonth(y, mo) {
   if (mo !== 1) return [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mo];
   return y % 4 === 0 && y % 100 !== 0 || y % 400 === 0 ? 29 : 28;
@@ -483,15 +1512,15 @@ function formatDate(value, pattern = ISO_DATE, { utc = false } = {}) {
       if (literal !== void 0) return literal;
       switch (tok) {
         case "YYYY":
-          return pad(get.y, 4);
+          return pad2(get.y, 4);
         case "YY":
-          return pad(get.y % 100);
+          return pad2(get.y % 100);
         case "MMMM":
           return MONTHS[get.mo];
         case "MMM":
           return MONTHS[get.mo].slice(0, 3);
         case "MM":
-          return pad(get.mo + 1);
+          return pad2(get.mo + 1);
         case "M":
           return String(get.mo + 1);
         case "dddd":
@@ -499,27 +1528,27 @@ function formatDate(value, pattern = ISO_DATE, { utc = false } = {}) {
         case "ddd":
           return WEEKDAYS[get.wd].slice(0, 3);
         case "DD":
-          return pad(get.d);
+          return pad2(get.d);
         case "D":
           return String(get.d);
         case "HH":
-          return pad(get.h);
+          return pad2(get.h);
         case "H":
           return String(get.h);
         case "hh":
-          return pad(h12);
+          return pad2(h12);
         case "h":
           return String(h12);
         case "mm":
-          return pad(get.mi);
+          return pad2(get.mi);
         case "m":
           return String(get.mi);
         case "ss":
-          return pad(get.s);
+          return pad2(get.s);
         case "s":
           return String(get.s);
         case "SSS":
-          return pad(get.ms, 3);
+          return pad2(get.ms, 3);
         case "A":
           return get.h < 12 ? "AM" : "PM";
         case "a":
@@ -620,7 +1649,7 @@ function formatDuration(value, pattern = "auto") {
     const h = Math.floor(total % 86400 / 3600);
     const mi = Math.floor(total % 3600 / 60);
     const s = total % 60;
-    out = `${d ? `${d}.${pad(h)}` : h}:${pad(mi)}:${pad(s)}`;
+    out = `${d ? `${d}.${pad2(h)}` : h}:${pad2(mi)}:${pad2(s)}`;
   } else if (a < 1e3) {
     out = `${Math.round(a)} ms`;
   } else if (a < 59950) {
@@ -744,12 +1773,12 @@ function createChipsFilter(ctx = {}, spec = {}) {
   };
   const chosen = () => multiple ? value.length === 0 : value === null;
   for (const opt of options) {
-    const key3 = keyOf(opt.value);
-    valueOf.set(key3, opt.value);
+    const key4 = keyOf(opt.value);
+    valueOf.set(key4, opt.value);
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "twm-dt-filter-chip";
-    btn.dataset.value = key3;
+    btn.dataset.value = key4;
     if (opt.title) btn.title = String(opt.title);
     if (opt.icon) {
       const icon = document.createElement("span");
@@ -760,7 +1789,7 @@ function createChipsFilter(ctx = {}, spec = {}) {
     }
     const label = document.createElement("span");
     label.className = "twm-dt-filter-chip__label";
-    label.textContent = String(opt.label ?? key3);
+    label.textContent = String(opt.label ?? key4);
     btn.appendChild(label);
     let count = null;
     if (showCounts) {
@@ -771,21 +1800,21 @@ function createChipsFilter(ctx = {}, spec = {}) {
     }
     btn.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      pick(key3);
+      pick(key4);
     });
-    chips.set(key3, { btn, count });
+    chips.set(key4, { btn, count });
     el.appendChild(btn);
   }
   function outward() {
     if (multiple) return value.length ? value.map((k) => valueOf.get(k)) : null;
     return value === null ? null : valueOf.get(value);
   }
-  function pick(key3) {
-    if (isAll(key3)) value = multiple ? [] : null;
+  function pick(key4) {
+    if (isAll(key4)) value = multiple ? [] : null;
     else if (multiple) {
-      value = value.includes(key3) ? value.filter((k) => k !== key3) : [...value, key3];
+      value = value.includes(key4) ? value.filter((k) => k !== key4) : [...value, key4];
     } else {
-      value = value === key3 ? null : key3;
+      value = value === key4 ? null : key4;
     }
     paint();
     const out = outward();
@@ -797,8 +1826,8 @@ function createChipsFilter(ctx = {}, spec = {}) {
     }
   }
   function paint() {
-    for (const [key3, { btn }] of chips) {
-      const on = isAll(key3) ? chosen() : multiple ? value.includes(key3) : value === key3;
+    for (const [key4, { btn }] of chips) {
+      const on = isAll(key4) ? chosen() : multiple ? value.includes(key4) : value === key4;
       btn.classList.toggle("twm-dt-filter-chip--on", on);
       btn.setAttribute("aria-pressed", on ? "true" : "false");
     }
@@ -808,8 +1837,8 @@ function createChipsFilter(ctx = {}, spec = {}) {
     paint();
   }
   function setCounts(counts) {
-    for (const [key3, { btn, count }] of chips) {
-      const n = counts == null ? void 0 : counts[key3];
+    for (const [key4, { btn, count }] of chips) {
+      const n = counts == null ? void 0 : counts[key4];
       const known = typeof n === "number" && Number.isFinite(n);
       if (count) count.textContent = known ? n.toLocaleString() : "\u2013";
       btn.classList.toggle("twm-dt-filter-chip--empty", known && n === 0);
@@ -966,10 +1995,10 @@ var ISO_DATE2 = /^\d{4}-\d{2}-\d{2}$/;
 var TRAILING_NUMBER = /^(.*?)(\d+)(\D*)$/;
 var NUMERIC_TEXT = /^[-+]?(\d+\.?\d*|\.\d+)$/;
 var DAY_MS = 864e5;
-var isBlank = (v) => v === null || v === void 0 || v === "";
+var isBlank2 = (v) => v === null || v === void 0 || v === "";
 function detectSeries(values) {
   if (!Array.isArray(values) || values.length === 0) return null;
-  if (values.every(isBlank)) return null;
+  if (values.every(isBlank2)) return null;
   if (values.length === 1) return { kind: "copy", step: 0 };
   const numbers = values.map(toNumber);
   if (numbers.every((n) => n !== null)) {
@@ -1069,6 +2098,53 @@ function decimalsOf(value) {
 }
 function nearlyEqual(a, b) {
   return Math.abs(a - b) < 1e-9;
+}
+
+// src/ui/components/tsv.js
+function tsvCell(value) {
+  const text = value === null || value === void 0 ? "" : String(value);
+  if (/[\t\n\r"]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
+  return text;
+}
+function toTSV(matrix) {
+  if (!Array.isArray(matrix)) return "";
+  return matrix.map((row) => (Array.isArray(row) ? row : [row]).map(tsvCell).join("	")).join("\n");
+}
+function fromTSV(text) {
+  if (text === null || text === void 0 || text === "") return [];
+  const src = String(text);
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let quoted = false;
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (quoted) {
+      if (ch === '"' && src[i + 1] === '"') {
+        cell += '"';
+        i++;
+      } else if (ch === '"') quoted = false;
+      else cell += ch;
+    } else if (ch === '"' && cell === "") quoted = true;
+    else if (ch === "	") {
+      row.push(cell);
+      cell = "";
+    } else if (ch === "\r") {
+    } else if (ch === "\n") {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+    } else cell += ch;
+  }
+  row.push(cell);
+  rows.push(row);
+  while (rows.length > 1) {
+    const last = rows[rows.length - 1];
+    if (last.length === 1 && last[0] === "") rows.pop();
+    else break;
+  }
+  return rows;
 }
 
 // src/ui/components/inline_renamer.js
@@ -1240,7 +2316,12 @@ var StagedEdits = class {
    * Returns whether anything changed.
    */
   stage(rowIdx, colIdx, value) {
-    if (this.committing || !this._stageOne(rowIdx, colIdx, value)) return false;
+    if (this.committing) return false;
+    const refusal = this._dropRefusal(rowIdx, colIdx);
+    if (!this._stageOne(rowIdx, colIdx, value)) {
+      if (refusal) this.grid._redraw(rowIdx, colIdx);
+      return false;
+    }
     this.grid._redraw(rowIdx, colIdx);
     this._changed();
     return true;
@@ -1257,10 +2338,11 @@ var StagedEdits = class {
     this.history.beginGroup(label);
     try {
       for (const { rowIdx, colIdx, value } of cells) {
+        const refusal = this._dropRefusal(rowIdx, colIdx);
         if (this._stageOne(rowIdx, colIdx, value)) {
           changed++;
           rows.add(rowIdx);
-        }
+        } else if (refusal) rows.add(rowIdx);
       }
     } finally {
       this.history.endGroup();
@@ -1268,6 +2350,16 @@ var StagedEdits = class {
     for (const rowIdx of rows) this.grid._redraw(rowIdx);
     if (changed) this._changed();
     return changed;
+  }
+  /** STORY-0087. A text that did not parse stays in its cell, marked, in
+   *  the grid's own marks; anything staged into the cell ends that refusal,
+   *  the value its row holds included. Whether there was one. */
+  _dropRefusal(rowIdx, colIdx) {
+    const k = key(rowIdx, colIdx);
+    if (!this.grid.errors.has(k)) return false;
+    this.grid.errors.delete(k);
+    this.grid.latest.delete(k);
+    return true;
   }
   /** One cell's new state and its delta in the ring; whether it changed. */
   _stageOne(rowIdx, colIdx, value) {
@@ -1762,6 +2854,210 @@ var FillHandle = class {
   }
 };
 
+// src/ui/components/cell_paste.js
+var key3 = (rowIdx, colIdx) => `${rowIdx}:${colIdx}`;
+var CellPaste = class {
+  /** @param {import('./cell_grid.js').CellGrid} grid */
+  constructor(grid) {
+    this.grid = grid;
+    this.skipped = /* @__PURE__ */ new Set();
+    this.busy = false;
+  }
+  // ── painting (called by the grid for every cell it paints) ───────────
+  paintCell(td, col) {
+    const rowIdx = td.parentNode?.__rowIndex;
+    td.classList.toggle("twm-dt-cell--paste-skipped", this.skipped.has(key3(rowIdx, col)));
+  }
+  /** The selection moved, or new rows came: the skipped marks are over. */
+  clearMarks() {
+    this.skipped.clear();
+  }
+  // ── reading a value ──────────────────────────────────────────────────
+  /**
+   * The parse a column's pasted text is read with: an injected editor's
+   * own (`editors[k].parse`, looked up as the editor is), else the built-in
+   * editor's for the column's type, else the text as it is.
+   */
+  _parserFor(col) {
+    const g = this.grid;
+    const editors = g._cfg().editors;
+    if (editors && typeof editors === "object") {
+      for (const k of [col, g._rawType(col), g._typeOf(col)]) {
+        const f = editors[k];
+        if (typeof f === "function") {
+          if (typeof f.parse === "function") return f.parse;
+          break;
+        }
+      }
+    }
+    const type = g._typeOf(col);
+    return Object.prototype.hasOwnProperty.call(CELL_EDITORS, type) ? CELL_EDITORS[type].parse : CELL_EDITORS.text.parse;
+  }
+  /** One column's reader: `(text) => {ok: true, value} | {ok: false, error}`. */
+  _reader(col) {
+    const g = this.grid;
+    const cfg = g._cfg();
+    const spec = g._editSpec(col) || {};
+    const parse = this._parserFor(col);
+    const ctx = {
+      locale: cfg.locale ?? void 0,
+      utc: g.table._utc(),
+      messages: cfg.editorMessages ?? void 0,
+      options: spec.options,
+      allowOther: !!spec.allowOther
+    };
+    return (text) => {
+      let r;
+      try {
+        r = parse(text, ctx);
+      } catch (err) {
+        return { ok: false, error: err?.message || String(err ?? "Not pasted") };
+      }
+      if (r && r.ok === true) return { ok: true, value: r.value };
+      if (r && r.ok === false) return { ok: false, error: String(r.error ?? "Not pasted") };
+      return { ok: false, error: "Not pasted" };
+    };
+  }
+  /** The position of the last loaded row: the rows held in the order shown
+   *  (all of them filtered and sorted; a server's page, the rows it sent). */
+  _lastLoaded() {
+    const t = this.grid.table;
+    if (t._isServerSide()) return this.grid.span()[1];
+    return t._getProcessedRows().length - 1;
+  }
+  _warn(message) {
+    console.warn(`[DataTable] paste: ${message}`);
+    this.grid.table._notify("Paste", message, "warn");
+  }
+  // ── the paste ────────────────────────────────────────────────────────
+  /**
+   * Paste tab-separated `text` at the cursor. Resolves `{rows, cols, staged,
+   * skipped, refused, droppedColumns, appended}` — `staged` the NUMBER of
+   * cells that changed, `skipped` the cells `editable` refused and `refused`
+   * the ones whose text did not parse (`{row, col, rowIdx}`, `refused` with
+   * its `text` and `error`), `droppedColumns` the columns past the last one,
+   * `appended` the rows handed to `onRowsAppend` — or null when nothing was
+   * pasted: empty text, no cursor, an editor open, a commit or another paste
+   * out, an overrun declined, or new rows while `onPasteOverrun` was asked.
+   */
+  async paste(text) {
+    const g = this.grid;
+    const matrix = fromTSV(text);
+    if (!matrix.length || this.busy) return null;
+    g._sync();
+    const at = g.sel.focus ? { ...g.sel.focus } : null;
+    if (!at || g.isEditing() || g.staged.committing) return null;
+    const cfg = g._cfg();
+    const cols = g.columns();
+    const width = Math.max(...matrix.map((line) => line.length));
+    const targetCols = cols.slice(cols.indexOf(at.col), cols.indexOf(at.col) + width);
+    const droppedColumns = width - targetCols.length;
+    const last = this._lastLoaded();
+    const fit = Math.max(0, Math.min(matrix.length, last - at.row + 1));
+    const extra = matrix.length - fit;
+    const generation = g.generation;
+    if (extra > 0) {
+      const ask = cfg.onPasteOverrun;
+      let answer = false;
+      if (typeof ask === "function") {
+        this.busy = true;
+        try {
+          answer = await ask({ rows: extra });
+        } catch (err) {
+          console.error("[DataTable] onPasteOverrun threw", err);
+          answer = false;
+        } finally {
+          this.busy = false;
+        }
+      } else {
+        console.warn(`[DataTable] paste: ${extra} row(s) past the last loaded row and no \`onPasteOverrun\`; nothing pasted.`);
+      }
+      if (answer !== true) return null;
+      if (generation !== g.generation || g.isEditing() || g.staged.committing) return null;
+    }
+    const cells = [];
+    const skipped = [];
+    const refused = [];
+    const readers = new Map(targetCols.map((col) => [col, this._reader(col)]));
+    for (let r = 0; r < fit; r++) {
+      const pos = at.row + r;
+      const rowIdx = g.rowIndexAt(pos);
+      targetCols.forEach((col, c) => {
+        if (c >= matrix[r].length) return;
+        if (!g.canEdit(pos, col)) {
+          skipped.push({ row: pos, col, rowIdx });
+          return;
+        }
+        const text2 = matrix[r][c];
+        const read = readers.get(col)(text2);
+        if (read.ok) cells.push({ rowIdx, colIdx: col, value: read.value });
+        else refused.push({ row: pos, col, rowIdx, text: text2, error: read.error });
+      });
+    }
+    let appended = 0;
+    if (extra > 0) {
+      const n = (cfg.headers || []).length;
+      const rows = [];
+      const errors = [];
+      for (let r = fit; r < matrix.length; r++) {
+        const row = new Array(n).fill(null);
+        targetCols.forEach((col, c) => {
+          if (c >= matrix[r].length) return;
+          const text2 = matrix[r][c];
+          const read = readers.get(col)(text2);
+          if (read.ok) row[col] = read.value;
+          else errors.push({ row: rows.length, colIdx: col, text: text2, error: read.error });
+        });
+        rows.push(row);
+      }
+      const append = cfg.onRowsAppend;
+      if (typeof append === "function") {
+        appended = rows.length;
+        this.busy = true;
+        try {
+          await append({ rows, errors });
+        } catch (err) {
+          console.error("[DataTable] onRowsAppend threw", err);
+        } finally {
+          this.busy = false;
+        }
+      } else {
+        this._warn(`${rows.length} row(s) past the last loaded row were not pasted (no \`onRowsAppend\`).`);
+      }
+    }
+    const staged = g.staged.stageMany(cells, `paste ${cells.length} cell(s)`);
+    const lastCol = targetCols[targetCols.length - 1] ?? at.col;
+    const lastRow = at.row + Math.max(0, fit - 1);
+    g.set({ row: at.row, col: at.col }, { row: lastRow, col: lastCol });
+    for (const s of skipped) this.skipped.add(key3(s.rowIdx, s.col));
+    const redraw = /* @__PURE__ */ new Set();
+    for (const f of refused) {
+      const k = key3(f.rowIdx, f.col);
+      g.errors.set(k, { value: f.text, message: f.error });
+      g.latest.set(k, {});
+      g.pending.delete(k);
+      redraw.add(f.rowIdx);
+    }
+    for (const rowIdx of redraw) g._redraw(rowIdx);
+    if (skipped.length) g.paint();
+    if (droppedColumns > 0) {
+      this._warn(`${droppedColumns} column(s) past the last column were not pasted.`);
+    }
+    return {
+      rows: matrix.length,
+      cols: width,
+      staged,
+      skipped,
+      refused,
+      droppedColumns,
+      appended
+    };
+  }
+  dispose() {
+    this.skipped.clear();
+  }
+};
+
 // src/ui/components/cell_grid.js
 function isFilledValue(value) {
   if (value == null) return false;
@@ -1778,6 +3074,16 @@ var ARROWS = {
   ArrowLeft: [0, -1],
   ArrowRight: [0, 1]
 };
+function copyText(value, { kind, utc }) {
+  if (value === null || value === void 0) return "";
+  const dated = kind === "date" || kind === "datetime";
+  if (value instanceof Date || dated && typeof value === "number") {
+    const t = value instanceof Date ? value.getTime() : value;
+    if (!Number.isFinite(t)) return "";
+    return kind === "date" ? formatDate(t, ISO_DATE, { utc }) : new Date(t).toISOString();
+  }
+  return String(value);
+}
 var CellGrid = class {
   /** @param {import('./data_table.js').DataTable} table */
   constructor(table) {
@@ -1791,7 +3097,8 @@ var CellGrid = class {
     this.generation = 0;
     this.editor = new CellEditorHost({
       onCommit: (s, value, move, reason) => this._committed(s, value, move, reason),
-      onCancel: (s, reason) => this._closed(s, reason)
+      onCancel: (s, reason) => this._closed(s, reason),
+      onRefuse: (s, error, text, reason) => this._refused(s, error, text, reason)
     });
     this.staged = null;
     if (this._cfg().staged) {
@@ -1802,6 +3109,11 @@ var CellGrid = class {
     if (this._cfg().fillHandle) {
       if (this.staged) this.fill = new FillHandle(this);
       else console.warn("[DataTable] `fillHandle` needs `staged`; ignored.");
+    }
+    this.paste = null;
+    if (this._cfg().pasteable) {
+      if (this.staged) this.paste = new CellPaste(this);
+      else console.warn("[DataTable] `pasteable` needs `staged`; ignored.");
     }
   }
   // ── what the table is, read through its own helpers ──────────────────
@@ -1847,11 +3159,11 @@ var CellGrid = class {
   }
   /** What a cell shows: a refused or pending commit's value, else the row's. */
   shownValue(rowIdx, col) {
-    const key3 = `${rowIdx}:${col}`;
-    const err = this.errors.get(key3);
+    const key4 = `${rowIdx}:${col}`;
+    const err = this.errors.get(key4);
     if (err) return err.value;
-    if (this.pending.has(key3)) return this.pending.get(key3);
-    if (this.staged?.has(key3)) return this.staged.value(key3);
+    if (this.pending.has(key4)) return this.pending.get(key4);
+    if (this.staged?.has(key4)) return this.staged.value(key4);
     const row = this.currentRow(rowIdx);
     return row ? row[col] : void 0;
   }
@@ -1940,6 +3252,28 @@ var CellGrid = class {
     this.sel.clear();
     this._changed();
   }
+  /**
+   * STORY-0085. What a copy of the selection puts on the clipboard: the
+   * range's cells as text, one array per row in the order SHOWN (after the
+   * sort and the filters), its shown columns left to right (a hidden column
+   * inside it is not one of them). With no range beyond the cursor, the
+   * cursor cell alone. A cell is its RAW value as text (`copyText`), not
+   * the text it is drawn as: the value the cell holds now, a staged,
+   * pending or refused one included. Null with nothing selected.
+   */
+  copyMatrix() {
+    this._sync();
+    const r = this.sel.range();
+    if (!r) return null;
+    const t = this.table;
+    const utc = t._utc();
+    const out = [];
+    for (let p = r.top; p <= r.bottom; p++) {
+      const rowIdx = this.rowIndexAt(p);
+      out.push(r.columns.map((col) => copyText(this.shownValue(rowIdx, col), { kind: t._valueKind(col), utc })));
+    }
+    return out;
+  }
   /** New rows (`setData({rows})`): the marks were about the old ones. */
   newRows() {
     this.generation++;
@@ -1949,6 +3283,7 @@ var CellGrid = class {
     this.rowsWaiting.clear();
     this.staged?.clear();
     this.fill?.clearMarks();
+    this.paste?.clearMarks();
   }
   isEditing() {
     return !!this.editor.session;
@@ -1967,16 +3302,16 @@ var CellGrid = class {
    *  (STORY-0088) its staged value and a refused batch's mark. */
   _decorateCell(td, pos, rowIdx, col) {
     this._paintCell(td, pos, col);
-    const key3 = `${rowIdx}:${col}`;
-    const err = this.errors.get(key3);
-    const waiting = this.pending.has(key3);
-    const staged = !!this.staged?.has(key3);
+    const key4 = `${rowIdx}:${col}`;
+    const err = this.errors.get(key4);
+    const waiting = this.pending.has(key4);
+    const staged = !!this.staged?.has(key4);
     if (err || waiting) {
-      td.textContent = this.table._formatValue(err ? err.value : this.pending.get(key3), col);
+      td.textContent = this.table._formatValue(err ? err.value : this.pending.get(key4), col);
     } else if (staged) {
-      td.textContent = this.table._formatValue(this.staged.value(key3), col);
+      td.textContent = this.table._formatValue(this.staged.value(key4), col);
     }
-    const message = err ? err.message : this.staged?.errors.get(key3);
+    const message = err ? err.message : this.staged?.errors.get(key4);
     td.classList.toggle("twm-dt-cell--pending", waiting);
     td.classList.toggle("twm-dt-cell--staged", staged);
     td.classList.toggle("twm-dt-cell--error", message != null);
@@ -1993,6 +3328,7 @@ var CellGrid = class {
     if (cursor) td.setAttribute("aria-selected", "true");
     else td.removeAttribute("aria-selected");
     this.fill?.paintCell(td, pos, col);
+    this.paste?.paintCell(td, col);
   }
   paint() {
     const tbody = this.table._tbodyEl;
@@ -2010,6 +3346,7 @@ var CellGrid = class {
   _changed({ reveal = false } = {}) {
     const t = this.table;
     this.fill?.clearMarks();
+    this.paste?.clearMarks();
     if (reveal && this.sel.focus) t.scrollToRow(this.rowIndexAt(this.sel.focus.row));
     this.paint();
     const before = t.getSelection().join();
@@ -2082,6 +3419,16 @@ var CellGrid = class {
         ev.stopImmediatePropagation();
       }
     });
+    if (this.paste) {
+      on(table, "paste", (ev) => {
+        if (inEditor(ev.target)) return;
+        if (ev.target !== table && ev.target?.closest?.('input, select, textarea, [contenteditable="true"]')) return;
+        const text = ev.clipboardData?.getData?.("text/plain");
+        if (typeof text !== "string") return;
+        ev.preventDefault();
+        this.paste.paste(text);
+      });
+    }
     this.paint();
     this.staged?.paintFreeze();
   }
@@ -2159,20 +3506,37 @@ var CellGrid = class {
     }
     return false;
   }
-  /** The column's type, as `editors` is keyed by: the declared one, else the
-   *  detected one. */
-  _typeOf(col) {
+  /** STORY-0087. The column's `editTypes` entry, as `{type, ...}`, or null. */
+  _editSpec(col) {
+    const all = this._cfg().editTypes;
+    let spec = all && typeof all === "object" ? all[col] : null;
+    if (typeof spec === "string") spec = { type: spec };
+    return spec && typeof spec === "object" ? spec : null;
+  }
+  /** The column's type as it is named: `editTypes`', else the declared one
+   *  (`columnTypes`), else the detected one. */
+  _rawType(col) {
+    const spec = this._editSpec(col);
+    if (spec?.type) return String(spec.type);
     const declared = this._cfg().columnTypes?.[col];
     return declared || this.table._columnTypes?.[col] || "text";
   }
+  /** The column's type as `editors` and the built-in editors know it:
+   *  'num' is 'number', 'date' is 'datetime'. */
+  _typeOf(col) {
+    return editorTypeOf(this._rawType(col));
+  }
+  /** By column index, then by type (as named, then as the built-ins name
+   *  it), then the built-in editor for the type, else the text box. */
   _factoryFor(col) {
     const editors = this._cfg().editors;
     if (editors && typeof editors === "object") {
-      if (typeof editors[col] === "function") return editors[col];
-      const type = this._typeOf(col);
-      if (typeof editors[type] === "function") return editors[type];
+      for (const k of [col, this._rawType(col), this._typeOf(col)]) {
+        if (typeof editors[k] === "function") return editors[k];
+      }
     }
-    return createTextEditor;
+    const builtIn = Object.prototype.hasOwnProperty.call(CELL_EDITORS, this._typeOf(col)) ? CELL_EDITORS[this._typeOf(col)] : null;
+    return builtIn ? builtIn.create : createTextEditor;
   }
   /**
    * Open the editor on a cell (position, data column). Brings the row into
@@ -2195,7 +3559,12 @@ var CellGrid = class {
       row,
       generation: this.generation,
       value: this.shownValue(rowIdx, col),
-      column: { index: col, header: headers[col], type: this._typeOf(col) },
+      column: { ...this._editSpec(col), index: col, header: headers[col], type: this._typeOf(col) },
+      args: {
+        locale: this._cfg().locale ?? void 0,
+        utc: this.table._utc(),
+        messages: this._cfg().editorMessages ?? void 0
+      },
       initialText
     });
   }
@@ -2208,6 +3577,7 @@ var CellGrid = class {
   }
   dispose() {
     this.fill?.dispose();
+    this.paste?.dispose();
     this.editor.cancel("dispose");
     this.renderWaiting = false;
     this.rowsWaiting.clear();
@@ -2268,6 +3638,20 @@ var CellGrid = class {
     this.rowsWaiting.delete(rowIdx);
     t.updateRow(rowIdx, row);
   }
+  /** STORY-0087. The editor closed holding text that does not parse (the
+   *  focus left it, or its row left the window): nothing is committed, and
+   *  the cell keeps the text, marked with the message, as a refused commit's
+   *  would be. */
+  _refused(s, error, text, reason) {
+    if (s.generation === this.generation) {
+      const key4 = `${s.rowIdx}:${s.colIdx}`;
+      this.errors.set(key4, { value: text, message: error });
+      this.latest.set(key4, {});
+      this.pending.delete(key4);
+      this._redraw(s.rowIdx, s.colIdx);
+    }
+    this._closed(s, reason);
+  }
   _committed(s, value, move, reason) {
     if (move) {
       this._sync();
@@ -2276,7 +3660,7 @@ var CellGrid = class {
       this._changed({ reveal: true });
     }
     const live = s.generation === this.generation;
-    const key3 = `${s.rowIdx}:${s.colIdx}`;
+    const key4 = `${s.rowIdx}:${s.colIdx}`;
     if (Object.is(value, s.previous)) {
       this._closed(s, reason);
       return;
@@ -2288,29 +3672,29 @@ var CellGrid = class {
     }
     const held = live ? this.currentRow(s.rowIdx) : s.row;
     const stored = held ? held[s.colIdx] : void 0;
-    if (live && this.errors.has(key3) && !this.pending.has(key3) && Object.is(value, stored)) {
-      this.errors.delete(key3);
-      this.latest.delete(key3);
+    if (live && this.errors.has(key4) && !this.pending.has(key4) && Object.is(value, stored)) {
+      this.errors.delete(key4);
+      this.latest.delete(key4);
       this._redraw(s.rowIdx, s.colIdx);
       this._closed(s, reason);
       return;
     }
     const fn = this._cfg().onCellCommit;
     const token = {};
-    if (live) this.latest.set(key3, token);
+    if (live) this.latest.set(key4, token);
     const finish = (result2) => {
       if (!live || s.generation !== this.generation) return;
-      const newest = this.latest.get(key3) === token;
+      const newest = this.latest.get(key4) === token;
       const good = !(result2 && result2.ok === false);
       if (good) {
         const row = this.currentRow(s.rowIdx);
         if (Array.isArray(row)) row[s.colIdx] = value;
       }
       if (newest) {
-        this.latest.delete(key3);
-        this.pending.delete(key3);
-        if (good) this.errors.delete(key3);
-        else this.errors.set(key3, { value, message: String(result2.error ?? "Not saved") });
+        this.latest.delete(key4);
+        this.pending.delete(key4);
+        if (good) this.errors.delete(key4);
+        else this.errors.set(key4, { value, message: String(result2.error ?? "Not saved") });
       }
       this._redraw(s.rowIdx, s.colIdx);
     };
@@ -2325,8 +3709,8 @@ var CellGrid = class {
     }
     if (result && typeof result.then === "function") {
       if (live) {
-        this.pending.set(key3, value);
-        this.errors.delete(key3);
+        this.pending.set(key4, value);
+        this.errors.delete(key4);
         this._redraw(s.rowIdx, s.colIdx);
       }
       this._closed(s, reason);
@@ -2545,8 +3929,8 @@ var ColumnGroups = class {
     const n = cfg.headers?.length || 0;
     const shown = this.table._shownColumns();
     const spec = Array.isArray(cfg.columnGroups) ? cfg.columnGroups : [];
-    const key3 = `${n}|${shown.join(",")}|${spec.map((g) => g ? `${g.key}${g.label}${(g.columns || []).join(",")}` : "").join("")}`;
-    if (key3 === this._memoKey) return this._memo;
+    const key4 = `${n}|${shown.join(",")}|${spec.map((g) => g ? `${g.key}${g.label}${(g.columns || []).join(",")}` : "").join("")}`;
+    if (key4 === this._memoKey) return this._memo;
     const groups = normalize(spec, n);
     const groupOf = new Array(n).fill(null);
     groups.forEach((g, gi) => {
@@ -2574,7 +3958,7 @@ var ColumnGroups = class {
       if (!s.placeholder) slotOfCol.set(s.col, i);
     });
     const placeholders = slots.filter((s) => s.placeholder).length;
-    this._memoKey = key3;
+    this._memoKey = key4;
     this._memo = { groups, slots, slotOfCol, placeholders };
     return this._memo;
   }
@@ -3277,7 +4661,12 @@ function compareSortKeys(a, b, asc) {
 }
 var AUTOSIZE_MAX_PX = 520;
 var VIRTUAL_FALLBACK_VIEWPORT_PX = 1e3;
-var COPY_MENU_HTML = `
+var COPY_CELLS_MENU_HTML = `
+            <div class="twm-context-menu-item" data-action="copy-tsv">
+                <span class="material-symbols-outlined">content_copy</span>
+                <span class="label">Copy Cells</span>
+            </div>`;
+var copyMenuHtml = (cells) => cells ? COPY_CELLS_MENU_HTML : `
             <div class="twm-context-menu-item" data-action="copy-tsv">
                 <span class="material-symbols-outlined">content_copy</span>
                 <span class="label">Copy Row(s)</span>
@@ -3424,6 +4813,9 @@ var DataTable = class {
       selectionMode: "rows",
       editable: false,
       editors: null,
+      editTypes: null,
+      locale: null,
+      editorMessages: null,
       onCellCommit: null,
       onCellSelectionChange: null,
       headerMenu: null,
@@ -3448,6 +4840,10 @@ var DataTable = class {
       onRowDelete: null,
       // STORY-0089. Off — no fill handle — until set.
       fillHandle: false,
+      // STORY-0090. Off — Ctrl+V is not the table's — until set.
+      pasteable: false,
+      onPasteOverrun: null,
+      onRowsAppend: null,
       ...config
     };
     this._cellGrid = null;
@@ -3469,6 +4865,9 @@ var DataTable = class {
     }
     if (this.config.fillHandle && !this._cellGrid) {
       console.warn("[DataTable] `fillHandle` needs `staged`; ignored.");
+    }
+    if (this.config.pasteable && !this._cellGrid) {
+      console.warn("[DataTable] `pasteable` needs `staged`; ignored.");
     }
     if (Array.isArray(this.config.columnGroups) && this.config.columnGroups.length && this._crosstab()) {
       console.warn("[DataTable] `columnGroups` cannot be combined with `crosstab` (use crosstab.headerRows); ignored.");
@@ -4101,9 +5500,9 @@ var DataTable = class {
    *
    * @param {*} key
    */
-  setActiveRow(key3) {
-    this._activeKey = key3 == null ? null : String(key3);
-    this.config.activeRow = key3 ?? null;
+  setActiveRow(key4) {
+    this._activeKey = key4 == null ? null : String(key4);
+    this.config.activeRow = key4 ?? null;
     const tbody = this._tbodyEl;
     if (!tbody) return;
     for (const tr of tbody.children) {
@@ -4241,6 +5640,24 @@ var DataTable = class {
    */
   fill(to, { forceCopy = false } = {}) {
     return this._cellGrid?.fill ? this._cellGrid.fill.fill(to, { forceCopy }) : null;
+  }
+  /**
+   * STORY-0090. Paste tab-separated `text` at the cursor cell, as Ctrl+V
+   * does: each value read by its column's parse, staged as ONE undo entry.
+   * Resolves `{rows, cols, staged, skipped, refused, droppedColumns,
+   * appended}` — `staged` the NUMBER of cells that changed, `skipped` the
+   * cells `editable` refused (`{row, col, rowIdx}`), `refused` the values
+   * that did not parse (`{row, col, rowIdx, text, error}`),
+   * `droppedColumns` the columns past the last one, `appended` the rows
+   * handed to `onRowsAppend` — or null when nothing was pasted (no
+   * `pasteable`, empty text, no cursor, an editor open, a commit or another
+   * paste out, an overrun `onPasteOverrun` did not accept).
+   *
+   * @param {string} text
+   * @returns {Promise<object|null>}
+   */
+  paste(text) {
+    return this._cellGrid?.paste ? this._cellGrid.paste.paste(text) : Promise.resolve(null);
   }
   /** Why sort, filters and pages are held — a staged edit — or null; with
    *  a reason, `what` is refused out loud. */
@@ -4626,10 +6043,19 @@ var DataTable = class {
     }
   }
   /**
-   * Copy selected rows to clipboard
+   * Copy selected rows to clipboard — in cell mode (STORY-0085) the cells
+   * selected, or the cursor cell alone, as tab-separated raw values with no
+   * header line; cell mode has no CSV copy
    * @param {'tsv'|'csv'} [format='tsv'] - Output format
    */
   async copyToClipboard(format = "tsv") {
+    if (this._cellGrid) {
+      if (format === "csv") {
+        console.warn("[DataTable] copyToClipboard: cell mode has no CSV copy; nothing copied");
+        return;
+      }
+      return this._copyCells();
+    }
     const indices = this.getSelection();
     if (indices.length === 0) {
       this._notify("Copy", "No rows selected.", "warn");
@@ -4645,17 +6071,46 @@ var DataTable = class {
     }
     const separator = format === "csv" ? "," : "	";
     const text = format === "csv" ? matrix.map((row) => row.map((cell) => this._csvEscape(cell)).join(separator)).join("\n") : matrix.map((row) => row.join(separator)).join("\n");
-    let ok = false;
+    let ok2 = false;
     try {
       await navigator.clipboard.writeText(text);
-      ok = true;
+      ok2 = true;
     } catch (_) {
-      ok = this._fallbackCopy(text);
+      ok2 = this._fallbackCopy(text);
     }
-    if (ok) {
+    if (ok2) {
       const desc = indices.length === 1 ? "row" : "rows";
       const suffix = format === "csv" ? " as CSV" : "";
       this._notify("Copy", `Copied ${indices.length} ${desc}${suffix}.`, "info");
+    } else {
+      this._notify("Copy", "Clipboard unavailable.", "warn");
+    }
+    this._hideContextMenu();
+  }
+  /**
+   * STORY-0085. Cell mode's copy: the range (or the cursor cell alone), its
+   * raw values as TSV — Excel's quoting, `tsv.js` — with no header line.
+   */
+  async _copyCells() {
+    const matrix = this._cellGrid.copyMatrix();
+    if (!matrix || !matrix.length) {
+      this._notify("Copy", "No cells selected.", "warn");
+      this._hideContextMenu();
+      return;
+    }
+    const text = toTSV(matrix);
+    let ok2 = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      ok2 = true;
+    } catch (_) {
+      ok2 = this._fallbackCopy(text);
+    }
+    if (ok2) {
+      const n = matrix.length;
+      const m = matrix[0].length;
+      const what = n * m === 1 ? "1 cell" : `${n} \xD7 ${m} cells`;
+      this._notify("Copy", `Copied ${what}.`, "info");
     } else {
       this._notify("Copy", "Clipboard unavailable.", "warn");
     }
@@ -6591,8 +8046,8 @@ var DataTable = class {
       td.insertBefore(gap, td.firstChild);
       return;
     }
-    const key3 = this._rowKey(row, rowIdx);
-    const open = key3 !== null && this._expanded.has(key3);
+    const key4 = this._rowKey(row, rowIdx);
+    const open = key4 !== null && this._expanded.has(key4);
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "material-symbols-outlined twm-dt-detail-toggle";
@@ -6614,14 +8069,14 @@ var DataTable = class {
     const row = tr.__row;
     const idx = tr.__rowIndex;
     if (!this._rowHasDetail(row, idx)) return;
-    const key3 = this._rowKey(row, idx);
-    if (key3 === null || !this._expanded.has(key3)) return;
-    const pieces = this._buildDetailPieces(tr, key3);
+    const key4 = this._rowKey(row, idx);
+    if (key4 === null || !this._expanded.has(key4)) return;
+    const pieces = this._buildDetailPieces(tr, key4);
     const parent = tr.parentNode;
     if (!parent) return;
     for (const p of pieces) parent.insertBefore(p, ref);
   }
-  _buildDetailPieces(tr, key3) {
+  _buildDetailPieces(tr, key4) {
     const n = this._domColCount();
     const detailTr = document.createElement("tr");
     detailTr.className = "twm-dt-detail-row";
@@ -6640,16 +8095,16 @@ var DataTable = class {
     filler.setAttribute("aria-hidden", "true");
     detailTr.__detailOf = tr;
     tr.__detail = [detailTr, filler];
-    this._drawDetail(tr, host, key3);
+    this._drawDetail(tr, host, key4);
     const btn = tr.querySelector(":scope > td > .twm-dt-detail-toggle");
     if (btn) btn.setAttribute("aria-controls", host.id);
     return tr.__detail;
   }
-  _drawDetail(tr, host, key3) {
+  _drawDetail(tr, host, key4) {
     host.replaceChildren();
     let out;
     try {
-      out = this.config.rowDetail(tr.__row, tr.__rowIndex, { host, key: key3, table: this });
+      out = this.config.rowDetail(tr.__row, tr.__rowIndex, { host, key: key4, table: this });
     } catch (err) {
       console.error("[DataTable] rowDetail threw", err);
       out = err?.message || String(err);
@@ -6668,8 +8123,8 @@ var DataTable = class {
   }
   /** `updateRow`'s half: the detail follows the row's new data. */
   _redrawDetail(tr) {
-    const key3 = this._rowKey(tr.__row, tr.__rowIndex);
-    const want = this._rowHasDetail(tr.__row, tr.__rowIndex) && key3 !== null && this._expanded.has(key3);
+    const key4 = this._rowKey(tr.__row, tr.__rowIndex);
+    const want = this._rowHasDetail(tr.__row, tr.__rowIndex) && key4 !== null && this._expanded.has(key4);
     const pieces = tr.__detail;
     if (!want) {
       if (pieces) this._removeDetailPieces(tr);
@@ -6678,7 +8133,7 @@ var DataTable = class {
     if (pieces) {
       const host = pieces[0].querySelector(".twm-dt-detail");
       if (host) {
-        this._drawDetail(tr, host, key3);
+        this._drawDetail(tr, host, key4);
         const btn = tr.querySelector(":scope > td > .twm-dt-detail-toggle");
         if (btn) btn.setAttribute("aria-controls", host.id);
       }
@@ -6691,27 +8146,27 @@ var DataTable = class {
   _setRowElExpanded(tr, open, ev = null) {
     if (!this._detailOn() || tr.__rowIndex === void 0) return false;
     if (!this._rowHasDetail(tr.__row, tr.__rowIndex)) return false;
-    const key3 = this._rowKey(tr.__row, tr.__rowIndex);
-    if (key3 === null || this._expanded.has(key3) === !!open) return false;
-    if (open) this._expanded.add(key3);
-    else this._expanded.delete(key3);
-    this._syncDetailOnScreen(tr, key3);
+    const key4 = this._rowKey(tr.__row, tr.__rowIndex);
+    if (key4 === null || this._expanded.has(key4) === !!open) return false;
+    if (open) this._expanded.add(key4);
+    else this._expanded.delete(key4);
+    this._syncDetailOnScreen(tr, key4);
     this._afterDetailChange();
     try {
-      this.config.onRowDetailToggle?.(tr.__rowIndex, tr.__row, !!open, key3, ev);
+      this.config.onRowDetailToggle?.(tr.__rowIndex, tr.__row, !!open, key4, ev);
     } catch (err) {
       console.error("[DataTable] onRowDetailToggle threw", err);
     }
     return true;
   }
   /** Make the row on screen agree with `_expanded` for its key. */
-  _syncDetailOnScreen(tr, key3) {
-    const open = this._expanded.has(key3);
+  _syncDetailOnScreen(tr, key4) {
+    const open = this._expanded.has(key4);
     const btn = tr.querySelector(":scope > td > .twm-dt-detail-toggle");
     if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
     if (open && !tr.__detail && tr.parentNode) {
       const ref = tr.nextSibling;
-      for (const p of this._buildDetailPieces(tr, key3)) tr.parentNode.insertBefore(p, ref);
+      for (const p of this._buildDetailPieces(tr, key4)) tr.parentNode.insertBefore(p, ref);
     } else if (!open && tr.__detail) {
       this._removeDetailPieces(tr);
     }
@@ -6725,9 +8180,9 @@ var DataTable = class {
    *  measured height open, three rows until it has been measured. */
   _detailHeightOf(row, rowIdx, base) {
     if (!this._rowHasDetail(row, rowIdx)) return 0;
-    const key3 = this._rowKey(row, rowIdx);
-    if (key3 === null || !this._expanded.has(key3)) return 0;
-    const h = this._detailHeights.get(key3);
+    const key4 = this._rowKey(row, rowIdx);
+    if (key4 === null || !this._expanded.has(key4)) return 0;
+    const h = this._detailHeights.get(key4);
     return h > 0 ? h : base * 3;
   }
   /** Measure the open details among `trs` (client pixels, the zoom divided
@@ -6750,9 +8205,9 @@ var DataTable = class {
       if (!d || !d.isConnected) continue;
       const h = d.getBoundingClientRect().height / zoom;
       if (!(h > 0)) continue;
-      const key3 = this._rowKey(tr.__row, tr.__rowIndex);
-      if (Math.abs((this._detailHeights.get(key3) || 0) - h) > 0.5) {
-        this._detailHeights.set(key3, h);
+      const key4 = this._rowKey(tr.__row, tr.__rowIndex);
+      if (Math.abs((this._detailHeights.get(key4) || 0) - h) > 0.5) {
+        this._detailHeights.set(key4, h);
         changed = true;
       }
     }
@@ -6767,9 +8222,9 @@ var DataTable = class {
    * @param {boolean} [open=true]
    * @returns {boolean} whether anything changed
    */
-  setRowExpanded(key3, open = true) {
-    if (key3 == null) return false;
-    const k = String(key3);
+  setRowExpanded(key4, open = true) {
+    if (key4 == null) return false;
+    const k = String(key4);
     if (this._expanded.has(k) === !!open) return false;
     if (open) this._expanded.add(k);
     else this._expanded.delete(k);
@@ -6790,8 +8245,8 @@ var DataTable = class {
     return true;
   }
   /** Whether the row whose key is `key` has its detail open. */
-  isRowExpanded(key3) {
-    return key3 != null && this._expanded.has(String(key3));
+  isRowExpanded(key4) {
+    return key4 != null && this._expanded.has(String(key4));
   }
   /** The keys of the rows whose detail is open, as text. */
   getExpandedRows() {
@@ -6802,12 +8257,12 @@ var DataTable = class {
     for (const k of [...this._expanded]) this.setRowExpanded(k, false);
   }
   /** The `<tr>` on screen for a key, or null. */
-  _rowElByKey(key3) {
+  _rowElByKey(key4) {
     const tbody = this._tbodyEl;
     if (!tbody) return null;
     for (const tr of tbody.children) {
       if (tr.__rowIndex === void 0) continue;
-      if (this._rowKey(tr.__row, tr.__rowIndex) === key3) return tr;
+      if (this._rowKey(tr.__row, tr.__rowIndex) === key4) return tr;
     }
     return null;
   }
@@ -7736,18 +9191,18 @@ var DataTable = class {
   /** A row's key, as text, or null: `getRowKey`, else its original index. */
   _rowKey(row, rowIdx) {
     const fn = this.config.getRowKey;
-    let key3;
+    let key4;
     if (typeof fn === "function") {
       try {
-        key3 = fn(row, rowIdx);
+        key4 = fn(row, rowIdx);
       } catch (err) {
         console.error("[DataTable] getRowKey threw", err);
-        key3 = null;
+        key4 = null;
       }
     } else {
-      key3 = rowIdx;
+      key4 = rowIdx;
     }
-    return key3 == null ? null : String(key3);
+    return key4 == null ? null : String(key4);
   }
   /** The gestures `activateOn` names, as a set. */
   _activateOn() {
@@ -8058,8 +9513,8 @@ var DataTable = class {
         const el = th.firstElementChild;
         if (!el) continue;
         const cs = getComputedStyle(th);
-        const pad2 = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) + (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.borderRightWidth) || 0);
-        floors[i] = Math.ceil(el.getBoundingClientRect().width / zoom + pad2);
+        const pad3 = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) + (parseFloat(cs.borderLeftWidth) || 0) + (parseFloat(cs.borderRightWidth) || 0);
+        floors[i] = Math.ceil(el.getBoundingClientRect().width / zoom + pad3);
         natural[i] = Math.max(natural[i], floors[i]);
       }
     }
@@ -8812,13 +10267,13 @@ var DataTable = class {
       const handleKeyDown = (event) => {
         const ctrlLike = event.ctrlKey || event.metaKey;
         if (ctrlLike && !event.altKey) {
-          const key3 = String(event.key || "").toLowerCase();
-          if (key3 === "a" && selectable === "single") {
+          const key4 = String(event.key || "").toLowerCase();
+          if (key4 === "a" && selectable === "single") {
             event.preventDefault();
-          } else if (key3 === "a" && selectable) {
+          } else if (key4 === "a" && selectable) {
             event.preventDefault();
             this._selectAllShown();
-          } else if (key3 === "c") {
+          } else if (key4 === "c" && !(event.shiftKey && this._cellGrid)) {
             event.preventDefault();
             this.copyToClipboard(event.shiftKey ? "csv" : "tsv");
           }
@@ -8956,7 +10411,7 @@ var DataTable = class {
     menu.style.display = "none";
     menu.style.position = "fixed";
     menu.style.zIndex = "10001";
-    menu.innerHTML = COPY_MENU_HTML;
+    menu.innerHTML = copyMenuHtml(!!this._cellGrid);
     document.body.appendChild(menu);
     menu.addEventListener("click", (event) => {
       const item = event.target.closest(".twm-context-menu-item");
@@ -9114,7 +10569,7 @@ var DataTable = class {
     this._contextMenuCtx = custom ? custom.ctx : null;
     if (!custom) {
       if (this._contextMenuCustom) {
-        menu.innerHTML = COPY_MENU_HTML;
+        menu.innerHTML = copyMenuHtml(!!this._cellGrid);
         this._contextMenuCustom = false;
       }
       return;
@@ -9158,7 +10613,7 @@ var DataTable = class {
         sep.className = "twm-context-menu__separator";
         menu.appendChild(sep);
       }
-      menu.insertAdjacentHTML("beforeend", COPY_MENU_HTML);
+      menu.insertAdjacentHTML("beforeend", copyMenuHtml(!!this._cellGrid));
     }
   }
   _teardownContextMenu() {
@@ -9207,9 +10662,9 @@ var DataTable = class {
       textarea.style.left = "-9999px";
       document.body.appendChild(textarea);
       textarea.select();
-      const ok = document.execCommand("copy");
+      const ok2 = document.execCommand("copy");
       document.body.removeChild(textarea);
-      return ok;
+      return ok2;
     } catch (_) {
       return false;
     }
@@ -9220,8 +10675,26 @@ var DataTable = class {
 };
 
 export {
+  AutocompleteField,
   createTextEditor,
   CellEditorHost,
+  EDITOR_MESSAGES,
+  editorTypeOf,
+  numberSeparators,
+  parseNumber,
+  formatNumberForEdit,
+  parseBool,
+  dateOrder,
+  parseDateTime,
+  formatDateTimeForEdit,
+  normalizeOptions,
+  parseChoice,
+  createNumberEditor,
+  createDateTimeEditor,
+  createMultiTextEditor,
+  createBoolEditor,
+  createChoiceEditor,
+  CELL_EDITORS,
   CellSelection,
   createRafResizeObserver,
   ISO_DATE,
@@ -9239,10 +10712,13 @@ export {
   StagedHistory,
   detectSeries,
   projectSeries,
+  tsvCell,
+  toTSV,
+  fromTSV,
   attachInlineRenamer,
   PAGING_HARD_LIMIT,
   PAGING_SOFT_LIMIT,
   resolvePaging,
   DataTable
 };
-//# sourceMappingURL=chunk-Q36EPT2R.js.map
+//# sourceMappingURL=chunk-LWV23YVE.js.map

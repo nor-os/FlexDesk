@@ -27,7 +27,11 @@
  * 1234.56 under 'de-DE' and '1,234.56' is under 'en-US'. A group separator
  * is accepted only between groups of three digits in the whole part, so
  * '1.234,56' under 'en-US' is refused rather than read as 1.23456. Spaces
- * (and the no-break spaces some locales group with) are ignored; a minus may
+ * around the text are ignored. A space inside it is accepted only as the
+ * group separator of a locale that groups with a space (fr-FR, sv-SE, ...;
+ * any space, a no-break one included), and only between groups of three
+ * digits, so '1 234,5' is 1234.5 under 'fr-FR'; any other inner space is
+ * refused ('1 234' under 'en-US' is refused, not read as 1234). A minus may
  * be '-' or '−'.
  *
  * DATETIME. ISO 8601 ('2026-12-31', '2026-12-31T08:30', with 'Z' or an

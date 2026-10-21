@@ -16,6 +16,7 @@ import { CellEditorHost, createTextEditor } from './cell_editor_host.js';
 import { CELL_EDITORS, editorTypeOf } from './cell_editors.js';
 import { StagedEdits } from './staged_edits.js';
 import { FillHandle } from './fill_handle.js';
+import { ISO_DATE, formatDate } from './table_values.js';
 
 /** Is this a cell somebody filled? What Ctrl+arrow stops at. */
 export function isFilledValue(value) {
@@ -35,6 +36,27 @@ function isPrintable(ev) {
 const ARROWS = {
     ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1],
 };
+
+/**
+ * STORY-0085. A cell's raw value as the text a copy carries — never the text
+ * it is drawn as (no `formatValue`, typed-column format, rounding or
+ * `nullDisplay`): `null`/`undefined` (and an invalid Date) are empty, a
+ * number is `String(n)` (1234.5, not "1,234.50"). Dates are ISO 8601: a
+ * `Date` is `toISOString()`, except in a column declared `'date'`, where it is
+ * the calendar day `YYYY-MM-DD` in the table's zone (`dateTimeZone`); a number
+ * in a column declared `'date'` or `'datetime'` is read as epoch ms the same
+ * way. Text is copied as it is.
+ */
+function copyText(value, { kind, utc }) {
+    if (value === null || value === undefined) return '';
+    const dated = kind === 'date' || kind === 'datetime';
+    if (value instanceof Date || (dated && typeof value === 'number')) {
+        const t = value instanceof Date ? value.getTime() : value;
+        if (!Number.isFinite(t)) return '';
+        return kind === 'date' ? formatDate(t, ISO_DATE, { utc }) : new Date(t).toISOString();
+    }
+    return String(value);
+}
 
 /**
  * DataTable's cell mode. Built by the table when `selectionMode` is 'cells';
@@ -226,6 +248,30 @@ export class CellGrid {
     clear() {
         this.sel.clear();
         this._changed();
+    }
+
+    /**
+     * STORY-0085. What a copy of the selection puts on the clipboard: the
+     * range's cells as text, one array per row in the order SHOWN (after the
+     * sort and the filters), its shown columns left to right (a hidden column
+     * inside it is not one of them). With no range beyond the cursor, the
+     * cursor cell alone. A cell is its RAW value as text (`copyText`), not
+     * the text it is drawn as: the value the cell holds now, a staged,
+     * pending or refused one included. Null with nothing selected.
+     */
+    copyMatrix() {
+        this._sync();
+        const r = this.sel.range();
+        if (!r) return null;
+        const t = this.table;
+        const utc = t._utc();
+        const out = [];
+        for (let p = r.top; p <= r.bottom; p++) {
+            const rowIdx = this.rowIndexAt(p);
+            out.push(r.columns.map((col) =>
+                copyText(this.shownValue(rowIdx, col), { kind: t._valueKind(col), utc })));
+        }
+        return out;
     }
 
     /** New rows (`setData({rows})`): the marks were about the old ones. */

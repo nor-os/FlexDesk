@@ -2,10 +2,10 @@
 id: 94
 type: story
 title: "Managed tiles: a tile grid always seeds them, and Reset brings removed ones back"
-status: refined
+status: in-progress
 parent: 29
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 3
@@ -13,7 +13,7 @@ subsystem: tiles
 labels: [tiles, layout]
 links: []
 created: 2026-10-21
-updated: 2026-10-21T07:19Z
+updated: 2026-10-21T07:30Z
 ---
 
 ## Description
@@ -32,6 +32,8 @@ AI Desk (`../aidesk`, STORY-0181, `../aidesk/backlog/STORY-0181.md`) puts one te
 
 - 2026-10-21 · norman_agent · filed as draft
 - 2026-10-21 · norman_agent · status: draft -> refined
+- 2026-10-21 · norman_agent · status: refined -> in-progress
+- 2026-10-21 · norman_agent · assignee -> norman_agent
 
 ## Comments
 

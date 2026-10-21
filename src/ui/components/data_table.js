@@ -431,6 +431,9 @@ const AUTOSIZE_MAX_PX = 520;
  * @property {Function} [onCommit] - With `staged`: `({edits}) => void | {ok?, error?, errors?} | Promise<…>`, called once by `commit()` with every staged cell as `{rowIdx, colIdx, value, previous}` (by row, then column; `previous` is the value the row holds). Resolving `{errors: [{rowIdx, colIdx, error}]}` (non-empty) marks each of those cells `twm-dt-cell--error` with the message as its `title` and `data-error`, and every staged value stays; `{ok: false, error}`, a rejection or a throw marks every staged cell with the message. Anything else is success: the values are written into the rows the table holds, and the staged cells and the ring are cleared. While it is out no editor opens and Ctrl+Z, Ctrl+Y and `discard()` do nothing.
  * @property {Function} [onStagedChange] - With `staged`: `({count, canUndo, canRedo, committing}) => void` after every change of the staged cells.
  * @property {boolean} [fillHandle=false] - STORY-0089. With `staged` (a warning, and ignored, without it): a FILL HANDLE (fill_handle.js) on the bottom-right corner of the cell range (`.twm-dt-fill-handle`, in the corner cell). Dragging it up, down, left or right over the cells beyond the range previews them `twm-dt-cell--fill-preview` and, on release, stages their values as ONE undo entry: each column of the range (each row, filling sideways) is continued by `projectSeries` (series.js) — one cell repeats, numbers, dates and "Item 1"-style texts a constant step apart continue, anything else repeats in a cycle — and Ctrl (Cmd) held at release repeats the block instead. A target cell `editable` refuses is skipped and drawn `twm-dt-cell--fill-skipped` until the selection moves. The range then covers what was filled. Escape during the drag cancels it. See `fill`.
+ * @property {boolean} [pasteable=false] - STORY-0090. With `staged` (a warning, and ignored, without it): Ctrl+V on the focused table (the browser's `paste` event; `paste(text)` from code) pastes a tab-separated block — what Excel and Google Sheets copy, read by `fromTSV` (tsv.js) — at the CURSOR cell, filling right over the columns shown and down over the rows in the order shown (cell_paste.js). Each value is read by its column's editor's parse (the built-in editor's for its type, or an injected `editors` factory's own `parse` property), and every cell that reads is staged as ONE undo entry; the range then covers the block, the cursor where it began. Columns past the last shown one are dropped with a warning naming how many (a console warning and a 'warn' toast). A value that does not parse marks its cell `twm-dt-cell--error` (message as `title` and `data-error`, the text kept) and the rest still stages; a cell `editable` refuses is skipped and drawn `twm-dt-cell--paste-skipped` until the selection moves. Rows past the last loaded row ask `onPasteOverrun`.
+ * @property {Function} [onPasteOverrun] - With `pasteable`: `({rows}) => boolean | Promise<boolean>`, asked when a paste runs `rows` rows past the last loaded row (the last row in the order shown; for a server's page, the last row it sent). Anything but `true` stages NOTHING; `true` stages the rows that fit and hands the extra ones to `onRowsAppend`. Without it, such a paste stages nothing, with a console warning.
+ * @property {Function} [onRowsAppend] - With `pasteable`: `({rows, errors}) => void | Promise`, after `onPasteOverrun` said `true`: `rows` the extra rows as data rows (one array per row, as long as `headers`, every pasted column read by its parse, the others null) and `errors` the values that did not read (`{row, colIdx, text, error}`, `row` an index into `rows`; that cell is null). Adding them is the consumer's; the rows that fit are staged once it settles. Without it, the extra rows are dropped with a warning.
  * @property {string|Function} [stagedRefusal] - With `staged`: the reason a frozen control carries, or `(count) => string`. Absent: "Sorting, filtering and paging are held while N changes are not committed. Commit or discard them first."
  *
  * ── STORY-0066, every one of them off unless asked for. THE CONSUMER OWNS THE DATA: each edit is a call, answered with `setData` ──
@@ -638,6 +641,10 @@ export class DataTable {
             onRowDelete: null,
             // STORY-0089. Off — no fill handle — until set.
             fillHandle: false,
+            // STORY-0090. Off — Ctrl+V is not the table's — until set.
+            pasteable: false,
+            onPasteOverrun: null,
+            onRowsAppend: null,
             ...config,
         };
 
@@ -665,6 +672,9 @@ export class DataTable {
         }
         if (this.config.fillHandle && !this._cellGrid) {
             console.warn('[DataTable] `fillHandle` needs `staged`; ignored.');
+        }
+        if (this.config.pasteable && !this._cellGrid) {
+            console.warn('[DataTable] `pasteable` needs `staged`; ignored.');
         }
         // STORY-0091. A crosstab has no group row: its spans are `headerRows`.
         if (Array.isArray(this.config.columnGroups) && this.config.columnGroups.length && this._crosstab()) {
@@ -1607,6 +1617,25 @@ export class DataTable {
      */
     fill(to, { forceCopy = false } = {}) {
         return this._cellGrid?.fill ? this._cellGrid.fill.fill(to, { forceCopy }) : null;
+    }
+
+    /**
+     * STORY-0090. Paste tab-separated `text` at the cursor cell, as Ctrl+V
+     * does: each value read by its column's parse, staged as ONE undo entry.
+     * Resolves `{rows, cols, staged, skipped, refused, droppedColumns,
+     * appended}` — `staged` the NUMBER of cells that changed, `skipped` the
+     * cells `editable` refused (`{row, col, rowIdx}`), `refused` the values
+     * that did not parse (`{row, col, rowIdx, text, error}`),
+     * `droppedColumns` the columns past the last one, `appended` the rows
+     * handed to `onRowsAppend` — or null when nothing was pasted (no
+     * `pasteable`, empty text, no cursor, an editor open, a commit or another
+     * paste out, an overrun `onPasteOverrun` did not accept).
+     *
+     * @param {string} text
+     * @returns {Promise<object|null>}
+     */
+    paste(text) {
+        return this._cellGrid?.paste ? this._cellGrid.paste.paste(text) : Promise.resolve(null);
     }
 
     /** Why sort, filters and pages are held — a staged edit — or null; with

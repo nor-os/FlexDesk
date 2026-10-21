@@ -911,6 +911,11 @@ body.twm-dt-col-resizing {
     background-image: repeating-linear-gradient(45deg,
         color-mix(in srgb, var(--color-danger, #f14c4c) 22%, transparent) 0 4px, transparent 4px 8px);
 }
+/* STORY-0090. A cell a paste skipped (not editable) carries the same mark. */
+.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--paste-skipped {
+    background-image: repeating-linear-gradient(45deg,
+        color-mix(in srgb, var(--color-danger, #f14c4c) 22%, transparent) 0 4px, transparent 4px 8px);
+}
 /* While cells are staged, sort, filters and pages are held: the held control
  * says why on itself (`data-refusal`). */
 .twm-data-table-component.twm-dt--frozen th.sortable[data-refusal] {
@@ -1080,6 +1085,10 @@ body.twm-dt-col-resizing {
     --twm-dt-pin-state: linear-gradient(color-mix(in srgb, var(--accent-bright, #007acc) 16%, transparent), color-mix(in srgb, var(--accent-bright, #007acc) 16%, transparent));
 }
 .twm-preview-table.twm-dt-crosstab.twm-dt--cells tbody td.twm-dt-pin.twm-dt-cell--fill-skipped {
+    --twm-dt-pin-mark: repeating-linear-gradient(45deg,
+        color-mix(in srgb, var(--color-danger, #f14c4c) 22%, transparent) 0 4px, transparent 4px 8px);
+}
+.twm-preview-table.twm-dt-crosstab.twm-dt--cells tbody td.twm-dt-pin.twm-dt-cell--paste-skipped {
     --twm-dt-pin-mark: repeating-linear-gradient(45deg,
         color-mix(in srgb, var(--color-danger, #f14c4c) 22%, transparent) 0 4px, transparent 4px 8px);
 }

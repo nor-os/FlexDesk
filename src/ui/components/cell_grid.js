@@ -16,6 +16,7 @@ import { CellEditorHost, createTextEditor } from './cell_editor_host.js';
 import { CELL_EDITORS, editorTypeOf } from './cell_editors.js';
 import { StagedEdits } from './staged_edits.js';
 import { FillHandle } from './fill_handle.js';
+import { CellPaste } from './cell_paste.js';
 import { ISO_DATE, formatDate } from './table_values.js';
 
 /** Is this a cell somebody filled? What Ctrl+arrow stops at. */
@@ -100,6 +101,12 @@ export class CellGrid {
         if (this._cfg().fillHandle) {
             if (this.staged) this.fill = new FillHandle(this);
             else console.warn('[DataTable] `fillHandle` needs `staged`; ignored.');
+        }
+        /** STORY-0090 `pasteable`: a tab-separated block pasted at the cursor. */
+        this.paste = null;
+        if (this._cfg().pasteable) {
+            if (this.staged) this.paste = new CellPaste(this);
+            else console.warn('[DataTable] `pasteable` needs `staged`; ignored.');
         }
     }
 
@@ -283,6 +290,7 @@ export class CellGrid {
         this.rowsWaiting.clear();
         this.staged?.clear();
         this.fill?.clearMarks();
+        this.paste?.clearMarks();
     }
 
     isEditing() {
@@ -332,6 +340,7 @@ export class CellGrid {
         if (cursor) td.setAttribute('aria-selected', 'true');
         else td.removeAttribute('aria-selected');
         this.fill?.paintCell(td, pos, col);   // STORY-0089
+        this.paste?.paintCell(td, col);       // STORY-0090
     }
 
     paint() {
@@ -351,6 +360,7 @@ export class CellGrid {
     _changed({ reveal = false } = {}) {
         const t = this.table;
         this.fill?.clearMarks();   // STORY-0089: a skipped mark lasts until the selection moves
+        this.paste?.clearMarks();  // STORY-0090: and so does a paste's
         if (reveal && this.sel.focus) t.scrollToRow(this.rowIndexAt(this.sel.focus.row));
         this.paint();
         const before = t.getSelection().join();
@@ -423,6 +433,19 @@ export class CellGrid {
                 ev.stopImmediatePropagation();
             }
         });
+        // STORY-0090. Ctrl+V on the focused table: the browser's paste event
+        // carries the clipboard's text, with no permission to ask for. In an
+        // editor (or any field) the paste is the field's.
+        if (this.paste) {
+            on(table, 'paste', (ev) => {
+                if (inEditor(ev.target)) return;
+                if (ev.target !== table && ev.target?.closest?.('input, select, textarea, [contenteditable="true"]')) return;
+                const text = ev.clipboardData?.getData?.('text/plain');
+                if (typeof text !== 'string') return;
+                ev.preventDefault();
+                this.paste.paste(text);
+            });
+        }
         // An editor that was open across a render of its row (an `updateRow`)
         // is still the editor; the paint follows the model.
         this.paint();
@@ -582,6 +605,7 @@ export class CellGrid {
 
     dispose() {
         this.fill?.dispose();
+        this.paste?.dispose();
         this.editor.cancel('dispose');
         this.renderWaiting = false;
         this.rowsWaiting.clear();

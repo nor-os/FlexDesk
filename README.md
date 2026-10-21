@@ -1394,6 +1394,44 @@ quoting (a cell holding a tab, a newline or a quote is quoted and its quotes
 doubled; `null` is empty; no newline after the last row): the writer cell mode
 copies with.
 
+#### Pasting a block from Excel (0.17.1)
+
+With `pasteable: true` beside `staged`, Ctrl+V on the focused table pastes the
+tab-separated block Excel and Google Sheets copy at the CURSOR cell: it fills
+right over the columns shown and down over the rows in the order shown, each
+value read by its column's editor, and every cell is STAGED as one undo entry.
+
+```js
+const grid = DataTable.mount(host, {
+    headers: ['Item', 'Qty', 'When'],
+    rows,
+    selectionMode: 'cells',
+    editable: (colIdx, row) => colIdx !== 0 || !row.locked,
+    editTypes: [null, 'number', 'datetime'],
+    staged: true,
+    pasteable: true,
+    onPasteOverrun: ({ rows }) => confirm(`Add ${rows} row(s)?`),
+    onRowsAppend: ({ rows, errors }) => store.addRows(rows),
+    onCommit: ({ edits }) => api.saveBatch(edits),
+});
+await grid.paste('Bolt\t4\t2026-12-31\nNut\t9\t2027-01-02');   // what Ctrl+V does
+```
+
+| Option or method | What it does |
+|---|---|
+| `pasteable: true` | Needs `staged` (ignored with a warning without it). Ctrl+V on the focused table takes the browser's `paste` event (its `text/plain`, read by `fromTSV`); a paste inside an open editor or another field is that field's. The block lands at the cursor cell; a hidden column is stepped over. Each value is read by the parse of its column's editor: the built-in editor's for its type (`editTypes`, else `columnTypes`, else the detected one; `locale`, the zone and `editorMessages` as an editor reads them), or an injected `editors` factory's own `parse` property (`factory.parse = (text, ctx) => ({ok: true, value} \| {ok: false, error})`), else the text as it is. Every cell that reads is staged as ONE undo entry: one Ctrl+Z takes the whole paste back. A value equal to what the row holds is no change. The range then covers the block, the cursor on the cell it began at. Nothing is pasted while an editor is open, a commit is out or another paste waits. |
+| Columns past the last | Dropped. A console warning and a `'warn'` toast (`toast:show` on `services.eventBus`) name how many: "3 column(s) past the last column were not pasted." |
+| Rows past the last loaded row | The last loaded row is the last row in the order shown (filtered and sorted; for a server's page, the last row it sent). `onPasteOverrun({rows: n})` is asked first, `n` the rows past it. Anything but `true` (or a Promise of `true`) stages NOTHING; without the hook, such a paste stages nothing and warns. `true` hands the extra rows to `onRowsAppend({rows, errors})` and, once that settles, stages the rows that fit: `rows` are data rows (as long as `headers`, every pasted column read by its parse, the others `null`), and `errors` the values that did not read (`{row, colIdx, text, error}`, `row` an index into `rows`; that cell is `null`). Adding them is the consumer's: the table holds no row it was not given. A consumer that adds them with `setData({rows})` (the old rows first, the new ones after) keeps the paste's staged cells, because they are staged after it. Without `onRowsAppend` the extra rows are dropped with a warning. |
+| A value that does not parse | `abc` in a number column: its cell is marked as an editor's refusal is (`twm-dt-cell--error`, the message as `title` and `data-error`, the pasted text kept in the cell) and nothing is staged in it; the rest of the block still stages. Anything staged into the cell afterwards ends the mark. |
+| A cell `editable` refuses | Skipped: nothing is staged in it and its row is untouched. It is drawn `twm-dt-cell--paste-skipped` until the selection moves, the next paste or fill, or new rows. |
+| `paste(text)` | What Ctrl+V does, from code. Resolves `{rows, cols, staged, skipped, refused, droppedColumns, appended}` (`staged` the NUMBER of cells that changed; `skipped` `[{row, col, rowIdx}]`; `refused` the same with `text` and `error`; `appended` the rows handed to `onRowsAppend`), or `null` when nothing was pasted: no `pasteable`, empty text, no cursor, an editor open, a commit or another paste out, an overrun not accepted, or new rows while `onPasteOverrun` was asked. |
+
+`fromTSV(text)` reads tab-separated text as a matrix of strings, as Excel
+writes it: character by character, so a quoted cell holding a tab, a newline
+or doubled quotes is one cell; a quote opens a quoted cell only at its start;
+CRLF lines read as LF ones; the newline after the last row (and any empty
+lines after it) is no row; empty text is `[]`. Exported beside `toTSV`.
+
 #### Staged edits, undo and redo, one commit (0.17.0)
 
 With `staged: true` beside `editable`, a commit from an editor is STAGED

@@ -339,7 +339,7 @@ section('§3 row-label columns stay pinned while the body scrolls sideways; the 
     ok('…important, so no state rule and no animation replaces the surface',
        /!important;\s*$/.test(ruleOf(PIN).trim()));
     // Every background FlexDesk paints on a body `td` (a state: hover, row
-    // and cell selection, staged, the fill's mark, placeholder, diff, the
+    // and cell selection, staged, the fill's and the paste's marks, placeholder, diff, the
     // new-row flash) is mirrored for the pinned cell as a layer: the same
     // selector with `.twm-dt-crosstab` on the table and `.twm-dt-pin` on the
     // cell, setting the layer to the same colour. The two classes are added to
@@ -357,6 +357,8 @@ section('§3 row-label columns stay pinned while the body scrolls sideways; the 
          '.twm-preview-table.twm-dt-crosstab.twm-dt--cells tbody td.twm-dt-pin.twm-dt-cell--staged', '--twm-dt-pin-state', 'color-mix(in srgb, var(--accent-bright, #007acc) 16%, transparent)'],
         ['.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--fill-skipped',
          '.twm-preview-table.twm-dt-crosstab.twm-dt--cells tbody td.twm-dt-pin.twm-dt-cell--fill-skipped', '--twm-dt-pin-mark', 'color-mix(in srgb, var(--color-danger, #f14c4c) 22%, transparent) 0 4px, transparent 4px 8px'],
+        ['.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--paste-skipped',
+         '.twm-preview-table.twm-dt-crosstab.twm-dt--cells tbody td.twm-dt-pin.twm-dt-cell--paste-skipped', '--twm-dt-pin-mark', 'color-mix(in srgb, var(--color-danger, #f14c4c) 22%, transparent) 0 4px, transparent 4px 8px'],
         ['.twm-preview-table th.twm-dt-col--placeholder, .twm-preview-table td.twm-dt-cell--placeholder',
          '.twm-preview-table.twm-dt-crosstab td.twm-dt-pin.twm-dt-cell--placeholder', '--twm-dt-pin-state', 'rgba(255, 255, 255, 0.015)'],
         ['.twm-data-table-component .twm-preview-table tbody tr.twm-dt-diff--added:not(.selected) > td',

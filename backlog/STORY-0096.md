@@ -2,7 +2,7 @@
 id: 96
 type: story
 title: "Dictation: hold-to-talk that types into the focused field"
-status: draft
+status: refined
 parent: 40
 phase:
 assignee:
@@ -31,5 +31,10 @@ AI Desk (`../aidesk/backlog/STORY-0185.md`): norman (2026-10-21) wants to dictat
 ## History
 
 - 2026-10-21 · norman_agent · filed as draft
+- 2026-10-21 · norman_agent · status: draft -> refined
 
 ## Comments
+
+### 2026-10-21T07:19Z · norman_agent
+
+Refined: 5 acceptance criteria, 3 points, parented to EPIC-0040. Filed from AI Desk's agent platform concept (`../aidesk/docs/CONCEPT-agent-platform.md`), norman's decisions of 2026-10-21.

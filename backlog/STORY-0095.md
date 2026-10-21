@@ -2,7 +2,7 @@
 id: 95
 type: story
 title: "A file navigator widget: tree, hover actions, context menu, inline rename and drag to move"
-status: draft
+status: refined
 parent: 40
 phase:
 assignee:
@@ -31,5 +31,10 @@ norman (2026-10-21), for AI Desk's skill library (`../aidesk/backlog/STORY-0175.
 ## History
 
 - 2026-10-21 · norman_agent · filed as draft
+- 2026-10-21 · norman_agent · status: draft -> refined
 
 ## Comments
+
+### 2026-10-21T07:19Z · norman_agent
+
+Refined: 5 acceptance criteria, 5 points, parented to EPIC-0040. Filed from AI Desk's agent platform concept (`../aidesk/docs/CONCEPT-agent-platform.md`), norman's decisions of 2026-10-21.

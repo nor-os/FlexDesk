@@ -2,7 +2,7 @@
 id: 94
 type: story
 title: "Managed tiles: a tile grid always seeds them, and Reset brings removed ones back"
-status: draft
+status: refined
 parent: 29
 phase:
 assignee:
@@ -31,5 +31,10 @@ AI Desk (`../aidesk`, STORY-0181, `../aidesk/backlog/STORY-0181.md`) puts one te
 ## History
 
 - 2026-10-21 · norman_agent · filed as draft
+- 2026-10-21 · norman_agent · status: draft -> refined
 
 ## Comments
+
+### 2026-10-21T07:19Z · norman_agent
+
+Refined: 5 acceptance criteria, 3 points, parented to EPIC-0029. Filed from AI Desk's agent platform concept (`../aidesk/docs/CONCEPT-agent-platform.md`), norman's decisions of 2026-10-21.

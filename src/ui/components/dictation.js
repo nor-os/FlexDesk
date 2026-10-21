@@ -17,7 +17,9 @@
  * key or of one of its modifiers (or the window losing focus) stops it and
  * transcribes. It is caught in the capture phase on the window and goes no
  * further, so a terminal never sees Ctrl+Space (which it would send as NUL)
- * and an input never gets the space. Esc while recording discards it.
+ * and an input never gets the space. That holds until the key itself comes
+ * up: let go of Ctrl first and the Space still held, and its auto-repeat, are
+ * swallowed too. Esc while recording discards it.
  *
  * THE TARGET is fixed when recording starts: the element the key event came
  * from (through shadow roots), or for the mic button the element focused last
@@ -32,7 +34,14 @@
  * the recorder inside the keydown handler itself. `prepare()` opens it ahead
  * of time. A cold press waits for `getUserMedia`; a release before the
  * microphone was ready says so instead of transcribing silence. `stats()`
- * reports the last press-to-recording delay.
+ * reports the last press-to-recording delay: from the key event's own
+ * timestamp (so a busy main thread that ran the handler late is counted) to
+ * the recorder's `start` event (when capture has begun, not when `start()`
+ * returned).
+ *
+ * A RECORDING THAT ENDS BY ITSELF — the microphone unplugged, its permission
+ * revoked, another program taking it, the recorder failing — ends the
+ * session and is reported as `microphone-busy`; nothing is transcribed.
  *
  * WHEN IT CANNOT RECORD it says why, through the notification centre (the
  * `eventBus`'s `toast:show`, or the toast helpers' bus): a page that is not
@@ -43,7 +52,11 @@
  * `onError(code, error)` hears the same.
  *
  * `observe(window)` adds another same-origin window — an iframe holding an
- * embedded form — to the hotkey and focus tracking. `destroy()` removes every
+ * embedded form — to the hotkey and focus tracking. Listeners live on the
+ * document the window holds, so a navigation inside the frame (a form
+ * submit, a reload) drops them: pass the `<iframe>` element itself and it is
+ * observed again on each `load`, or call `observe(frame.contentWindow)` again
+ * from the frame's `load` (it re-attaches). `destroy()` removes every
  * listener, stops the microphone, aborts transcriptions in flight and
  * disables the mic buttons it made.
  */
@@ -170,6 +183,7 @@ export function attachDictation({
     let session = null;            // the recording in progress
     let lastStartLatencyMs = null;
     let lastFocused = null;
+    let heldCode = null;           // the hotkey's key, from its keydown to its own keyup
     const pending = new Set();     // AbortControllers of transcriptions in flight
     const buttons = new Set();
     const observed = new Map();    // window -> detach()
@@ -220,7 +234,12 @@ export function attachDictation({
                 streamPromise = null;
                 if (destroyed) { s.getTracks?.().forEach((t) => t.stop()); throw Object.assign(new Error('destroyed'), { name: 'AbortError' }); }
                 stream = s;
-                s.getTracks?.().forEach((t) => t.addEventListener?.('ended', () => { if (stream === s) closeMic(); }));
+                s.getTracks?.().forEach((t) => t.addEventListener?.('ended', () => {
+                    if (stream !== s) return;
+                    const sess = session;
+                    closeMic();
+                    if (sess?.rec) recordingLost(sess, null);
+                }));
                 setupMeter(s);
                 return s;
             }, (err) => { streamPromise = null; throw err; });
@@ -305,10 +324,18 @@ export function attachDictation({
         sess.chunks = [];
         sess.type = rec.mimeType || type;
         rec.addEventListener('dataavailable', (e) => { if (e.data && e.data.size !== 0) sess.chunks.push(e.data); });
+        // Listened for from the start: a recorder can stop on its own (the
+        // track ended, an error) before the release, and stop() must not
+        // then wait for a 'stop' that has already gone by.
+        sess.stopped = new Promise((resolve) => {
+            rec.addEventListener('stop', () => { resolve(); recordingLost(sess, null); }, { once: true });
+            rec.addEventListener('error', (e) => { resolve(); recordingLost(sess, e?.error ?? null); }, { once: true });
+        });
+        // Capture has begun when the recorder says so, not when start() returns.
+        rec.addEventListener('start', () => { lastStartLatencyMs = Math.max(0, now() - sess.pressedAt); }, { once: true });
         try { rec.start(); } catch (err) { micError(err); return false; }
         sess.state = 'recording';
         sess.startedAt = now();
-        lastStartLatencyMs = sess.startedAt - sess.pressedAt;
         clearTimeout(releaseTimer);
         audio?.ctx.resume?.()?.catch?.(() => {});
         setState('recording');
@@ -317,6 +344,34 @@ export function attachDictation({
     }
 
     const now = () => (win?.performance ?? globalThis.performance).now();
+
+    /**
+     * When the key was pressed, on `now()`'s clock: the event's `timeStamp`,
+     * shifted from window `w`'s time origin to ours (an iframe has its own).
+     * A browser (or jsdom) that stamps events in epoch milliseconds, or none,
+     * gives a time past `now()`, and the handler's own time is used instead.
+     */
+    function pressTime(e, w) {
+        const t = now();
+        let at = e?.timeStamp;
+        if (!(at > 0)) return t;
+        const own = w?.performance;
+        const main = win?.performance ?? globalThis.performance;
+        if (own && own !== main && own.timeOrigin > 0 && main?.timeOrigin > 0) at += own.timeOrigin - main.timeOrigin;
+        return at <= t ? at : t;
+    }
+
+    /** The recorder of the session in progress stopped by itself: end the session and say why. */
+    function recordingLost(sess, err) {
+        if (session !== sess) return;      // stop(), cancel() and destroy() let go of it first
+        sess.cancelled = true;
+        session = null;
+        stopMeterLoop();
+        try { if (sess.rec.state !== 'inactive') sess.rec.stop(); } catch { /* already inactive */ }
+        idleState();
+        report('microphone-busy', 'warn', text.busyMic, err);
+        scheduleRelease();
+    }
 
     /**
      * The element to type into when none is given: the focused one. For the
@@ -340,12 +395,12 @@ export function attachDictation({
      * fixes where the text goes; by default the focused element. `mode`
      * `'hold'` is the hotkey's; `'toggle'` the button's.
      */
-    function start({ target = null, mode = 'toggle', from = null } = {}) {
+    function start({ target = null, mode = 'toggle', from = null, pressedAt = null } = {}) {
         if (destroyed || session) return false;
         const why = unavailable();
         if (why) { report(why[0], 'warn', why[1]); return false; }
         const resolved = (typeof target === 'function' ? target() : target) ?? focusedTarget(from, mode);
-        session = { mode, state: 'starting', pressedAt: now(), target: resolved, savedRange: resolved ? saveRange(resolved) : null, stopRequested: false, cancelled: false };
+        session = { mode, state: 'starting', pressedAt: pressedAt ?? now(), target: resolved, savedRange: resolved ? saveRange(resolved) : null, stopRequested: false, cancelled: false };
         const mine = session;
         if (stream) {
             if (!beginRecording(mine, stream)) { session = null; idleState(); scheduleRelease(); }
@@ -379,11 +434,9 @@ export function attachDictation({
         session = null;
         stopMeterLoop();
         const heldMs = now() - s.startedAt;
-        const finished = new Promise((resolve) => {
-            s.rec.addEventListener('stop', resolve, { once: true });
-            s.rec.addEventListener('error', resolve, { once: true });
-        });
-        try { s.rec.stop(); } catch { /* already inactive */ }
+        // An inactive recorder fires nothing on stop(): its data is in already.
+        const finished = s.rec.state === 'inactive' ? Promise.resolve() : s.stopped;
+        try { if (s.rec.state !== 'inactive') s.rec.stop(); } catch { /* already inactive */ }
         scheduleRelease();
         if (s.cancelled || heldMs < minHoldMs) { idleState(); return; }
         const ac = new AbortController();
@@ -447,40 +500,75 @@ export function attachDictation({
     }
 
     // ── the hotkey and focus tracking ──────────────────────────────────────
+    /**
+     * Add window `w` to the hotkey and focus tracking. Observing it again
+     * re-attaches, which is what a frame needs after it navigated: the
+     * listeners were on the document it held. An `<iframe>` element is
+     * observed through its window, again on each `load`.
+     */
     function observe(w) {
-        if (!w || observed.has(w)) return () => {};
+        if (!w || destroyed) return () => {};
+        if (w.nodeType === 1 && 'contentWindow' in w) return observeFrame(w);
+        observed.get(w)?.();
         const onKeyDown = (e) => {
             if (session && e.key === 'Escape' && !e.defaultPrevented) { swallow(e); cancel(); return; }
             if (!hk || e.isComposing) return;
-            if (session?.mode === 'hold' && (e.code === hk.code)) { swallow(e); return; }   // auto-repeat
+            if (heldCode && e.code === heldCode) {
+                // Still held after the hold ended (Ctrl let go first): its repeats are not spaces.
+                if (e.repeat || session?.mode === 'hold') { swallow(e); return; }
+                heldCode = null;           // pressed afresh: its keyup went missing
+            }
             if (!matchesHotkey(e, hk)) return;
             swallow(e);
             if (e.repeat || session) return;
-            start({ mode: 'hold', from: e.composedPath?.()[0] ?? e.target });
+            heldCode = hk.code;
+            start({ mode: 'hold', from: e.composedPath?.()[0] ?? e.target, pressedAt: pressTime(e, w) });
         };
         const onKeyUp = (e) => {
-            if (!hk || session?.mode !== 'hold') return;
-            if (!releasesHotkey(e, hk)) return;
-            if (e.code === hk.code) swallow(e);
+            if (!hk) return;
+            if (heldCode && e.code === heldCode) { swallow(e); heldCode = null; }
+            if (session?.mode !== 'hold' || !releasesHotkey(e, hk)) return;
             stop();
         };
-        const onBlur = (e) => { if (e.target === w && session?.mode === 'hold') stop(); };
+        const onBlur = (e) => {
+            if (e.target !== w) return;
+            heldCode = null;               // its keyup goes to another window now
+            if (session?.mode === 'hold') stop();
+        };
         const onFocusIn = (e) => {
             const el = e.composedPath?.()[0] ?? e.target;
             if (el && !el.closest?.('.twm-dictation-mic') && acceptsDictation(el)) lastFocused = el;
         };
+        // The document is going away (not into the back-forward cache, which keeps its listeners).
+        const onPageHide = (e) => { if (!e.persisted) detach(); };
         w.addEventListener('keydown', onKeyDown, true);
         w.addEventListener('keyup', onKeyUp, true);
         w.addEventListener('blur', onBlur);
         w.addEventListener('focusin', onFocusIn, true);
+        w.addEventListener('pagehide', onPageHide);
         const detach = () => {
             w.removeEventListener('keydown', onKeyDown, true);
             w.removeEventListener('keyup', onKeyUp, true);
             w.removeEventListener('blur', onBlur);
             w.removeEventListener('focusin', onFocusIn, true);
-            observed.delete(w);
+            w.removeEventListener('pagehide', onPageHide);
+            if (observed.get(w) === detach) observed.delete(w);
         };
         observed.set(w, detach);
+        return detach;
+    }
+
+    function observeFrame(frame) {
+        observed.get(frame)?.();
+        let inner = frame.contentWindow ? observe(frame.contentWindow) : () => {};
+        const onLoad = () => { inner(); inner = frame.contentWindow ? observe(frame.contentWindow) : () => {}; };
+        frame.addEventListener('load', onLoad);
+        const detach = () => {
+            frame.removeEventListener('load', onLoad);
+            inner();
+            if (observed.get(frame) === detach) observed.delete(frame);
+        };
+        observed.set(frame, detach);
         return detach;
     }
 

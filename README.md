@@ -3357,7 +3357,9 @@ const off = registerDictationTarget(terminalEl, (text) => term.paste(text));
   one of its modifiers stops it and transcribes. So does the window losing
   focus. Esc discards the recording. The hotkey is caught in the capture phase
   on the window and goes no further, so a terminal never sees it and an input
-  never gets the space. `parseHotkey` reads `'Ctrl+Space'`, `'Alt+Shift+D'`,
+  never gets the space. If you let go of Ctrl before Space, the Space you are
+  still holding and its auto-repeat are swallowed too, until it comes up.
+  `parseHotkey` reads `'Ctrl+Space'`, `'Alt+Shift+D'`,
   `'Meta+1'` or a `KeyboardEvent.code` such as `'F9'`. A hold shorter than
   `minHoldMs` (250) is a tap, and is discarded.
 - **Where the text goes** is fixed when recording starts: the element the key
@@ -3396,6 +3398,15 @@ const off = registerDictationTarget(terminalEl, (text) => term.paste(text));
   after every recording. A cold press asks `getUserMedia` within the key event.
   A release before the microphone was ready says so instead of transcribing
   silence. `stats().lastStartLatencyMs` is the last press-to-recording delay.
+  It runs from the key event's own `timeStamp` to the recorder's `start`
+  event. So it counts a busy main thread that ran the handler late, and a
+  recorder that is slow to begin capturing. It is `null` until a recorder has
+  started. It cannot see what happens before the browser stamps the event, or
+  inside the audio driver.
+- **A recording that ends by itself** ends the session. That covers a
+  microphone unplugged, its permission revoked, another program taking it, or
+  the recorder failing. It is reported as `microphone-busy` and nothing is
+  transcribed. The next press opens the microphone again.
 - **It says why it cannot.** Each problem is a toast on `eventBus`
   (`toast:show`), or on the toast helpers' bus, and goes to
   `onError(code, error)`:
@@ -3415,7 +3426,12 @@ const off = registerDictationTarget(terminalEl, (text) => term.paste(text));
   it transcribes. A level meter rises with the input: `--twm-dictation-level`
   (0..1) is set on the button each frame from an `AnalyserNode`.
 - **Embedded pages.** `observe(iframe.contentWindow)` adds a same-origin
-  window, such as an embedded form, to the hotkey and focus tracking.
+  window, such as an embedded form, to the hotkey and focus tracking. The
+  listeners live on the document the frame holds, so a navigation inside it (a
+  form submit, a reload) drops them. Pass the `<iframe>` element instead,
+  `observe(iframe)`, and it is observed again on each `load`. Or call
+  `observe(iframe.contentWindow)` again from the frame's `load`: observing a
+  window again re-attaches.
 - `state()` is `idle`, `starting`, `recording` or `transcribing`, and
   `onStateChange(state)` hears each change. `onTranscript(text, target,
   inserted)` hears every transcript. `start()`, `stop()`, `cancel()` and

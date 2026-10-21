@@ -24,6 +24,11 @@
  *   §11 observe() adds a same-origin iframe: a hold inside it types into its field
  *   §12 Monaco editors from MonacoEditorFactory are targets; a read-only one declines
  *   §13 the entry exports it; every class it sets is styled; no application vocabulary
+ *   §14 Ctrl let go before Space: the Space still held, and its auto-repeat, go nowhere
+ *   §15 a recording that ends by itself (track ended, recorder stopped or failed)
+ *       ends the session, is reported, and never leaves it transcribing
+ *   §16 stats().lastStartLatencyMs runs from the key event's timestamp to the
+ *       recorder's start event
  *
  *     node tests/dictation.test.mjs
  *
@@ -91,6 +96,7 @@ class FakeStream {
     getTracks() { return this.tracks; }
 }
 const recorders = [];
+/** How long the fake takes from start() to its 'start' event (a real one is asynchronous too). */
 class FakeRecorder extends win.EventTarget {
     static isTypeSupported(t) { return t === 'audio/webm;codecs=opus'; }
     constructor(stream, opts) {
@@ -101,7 +107,11 @@ class FakeRecorder extends win.EventTarget {
         this.startedAt = null;
         recorders.push(this);
     }
-    start() { this.state = 'recording'; this.startedAt = performance.now(); }
+    start() {
+        this.state = 'recording';
+        this.startedAt = performance.now();
+        setTimeout(() => this.dispatchEvent(new win.Event('start')), FakeRecorder.startDelayMs);
+    }
     stop() {
         if (this.state === 'inactive') return;
         this.state = 'inactive';
@@ -113,6 +123,7 @@ class FakeRecorder extends win.EventTarget {
         }, 0);
     }
 }
+FakeRecorder.startDelayMs = 0;
 /** getUserMedia that answers at once (warm), later (cold: `release()`), or with an error. */
 function fakeDevices({ error = null, manual = false } = {}) {
     const calls = [];
@@ -214,10 +225,11 @@ console.log('§2 hold to talk into the focused input');
     ok('state is recording', d.state() === 'recording' && d.isRecording());
     ok('the key is swallowed (default prevented, never reached the input)', e.defaultPrevented && reachedInput === 0);
     ok('the format is the first the recorder supports', recorders.at(-1).mimeType === 'audio/webm;codecs=opus');
-    ok('press-to-record latency is measured and under 150 ms', d.stats().lastStartLatencyMs !== null && d.stats().lastStartLatencyMs < 150,
-       String(d.stats().lastStartLatencyMs));
     const rep = keydown(input, { ...CTRL_SPACE, repeat: true });
     ok('auto-repeat is swallowed and starts nothing', rep.defaultPrevented && recorders.length === before + 1);
+    await tick();
+    ok('press-to-record latency is measured once the recorder started', typeof d.stats().lastStartLatencyMs === 'number',
+       String(d.stats().lastStartLatencyMs));
     let inputs = 0;
     input.addEventListener('input', (ev) => { inputs++; ok('the input event says insertText', ev.inputType === 'insertText' || ev.type === 'input'); });
     await holdFor(40);
@@ -658,7 +670,46 @@ console.log('§11 an iframe');
     fi.dispatchEvent(new frame.contentWindow.KeyboardEvent('keyup', { key: ' ', code: 'Space', bubbles: true, cancelable: true }));
     await flush();
     ok('and types into the iframe\'s field', fi.value === 'in the frame', JSON.stringify(fi.value));
+
+    const fw = frame.contentWindow;
+    const press = () => fi.dispatchEvent(new fw.KeyboardEvent('keydown', { ...CTRL_SPACE, bubbles: true, cancelable: true }));
+    const lift = () => fi.dispatchEvent(new fw.KeyboardEvent('keyup', { key: ' ', code: 'Space', bubbles: true, cancelable: true }));
+    // The frame's document goes away (a submit, a reload): its listeners go with it.
+    fw.dispatchEvent(new fw.Event('pagehide'));
+    press();
+    ok('after the frame\'s pagehide its window is no longer listened to', d.state() === 'idle');
+    lift();
+    d.observe(fw);
+    press();
+    ok('observing the window again (from the frame\'s load) re-attaches', d.state() === 'recording');
+    d.cancel();
+    lift();
+    d.observe(fw);
+    const before = recorders.length;
+    press();
+    ok('observing it twice does not handle the key twice', recorders.length === before + 1 && d.state() === 'recording');
+    d.cancel();
+    lift();
     d.destroy();
+
+    // An <iframe> element is observed through its window, again on each load.
+    const el = make({ said: 'after the reload' });
+    await el.d.prepare();
+    el.d.observe(frame);
+    fw.dispatchEvent(new fw.Event('pagehide'));
+    frame.dispatchEvent(new win.Event('load'));
+    fi.value = '';
+    fi.focus();
+    press();
+    ok('an observed <iframe> is listened to again after it loaded', el.d.state() === 'recording');
+    await tick(30);
+    lift();
+    await flush();
+    ok('…and types into its field', fi.value === 'after the reload', JSON.stringify(fi.value));
+    el.d.destroy();
+    press();
+    ok('destroy lets go of the frame too', el.d.state() === 'idle');
+    lift();
 }
 
 console.log('§12 Monaco editors');
@@ -722,6 +773,164 @@ console.log('§13 entry and CSS');
     const missing = [...classes].filter((c) => !/(__|--)$/.test(c) && !new RegExp(`\\.${c}(?![\\w-])`).test(css));
     ok('every twm-dictation class it sets is styled', missing.length === 0, missing.join(', '));
     ok('no application vocabulary in the source', !/pywebview|ecosim|anthropic|openai|whisper|aidesk|xterm|\bllm\b|\/api\/stt/i.test(src));
+}
+
+console.log('§14 Ctrl let go before Space');
+{
+    const { d, calls } = make();
+    await d.prepare();
+    const input = field('<input type="text">');
+    input.focus();
+    let reached = 0;
+    input.addEventListener('keydown', () => reached++);
+    input.addEventListener('keyup', () => reached++);
+    keydown(input, CTRL_SPACE);
+    await holdFor(30);
+    keyup(input, { key: 'Control', code: 'ControlLeft' });
+    ok('letting go of Ctrl ends the hold', d.state() === 'transcribing');
+    reached = 0;                                // the Ctrl keyup itself goes on, as modifiers do
+    const r1 = keydown(input, { key: ' ', code: 'Space', repeat: true });
+    const r2 = keydown(input, { key: ' ', code: 'Space', repeat: true });
+    ok('the Space still held auto-repeats into nothing', r1.defaultPrevented && r2.defaultPrevented && reached === 0);
+    const up = keyup(input, { key: ' ', code: 'Space' });
+    ok('…and its own keyup is swallowed', up.defaultPrevented && reached === 0);
+    await flush();
+    ok('the text is typed with no spaces before it', input.value === 'hello world' && calls.length === 1, JSON.stringify(input.value));
+    const plain = keydown(input, { key: ' ', code: 'Space' });
+    ok('after the Space came up, a space is a space again', !plain.defaultPrevented);
+    keyup(input, { key: ' ', code: 'Space' });
+
+    // A keyup that never came (lost to another window) does not eat the next real press.
+    keydown(input, CTRL_SPACE);
+    await holdFor(30);
+    keyup(input, { key: 'Control', code: 'ControlLeft' });
+    await flush();
+    const fresh = keydown(input, { key: ' ', code: 'Space' });
+    ok('a fresh Space press is not swallowed even if the old keyup went missing', !fresh.defaultPrevented);
+    d.destroy();
+}
+
+console.log('§15 a recording that ends by itself');
+{
+    const input = field('<input type="text">');
+    // the microphone unplugged: the track ends
+    {
+        const { d, calls, eventBus } = make();
+        await d.prepare();
+        input.focus();
+        keydown(input, CTRL_SPACE);
+        await holdFor(30);
+        const rec = recorders.at(-1);
+        rec.stream.tracks[0].listeners.ended();
+        ok('the track ending ends the session', d.state() === 'idle' && d.stats().pending === 0);
+        ok('…says the microphone is unavailable', eventBus.toasts.some((t) => /in use/i.test(t.message)), JSON.stringify(eventBus.toasts));
+        ok('…and closes it', !d.stats().micOpen && rec.state === 'inactive');
+        const up = keyup(input, { key: ' ', code: 'Space' });
+        await flush();
+        ok('the release afterwards transcribes nothing (and the key is still swallowed)',
+           calls.length === 0 && d.state() === 'idle' && up.defaultPrevented);
+        keydown(input, CTRL_SPACE);
+        await flush();
+        ok('the next press opens the microphone again', d.state() === 'recording');
+        d.cancel();
+        keyup(input, { key: ' ', code: 'Space' });
+        d.destroy();
+    }
+    // the recorder went inactive and sent 'stop' on its own, then the user let go
+    {
+        const { d, calls, eventBus } = make();
+        await d.prepare();
+        input.focus();
+        keydown(input, CTRL_SPACE);
+        await holdFor(30);
+        const rec = recorders.at(-1);
+        rec.state = 'inactive';
+        rec.dispatchEvent(new win.Event('stop'));
+        ok('a recorder that stopped itself ends the session', d.state() === 'idle'
+           && eventBus.toasts.some((t) => /in use/i.test(t.message)));
+        keyup(input, { key: ' ', code: 'Space' });
+        await flush();
+        ok('…and is never stuck transcribing', d.state() === 'idle' && d.stats().pending === 0 && calls.length === 0);
+        d.destroy();
+    }
+    // the recorder failed
+    {
+        const codes = [];
+        const { d } = make({ opts: { onError: (c) => codes.push(c) } });
+        await d.prepare();
+        input.focus();
+        keydown(input, CTRL_SPACE);
+        await holdFor(30);
+        recorders.at(-1).dispatchEvent(new win.Event('error'));
+        ok('a recorder error ends the session and is reported', d.state() === 'idle' && codes.includes('microphone-busy'));
+        keyup(input, { key: ' ', code: 'Space' });
+        await flush();
+        ok('…with nothing pending', d.stats().pending === 0);
+        d.destroy();
+    }
+    // stop() on a recorder that is already inactive but whose session is still ours
+    {
+        const { d, calls } = make();
+        await d.prepare();
+        input.value = '';
+        input.focus();
+        keydown(input, CTRL_SPACE);
+        await holdFor(30);
+        const rec = recorders.at(-1);
+        rec.state = 'inactive';                 // inactive, its 'stop' not sent yet
+        keyup(input, { key: ' ', code: 'Space' });
+        await flush();
+        ok('releasing over an inactive recorder still finishes', d.state() === 'idle' && d.stats().pending === 0 && calls.length === 1);
+        d.destroy();
+    }
+}
+
+console.log('§16 the press-to-recording delay');
+{
+    const input = field('<input type="text">');
+    const late = (init, behindMs) => {
+        const e = new win.KeyboardEvent('keydown', { bubbles: true, cancelable: true, composed: true, ...init });
+        Object.defineProperty(e, 'timeStamp', { value: win.performance.now() - behindMs });
+        input.dispatchEvent(e);
+        return e;
+    };
+    const { d } = make();
+    await d.prepare();
+    input.focus();
+    late(CTRL_SPACE, 120);                      // the handler ran 120 ms after the press
+    ok('before the recorder\'s start event there is no figure', d.stats().lastStartLatencyMs === null);
+    await tick();
+    const ms = d.stats().lastStartLatencyMs;
+    ok('the delay counts from the key event\'s timestamp', ms >= 120 && ms < 1000, String(ms));
+    d.cancel();
+    keyup(input, { key: ' ', code: 'Space' });
+    d.destroy();
+
+    FakeRecorder.startDelayMs = 60;             // a recorder slow to begin capturing
+    const slow = make();
+    await slow.d.prepare();
+    keydown(input, CTRL_SPACE);
+    await tick(10);
+    ok('it is not taken when start() returns', slow.d.stats().lastStartLatencyMs === null);
+    await tick(80);
+    const ms2 = slow.d.stats().lastStartLatencyMs;
+    ok('…but at the recorder\'s start event', ms2 >= 50, String(ms2));
+    FakeRecorder.startDelayMs = 0;
+    slow.d.cancel();
+    keyup(input, { key: ' ', code: 'Space' });
+    slow.d.destroy();
+
+    const stamp = make();
+    await stamp.d.prepare();
+    const future = new win.KeyboardEvent('keydown', { ...CTRL_SPACE, bubbles: true, cancelable: true });
+    Object.defineProperty(future, 'timeStamp', { value: Date.now() });       // an epoch stamp
+    input.dispatchEvent(future);
+    await tick();
+    const ms3 = stamp.d.stats().lastStartLatencyMs;
+    ok('an epoch timestamp falls back to the handler\'s time', ms3 >= 0 && ms3 < 150, String(ms3));
+    stamp.d.cancel();
+    keyup(input, { key: ' ', code: 'Space' });
+    stamp.d.destroy();
 }
 
 if (failures) {

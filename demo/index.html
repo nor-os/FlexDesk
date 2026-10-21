@@ -58,6 +58,9 @@
         .twm-bar-left, .twm-bar-center, .twm-bar-right { display: flex; align-items: center; gap: 6px; }
         .twm-brand { font-weight: 600; letter-spacing: .04em; color: var(--text-secondary); }
         .twm-status { color: var(--text-muted); font-size: var(--font-size-sm); }
+        /* The other demo pages: each loads the source on its own, beside this shell. */
+        .demo-link { color: var(--text-secondary); font-size: var(--font-size-sm); text-decoration: none; }
+        .demo-link:hover { color: var(--text-primary); text-decoration: underline; }
     </style>
 </head>
 <body class="twm-body">
@@ -76,7 +79,10 @@
     <div id="demo-root"></div>
 
     <div class="twm-global-bottom-bar">
-        <div class="twm-bar-left"><span class="twm-status">standalone — mock host, no backend</span></div>
+        <div class="twm-bar-left">
+            <span class="twm-status">standalone — mock host, no backend</span>
+            <a class="demo-link" href="./flow_modeler.html">Modeler demo</a>
+        </div>
         <div class="twm-bar-right" id="desktops"></div>
     </div>
 

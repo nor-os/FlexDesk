@@ -2100,7 +2100,7 @@ nor is a step whose type the palette does not offer (a start step) or that is
 `unavailable`. What is copied is the graph's own text, `{nodes, connections}`
 as `serialise()` writes it, so a graph from elsewhere pastes too. Ctrl/⌘+V
 gives every pasted step a fresh id (as a new step gets one), keeps the lines
-between them, sets the copy off two grid steps right and down (each further
+between them (data lines too, under `connections` with `dataPorts: 'connect'`), sets the copy off two grid steps right and down (each further
 paste of the same text one more), picks it, and is one `flow:paste` entry. A
 paste right after Ctrl/⌘+X puts the steps back where they were; a cut is one
 remove entry. A step whose title the flow already has gets a derived label,
@@ -2181,6 +2181,112 @@ Edge:
 - With `routing: 'obstacles'`, no point of a line lay inside the drawn box of
   the step between its ends. Above the node limit the strip said so.
 - A real pointer over a step highlighted its lines, and moving off cleared them.
+
+#### Building a modeler (0.17.0)
+
+A typed node modeler (a dataflow, a signal chain, a diagram of blocks) is the
+canvas editor with its modeler options turned on. Every one of them is a
+`createCanvasEditor` option or a key on a catalogue type, off by default: an
+editor that sets none of them draws, binds and serialises exactly as before.
+None of them stores anything: the graph, the viewport and the values shown are
+the host's, handed in and handed back. Each edit they add is on the closed list
+`CANVAS_ACTIONS`, so one gesture is one undo entry. `demo/flow_modeler.html`
+(linked from `demo/index.html`) uses all of them together on a signal-flow
+diagram of sources, gains, a sum and displays.
+
+| Option | What it gives | Details |
+|---|---|---|
+| `render`, `update`, `size`, `accent` (type keys) | A node that draws its own controls and values, at its own size, marked in a tone; `setCatalogue` adds a type while the editor is open | [Node bodies](#node-bodies-0170) |
+| `connections` (`dataPorts`, `policy`) with `accepts` / `provides` (port keys) | Data ports that connect, typed, under the host's rules, by drag or click; an empty drop picks a step that arrives connected | `connections` above |
+| `multiSelect` | Marquee, bulk move and delete, nudge, align and distribute | *Many picked* above |
+| `clipboard`, `prepareCopy` | Copy, cut, paste and duplicate of the picked steps and the lines among them | *Copy and paste* above |
+| `groups`, `notes` | Flat named frames round steps, and free-text notes | *Groups and notes* above |
+| `layout`, `rank` (type key) | Arrange by the kernel's layered layout, sources first and sinks last, or your own | `layout` above |
+| `edgeStyle`, `routing`, `hoverHighlight` | Lines in a tone, dashed, wider, with an arrow or a crow's foot and a label; bent round steps; lit while pointed at | `edgeStyle` above |
+| `viewport`, `onViewportChange`, `zoomControls`, `minimap` | Where the reader looks, kept by you; zoom buttons; an overview | `viewport` above |
+| `renameInPlace`, `inline` (type key) | A step's name and chosen settings edited on the node | [Edited on the node](#edited-on-the-node-0170) |
+| `setNodeValues`, `collapsible` | Values painted on the steps as often as you like; steps folded to their header | [Live values and folded steps](#live-values-and-folded-steps-0170) |
+
+A type draws its own body (`render` once, `update` on every repaint), with its
+own `size` and `accent`; `inline` draws chosen settings on the node, and
+`rank` places it when Arrange runs the layered layout:
+
+```js
+const IN = { name: 'in', direction: 'input', port_type: 'DATA', accepts: ['number'], maxConnections: 1 };
+const OUT = { name: 'out', direction: 'output', port_type: 'DATA', provides: ['number'] };
+const types = [
+    { type_id: 'source', label: 'Source', rank: 'source', inline: ['amplitude'], ports: [OUT],
+      config_schema: { type: 'object', properties: { amplitude: { type: 'number', title: 'Amplitude' } } } },
+    { type_id: 'gain', label: 'Gain', size: { w: 224, h: 132 }, accent: 'amber', ports: [IN, OUT],
+      render(body, node, ctx) {
+          const range = Object.assign(document.createElement('input'), { type: 'range', min: -2, max: 2, step: 0.1 });
+          range.addEventListener('change', () => ctx.setConfig({ k: Number(range.value) }));   // one undo entry
+          body.append(range);
+      },
+      update(body, node, ctx) { body.querySelector('input').value = node.config.k ?? 1; } },
+    { type_id: 'display', label: 'Display', rank: 'sink', ports: [IN],
+      render: (body) => body.append(document.createElement('output')),
+      update: (body, node, ctx) => { body.querySelector('output').textContent = ctx.values?.badge ?? '—'; } },
+];
+editor.setCatalogue(createStepCatalogue([...types, laterType], { categories }));   // a type added after load
+```
+
+The editor's options, each one independent of the others:
+
+```js
+const editor = createCanvasEditor(host, {
+    catalogue: createStepCatalogue(types, { categories }),
+    connections: {                                        // data ports connect, typed by accepts/provides
+        dataPorts: 'connect',
+        policy: ({ connection, graph }) => (closesLoop(graph, connection)
+            ? { ok: false, reason: 'That line would feed a block its own output.' } : null),
+    },
+    multiSelect: true,                                    // marquee, bulk move, align, distribute
+    clipboard: true,                                      // or {read(), write(text)} to hold it yourself
+    prepareCopy: (copy, { from, via }) => { copy.config.phase = 0; },
+    groups: true, notes: true,                            // Ctrl+G frames, free-text notes
+    layout: 'layered',                                    // Arrange: columns by the lines, `rank` hints
+    edgeStyle: (c, { source, target }) => ({ tone: 'teal', marker: 'arrow', width: 2,
+                                             dashed: c.targetPort === 'b', label: source.label }),
+    routing: 'obstacles', hoverHighlight: true,
+    viewport: savedView,                                  // opens there instead of fitting
+    onViewportChange: (view) => { savedView = view; },    // once per finished pan or zoom
+    zoomControls: true, minimap: true,
+    renameInPlace: true,                                  // double-click a title to rename it
+    collapsible: true,                                    // a fold button on every header
+});
+editor.load({ graph }, { viewport: savedView });
+setInterval(() => editor.setNodeValues({ mix: { badge: '0.42', tone: 'teal', ports: { out: '0.42' } } }), 250);
+```
+
+`setNodeValues` records nothing and leaves the focus where it is, so a host
+can paint as often as its values change.
+
+**Where it was checked.** `tests/flow_modeler_demo.test.mjs` mounts the demo
+under jsdom: what it shows, its live badges, and this section's list against
+the options. `tests/flow_kit_vocabulary.test.mjs` §4 holds every flow and
+canvas source the demo imports, and the demo itself, to the vocabulary gate.
+In headless Edge, `demo/flow_modeler_probe.mjs` opens the page by a real click
+on its link in `demo/index.html` and drives it with real input:
+- The bodies were drawn at their own size below their ports; every line left
+  its output dot and its arrowhead ended on its input dot, within 1px; the
+  group frame was round both sources and nothing else; a dashed line had a
+  dash pattern and a label was the element at its own centre.
+- The badges changed in each of three seconds while a settings field, focused
+  by a real click, kept the focus, and nothing was recorded.
+- A real drag from an output to an input added one line, dot to dot, as one
+  undo entry. The gesture line appears above the canvas when a drag starts and
+  moves the canvas down by its height, so the probe aims at the input where it
+  is drawn once the line has started, as a reader would.
+- A real click and Shift+click and a real Ctrl+G drew a second frame round
+  exactly the two steps; real Ctrl+C and Ctrl+V put two copies two grid steps
+  right of and below the originals, with the line between them; a real click
+  on Arrange ran every line left to right, the sources first and the displays
+  last, with no two steps overlapping. Each was one undo entry.
+- A real Ctrl+Z after each, last first, put the steps back where they were on
+  the canvas, took the copies, the second frame and the dragged line away, and
+  left the graph the text it was before each step.
+
 
 ### The outline editor
 

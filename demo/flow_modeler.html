@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>FlexDesk — building a modeler on the canvas editor</title>
+    <!-- The modeler options of the canvas editor used together, for headless
+         Edge. Like flow_canvas.html it loads the SOURCE — the development
+         barrel `../flow.js` and the stylesheets under `../css/` — so it needs
+         no dist/ build. Serve the repository root over http (ES modules do not
+         load from file://) and open /demo/flow_modeler.html, or follow the
+         link on /demo/index.html. `demo/flow_modeler_probe.mjs` does both and
+         drives it. -->
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />
+    <link href="../css/tokens.css" rel="stylesheet" />
+    <link href="../css/reset.css" rel="stylesheet" />
+    <link href="../css/flexdesk.css" rel="stylesheet" />
+    <style>
+        /* The demo's own frame and its node bodies. Everything else is the editor's. */
+        html, body { height: 100%; margin: 0; }
+        body { overflow: hidden; background: var(--surface-0); color: var(--text-primary); }
+        .demo { position: absolute; inset: 0; display: flex; flex-direction: column; }
+        .demo__host { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+        .demo__who { color: var(--text-muted); font-size: var(--font-size-sm); }
+        .modeler-gain { display: flex; flex-direction: column; gap: 4px; padding: 6px 10px; }
+        .modeler-gain__value { color: var(--text-secondary); font-size: var(--font-size-sm); }
+        .modeler-gain input { width: 100%; }
+        .modeler-readout { padding: 6px 10px; font-size: 22px; font-variant-numeric: tabular-nums;
+                           color: var(--text-primary); text-align: right; }
+    </style>
+</head>
+<body>
+    <div class="demo"><div class="demo__host" id="host"></div></div>
+    <script type="module" src="./flow_modeler.js"></script>
+</body>
+</html>

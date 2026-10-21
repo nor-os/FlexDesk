@@ -2,7 +2,7 @@
 id: 67
 type: story
 title: "An optional dialogs.openFile capability and a pickFile helper with browser fallback"
-status: review
+status: done
 parent: 23
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: host
 labels: [host, dialogs]
 links: []
 created: 2026-10-17
-updated: 2026-10-18T02:42Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -40,6 +40,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-18 · norman_agent · status: in-progress -> review
 - 2026-10-18 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -56,3 +57,7 @@ Ticked all 6 criteria: pickFile under NULL_HOST opens a browser chooser and reso
 Branch `story-0067`, rebased onto origin/main and landed on main by fast-forward at 7168564.
 
 Tests: after the rebase, `node tests/run.mjs` in the worktree exited 0 with "FLEXDESK TESTS: GREEN — 134 suite(s)", and no line matched `: SKIPPED` or `  FAIL `. `node build.mjs` succeeded, and dist/ was reverted afterwards (not committed). App check: none was run. The tests cover the browser fallback and the host paths; no live pywebview or Photino host was exercised.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

@@ -2,10 +2,10 @@
 id: 84
 type: story
 title: "A modeler demo page, a headless probe and a README section show the canvas modeler options working together"
-status: refined
+status: in-progress
 parent: 73
 phase: 
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 3
@@ -13,7 +13,7 @@ subsystem: canvas
 labels: [flexdesk, modeler]
 links: [blocked-by 74, blocked-by 75, blocked-by 76, blocked-by 77, blocked-by 78, blocked-by 79, blocked-by 80, blocked-by 81, blocked-by 82, blocked-by 83]
 created: 2026-10-17
-updated: 2026-10-17T21:20Z
+updated: 2026-10-21T06:12Z
 ---
 
 ## Description
@@ -31,6 +31,8 @@ The modeler options are only proven when used together. `demo/flow_modeler.html`
 ## History
 
 - 2026-10-17 · norman_agent · status: draft -> refined
+- 2026-10-21 · norman_agent · status: refined -> in-progress
+- 2026-10-21 · norman_agent · assignee:  -> norman_agent
 
 ## Comments
 

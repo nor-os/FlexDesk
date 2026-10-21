@@ -2,7 +2,7 @@
 id: 35
 type: story
 title: "Panel tile sizes survive load, desktop switch and panel toggle"
-status: review
+status: done
 parent: 29
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: shell
 labels: [shell, panels, bugfix]
 links: [relates-to BUG-0007]
 created: 2026-10-17
-updated: 2026-10-19T10:29Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -38,6 +38,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-17 · norman_agent · assignee: (unset) -> norman_agent
 - 2026-10-19 · norman_agent · status: in-progress -> review
 - 2026-10-19 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -79,3 +80,7 @@ Tests: after the rebase, `node tests/run.mjs` in the worktree ran to completion 
 App check: none in a live app. These criteria are FlexDesk behaviour and are checked by the panel_sizes_kept suite in FlexDesk's test harness. Seeing it in EcoSim belongs to EcoSim STORY-0034.
 
 BUG-0007 is handed back to testing in the same commit.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

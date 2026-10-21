@@ -2,7 +2,7 @@
 id: 31
 type: story
 title: "Embedders can disable or rebind built-in WM chords, and the help shortcut is installed by the shell"
-status: review
+status: done
 parent: 29
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: shell
 labels: [shell, keymap]
 links: []
 created: 2026-10-17
-updated: 2026-10-17T23:13Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -40,6 +40,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-17 · norman_agent · assignee:  -> norman_agent
 - 2026-10-17 · norman_agent · status: in-progress -> review
 - 2026-10-17 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -58,3 +59,7 @@ Branch: story-0031, rebased onto origin/main and landed on main by fast-forward.
 Tests: `node tests/run.mjs` (/usr/bin/node) at 6d8cf68 printed "FLEXDESK TESTS: GREEN — 121 suite(s)" and exited 0. No line says SKIPPED. `node build.mjs` exited 0, and dist/ was then restored, not committed.
 
 App check: no check was done in a running app at landing. The criteria were checked through the test suite only.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

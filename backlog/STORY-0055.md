@@ -2,7 +2,7 @@
 id: 55
 type: story
 title: "A safe-by-default markdown renderer with math and extension hooks; HelpModal accepts markdown topics"
-status: review
+status: done
 parent: 54
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: help
 labels: [markdown, security, new-component]
 links: [relates-to BUG-0010]
 created: 2026-10-17
-updated: 2026-10-17T23:33Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -40,6 +40,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-17 · norman_agent · status: in-progress -> review
 - 2026-10-17 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -69,3 +70,7 @@ Branch `story-0055`, rebased onto origin/main and landed on main by fast-forward
 Tests: after the rebase, `node tests/run.mjs` (Linux node) in the worktree: "FLEXDESK TESTS: GREEN — 123 suite(s)", exit 0, no `: SKIPPED` lines. `node build.mjs` succeeded (widgets 262.7 kB); dist/ was reset and is not committed.
 
 App check: no separate app run. The HelpModal path was exercised in jsdom by `tests/help_modal_markdown.test.mjs`, which passes.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

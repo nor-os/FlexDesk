@@ -2,7 +2,7 @@
 id: 66
 type: story
 title: "DataTable column groups and add/rename/delete of rows and columns from the headers"
-status: review
+status: done
 parent: 1
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: datatable
 labels: [datatable, editable-grid]
 links: [blocked-by 3]
 created: 2026-10-17
-updated: 2026-10-20T15:56Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -39,6 +39,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-17 · norman_agent · assignee:  -> norman_agent
 - 2026-10-20 · norman_agent · status: in-progress -> review
 - 2026-10-20 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -78,3 +79,7 @@ Landing: the branch was rebased onto origin/main, which linearised it and droppe
 Tests: `node tests/run.mjs` with Linux node, run to completion on the final tip after the last rebase onto e53c64a: "FLEXDESK TESTS: GREEN — 179 suite(s)", EXIT=0, no ': SKIPPED' lines. `node build.mjs` succeeded, and dist/ was reverted and not committed.
 
 App check: none in a live app. FlexDesk is the library, and all checking was in the jsdom suites. The EcoSim side is EcoSim STORY-0099 (`../EcoSim/backlog/STORY-0099.md`).
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

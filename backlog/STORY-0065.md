@@ -2,7 +2,7 @@
 id: 65
 type: story
 title: "STORY-0006 items: duplicate step, host card-menu items, and upstream-column widgets editable before columns are known"
-status: review
+status: done
 parent: 5
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: flow
 labels: [flow, lanes]
 links: [relates-to STORY-0006]
 created: 2026-10-17
-updated: 2026-10-18T02:18Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -41,6 +41,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-18 · norman_agent · status: in-progress -> review
 - 2026-10-18 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -64,3 +65,7 @@ Ticked: all 7 criteria (duplicate creates a copy and selects it; Ctrl+D duplicat
 Tests: `node tests/run.mjs` (Linux node) on the rebased branch: "FLEXDESK TESTS: GREEN — 133 suite(s)", exit 0, no `: SKIPPED` lines. New suites: tests/flow_lanes_duplicate.test.mjs and tests/flow_kit_columns_unknown.test.mjs. Updated: flow_kit_widgets §8 and flow_lanes_editor §7. `node build.mjs` succeeded. dist/ was restored and is not committed.
 
 App check: not run in a live app. The criteria are verified by the automated suites above, which drive the lane editor and the widgets in the test DOM.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

@@ -2,7 +2,7 @@
 id: 86
 type: story
 title: "DataTable columns can be reordered by drag and from code, and the order is kept"
-status: review
+status: done
 parent: 1
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: grid
 labels: [grid, editing, tables-consumer]
 links: [blocked-by 3]
 created: 2026-10-18
-updated: 2026-10-20T15:09Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -37,6 +37,7 @@ Owner decisions (norman, 2026-10-18): FlexDesk provides every UI operation and m
 - 2026-10-20 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-20 · norman_agent · status: in-progress -> review
 - 2026-10-20 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -59,3 +60,7 @@ Ticked: all five criteria (drag/moveColumn/getColumnOrder/columnOrder/onColumnsC
 Landed tip on main: b812de4. The branch was rebased onto origin/main (ba8edee) before landing, giving three commits: eb342ba, 454c646, b812de4. origin/story-0086 still holds the pre-rebase history (tip a48396c, with merges of origin/main) and was not force-pushed.
 
 Tests: on b812de4, the full suite `node tests/run.mjs` (Linux node) finished with "FLEXDESK TESTS: GREEN — 177 suite(s)", exit 0, and 0 ": SKIPPED" lines. `node build.mjs` exits 0. dist/ was restored and not committed. App check: none. This is a library component covered by its jsdom suite, and no consuming app was run for this story.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

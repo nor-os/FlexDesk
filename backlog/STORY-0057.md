@@ -2,7 +2,7 @@
 id: 57
 type: story
 title: "A conversation view with streaming messages and a composer"
-status: review
+status: done
 parent: 54
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: widgets
 labels: [widgets, new-component]
 links: []
 created: 2026-10-17
-updated: 2026-10-19T16:22Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -40,6 +40,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-19 · norman_agent · status: in-progress -> review
 - 2026-10-19 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -76,3 +77,7 @@ Ticked: all six criteria: appendChunk updates only the last message's DOM; scrol
 Tests at 5d873ed, watched to the end: `node tests/run.mjs` gives 'FLEXDESK TESTS: GREEN — 157 suite(s)', exit 0, and no ': SKIPPED' lines. `node tests/conversation_view.test.mjs` exits 0 with 'all assertions passed' and no failing assertions. `node build.mjs` succeeds (exit 0); dist/ was reverted afterwards and is not committed.
 
 App check: none. This is a library component that no app uses yet. EcoSim adopts it in EcoSim STORY-0088 (`../EcoSim/backlog/STORY-0088.md`), and the check in a real app belongs there.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

@@ -2,7 +2,7 @@
 id: 64
 type: story
 title: "mountTileConfigForm renders TileBase config schemas inline, with an opt-in grid:config-modal-show handler"
-status: review
+status: done
 parent: 21
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: tiles
 labels: [tiles, forms]
 links: [relates-to BUG-0021]
 created: 2026-10-17
-updated: 2026-10-19T15:13Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -40,6 +40,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-17 · norman_agent · assignee:  -> norman_agent
 - 2026-10-19 · norman_agent · status: in-progress -> review
 - 2026-10-19 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -72,3 +73,7 @@ Ticked: all 6 criteria. Each one is covered by tests/tile_config_form.test.mjs (
 Tests on the rebased tree, before the push: `node tests/run.mjs` ran to completion and exited 0, "FLEXDESK TESTS: GREEN — 153 suite(s)". 0 lines matched ': SKIPPED'. The only 'FAIL' match was the passing test "an older request FAILING last is dropped too". `node tests/tile_config_form.test.mjs` printed "all assertions passed" (exit 0). `node build.mjs` exited 0, and I reverted its dist/ output, so dist/ is not committed.
 
 App check: this is library code, so there is no app to launch. The DOM behaviour (focus, visibility, label wiring, modal and slide-out) is checked in jsdom by the suite above. EcoSim's use of it is EcoSim STORY-0076 (`../EcoSim/backlog/STORY-0076.md`).
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

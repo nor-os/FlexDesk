@@ -1,6 +1,10 @@
 import {
-  NotebookTabBar
-} from "./chunk-NLTOY57M.js";
+  DEFAULT_TAB_DRAG_MIME,
+  NotebookTabBar,
+  getTabDragMime,
+  setTabDragMime
+} from "./chunk-UURZ37SD.js";
+import "./chunk-N7HC3ADV.js";
 import "./chunk-WVFGV5FT.js";
 import "./chunk-JYWURG5T.js";
 
@@ -112,7 +116,7 @@ var EditorPane = class {
       if (this.#isExternalTabDrag(e)) {
         e.preventDefault();
         this.#editorContainer.classList.remove("notebook-editor-container--drop-target");
-        const filePath = e.dataTransfer.getData("application/x-ecosim-tab") || e.dataTransfer.getData("text/plain");
+        const filePath = e.dataTransfer.getData(getTabDragMime()) || e.dataTransfer.getData("text/plain");
         if (filePath) {
           this.#callbacks.onDropFromOtherPane?.(this.#id, filePath);
         }
@@ -206,7 +210,7 @@ var EditorPane = class {
   /** Check if a drag event is carrying a tab from another pane. */
   #isExternalTabDrag(e) {
     try {
-      return e.dataTransfer.types.includes("application/x-ecosim-tab");
+      return e.dataTransfer.types.includes(getTabDragMime());
     } catch {
       return false;
     }
@@ -225,7 +229,7 @@ var EditorPane = class {
 
 // src/editor/monaco_loader.js
 var _resolveMonaco;
-var _monacoReady = false;
+var _attempt = null;
 var monacoReady = new Promise((resolve) => {
   _resolveMonaco = resolve;
 });
@@ -234,39 +238,77 @@ function injectLoaderScript(src) {
     const s = document.createElement("script");
     s.src = src;
     s.onload = resolve;
-    s.onerror = () => reject(new Error(`Failed to load Monaco loader: ${src}`));
+    s.onerror = () => {
+      s.remove?.();
+      reject(new Error(`Failed to load Monaco loader: ${src}`));
+    };
     document.head.appendChild(s);
   });
 }
 function injectMonacoCss(basePath) {
   const id = "monaco-editor-css";
-  if (document.getElementById(id)) return;
+  const href = `${basePath}/vs/editor/editor.main.css`;
+  const existing = document.getElementById(id);
+  if (existing) {
+    if (existing.getAttribute?.("href") !== href) existing.setAttribute?.("href", href);
+    return;
+  }
   const link = document.createElement("link");
   link.id = id;
   link.rel = "stylesheet";
-  link.href = `${basePath}/vs/editor/editor.main.css`;
+  link.href = href;
   document.head.appendChild(link);
 }
-async function initMonaco(basePath) {
-  if (!basePath) {
-    throw new Error(
-      "[twm/editor] initMonaco() needs the path to your copy of Monaco, e.g. initMonaco('vendor/monaco'). Monaco is a peer dependency; the library does not guess where you put it."
-    );
-  }
-  if (_monacoReady) return monacoReady;
-  _monacoReady = true;
+function requireEditorMain(basePath) {
+  return new Promise((resolve, reject) => {
+    window.require.config({
+      paths: { vs: `${basePath}/vs` },
+      "vs/nls": { availableLanguages: {} }
+    });
+    window.require(["vs/editor/editor.main"], () => {
+      if (window.monaco) resolve(window.monaco);
+      else reject(new Error(
+        `[twm/editor] vs/editor/editor.main loaded from ${basePath}/vs but did not set window.monaco.`
+      ));
+    }, (err) => {
+      reject(new Error(
+        `[twm/editor] Failed to load Monaco from ${basePath}/vs: ${err?.message ?? err}. Monaco's AMD loader caches this failure, so it is final for this page: fix the path and reload.`
+      ));
+    });
+  });
+}
+async function loadMonaco(basePath) {
   injectMonacoCss(basePath);
   if (!window.require) {
-    await injectLoaderScript(`${basePath}/vs/loader.js`);
+    const src = `${basePath}/vs/loader.js`;
+    await injectLoaderScript(src);
+    if (!window.require) {
+      throw new Error(
+        `[twm/editor] ${src} loaded but did not define window.require; is it Monaco's vs/loader.js?`
+      );
+    }
   }
-  window.require.config({
-    paths: { vs: `${basePath}/vs` },
-    "vs/nls": { availableLanguages: {} }
-  });
-  window.require(["vs/editor/editor.main"], () => {
-    _resolveMonaco(window.monaco);
-  });
-  return monacoReady;
+  return requireEditorMain(basePath);
+}
+function initMonaco(basePath) {
+  if (_attempt) return _attempt;
+  if (!basePath) {
+    return Promise.reject(new Error(
+      "[twm/editor] initMonaco() needs the path to your copy of Monaco, e.g. initMonaco('vendor/monaco'). Monaco is a peer dependency; the library does not guess where you put it."
+    ));
+  }
+  const attempt = loadMonaco(basePath).then(
+    (m) => {
+      _resolveMonaco(m);
+      return m;
+    },
+    (err) => {
+      if (!window.require && _attempt === attempt) _attempt = null;
+      throw err;
+    }
+  );
+  _attempt = attempt;
+  return attempt;
 }
 
 // src/editor/monaco_editor_factory.js
@@ -281,7 +323,7 @@ function safeDispose(editor) {
     if (e?.message !== "Canceled") throw e;
   }
 }
-var ECOSIM_DARK_THEME = {
+var DARK_THEME = {
   base: "vs-dark",
   inherit: true,
   rules: [
@@ -326,7 +368,7 @@ var ECOSIM_DARK_THEME = {
     "scrollbarSlider.hoverBackground": "#4a4a4d70"
   }
 };
-var ECOSIM_LIGHT_THEME = {
+var LIGHT_THEME = {
   base: "vs",
   inherit: true,
   rules: [
@@ -359,17 +401,37 @@ var ECOSIM_LIGHT_THEME = {
     "scrollbarSlider.hoverBackground": "#babbbd70"
   }
 };
-var _themesRegistered = false;
+var DEFAULT_EDITOR_THEME_NAMES = Object.freeze({
+  dark: "flexdesk-dark",
+  light: "flexdesk-light"
+});
+var _themeNames = DEFAULT_EDITOR_THEME_NAMES;
+function setEditorThemeNames({ dark, light } = {}) {
+  _themeNames = Object.freeze({
+    dark: typeof dark === "string" && dark ? dark : DEFAULT_EDITOR_THEME_NAMES.dark,
+    light: typeof light === "string" && light ? light : DEFAULT_EDITOR_THEME_NAMES.light
+  });
+}
+function getEditorThemeNames() {
+  return _themeNames;
+}
+var _definedThemes = /* @__PURE__ */ new WeakMap();
 function ensureThemes(monaco) {
-  if (_themesRegistered) return;
-  _themesRegistered = true;
-  monaco.editor.defineTheme("ecosim-dark", ECOSIM_DARK_THEME);
-  monaco.editor.defineTheme("ecosim-light", ECOSIM_LIGHT_THEME);
+  let defined = _definedThemes.get(monaco);
+  if (!defined) {
+    defined = /* @__PURE__ */ new Set();
+    _definedThemes.set(monaco, defined);
+  }
+  for (const [name, theme] of [[_themeNames.dark, DARK_THEME], [_themeNames.light, LIGHT_THEME]]) {
+    if (defined.has(name)) continue;
+    defined.add(name);
+    monaco.editor.defineTheme(name, theme);
+  }
 }
 function baseOptions(overrides = {}) {
   return {
     language: _defaultLanguage,
-    theme: "ecosim-dark",
+    theme: _themeNames.dark,
     fontFamily: 'Consolas, "Courier New", monospace',
     fontSize: 13,
     lineHeight: 19.5,
@@ -422,9 +484,15 @@ function singleLineOptions(overrides = {}) {
     ...overrides
   });
 }
+function checkMaxHeight(px) {
+  if (typeof px !== "number" || Number.isNaN(px) || px <= 0) {
+    throw new RangeError(`maxHeight must be a positive number of px or Infinity, got ${String(px)}`);
+  }
+  return px;
+}
 var MonacoEditorFactory = class {
   #monaco = null;
-  #currentTheme = "ecosim-dark";
+  #currentTheme = _themeNames.dark;
   constructor() {
   }
   async init() {
@@ -437,23 +505,33 @@ var MonacoEditorFactory = class {
   }
   /**
    * Set global theme for all editors.
-   * @param {'ecosim-dark'|'ecosim-light'} theme
+   * @param {string} theme  A theme name Monaco knows: one of
+   *   getEditorThemeNames(), or one the embedder defined itself.
    */
   setTheme(theme) {
     this.#currentTheme = theme;
     this.#monaco?.editor.setTheme(theme);
   }
   /**
-   * Create a full multi-line editor (for CodeCell).
+   * Create a full multi-line editor.
+   *
+   * Unless `noAutoHeight` is set, the editor sizes `container` to its content,
+   * never below `setMinHeight()` (80px by default) and never above `maxHeight`.
+   * Past the cap, Monaco scrolls internally and handles the mouse wheel; below
+   * it, Monaco leaves the wheel alone, so it reaches whatever scrolls around
+   * the editor.
    *
    * @param {HTMLElement} container
    * @param {string} initialValue
-   * @param {{ language?: string, readOnly?: boolean, lineNumbers?: string } & object} [overrides]
+   * @param {{ language?: string, readOnly?: boolean, lineNumbers?: string, maxHeight?: number, noAutoHeight?: boolean } & object} [overrides]
+   *     `maxHeight`: the auto-height cap in px, `Infinity` (the default) for none.
+   *     `noAutoHeight`: leave the container's size to its layout; the wheel always scrolls the editor.
    * @returns {EditorHandle}
    */
   createEditor(container, initialValue = "", overrides = {}) {
     if (!this.#monaco) throw new Error("MonacoEditorFactory not initialized");
-    const { noAutoHeight, ...editorOverrides } = overrides;
+    const { noAutoHeight, maxHeight: maxHeightOption = Infinity, ...editorOverrides } = overrides;
+    let maxHeight = checkMaxHeight(maxHeightOption);
     const editor = this.#monaco.editor.create(container, {
       ...baseOptions({ theme: this.#currentTheme }),
       value: initialValue,
@@ -466,23 +544,14 @@ var MonacoEditorFactory = class {
       editor.updateOptions({ scrollbar: { handleMouseWheel: true } });
     } else {
       updateHeight = () => {
-        const maxHeightEnabled = container.closest(".notebook-editor-container")?.dataset.codeMaxHeight === "true";
-        const maxH = maxHeightEnabled ? 400 : Infinity;
         const rawContent = editor.getContentHeight();
-        const contentHeight = Math.min(maxH, Math.max(minHeight, rawContent));
+        const contentHeight = Math.min(maxHeight, Math.max(minHeight, rawContent));
         container.style.height = `${contentHeight}px`;
         editor.layout();
-        const needsInternalScroll = maxHeightEnabled && rawContent > maxH;
-        editor.updateOptions({ scrollbar: { handleMouseWheel: needsInternalScroll } });
+        editor.updateOptions({ scrollbar: { handleMouseWheel: rawContent > maxHeight } });
       };
       heightDisposable = editor.onDidContentSizeChange(updateHeight);
       updateHeight();
-    }
-    const editorContainer = container.closest(".notebook-editor-container");
-    let maxHeightObserver = null;
-    if (updateHeight && editorContainer) {
-      maxHeightObserver = new MutationObserver(() => updateHeight());
-      maxHeightObserver.observe(editorContainer, { attributes: true, attributeFilter: ["data-code-max-height"] });
     }
     let findWidgetObserver = null;
     const observeFindWidget = () => {
@@ -511,10 +580,14 @@ var MonacoEditorFactory = class {
       setMinHeight: (h) => {
         minHeight = h;
       },
+      /** The auto-height cap in px, `Infinity` for none; applies at once. No effect with `noAutoHeight`. */
+      setMaxHeight: (px) => {
+        maxHeight = checkMaxHeight(px);
+        updateHeight?.();
+      },
       updateHeight,
       dispose: () => {
         findWidgetObserver?.disconnect();
-        maxHeightObserver?.disconnect();
         heightDisposable?.dispose();
         safeDispose(editor);
       }
@@ -598,8 +671,10 @@ var MonacoEditorFactory = class {
   createDiffEditor(container, originalContent = "", modifiedContent = "", options = {}) {
     const monaco = this.#monaco;
     const language = options.language || "plaintext";
-    const originalModel = monaco.editor.createModel(originalContent, language);
-    const modifiedModel = monaco.editor.createModel(modifiedContent, language);
+    let models = {
+      original: monaco.editor.createModel(originalContent, language),
+      modified: monaco.editor.createModel(modifiedContent, language)
+    };
     const diffEditor = monaco.editor.createDiffEditor(container, {
       theme: this.#currentTheme,
       readOnly: options.readOnly !== false,
@@ -613,35 +688,40 @@ var MonacoEditorFactory = class {
       renderOverviewRuler: false,
       enableSplitViewResizing: true
     });
-    diffEditor.setModel({ original: originalModel, modified: modifiedModel });
+    diffEditor.setModel(models);
     return {
       editor: diffEditor,
       setModels(original, modified, lang) {
-        originalModel.dispose();
-        modifiedModel.dispose();
-        const newOrig = monaco.editor.createModel(original, lang || language);
-        const newMod = monaco.editor.createModel(modified, lang || language);
-        diffEditor.setModel({ original: newOrig, modified: newMod });
+        const previous = models;
+        models = {
+          original: monaco.editor.createModel(original, lang || language),
+          modified: monaco.editor.createModel(modified, lang || language)
+        };
+        diffEditor.setModel(models);
+        safeDispose(previous.original);
+        safeDispose(previous.modified);
       },
       dispose() {
         safeDispose(diffEditor);
-        safeDispose(originalModel);
-        safeDispose(modifiedModel);
+        safeDispose(models.original);
+        safeDispose(models.modified);
       }
     };
   }
 };
-var _factoryInstance = null;
+var _factoryPromise = null;
 var _monacoBasePath = null;
 function setMonacoBasePath(basePath) {
   if (typeof basePath === "string" && basePath) _monacoBasePath = basePath;
 }
-async function getEditorFactory() {
-  if (!_factoryInstance) {
-    initMonaco(_monacoBasePath);
-    _factoryInstance = await new MonacoEditorFactory().init();
+function getEditorFactory() {
+  if (!_factoryPromise) {
+    _factoryPromise = initMonaco(_monacoBasePath).then(() => new MonacoEditorFactory().init()).catch((err) => {
+      _factoryPromise = null;
+      throw err;
+    });
   }
-  return _factoryInstance;
+  return _factoryPromise;
 }
 
 // src/editor/notebook_search.js
@@ -1203,14 +1283,14 @@ var SplitPaneContainer = class {
     this.#container.innerHTML = "";
     if (!this.#pane1) return;
     if (!this.#isSplit) {
-      this.#pane1.className = "split-pane";
+      this.#pane1.classList.add("split-pane");
       this.#pane1.style.flex = "1 1 0";
       this.#pane1.style.minWidth = "0";
       this.#container.appendChild(this.#pane1);
       this.#container.classList.remove("split-pane-container--split");
     } else {
-      this.#pane1.className = "split-pane";
-      this.#pane2.className = "split-pane";
+      this.#pane1.classList.add("split-pane");
+      this.#pane2.classList.add("split-pane");
       this.#pane1.style.minWidth = "0";
       this.#pane2.style.minWidth = "0";
       this.#container.appendChild(this.#pane1);
@@ -1269,6 +1349,8 @@ var SplitPaneContainer = class {
   }
 };
 export {
+  DEFAULT_EDITOR_THEME_NAMES,
+  DEFAULT_TAB_DRAG_MIME,
   EditorPane,
   MonacoEditorFactory,
   NotebookSearchBar,
@@ -1276,9 +1358,13 @@ export {
   NotebookUndoManager,
   SplitPaneContainer,
   getEditorFactory,
+  getEditorThemeNames,
+  getTabDragMime,
   initMonaco,
   monacoReady,
   setDefaultLanguage,
-  setMonacoBasePath
+  setEditorThemeNames,
+  setMonacoBasePath,
+  setTabDragMime
 };
 //# sourceMappingURL=editor.js.map

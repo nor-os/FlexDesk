@@ -2,7 +2,7 @@
 id: 76
 type: story
 title: "Canvas editor multi-selection with bulk move, delete, nudge, align and distribute"
-status: review
+status: done
 parent: 73
 phase: 
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: canvas
 labels: [flexdesk, modeler]
 links: []
 created: 2026-10-17
-updated: 2026-10-19T15:29Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -37,6 +37,7 @@ Canvas selection is a single `{kind, id}` and the kernel's marquee selection is 
 - 2026-10-18 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-19 · norman_agent · status: in-progress -> review
 - 2026-10-19 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -62,3 +63,7 @@ Landed tip on main: 614171c, a fast-forward from 7be01ac. Branch story-0076 was 
 Tests: `node tests/run.mjs` (Linux node) ran to completion on the rebased tip: "FLEXDESK TESTS: GREEN — 154 suite(s)", exit 0, no ': SKIPPED' lines. `node build.mjs` succeeded; dist/ was reset and not committed.
 
 App check: the real-browser probe `node.exe demo/flow_canvas_probe.mjs` was re-run on the rebased tip. Every check held, exit 0. The 300-node bulk move of 50 steps took 3.7 ms and its undo 5.4 ms, both under 100 ms.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

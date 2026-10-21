@@ -2,7 +2,7 @@
 id: 3
 type: story
 title: "The editable grid: selection, keyboard over cells, editors, staged edits, fill handle and paste"
-status: review
+status: done
 parent: 1
 phase: 
 assignee: norman
@@ -12,7 +12,7 @@ subsystem: grid
 labels: [grid, editing, tables-consumer]
 links: []
 created: 2026-10-11
-updated: 2026-10-20T11:30Z
+updated: 2026-10-21T07:42Z
 ---
 ## Description
 
@@ -44,6 +44,7 @@ Owner decisions (norman, 2026-10-18): FlexDesk provides every UI operation and m
 - 2026-10-19 · norman_agent · assignee: (unset) -> norman_agent
 - 2026-10-20 · norman_agent · status: in-progress -> review
 - 2026-10-20 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -68,3 +69,7 @@ Landed: rebased branch story-0003 onto origin/main and fast-forwarded main to d0
 Tests: full suite `node tests/run.mjs` on the rebased tree (d075e71): "FLEXDESK TESTS: GREEN — 173 suite(s)", exit 0, 0 SKIPPED lines. `node build.mjs` succeeded; dist/ was restored, not committed.
 
 App check: none in this landing step. This is library code that no app uses yet; the suites above exercise it in jsdom. Tables adopts it in Tables STORY-0217.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

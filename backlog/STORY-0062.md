@@ -2,7 +2,7 @@
 id: 62
 type: story
 title: "Derived-series transforms are injected, and the plot window ships no built-in transform"
-status: review
+status: done
 parent: 59
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: charts
 labels: [charts, injection]
 links: []
 created: 2026-10-17
-updated: 2026-10-18T01:22Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -38,6 +38,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-18 · norman_agent · status: in-progress -> review
 - 2026-10-18 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -69,3 +70,7 @@ Branch `story-0062`, rebased onto main (conflicts in README.md and css/flexdesk.
 Tests: `node tests/run.mjs` (Linux node) after the rebase: FLEXDESK TESTS: GREEN, 130 suites, 0 lines with ': SKIPPED'. `node build.mjs` exit 0; dist/ restored, not committed.
 
 App check: not run. No host app was launched in this handback; verification is the test suites above.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

@@ -2,7 +2,7 @@
 id: 77
 type: story
 title: "Canvas editor copy, cut, paste and duplicate of nodes and the lines between them"
-status: review
+status: done
 parent: 73
 phase: 
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: canvas
 labels: [flexdesk, modeler]
 links: [blocked-by 76, relates-to 65]
 created: 2026-10-17
-updated: 2026-10-19T17:43Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -36,6 +36,7 @@ The canvas editor binds no clipboard. The legacy modeler copied nodes with their
 - 2026-10-19 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-19 · norman_agent · status: in-progress -> review
 - 2026-10-19 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -64,3 +65,7 @@ Ticked all six criteria, each checked by tests/flow_canvas_clipboard.test.mjs: c
 Tests: on the rebased tip, `node tests/run.mjs` (Linux node) ran to the end: "FLEXDESK TESTS: GREEN — 159 suite(s)", exit 0, no FAIL or SKIPPED lines. `node build.mjs` succeeded; dist/ was restored and not committed.
 
 App check: the real-browser probe `node.exe demo/flow_canvas_probe.mjs` was re-run on the rebased tip; every check held, exit 0. That probe does not drive the clipboard keys, so the clipboard itself is checked by the jsdom suite only; it confirms the editor's existing real-browser behaviour is unchanged.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

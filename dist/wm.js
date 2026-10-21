@@ -1,25 +1,31 @@
 import {
-  HelpModal
-} from "./chunk-W6FBJLPW.js";
+  HelpModal,
+  createMenuBar
+} from "./chunk-JKZLNKG6.js";
+import {
+  TAB_LEVELS,
+  createTabs
+} from "./chunk-HYJYYEPK.js";
 import {
   showContextMenu
-} from "./chunk-B5Q53LAJ.js";
+} from "./chunk-UWO43BZU.js";
 import {
   openForm
-} from "./chunk-NNFTETK3.js";
+} from "./chunk-D3COLZZ2.js";
 import {
   ManagedWindow,
   isRowActivation
-} from "./chunk-6JSOVNID.js";
-import "./chunk-FL5KFNQH.js";
+} from "./chunk-CVMCZZX2.js";
+import "./chunk-HNU6MM2B.js";
 import {
   NotebookTabBar
-} from "./chunk-NLTOY57M.js";
+} from "./chunk-UURZ37SD.js";
+import "./chunk-N7HC3ADV.js";
 import "./chunk-WVFGV5FT.js";
 import "./chunk-JYWURG5T.js";
 
 // src/tiling/bottom_panel_tabs.js
-var BADGE_LEVELS = Object.freeze(["info", "warning", "alert"]);
+var BADGE_LEVELS = TAB_LEVELS;
 function createBottomPanelTabs(container, {
   panes = [],
   remember = null,
@@ -28,103 +34,38 @@ function createBottomPanelTabs(container, {
   onSelect = null,
   initial = null
 } = {}) {
-  const doc = container.ownerDocument;
-  const root = doc.createElement("div");
-  root.className = "twm-bp";
-  const strip = doc.createElement("div");
-  strip.className = "twm-bp__tabs";
-  strip.setAttribute("role", "tablist");
-  const body = doc.createElement("div");
-  body.className = "twm-bp__body";
-  root.append(strip, body);
-  container.appendChild(root);
   const byId = new Map(panes.map((pane) => [pane.id, pane]));
-  const tabs = /* @__PURE__ */ new Map();
-  const mounted = /* @__PURE__ */ new Map();
-  let active = null;
+  let restoring = false;
   let chosen = false;
   let destroyed = false;
-  for (const pane of panes) {
-    const tab = doc.createElement("button");
-    tab.type = "button";
-    tab.className = "twm-bp__tab";
-    tab.dataset.pane = pane.id;
-    tab.setAttribute("role", "tab");
-    tab.setAttribute("aria-selected", "false");
-    const label = doc.createElement("span");
-    label.className = "twm-bp__label";
-    label.textContent = pane.label;
-    const badge = doc.createElement("span");
-    badge.className = "twm-bp__badge";
-    badge.hidden = true;
-    tab.append(label, badge);
-    tab.addEventListener("click", () => api.select(pane.id));
-    strip.appendChild(tab);
-    tabs.set(pane.id, tab);
-  }
-  function mount(id) {
-    if (mounted.has(id)) return mounted.get(id);
-    const pane = byId.get(id);
-    const el = doc.createElement("div");
-    el.className = "twm-bp-pane";
-    el.dataset.pane = id;
-    el.setAttribute("role", "tabpanel");
-    el.hidden = id !== active;
-    body.appendChild(el);
-    const entry = { el, instance: null };
-    mounted.set(id, entry);
-    try {
-      entry.instance = pane.mount?.(el, store ? store(pane) : null, api) ?? null;
-    } catch (err) {
-      console.error(`[bottom-panel] pane "${id}" failed to mount`, err);
-    }
-    return entry;
-  }
-  function show(id) {
-    if (destroyed || !byId.has(id)) return false;
-    active = id;
-    for (const [key, tab] of tabs) {
-      const on = key === id;
-      tab.classList.toggle("twm-bp__tab--on", on);
-      tab.setAttribute("aria-selected", String(on));
-    }
-    for (const [key, entry] of mounted) entry.el.hidden = key !== id;
-    mount(id).instance?.onShow?.();
-    onSelect?.(id, byId.get(id));
-    return true;
-  }
+  let strip = null;
   const api = {
-    root,
+    root: null,
     /** Bring a tab to the front, and remember it. */
     select(id) {
-      if (!show(id)) return;
+      if (destroyed || !byId.has(id)) return;
       chosen = true;
-      try {
-        remember?.write?.(id);
-      } catch {
+      if (strip.active() !== id) {
+        strip.select(id);
+        return;
       }
+      strip.instance(id)?.onShow?.();
+      remembered(id);
     },
     /** The tab in front, or null. */
-    active: () => active,
+    active: () => strip.active(),
     /** `count` on a tab, coloured by `level`; nothing at zero. */
-    setBadge(id, count, level = null) {
-      const badge = tabs.get(id)?.querySelector(".twm-bp__badge");
-      if (!badge) return;
-      const n = Number(count) || 0;
-      badge.hidden = n <= 0;
-      badge.textContent = n > 99 ? "99+" : String(Math.max(n, 0));
-      badge.className = "twm-bp__badge" + (BADGE_LEVELS.includes(level) ? ` twm-bp__badge--${level}` : "");
-    },
+    setBadge: (id, count, level = null) => strip.setBadge(id, count, level),
     /** A mounted pane's live instance, or null — how one tab hands work to
      *  another. `select` it first, which mounts it. */
-    instance: (id) => mounted.get(id)?.instance ?? null,
+    instance: (id) => strip.instance(id),
     /** The panel is on screen again (its tile re-mounted): tell the pane in front. */
     reshow() {
-      if (active) mounted.get(active)?.instance?.onShow?.();
+      strip.instance(strip.active())?.onShow?.();
     },
     /** Before the panel is torn down: every mounted pane saves. */
     async persist() {
-      for (const entry of mounted.values()) await entry.instance?.persist?.();
+      for (const instance of strip.instances()) await instance.persist?.();
     },
     /** Gone for good: panes save, then are destroyed; the bus is let go. */
     async destroy() {
@@ -135,47 +76,410 @@ function createBottomPanelTabs(container, {
         subscription?.dispose?.();
       } catch {
       }
-      for (const entry of mounted.values()) {
-        try {
-          entry.instance?.destroy?.();
-        } catch (err) {
-          console.warn("[bottom-panel] pane destroy failed", err);
-        }
-      }
-      mounted.clear();
-      root.remove();
+      strip.destroy();
     }
   };
-  for (const pane of panes) if (pane.eager) mount(pane.id);
+  function remembered(id) {
+    onSelect?.(id, byId.get(id));
+    try {
+      remember?.write?.(id);
+    } catch {
+    }
+  }
+  strip = createTabs(container, {
+    block: "twm-bp",
+    dataKey: "pane",
+    items: panes.map(({ id, label, eager }) => ({ id, label, eager: !!eager })),
+    active: byId.has(initial) ? initial : panes[0]?.id,
+    mountPane: (item, el, tabs) => {
+      strip ??= tabs;
+      api.root ??= tabs.root;
+      const pane = byId.get(item.id);
+      return pane.mount?.(el, store ? store(pane) : null, api) ?? null;
+    },
+    onSelect: (id) => {
+      if (restoring) {
+        onSelect?.(id, byId.get(id));
+        return;
+      }
+      chosen = true;
+      remembered(id);
+    },
+    // A click on the tab already in front is a select here, as it always
+    // was: the pane hears onShow again and the choice is remembered.
+    onReselect: (id) => api.select(id)
+  });
+  api.root ??= strip.root;
+  if (strip.active() != null) onSelect?.(strip.active(), byId.get(strip.active()));
   const subscription = eventBus?.on?.(
     "bottompanel:show",
     (payload) => api.select(payload?.tab ?? panes[0]?.id)
   ) ?? null;
-  show(byId.has(initial) ? initial : panes[0]?.id);
   if (remember?.read) {
     Promise.resolve().then(() => remember.read()).then((saved) => {
-      if (chosen || destroyed) return;
-      if (byId.has(saved)) show(saved);
+      if (chosen || destroyed || !byId.has(saved)) return;
+      if (strip.active() === saved) {
+        strip.instance(saved)?.onShow?.();
+        onSelect?.(saved, byId.get(saved));
+        return;
+      }
+      restoring = true;
+      try {
+        strip.select(saved);
+      } finally {
+        restoring = false;
+      }
     }).catch(() => {
     });
   }
   return api;
 }
 
+// src/tiling/keymap.js
+var KEYMAP_SHORTCUTS = Object.freeze([
+  { keys: "Ctrl+K", action: "Open the command palette" },
+  { keys: "?", action: "Open help" },
+  { keys: "Esc", action: "Close the palette or a modal" },
+  { keys: "F1..F8", action: "Jump to the Nth top-nav page" },
+  { keys: "Backspace", action: "Go back one step up the breadcrumb" },
+  { keys: "Alt+H / Alt+V", action: "Split the focused tile horizontally / vertically (empty pane)" },
+  { keys: "Alt+Shift+H / Alt+Shift+V", action: "Open the focused tile's content in a horizontal / vertical split" },
+  { keys: "Alt+T", action: "Open the focused tile's content in a new tab" },
+  { keys: "Alt+N", action: "Open the focused tile's content in a new window" },
+  { keys: "Alt+W", action: "Close the focused tile" },
+  { keys: "Alt+F", action: "Float the focused tile into a window, or dock it back" },
+  { keys: "Alt+Arrow", action: "Move focus to the neighbouring tile" },
+  { keys: "Alt+Shift+Arrow", action: "Swap the focused tile with its neighbour" },
+  { keys: "Alt+1..9", action: "Switch to desktop N" },
+  { keys: "Alt+Shift+1..9", action: "Move the focused tile to desktop N" },
+  { keys: "Ctrl+Left / Ctrl+Right", action: "Previous / next desktop" },
+  { keys: "Shift+Left / Shift+Right", action: "Previous / next bottom-panel tab" },
+  { keys: "Ctrl+Tab / Ctrl+Shift+Tab", action: "Next / previous tab in the focused tile" }
+].map((r) => Object.freeze(r)));
+var KEYBOARD_SHORTCUTS_TOPIC_ID = "keyboard-shortcuts";
+var _esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+function keyboardShortcutsTopic(shortcuts = KEYMAP_SHORTCUTS) {
+  const rows = shortcuts.map((r) => `<tr><td><kbd>${_esc(r.keys)}</kbd></td><td>${_esc(r.action)}</td></tr>`).join("");
+  return {
+    id: KEYBOARD_SHORTCUTS_TOPIC_ID,
+    title: "Keyboard shortcuts",
+    html: `<table class="help-shortcuts"><thead><tr><th>Keys</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table>`
+  };
+}
+var DEFAULT_NAV_SELECTOR = ".twm-global-top-bar .twm-bar-center.twm-top-nav .twm-top-nav__btn";
+var DIRS = ["left", "right", "up", "down"];
+var _where = (d) => d === "up" || d === "down" ? d : `on the ${d}`;
+var ACTIONS = {
+  "palette": { label: "Open the command palette", run: ({ palette }) => {
+    palette.toggle();
+  } },
+  "palette:close": { label: "Close the palette", run: ({ palette }) => {
+    if (palette.isOpen()) palette.close();
+    return false;
+  } },
+  "help": { label: "Open help", run: () => {
+    HelpModal.toggle();
+  } },
+  "back": { label: "Go back one step up the breadcrumb", run: ({ wm }) => {
+    wm.navigateBack?.();
+  } },
+  "tab:next": { label: "Next tab in the focused tile", run: ({ wm }) => {
+    wm.cycleFocusedTab(1);
+  } },
+  "tab:prev": { label: "Previous tab in the focused tile", run: ({ wm }) => {
+    wm.cycleFocusedTab(-1);
+  } },
+  "desktop:next": { label: "Next desktop", run: ({ wm }) => {
+    wm.cycleDesktop(1);
+  } },
+  "desktop:prev": { label: "Previous desktop", run: ({ wm }) => {
+    wm.cycleDesktop(-1);
+  } },
+  "panelTab:next": { label: "Next bottom-panel tab", run: () => _cyclePanelTab(1) },
+  "panelTab:prev": { label: "Previous bottom-panel tab", run: () => _cyclePanelTab(-1) },
+  "split:h": { label: "Split the focused tile horizontally (empty pane)", run: ({ wm }) => {
+    wm.split("h");
+  } },
+  "split:v": { label: "Split the focused tile vertically (empty pane)", run: ({ wm }) => {
+    wm.split("v");
+  } },
+  "splitWith:h": { label: "Open the focused tile's content in a horizontal split", run: ({ wm }) => {
+    wm.splitFocusedWith("h");
+  } },
+  "splitWith:v": { label: "Open the focused tile's content in a vertical split", run: ({ wm }) => {
+    wm.splitFocusedWith("v");
+  } },
+  "openInTab": { label: "Open the focused tile's content in a new tab", run: ({ wm }) => {
+    wm.openFocusedInTab();
+  } },
+  "openInWindow": { label: "Open the focused tile's content in a new window", run: ({ wm }) => {
+    wm.openFocusedInWindow();
+  } },
+  "close": { label: "Close the focused tile", run: ({ wm }) => {
+    wm.closeFocused();
+  } },
+  "float": { label: "Float the focused tile into a window, or dock it back", run: ({ wm }) => {
+    wm.toggleManagedFocused();
+  } },
+  // Bare Alt+letter: browsers open their menu bar on it, mid-flow.
+  "suppress": { label: null, run: () => {
+  } },
+  ...Object.fromEntries(DIRS.flatMap((d) => [
+    [`focus:${d}`, { label: `Move focus to the tile ${_where(d)}`, run: ({ wm }) => {
+      wm.focusDir(d);
+    } }],
+    [`move:${d}`, { label: `Swap the focused tile with its neighbour ${_where(d)}`, run: ({ wm }) => {
+      wm.moveFocused(d);
+    } }]
+  ]))
+};
+function _action(name) {
+  if (typeof name !== "string") return null;
+  if (Object.hasOwn(ACTIONS, name)) return ACTIONS[name];
+  const m = /^(nav|desktop|toDesktop):(\d+)$/.exec(name);
+  if (!m) return null;
+  const n = Number(m[2]);
+  if (m[1] === "nav") {
+    return {
+      label: `Jump to top-nav page ${n + 1}`,
+      // The selector is a CONFIG option, not a constant. An embedder that
+      // moves its sections out of the top bar — into an icon rail, say —
+      // would otherwise find F1..F8 silently doing nothing. Passing
+      // `navSelector` is how such an embedder keeps the keys.
+      run: ({ navSelector }) => {
+        const btns = document.querySelectorAll(navSelector || DEFAULT_NAV_SELECTOR);
+        if (n >= btns.length) return false;
+        btns[n].click();
+        return void 0;
+      }
+    };
+  }
+  if (m[1] === "desktop") {
+    return { label: `Switch to desktop ${n + 1}`, run: ({ wm }) => {
+      wm.switchDesktop(n);
+    } };
+  }
+  return { label: `Move the focused tile to desktop ${n + 1}`, run: ({ wm }) => {
+    wm.moveFocusedToDesktop(n);
+  } };
+}
+function _cyclePanelTab(dir) {
+  const tabs = [...document.querySelectorAll(".twm-bp__tabs .twm-bp__tab")];
+  if (!tabs.length) return false;
+  const cur = tabs.findIndex((t) => t.classList.contains("twm-bp__tab--on"));
+  tabs[((cur < 0 ? 0 : cur) + dir + tabs.length) % tabs.length].click();
+  return void 0;
+}
+var ARROWS = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"];
+var DIGITS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+var F_KEYS = Array.from({ length: 12 }, (_, i) => `F${i + 1}`);
+var DEFAULT_CHORDS = [
+  ["Ctrl+K", "palette", true],
+  ["Meta+K", "palette", true],
+  ["?", "help", false],
+  ["Escape", "palette:close", true],
+  ...F_KEYS.map((f, i) => [f, `nav:${i}`, false]),
+  ["Backspace", "back", false],
+  ["Alt+H", "split:h", true],
+  ["Alt+V", "split:v", true],
+  ["Alt+Shift+H", "splitWith:h", true],
+  ["Alt+Shift+V", "splitWith:v", true],
+  ["Alt+T", "openInTab", true],
+  ["Alt+N", "openInWindow", true],
+  ["Alt+W", "close", true],
+  ["Alt+F", "float", true],
+  ...ARROWS.map((k, i) => [`Alt+${k}`, `focus:${DIRS[i]}`, true]),
+  ...ARROWS.map((k, i) => [`Alt+Shift+${k}`, `move:${DIRS[i]}`, true]),
+  ...DIGITS.map((d) => [`Alt+${d}`, `desktop:${d - 1}`, true]),
+  ...DIGITS.map((d) => [`Alt+Shift+${d}`, `toDesktop:${d - 1}`, true]),
+  ["Ctrl+ArrowLeft", "desktop:prev", false],
+  ["Ctrl+ArrowRight", "desktop:next", false],
+  ["Shift+ArrowLeft", "panelTab:prev", false],
+  ["Shift+ArrowRight", "panelTab:next", false],
+  ["Ctrl+Tab", "tab:next", true],
+  ["Meta+Tab", "tab:next", true],
+  ["Ctrl+Shift+Tab", "tab:prev", true],
+  ["Meta+Shift+Tab", "tab:prev", true],
+  ["Alt+Letter", "suppress", false]
+];
+var SHORTCUT_CHORDS = [
+  ["Ctrl+K", "Meta+K"],
+  ["?"],
+  ["Escape"],
+  F_KEYS,
+  ["Backspace"],
+  ["Alt+H", "Alt+V"],
+  ["Alt+Shift+H", "Alt+Shift+V"],
+  ["Alt+T"],
+  ["Alt+N"],
+  ["Alt+W"],
+  ["Alt+F"],
+  ARROWS.map((k) => `Alt+${k}`),
+  ARROWS.map((k) => `Alt+Shift+${k}`),
+  DIGITS.map((d) => `Alt+${d}`),
+  DIGITS.map((d) => `Alt+Shift+${d}`),
+  ["Ctrl+ArrowLeft", "Ctrl+ArrowRight"],
+  ["Shift+ArrowLeft", "Shift+ArrowRight"],
+  ["Ctrl+Tab", "Meta+Tab", "Ctrl+Shift+Tab", "Meta+Shift+Tab"]
+];
+var DEFAULTS = new Map(DEFAULT_CHORDS.map(([id, action, inField]) => [id, { action, inField }]));
+var BY_LOWER = new Map([...DEFAULTS.keys()].map((id) => [id.toLowerCase(), id]));
+var MODIFIER_ORDER = ["Ctrl", "Meta", "Alt", "Shift"];
+var MODIFIER_NAMES = {
+  ctrl: "Ctrl",
+  control: "Ctrl",
+  meta: "Meta",
+  cmd: "Meta",
+  command: "Meta",
+  alt: "Alt",
+  option: "Alt",
+  shift: "Shift"
+};
+var KEY_ALIASES = { esc: "Escape", left: "ArrowLeft", right: "ArrowRight", up: "ArrowUp", down: "ArrowDown" };
+var _shiftCounts = (key) => key.length !== 1 || /^[\p{L}\p{N}]$/u.test(key);
+function _compose(mods, key) {
+  const k = key.length === 1 ? key.toUpperCase() : key;
+  const used = MODIFIER_ORDER.filter((m) => mods.has(m) && (m !== "Shift" || _shiftCounts(key)));
+  return [...used, k].join("+");
+}
+function _chordOfEvent(e) {
+  const key = e.key;
+  if (!key || key === "Control" || key === "Shift" || key === "Alt" || key === "Meta") return null;
+  const { ctrlKey: ctrl, metaKey: meta, altKey: alt, shiftKey: shift } = e;
+  const lower = key.toLowerCase();
+  const cm = ctrl ? "Ctrl" : "Meta";
+  if ((ctrl || meta) && lower === "k" && !shift) return `${cm}+K`;
+  if ((ctrl || meta) && !alt && key === "Tab") return `${cm}+${shift ? "Shift+" : ""}Tab`;
+  if (key === "Escape") return "Escape";
+  if (key === "?") return "?";
+  if (key === "Backspace") return ctrl || meta ? null : "Backspace";
+  if (!alt) {
+    const only = (m) => ctrl === (m === "Ctrl") && shift === (m === "Shift") && !meta;
+    if (/^F([1-9]|1[0-2])$/.test(key)) return !ctrl && !meta && !shift ? key : null;
+    if (key === "ArrowLeft" || key === "ArrowRight") {
+      if (only("Shift")) return `Shift+${key}`;
+      if (only("Ctrl")) return `Ctrl+${key}`;
+    }
+    return null;
+  }
+  const sh = shift ? "Shift+" : "";
+  if (/^[1-9]$/.test(key)) return `Alt+${sh}${key}`;
+  if (lower === "h" || lower === "v") return `Alt+${sh}${lower.toUpperCase()}`;
+  if (lower === "t" || lower === "n" || lower === "w" || lower === "f") return `Alt+${lower.toUpperCase()}`;
+  if (ARROWS.includes(key)) return `Alt+${sh}${key}`;
+  if (/^[a-z]$/.test(lower)) return "Alt+Letter";
+  return null;
+}
+function _canonicalChord(id) {
+  if (typeof id !== "string" || !id) return null;
+  const parts = id.split("+").map((p) => p.trim());
+  const keyRaw = parts.pop();
+  if (!keyRaw) return null;
+  const mods = /* @__PURE__ */ new Set();
+  for (const p of parts) {
+    const m = MODIFIER_NAMES[p.toLowerCase()];
+    if (!m) return null;
+    mods.add(m);
+  }
+  const key = KEY_ALIASES[keyRaw.toLowerCase()] ?? keyRaw;
+  return BY_LOWER.get(_compose(mods, key).toLowerCase()) ?? null;
+}
+function _resolve(bindings) {
+  const table = /* @__PURE__ */ new Map();
+  for (const [id, { action, inField }] of DEFAULTS) {
+    const a = _action(action);
+    table.set(id, { run: a.run, label: a.label, inField, isDefault: true });
+  }
+  const problems = [];
+  if (bindings == null) return { table, problems };
+  if (typeof bindings !== "object") {
+    problems.push("`bindings` must be an object of { chord: action | false | function } \u2014 ignored");
+    return { table, problems };
+  }
+  for (const [rawId, value] of Object.entries(bindings)) {
+    const id = _canonicalChord(rawId);
+    if (!id) {
+      problems.push(`unknown chord "${rawId}" in bindings \u2014 ignored`);
+      continue;
+    }
+    const { action: defaultAction, inField } = DEFAULTS.get(id);
+    if (value === false) {
+      table.set(id, { disabled: true });
+    } else if (typeof value === "function") {
+      table.set(id, {
+        run: (ctx, e) => value(e, { wm: ctx.wm, palette: ctx.palette }),
+        label: "Defined by the application",
+        inField,
+        isDefault: false
+      });
+    } else {
+      const a = _action(value);
+      if (!a) {
+        problems.push(`unknown action ${JSON.stringify(value)} for chord "${rawId}" \u2014 ignored`);
+        continue;
+      }
+      table.set(id, { run: a.run, label: a.label, inField, isDefault: value === defaultAction });
+    }
+  }
+  return { table, problems };
+}
+function keymapShortcuts(bindings = null) {
+  const { table } = _resolve(bindings);
+  const rows = [];
+  SHORTCUT_CHORDS.forEach((chords, i) => {
+    if (chords.every((id) => table.get(id).isDefault)) {
+      rows.push(KEYMAP_SHORTCUTS[i]);
+      return;
+    }
+    for (const id of chords) {
+      const b = table.get(id);
+      if (b.disabled || !b.label) continue;
+      rows.push(Object.freeze({ keys: id, action: b.label }));
+    }
+  });
+  return Object.freeze(rows);
+}
+function installKeymap({ wm, palette, navSelector = null, bindings = null, logger = null } = {}) {
+  const { table, problems } = _resolve(bindings);
+  const log = logger ?? console;
+  for (const p of problems) log.warn?.(`[keymap] ${p}`);
+  const ctx = { wm, palette, navSelector };
+  const onKeyDown = (e) => {
+    if (e.defaultPrevented) return;
+    const chord = _chordOfEvent(e);
+    if (!chord) return;
+    const b = table.get(chord);
+    if (!b || b.disabled) return;
+    if (!b.inField && e.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+    if (b.run(ctx, e) !== false) e.preventDefault();
+  };
+  document.addEventListener("keydown", onKeyDown);
+  return () => document.removeEventListener("keydown", onKeyDown);
+}
+
 // src/tiling/command_palette.js
 var ROOT_ID = "twm-cmdpal";
-var STATIC_COMMANDS = [
-  {
-    kind: "command",
-    id: "shortcuts",
-    label: "Keyboard shortcuts",
-    hint: "Show all key bindings (?)",
-    icon: "keyboard",
-    shortcut: "?",
-    verb: "run",
-    action: () => HelpModal.open("keyboard-shortcuts")
-  }
-];
+var HELP_ACTION = KEYMAP_SHORTCUTS.find((r) => r.keys === "?").action;
+function _staticCommands(shortcuts) {
+  const helpKeys = shortcuts.filter((r) => r.action === HELP_ACTION).map((r) => r.keys).join(" / ");
+  return [
+    {
+      kind: "command",
+      id: "shortcuts",
+      label: "Keyboard shortcuts",
+      hint: helpKeys ? `Show all key bindings (${helpKeys})` : "Show all key bindings",
+      icon: "keyboard",
+      ...helpKeys ? { shortcut: helpKeys } : {},
+      verb: "run",
+      // The application's help may define the topic; when it does not, the
+      // window manager's own bindings are shown rather than an error.
+      action: () => HelpModal.open(
+        KEYBOARD_SHORTCUTS_TOPIC_ID,
+        { fallback: keyboardShortcutsTopic(shortcuts) }
+      )
+    }
+  ];
+}
 var DEFAULT_GROUP_CAP = 4;
 var DEFAULT_COMMAND_MIN_CHARS = 2;
 var REMOTE_DEBOUNCE_MS = 150;
@@ -197,7 +501,8 @@ function createCommandPalette({
   drill = null,
   cache = false,
   tips = null,
-  footerNote = ""
+  footerNote = "",
+  shortcuts = KEYMAP_SHORTCUTS
 }) {
   if (!taxonomy) throw new Error("createCommandPalette: a taxonomy is required");
   if (!catalog) throw new Error("createCommandPalette: an entity catalog is required");
@@ -206,6 +511,7 @@ function createCommandPalette({
   let entities = [];
   let cached = null;
   let onClose = null;
+  const isSingle = (row) => !!row && taxonomy.isSingle(row.kind);
   const isOpen = () => !!overlay;
   const close = () => {
     if (!overlay) return;
@@ -223,6 +529,7 @@ function createCommandPalette({
   const invalidate = () => {
     cached = null;
   };
+  const staticCommands = _staticCommands(shortcuts);
   const open = async () => {
     if (overlay) return;
     overlay = document.createElement("div");
@@ -240,19 +547,28 @@ function createCommandPalette({
     const chipSlot = overlay.querySelector('[data-role="type-chip"]');
     const chips = overlay.querySelectorAll("[data-shortcut]");
     const toggles = overlay.querySelectorAll("[data-toggle]");
-    for (const btn of toggles) {
+    const syncToggle = (btn) => {
       const which = btn.dataset.toggle;
+      const { available, reason } = wm.getPanelAvailability(which);
       btn.classList.toggle("twm-chip--on", wm.isPanelOpen(which));
-    }
+      if (available) {
+        btn.removeAttribute("aria-disabled");
+        btn.removeAttribute("title");
+      } else {
+        btn.setAttribute("aria-disabled", "true");
+        if (reason) btn.setAttribute("title", reason);
+        else btn.removeAttribute("title");
+      }
+    };
+    toggles.forEach(syncToggle);
     chips.forEach((btn) => btn.addEventListener("click", () => {
       const kind = btn.dataset.shortcut;
       wm.openInPrimary(kind);
       close();
     }));
     toggles.forEach((btn) => btn.addEventListener("click", () => {
-      const which = btn.dataset.toggle;
-      wm.togglePanel(which);
-      btn.classList.toggle("twm-chip--on", wm.isPanelOpen(which));
+      wm.togglePanel(btn.dataset.toggle);
+      syncToggle(btn);
     }));
     let filtered = [];
     let active = 0;
@@ -273,12 +589,12 @@ function createCommandPalette({
     const renderChip = () => {
       if (scope) {
         chipSlot.innerHTML = `
-                    <span class="twm-cmdpal__type-chip" title="${_esc(scope.label)}">
-                        <span class="material-symbols-outlined twm-cmdpal__type-chip-icon">${_esc(scope.icon || "arrow_right")}</span>
-                        <span class="twm-cmdpal__type-chip-label twm-cmdpal__type-chip-label--scope">${_esc(scope.label)}</span>
+                    <span class="twm-cmdpal__type-chip" title="${_esc2(scope.label)}">
+                        <span class="material-symbols-outlined twm-cmdpal__type-chip-icon">${_esc2(scope.icon || "arrow_right")}</span>
+                        <span class="twm-cmdpal__type-chip-label twm-cmdpal__type-chip-label--scope">${_esc2(scope.label)}</span>
                         <button type="button" class="twm-cmdpal__type-chip-x"
                                 data-action="clear-type"
-                                aria-label="Leave ${_esc(scope.label)}">\xD7</button>
+                                aria-label="Leave ${_esc2(scope.label)}">\xD7</button>
                     </span>`;
         chipSlot.querySelector('[data-action="clear-type"]')?.addEventListener("click", (ev) => {
           ev.preventDefault();
@@ -295,9 +611,9 @@ function createCommandPalette({
       const meta = taxonomy.meta(head);
       const label = typeFilterLabel || meta?.label || head;
       chipSlot.innerHTML = `
-                <span class="twm-cmdpal__type-chip" title="Filtering by ${_esc(label)} (${typeFilter.length} kind${typeFilter.length === 1 ? "" : "s"})">
+                <span class="twm-cmdpal__type-chip" title="Filtering by ${_esc2(label)} (${typeFilter.length} kind${typeFilter.length === 1 ? "" : "s"})">
                     <span class="material-symbols-outlined twm-cmdpal__type-chip-icon">${meta?.icon || "arrow_right"}</span>
-                    <span class="twm-cmdpal__type-chip-label">${_esc(label)}</span>
+                    <span class="twm-cmdpal__type-chip-label">${_esc2(label)}</span>
                     <button type="button" class="twm-cmdpal__type-chip-x"
                             data-action="clear-type"
                             aria-label="Clear type filter">\xD7</button>
@@ -321,9 +637,9 @@ function createCommandPalette({
                 <div class="twm-cmdpal__item${i === active ? " twm-cmdpal__item--active" : ""}"
                      data-idx="${i}">
                     <span class="material-symbols-outlined twm-cmdpal__icon">${e.icon || "arrow_right"}</span>
-                    <span class="twm-cmdpal__label">${_esc(e.label || e.id)}</span>
+                    <span class="twm-cmdpal__label">${_esc2(e.label || e.id)}</span>
                     <span class="twm-cmdpal__kind">${e.kind}</span>
-                    <span class="twm-cmdpal__hint">${_esc(e.hint || "")}</span>
+                    <span class="twm-cmdpal__hint">${_esc2(e.hint || "")}</span>
                 </div>
             `).join("") || "";
       list.querySelectorAll("[data-idx]").forEach((el) => {
@@ -348,21 +664,22 @@ function createCommandPalette({
       if (r.more) {
         return `<div class="twm-cmdpal__item twm-cmdpal__item--more${on}" data-idx="${i}" role="option">
                     <span class="material-symbols-outlined twm-cmdpal__icon">expand_more</span>
-                    <span class="twm-cmdpal__main"><span class="twm-cmdpal__label">${_esc(r.label)}</span></span>
+                    <span class="twm-cmdpal__main"><span class="twm-cmdpal__label">${_esc2(r.label)}</span></span>
                     <span class="twm-cmdpal__side"><span class="twm-cmdpal__acts"><span><kbd>Enter</kbd> show all</span></span></span>
                 </div>`;
       }
       const drawn = _drawn(r);
-      const ctx = r.cells?.length ? `<span class="twm-cmdpal__cells">${r.cells.map(_esc).join(" \xB7 ")}</span>` : drawn ? `<span class="twm-cmdpal__context">${_esc(drawn)}</span>` : "";
+      const ctx = r.cells?.length ? `<span class="twm-cmdpal__cells">${r.cells.map(_esc2).join(" \xB7 ")}</span>` : drawn ? `<span class="twm-cmdpal__context">${_esc2(drawn)}</span>` : "";
       const verb = r.verb || (r.action || r.kind === "command" ? "run" : "open");
       const modes = Array.isArray(r.modes) ? r.modes : [];
-      const acts = [`<span><kbd>Enter</kbd> ${_esc(verb)}</span>`];
-      if (r.drillLabel && drill) acts.push(`<span><kbd>Tab</kbd> ${_esc(r.drillLabel)}</span>`);
-      if (modes.includes("split")) acts.push("<span><kbd>Ctrl Enter</kbd> split</span>");
-      if (modes.includes("window")) acts.push("<span><kbd>Shift Enter</kbd> window</span>");
-      const side = r.shortcut ? `<kbd class="twm-cmdpal__shortcut">${_esc(r.shortcut)}</kbd>` : `<span class="twm-cmdpal__kind">${_esc(kindLabel(r))}</span>`;
+      const acts = [`<span><kbd>Enter</kbd> ${_esc2(verb)}</span>`];
+      if (r.drillLabel && drill) acts.push(`<span><kbd>Tab</kbd> ${_esc2(r.drillLabel)}</span>`);
+      const refused = isSingle(r) ? ` class="twm-cmdpal__act--disabled" aria-disabled="true" title="${_esc2(taxonomy.singleReason(r.kind))}"` : "";
+      if (modes.includes("split")) acts.push(`<span${refused}><kbd>Ctrl Enter</kbd> split</span>`);
+      if (modes.includes("window")) acts.push(`<span${refused}><kbd>Shift Enter</kbd> window</span>`);
+      const side = r.shortcut ? `<kbd class="twm-cmdpal__shortcut">${_esc2(r.shortcut)}</kbd>` : `<span class="twm-cmdpal__kind">${_esc2(kindLabel(r))}</span>`;
       return `<div class="twm-cmdpal__item${on}" data-idx="${i}" role="option">
-                <span class="material-symbols-outlined twm-cmdpal__icon">${_esc(r.icon || "arrow_right")}</span>
+                <span class="material-symbols-outlined twm-cmdpal__icon">${_esc2(r.icon || "arrow_right")}</span>
                 <span class="twm-cmdpal__main"><span class="twm-cmdpal__label">${_mark(r.label || r.id, r._hits)}</span>${ctx}</span>
                 <span class="twm-cmdpal__side">${side}<span class="twm-cmdpal__acts">${acts.join("")}</span></span>
             </div>`;
@@ -371,22 +688,22 @@ function createCommandPalette({
       let html = "";
       for (const s of sections) {
         if (!s.count) continue;
-        if (s.title) html += `<div class="twm-cmdpal__group" role="presentation">${_esc(s.title)}</div>`;
+        if (s.title) html += `<div class="twm-cmdpal__group" role="presentation">${_esc2(s.title)}</div>`;
         for (let i = s.start; i < s.start + s.count; i++) html += rowHtml(filtered[i], i);
       }
       const q = input.value.trim();
       if (!filtered.length) {
         if (scope) {
           const msg = remote.error ? remote.error : remote.pending ? "Searching\u2026" : q ? `Nothing in ${scope.label} matches \u201C${q}\u201D.` : scope.emptyText || `Type to search ${scope.label}.`;
-          html += `<div class="twm-cmdpal__empty">${_esc(msg)}</div>`;
+          html += `<div class="twm-cmdpal__empty">${_esc2(msg)}</div>`;
         } else if (q && q !== ">") {
-          html += `<div class="twm-cmdpal__empty">Nothing matches \u201C${_esc(q)}\u201D.</div>`;
+          html += `<div class="twm-cmdpal__empty">Nothing matches \u201C${_esc2(q)}\u201D.</div>`;
         }
       } else if (scope && remote.pending) {
         html += '<div class="twm-cmdpal__empty twm-cmdpal__empty--quiet">Searching\u2026</div>';
       }
       if (!q && !scope && !typeFilter && Array.isArray(tips) && tips.length) {
-        html += `<div class="twm-cmdpal__tips">${tips.map((t) => `<span>${_esc(t)}</span>`).join("")}</div>`;
+        html += `<div class="twm-cmdpal__tips">${tips.map((t) => `<span>${_esc2(t)}</span>`).join("")}</div>`;
       }
       list.innerHTML = html;
       renderFooter();
@@ -405,7 +722,7 @@ function createCommandPalette({
       if (scope || typeFilter) parts.push("<span><kbd>Backspace</kbd> leave</span>");
       parts.push("<span><kbd>Esc</kbd> close</span>");
       const note = scope?.note || footerNote;
-      foot.innerHTML = parts.join("") + (note ? `<span class="twm-cmdpal__footnote">${_esc(note)}</span>` : "");
+      foot.innerHTML = parts.join("") + (note ? `<span class="twm-cmdpal__footnote">${_esc2(note)}</span>` : "");
     };
     if (grouped) {
       list.addEventListener("mousemove", (e) => {
@@ -430,6 +747,7 @@ function createCommandPalette({
         showAll(picked.more);
         return;
       }
+      if (mode !== "open" && isSingle(picked)) return;
       const pick = _public(picked);
       const how = { mode, scope: scope?.id ?? null };
       close();
@@ -675,7 +993,7 @@ function createCommandPalette({
           console.warn("[cmdpal] commands() threw", err);
         }
       }
-      return [...STATIC_COMMANDS, ...extra];
+      return [...staticCommands, ...extra];
     };
     const withCommands = (rows) => grouped ? [...rows, ...commandRows()] : [...commandRows(), ...rows];
     entities = _decorateIcons(withCommands(cache && cached ? cached : []), taxonomy);
@@ -730,7 +1048,7 @@ function _markup(taxonomy, placeholder, wm, { chrome = {}, grouped = false } = {
                 <span class="material-symbols-outlined twm-cmdpal__search-icon">search</span>
                 <span class="twm-cmdpal__type-chip-slot" data-role="type-chip"></span>
                 <input type="text" class="twm-cmdpal__input"
-                       placeholder="${_esc(placeholder)}"
+                       placeholder="${_esc2(placeholder)}"
                        autocomplete="off" spellcheck="false" role="combobox"
                        aria-expanded="true" aria-controls="twm-cmdpal-list" />
                 <kbd class="twm-cmdpal__esc">Esc</kbd>
@@ -746,7 +1064,7 @@ function _markup(taxonomy, placeholder, wm, { chrome = {}, grouped = false } = {
             <div class="twm-cmdpal__inputrow">
                 <span class="twm-cmdpal__type-chip-slot" data-role="type-chip"></span>
                 <input type="text" class="twm-cmdpal__input"
-                       placeholder="${_esc(placeholder)}"
+                       placeholder="${_esc2(placeholder)}"
                        autocomplete="off" />
             </div>
             <div class="twm-cmdpal__chips">${chips}</div>
@@ -864,7 +1182,7 @@ function _match(text, query) {
 }
 function _mark(text, hits) {
   const s = String(text ?? "");
-  if (!hits?.length) return _esc(s);
+  if (!hits?.length) return _esc2(s);
   const set = new Set(hits);
   let out = "";
   let open = false;
@@ -878,12 +1196,12 @@ function _mark(text, hits) {
       out += "</mark>";
       open = false;
     }
-    out += _esc(s[i]);
+    out += _esc2(s[i]);
   }
   if (open) out += "</mark>";
   return out;
 }
-function _esc(s) {
+function _esc2(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;",
     "<": "&lt;",
@@ -904,7 +1222,7 @@ function windowPlaceholderFactory(hostEl, props, ctx) {
   hostEl.innerHTML = `
         <div class="twm-window-placeholder">
             <span class="material-symbols-outlined twm-window-placeholder__icon">open_in_new</span>
-            <div class="twm-window-placeholder__title">${_esc2(props.originalTitle || props.originalKind || "content")}</div>
+            <div class="twm-window-placeholder__title">${_esc3(props.originalTitle || props.originalKind || "content")}</div>
             <div class="twm-window-placeholder__hint">is open in a managed window</div>
             <button class="twm-window-placeholder__btn" data-action="bring-back">
                 Bring back to this tile
@@ -956,7 +1274,7 @@ function _placeholder(kind) {
     return { title: kind };
   };
 }
-function _esc2(s) {
+function _esc3(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
 
@@ -1806,6 +2124,11 @@ function _makeDesktop(label, seed, panelDefaults = DEFAULT_PANEL_STATE) {
     // when it asked for nothing. Names are assigned by wm._canonicalize via
     // PANEL_TITLES.
     panels: { ...panelDefaults },
+    // Each panel's last share of the WM area along its axis, recorded by
+    // the WM when a splitter drag ends (and, for a panel not yet
+    // measured, when it rebuilds the panels). A side with none opens at
+    // the default ratio.
+    panelShares: {},
     // C40. Both unset is a desktop exactly as it always was.
     group: null,
     fixed: false
@@ -1929,6 +2252,9 @@ var DesktopManager = class _DesktopManager {
         label: d.label,
         tree: d.tree.serialize(),
         panels: { ...d.panels },
+        // Written only when a panel has been measured, like the C40
+        // keys below.
+        ...Object.keys(d.panelShares).length ? { panelShares: { ...d.panelShares } } : {},
         // C40. Written only when set, so a blob without them is
         // byte-for-byte the blob it always was.
         ...d.group ? { group: d.group } : {},
@@ -1951,6 +2277,7 @@ var DesktopManager = class _DesktopManager {
       // this merge order avoids. The default only fills a key the stored
       // blob predates.
       panels: { ...m.panelDefaults, ...raw.panels || {} },
+      panelShares: { ...raw.panelShares || {} },
       group: raw.group || null,
       fixed: !!raw.fixed
     }));
@@ -2093,120 +2420,25 @@ function createEntityCatalog({ sources, aliases = {}, aggregate = null } = {}) {
   });
 }
 
-// src/tiling/keymap.js
-function installKeymap({ wm, palette, ...opts } = {}) {
-  const onKeyDown = (e) => {
-    const inField = e.target?.closest?.(
-      'input, textarea, select, [contenteditable="true"]'
-    );
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k" && !e.shiftKey) {
-      e.preventDefault();
-      palette.toggle();
-      return;
+// src/tiling/panel_availability.js
+var PANEL_SIDES = Object.freeze(["left", "right", "bottom"]);
+var PANEL_OFFERED = Object.freeze({ available: true, reason: null });
+function readPanelOffer(offer, where) {
+  if (offer === true) return PANEL_OFFERED;
+  if (offer === false) return Object.freeze({ available: false, reason: null });
+  if (offer && typeof offer === "object" && !Array.isArray(offer)) {
+    const { reason = null } = offer;
+    if (reason !== null && typeof reason !== "string") {
+      throw new TypeError(`${where}: a panel's \`reason\` must be a string`);
     }
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key === "Tab") {
-      e.preventDefault();
-      wm.cycleFocusedTab(e.shiftKey ? -1 : 1);
-      return;
-    }
-    if (e.key === "Escape") {
-      if (palette.isOpen()) {
-        palette.close();
-        return;
-      }
-    }
-    if (e.key === "Backspace" && !inField && !e.metaKey && !e.ctrlKey) {
-      e.preventDefault();
-      wm.navigateBack?.();
-      return;
-    }
-    const fMatch = /^F([1-9]|1[0-2])$/.exec(e.key);
-    if (fMatch && !inField && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
-      const btns = document.querySelectorAll(
-        opts.navSelector || ".twm-global-top-bar .twm-bar-center.twm-top-nav .twm-top-nav__btn"
-      );
-      const idx = Number(fMatch[1]) - 1;
-      if (idx < btns.length) {
-        e.preventDefault();
-        btns[idx].click();
-        return;
-      }
-    }
-    if (e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && !inField && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
-      const tabs = [...document.querySelectorAll(".twm-bp__tabs .twm-bp__tab")];
-      if (tabs.length) {
-        const cur = tabs.findIndex((t) => t.classList.contains("twm-bp__tab--on"));
-        const dir = e.key === "ArrowRight" ? 1 : -1;
-        const next = ((cur < 0 ? 0 : cur) + dir + tabs.length) % tabs.length;
-        e.preventDefault();
-        tabs[next].click();
-        return;
-      }
-    }
-    if (e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey && !inField && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
-      e.preventDefault();
-      wm.cycleDesktop(e.key === "ArrowRight" ? 1 : -1);
-      return;
-    }
-    if (!e.altKey) return;
-    const key = e.key.toLowerCase();
-    if (/^[1-9]$/.test(e.key)) {
-      e.preventDefault();
-      const idx = Number(e.key) - 1;
-      if (e.shiftKey) wm.moveFocusedToDesktop(idx);
-      else wm.switchDesktop(idx);
-      return;
-    }
-    switch (key) {
-      // Plain Alt+H/V split into an empty pane; with Shift they open
-      // the focused tile's own content in the new split.
-      case "h":
-        e.preventDefault();
-        e.shiftKey ? wm.splitFocusedWith("h") : wm.split("h");
-        return;
-      case "v":
-        e.preventDefault();
-        e.shiftKey ? wm.splitFocusedWith("v") : wm.split("v");
-        return;
-      case "t":
-        e.preventDefault();
-        wm.openFocusedInTab();
-        return;
-      case "n":
-        e.preventDefault();
-        wm.openFocusedInWindow();
-        return;
-      case "w":
-        e.preventDefault();
-        wm.closeFocused();
-        return;
-      case "f":
-        e.preventDefault();
-        wm.toggleManagedFocused();
-        return;
-      case "arrowleft":
-        e.preventDefault();
-        e.shiftKey ? wm.moveFocused("left") : wm.focusDir("left");
-        return;
-      case "arrowright":
-        e.preventDefault();
-        e.shiftKey ? wm.moveFocused("right") : wm.focusDir("right");
-        return;
-      case "arrowup":
-        e.preventDefault();
-        e.shiftKey ? wm.moveFocused("up") : wm.focusDir("up");
-        return;
-      case "arrowdown":
-        e.preventDefault();
-        e.shiftKey ? wm.moveFocused("down") : wm.focusDir("down");
-        return;
-    }
-    if (key.length === 1 && /[a-z]/.test(key) && !inField) {
-      e.preventDefault();
-    }
-  };
-  document.addEventListener("keydown", onKeyDown);
-  return () => document.removeEventListener("keydown", onKeyDown);
+    return Object.freeze({ available: false, reason: reason || null });
+  }
+  throw new TypeError(`${where}: a panel offer is true, false or { reason }`);
+}
+function assertPanelSide(side, where) {
+  if (!PANEL_SIDES.includes(side)) {
+    throw new TypeError(`${where}: unknown panel side '${side}' (expected ${PANEL_SIDES.join(", ")})`);
+  }
 }
 
 // src/tiling/kind_taxonomy.js
@@ -2231,6 +2463,27 @@ function createTaxonomy({ kinds, root } = {}) {
         `createTaxonomy: '${kind}' is both a top-nav kind and owned by one`
       );
     }
+    if (def.panels !== void 0) {
+      if (!def.panels || typeof def.panels !== "object" || Array.isArray(def.panels)) {
+        throw new TypeError(`createTaxonomy: '${kind}'.panels must be an object`);
+      }
+      for (const [side, offer] of Object.entries(def.panels)) {
+        if (!PANEL_SIDES.includes(side)) {
+          throw new Error(`createTaxonomy: '${kind}'.panels names unknown side '${side}'`);
+        }
+        readPanelOffer(offer, `createTaxonomy: '${kind}'.panels.${side}`);
+      }
+    }
+    if (def.single != null && def.single !== false && def.single !== true && !(typeof def.single === "string" && def.single)) {
+      throw new TypeError(
+        `createTaxonomy: '${kind}'.single must be true or a prop name`
+      );
+    }
+  }
+  if (kinds[root].single) {
+    throw new Error(
+      `createTaxonomy: the root kind '${root}' cannot be single \u2014 every new pane, tab and desktop is seeded with it`
+    );
   }
   const _kinds = Object.freeze({ ...kinds });
   const meta = (kind) => _kinds[kind];
@@ -2280,12 +2533,31 @@ function createTaxonomy({ kinds, root } = {}) {
     const s = _kinds[kind]?.sources ?? _kinds[root]?.sources;
     return Array.isArray(s) ? s : [];
   };
+  const panelOffer = (kind, side) => {
+    for (const k of [kind, _kinds[kind]?.topNav]) {
+      const offer = k ? _kinds[k]?.panels?.[side] : void 0;
+      if (offer !== void 0) return readPanelOffer(offer, `taxonomy '${k}'.panels.${side}`);
+    }
+    return PANEL_OFFERED;
+  };
   const topNavEntries = () => Object.entries(_kinds).filter(([, m]) => m.isTopNav).sort((a, b) => (a[1].order ?? 1e3) - (b[1].order ?? 1e3)).map(([kind, m]) => ({
     kind,
     label: m.shortLabel || m.label,
     longLabel: m.label,
     icon: m.icon
   }));
+  const isSingle = (kind) => {
+    const s = _kinds[kind]?.single;
+    return s === true || typeof s === "string" && s !== "";
+  };
+  const instanceKey = (kind, props) => {
+    if (!isSingle(kind)) return null;
+    const by = _kinds[kind].single;
+    if (by === true) return String(kind);
+    const v = props?.[by];
+    return `${kind}\0${v == null ? "" : String(v)}`;
+  };
+  const singleReason = (kind) => `${_kinds[kind]?.label || kind} is open once: use the one that is open`;
   return Object.freeze({
     root,
     kinds: _kinds,
@@ -2296,7 +2568,11 @@ function createTaxonomy({ kinds, root } = {}) {
     parentOf,
     labelOf,
     sourcesFor,
-    topNavEntries
+    panelOffer,
+    topNavEntries,
+    isSingle,
+    instanceKey,
+    singleReason
   });
 }
 
@@ -2762,7 +3038,7 @@ function mountLandingShell(hostEl, opts) {
     pane = { key: "rows", title: "", hint: "" }
   } = opts || {};
   const paneKey = String(pane.key || "rows");
-  const _esc8 = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({
+  const _esc9 = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;",
     "<": "&lt;",
     ">": "&gt;",
@@ -2771,24 +3047,24 @@ function mountLandingShell(hostEl, opts) {
   })[c]);
   const statsHtml = (stats || []).map((s) => `
         <span class="twm-landing__stat twm-entity-header__field">
-            <span>${_esc8(s.label || "")}</span>
-            <strong data-role="${_esc8(s.key)}">${_esc8(s.initial != null ? s.initial : 0)}</strong>
+            <span>${_esc9(s.label || "")}</span>
+            <strong data-role="${_esc9(s.key)}">${_esc9(s.initial != null ? s.initial : 0)}</strong>
         </span>
     `).join("");
   hostEl.classList.add("twm-landing");
   hostEl.innerHTML = `
         <header class="twm-entity-header">
-            <h2>${_esc8(title)}</h2>
+            <h2>${_esc9(title)}</h2>
             ${statsHtml}
             <span class="twm-entity-header__spacer"></span>
         </header>
         <div class="twm-landing__split twm-landing__split--single">
-            <section class="twm-landing__pane" data-pane="${_esc8(paneKey)}">
+            <section class="twm-landing__pane" data-pane="${_esc9(paneKey)}">
                 <div class="twm-landing__pane-head">
-                    <span class="twm-landing__pane-title">${_esc8(pane.title || "")}</span>
-                    <span class="twm-landing__pane-hint">${_esc8(pane.hint || "")}</span>
+                    <span class="twm-landing__pane-title">${_esc9(pane.title || "")}</span>
+                    <span class="twm-landing__pane-hint">${_esc9(pane.hint || "")}</span>
                 </div>
-                <div class="twm-landing__table" data-role="${_esc8(paneKey)}-host"></div>
+                <div class="twm-landing__table" data-role="${_esc9(paneKey)}-host"></div>
             </section>
         </div>
         <footer class="twm-landing__actions" data-role="actions"></footer>
@@ -2817,9 +3093,9 @@ function mountLandingActions(footerEl, actions, hostEl) {
       btn.className = "twm-action-btn";
       if (a.id) btn.dataset.action = a.id;
       if (a.title) btn.title = a.title;
-      const icon = a.icon ? `<span class="material-symbols-outlined">${_esc3(a.icon)}</span>` : "";
-      const sc = a.shortcut ? ` <span class="twm-action-btn__kbd">[${_esc3(a.shortcut.toUpperCase())}]</span>` : "";
-      btn.innerHTML = `${icon}<span>${_esc3(a.label || "")}</span>${sc}`;
+      const icon = a.icon ? `<span class="material-symbols-outlined">${_esc4(a.icon)}</span>` : "";
+      const sc = a.shortcut ? ` <span class="twm-action-btn__kbd">[${_esc4(a.shortcut.toUpperCase())}]</span>` : "";
+      btn.innerHTML = `${icon}<span>${_esc4(a.label || "")}</span>${sc}`;
       btn.addEventListener("click", (ev) => {
         ev.preventDefault();
         try {
@@ -2880,7 +3156,7 @@ function actionsCellRenderer(actionsColIdx, options = { edit: true, delete: true
     return true;
   };
 }
-function _esc3(s) {
+function _esc4(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;",
     "<": "&lt;",
@@ -2910,37 +3186,46 @@ function mountNavPanel(hostEl, {
   modes = [],
   wm = null,
   eventBus = null,
-  filterPlaceholder = "Filter\u2026"
+  filterPlaceholder = "Filter\u2026",
+  showModeStrip = true,
+  showFilter = true,
+  initialMode = null
 } = {}) {
   if (!Array.isArray(modes) || modes.length === 0) {
     throw new Error("mountNavPanel: at least one mode is required");
   }
-  hostEl.classList.add("twm-nav");
-  hostEl.innerHTML = `
-        <div class="twm-nav__modes" data-role="modes"></div>
+  const stripHtml = showModeStrip ? `
+        <div class="twm-nav__modes" data-role="modes"></div>` : "";
+  const filterHtml = showFilter ? `
         <div class="twm-sidebar-controls twm-nav__filter">
             <span class="material-symbols-outlined twm-sidebar-search-icon">search</span>
             <input class="twm-data-page__search twm-nav__filter-input"
-                   type="search" placeholder="${_esc4(filterPlaceholder)}"
+                   type="search" placeholder="${_esc5(filterPlaceholder)}"
                    autocomplete="off" />
-        </div>
+        </div>` : "";
+  hostEl.classList.add("twm-nav");
+  hostEl.innerHTML = `${stripHtml}${filterHtml}
         <div class="twm-nav__body" data-role="body"></div>
     `;
   const modesEl = hostEl.querySelector('[data-role="modes"]');
   const bodyEl = hostEl.querySelector('[data-role="body"]');
+  const filterBoxEl = hostEl.querySelector(".twm-nav__filter");
   const filterEl = hostEl.querySelector(".twm-nav__filter-input");
-  modesEl.innerHTML = modes.map((m) => `
-        <button class="twm-nav__mode twm-has-tooltip" data-mode="${_esc4(m.id)}"
-                data-tooltip="${_esc4(m.label)}">
-            <span class="material-symbols-outlined">${_esc4(m.icon)}</span>
-            <span>${_esc4(m.label)}</span>
+  if (modesEl) {
+    modesEl.innerHTML = modes.map((m) => `
+        <button class="twm-nav__mode twm-has-tooltip" data-mode="${_esc5(m.id)}"
+                data-tooltip="${_esc5(m.label)}">
+            <span class="material-symbols-outlined">${_esc5(m.icon)}</span>
+            <span>${_esc5(m.label)}</span>
         </button>
     `).join("");
+  }
   const byId = new Map(modes.map((m) => [m.id, m]));
   const hosts = {};
   const panes = {};
   const filterByMode = Object.fromEntries(modes.map((m) => [m.id, ""]));
-  let mode = modes[0].id;
+  let mode = byId.has(initialMode) ? initialMode : modes[0].id;
+  const hasFilter = (id) => !!filterEl && byId.get(id)?.filter !== false;
   const ensureHost = (id) => {
     if (hosts[id]) return hosts[id];
     const el = document.createElement("div");
@@ -2957,8 +3242,12 @@ function mountNavPanel(hostEl, {
     for (const m of modes) {
       ensureHost(m.id).style.display = m.id === next ? "flex" : "none";
     }
-    modesEl.querySelectorAll("[data-mode]").forEach((b) => b.classList.toggle("twm-nav__mode--on", b.dataset.mode === next));
-    filterEl.value = filterByMode[next] || "";
+    modesEl?.querySelectorAll("[data-mode]").forEach((b) => b.classList.toggle("twm-nav__mode--on", b.dataset.mode === next));
+    if (filterEl) {
+      if (!hasFilter(next)) filterBoxEl.style.display = "none";
+      else if (filterBoxEl.style.display) filterBoxEl.style.removeProperty("display");
+      filterEl.value = hasFilter(next) ? filterByMode[next] || "" : "";
+    }
     const paneEl = ensureHost(next);
     if (!panes[next]) {
       try {
@@ -2976,6 +3265,7 @@ function mountNavPanel(hostEl, {
     _applyFilter();
   };
   const _applyFilter = () => {
+    if (!hasFilter(mode)) return;
     const q = filterByMode[mode] || "";
     try {
       panes[mode]?.filter?.(q);
@@ -2983,16 +3273,19 @@ function mountNavPanel(hostEl, {
       console.warn("[nav] filter failed", mode, err);
     }
   };
-  filterEl.addEventListener("input", () => {
+  filterEl?.addEventListener("input", () => {
+    if (!hasFilter(mode)) return;
     filterByMode[mode] = filterEl.value;
     _applyFilter();
   });
-  modesEl.addEventListener("click", (e) => {
+  modesEl?.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-mode]");
     if (btn) activate(btn.dataset.mode);
   });
   activate(mode);
   return {
+    select: (modeId) => activate(modeId),
+    active: () => mode,
     refresh: () => activate(mode),
     destroy: () => {
       for (const p of Object.values(panes)) {
@@ -3004,7 +3297,7 @@ function mountNavPanel(hostEl, {
     }
   };
 }
-function _esc4(s) {
+function _esc5(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
 
@@ -3158,8 +3451,8 @@ function _renderInto(container, segments) {
       li.classList.add("twm-topbar-breadcrumb__item--current");
       li.setAttribute("aria-current", "page");
       li.innerHTML = `
-                <span class="material-symbols-outlined twm-topbar-breadcrumb__icon">${_esc5(seg.icon)}</span>
-                <span class="twm-topbar-breadcrumb__current" title="${_esc5(seg.label)}">${_esc5(seg.label)}</span>
+                <span class="material-symbols-outlined twm-topbar-breadcrumb__icon">${_esc6(seg.icon)}</span>
+                <span class="twm-topbar-breadcrumb__current" title="${_esc6(seg.label)}">${_esc6(seg.label)}</span>
             `;
     } else {
       const btn = document.createElement("button");
@@ -3167,8 +3460,8 @@ function _renderInto(container, segments) {
       btn.type = "button";
       btn.title = String(seg.label ?? "");
       btn.innerHTML = `
-                <span class="material-symbols-outlined twm-topbar-breadcrumb__icon">${_esc5(seg.icon)}</span>
-                <span>${_esc5(seg.label)}</span>
+                <span class="material-symbols-outlined twm-topbar-breadcrumb__icon">${_esc6(seg.icon)}</span>
+                <span>${_esc6(seg.label)}</span>
             `;
       btn.addEventListener("click", () => {
         btn.classList.add("twm-tile-breadcrumb__link--flash");
@@ -3191,7 +3484,7 @@ function _renderInto(container, segments) {
   });
   container.appendChild(ol);
 }
-function _esc5(s) {
+function _esc6(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;",
     "<": "&lt;",
@@ -3276,7 +3569,7 @@ function createPageFactories({ eventBus = null, events = {}, refreshOn = {} } = 
       console.error("[page] mount failed", err);
       hideLoading();
     }
-    const listeners = {};
+    const subscriptions = [];
     if (typeof tab?.refresh === "function" && eventBus?.on) {
       for (const [busEvent, reason] of Object.entries(refreshOn || {})) {
         const fn = () => {
@@ -3286,14 +3579,13 @@ function createPageFactories({ eventBus = null, events = {}, refreshOn = {} } = 
             console.warn("[page] refresh failed", busEvent, err);
           }
         };
-        listeners[busEvent] = fn;
-        eventBus.on(busEvent, fn);
+        subscriptions.push(eventBus.on(busEvent, fn));
       }
     }
     return () => {
-      for (const [n, fn] of Object.entries(listeners)) {
+      for (const handle of subscriptions) {
         try {
-          eventBus?.off?.(n, fn);
+          handle?.dispose?.();
         } catch {
         }
       }
@@ -3380,6 +3672,7 @@ function createPageFactories({ eventBus = null, events = {}, refreshOn = {} } = 
 
 // src/tiling/tile_renderer.js
 var SPLITTER_PX = 4;
+var MIN_SLOT_FRACTION = 0.05;
 var TAB_LAYOUTS = ["bottom", "top", "header"];
 var DEFAULT_TAB_LAYOUT = "bottom";
 function _normalizeTabLayout(value) {
@@ -3412,6 +3705,12 @@ var TileRenderer = class {
   static get TAB_MIME() {
     return TILE_TAB_MIME;
   }
+  /** The smallest share of its split a splitter drag leaves a slot. Readable
+   *  so a caller that sets split sizes itself (the WM rebuilding its panel
+   *  splits) never builds one a drag could not have produced. */
+  static get MIN_SLOT_FRACTION() {
+    return MIN_SLOT_FRACTION;
+  }
   constructor({
     root,
     tree,
@@ -3419,6 +3718,7 @@ var TileRenderer = class {
     ctx,
     onFocusChange,
     onAfterRender,
+    onSplitResized,
     tabLayout = null,
     newTabButton = true
   }) {
@@ -3432,6 +3732,8 @@ var TileRenderer = class {
     this.onFocusChange = onFocusChange || (() => {
     });
     this.onAfterRender = onAfterRender || (() => {
+    });
+    this.onSplitResized = onSplitResized || (() => {
     });
     this.newTabButton = newTabButton !== false;
     this._leafCache = /* @__PURE__ */ new Map();
@@ -3695,6 +3997,7 @@ var TileRenderer = class {
     let content = {};
     let liveTitle = null;
     let liveEntry = null;
+    let liveActionsSet = false;
     if (leaf.content) {
       const setTitle = (text) => {
         const next = text == null || text === "" ? null : String(text);
@@ -3708,13 +4011,22 @@ var TileRenderer = class {
         const now = this.tree?.get?.(leaf.id) || leaf;
         liveEntry.titleEl.textContent = next || now.title || (now.content ? now.content.kind : "empty");
       };
-      const leafCtx = { ...this.ctx, leafId: leaf.id, setTitle };
+      const setChromeActions = (specs) => {
+        if (!liveEntry) {
+          liveActionsSet = true;
+          _paintContentActions(contentActions, specs);
+          return;
+        }
+        if (this._leafCache.get(leaf.id) !== liveEntry) return;
+        _paintContentActions(liveEntry.contentActionsEl, specs);
+      };
+      const leafCtx = { ...this.ctx, leafId: leaf.id, setTitle, setChromeActions };
       const activeProps = activeTab?.props ?? leaf.content.props;
       content = this.content.mount(leaf.content.kind, body, activeProps, leafCtx);
       if (content.title) title.textContent = content.title;
       if (liveTitle) title.textContent = liveTitle;
       _paintLeafIcon(icon, leaf, content, this.ctx);
-      _paintContentActions(contentActions, content.chromeActions);
+      if (!liveActionsSet) _paintContentActions(contentActions, content.chromeActions);
       _vetoStructuralActions(actions, content.chrome);
     } else {
       body.innerHTML = `<div class="tile-placeholder"><div class="tile-placeholder__hint">empty tile</div></div>`;
@@ -3726,6 +4038,10 @@ var TileRenderer = class {
       titleEl: title,
       iconEl: icon,
       content,
+      // C42. The strip `ctx.setChromeActions` repaints after the
+      // mount. A cached repaint never rebuilds it, which is what
+      // makes a list set later survive one.
+      contentActionsEl: contentActions,
       // DERIVED HERE, NOT REUSED FROM ABOVE. `kindKey` was computed
       // before the mount; content that records its sub-tab or its
       // scroll offset WHILE mounting has already written to the
@@ -4128,7 +4444,7 @@ var TileRenderer = class {
   _topTabCallbacks(leafId) {
     return {
       // C33. `DragReorder` calls this through `NotebookTabBar`, which
-      // sets its own `application/x-ecosim-tab` first and unchanged — so
+      // sets its own tab MIME (getTabDragMime()) first and unchanged — so
       // an editor pane sharing the page cannot notice that tiles are
       // dragging tabs too.
       onDragStart: (ev, key, item) => {
@@ -4199,9 +4515,9 @@ var TileRenderer = class {
                 ${tabs.map((t, i) => `
                     <li class="twm-leaf__tab${i === activeIdx ? " twm-leaf__tab--on" : ""}"
                         role="tab" data-tab-idx="${i}"
-                        title="${_esc6(t.title || t.kind)}"
+                        title="${_esc7(t.title || t.kind)}"
                         draggable="true">
-                        <span class="twm-leaf__tab-label">${_esc6(t.title || t.kind)}</span>
+                        <span class="twm-leaf__tab-label">${_esc7(t.title || t.kind)}</span>
                         <button type="button" class="twm-leaf__tab-close"
                                 data-action="tab-close" data-tab-idx="${i}"
                                 title="Close this tab"
@@ -4552,7 +4868,7 @@ var TileRenderer = class {
     const px = totalPx - SPLITTER_PX * (split.children.length - 1);
     if (px <= 0) return;
     const deltaFrac = delta / px * totalSize;
-    const minFrac = totalSize * 0.05;
+    const minFrac = totalSize * MIN_SLOT_FRACTION;
     const newSizes = startSizes.slice();
     newSizes[slotIdx] = Math.max(minFrac, startSizes[slotIdx] + deltaFrac);
     newSizes[slotIdx + 1] = Math.max(minFrac, startSizes[slotIdx + 1] - deltaFrac);
@@ -4569,11 +4885,20 @@ var TileRenderer = class {
     });
   }
   _onMouseUp() {
+    const drag = this._drag;
     this._drag = null;
     document.body.classList.remove("twm-dragging");
+    if (!drag) return;
+    const sizes = this.tree.get(drag.splitId)?.sizes;
+    if (!sizes || sizes.every((v, i) => v === drag.startSizes[i])) return;
+    try {
+      this.onSplitResized(drag.splitId);
+    } catch (err) {
+      console.error("[tile-renderer] onSplitResized threw", err);
+    }
   }
 };
-function _esc6(s) {
+function _esc7(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;",
     "<": "&lt;",
@@ -4597,15 +4922,41 @@ function _paintContentActions(hostEl, specs) {
   }
   hostEl.hidden = false;
   for (const spec of specs) {
-    if (!spec || !spec.icon) continue;
+    if (!spec) continue;
+    if (spec.separator) {
+      const sep = document.createElement("span");
+      sep.className = "twm-leaf__sep";
+      sep.setAttribute("role", "separator");
+      hostEl.appendChild(sep);
+      continue;
+    }
+    const label = spec.label == null || spec.label === "" ? "" : String(spec.label);
+    if (!spec.icon && !label) continue;
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "twm-leaf__btn";
     btn.title = spec.title || "";
-    btn.setAttribute("aria-label", spec.title || "");
-    btn.innerHTML = `<span class="material-symbols-outlined">${spec.icon}</span>`;
+    btn.setAttribute("aria-label", spec.title || label);
+    btn.innerHTML = spec.icon ? `<span class="material-symbols-outlined">${spec.icon}</span>` : "";
+    if (label) {
+      const text = document.createElement("span");
+      text.className = "twm-leaf__btn-label";
+      text.textContent = label;
+      btn.appendChild(text);
+      btn.classList.add("twm-leaf__btn--labelled");
+    }
+    if (spec.pressed != null) {
+      btn.setAttribute("aria-pressed", spec.pressed ? "true" : "false");
+      if (spec.pressed) btn.classList.add("twm-leaf__btn--pressed");
+    }
+    const disabled = !!spec.disabled;
+    if (disabled) {
+      btn.setAttribute("aria-disabled", "true");
+      btn.classList.add("twm-leaf__btn--disabled");
+    }
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
+      if (disabled) return;
       try {
         spec.onClick?.();
       } catch (err) {
@@ -4779,6 +5130,11 @@ var WindowManager = class _WindowManager {
     this.eventBus = eventBus || null;
     this.onChange = onChange || (() => {
     });
+    this._panelOverrides = {};
+    this._panelAvailability = Object.fromEntries(PANEL_SIDES.map((s) => [s, PANEL_OFFERED]));
+    this._panelAvailabilityListeners = /* @__PURE__ */ new Set();
+    this._reconcilingPanels = false;
+    this._quietDepth = 0;
     this.floatActiveTab = !!floatActiveTab;
     this._rootLeaf = () => {
       const kind = this.taxonomy.root;
@@ -4823,7 +5179,8 @@ var WindowManager = class _WindowManager {
         onLeafTabAction: (leafId, action, data) => this._leafTabAction(leafId, action, data)
       },
       onFocusChange: () => this._notifyChange(),
-      onAfterRender: () => this._rehomeContainedWindows()
+      onAfterRender: () => this._rehomeContainedWindows(),
+      onSplitResized: (splitId) => this._onSplitResized(splitId)
     });
     this._persistTimer = null;
     this._windowToLeaf = /* @__PURE__ */ new Map();
@@ -4876,6 +5233,8 @@ var WindowManager = class _WindowManager {
    *  so other surfaces (palette, top-bar toggles, page shortcuts) can
    *  subscribe through the existing event system. */
   _notifyChange(reason = null) {
+    if (this._quietDepth > 0) return;
+    this._reconcilePanels();
     try {
       this.onChange(reason);
     } catch (err) {
@@ -4925,10 +5284,12 @@ var WindowManager = class _WindowManager {
           }
         }
       }
-      this._canonicalize(d.tree, d);
     }
+    const deduped = this._dropDuplicateSingles();
+    for (const d of this.desktops.desktops) this._canonicalize(d.tree, d);
     this.renderer.tree = this.desktops.active().tree;
     this.renderer.render();
+    if (deduped) this._persist();
     this._notifyChange();
   }
   _persist() {
@@ -4937,6 +5298,276 @@ var WindowManager = class _WindowManager {
       this._persistTimer = null;
       await saveDesktops(this.host?.state, this.desktops.serialize());
     }, 500);
+  }
+  // ── Single-instance kinds (KindDef `single`) ────────────────────
+  //
+  // Some content holds heavy app-wide state and must exist once. The
+  // taxonomy says which kinds (`single: true`, or `single: '<prop>'` for one
+  // per value of that prop); the WM keeps three promises about them:
+  //
+  //   - every OPEN path reveals the instance that exists — it switches to
+  //     its desktop, activates its tab (restoring an archived page if that is
+  //     where it is) and focuses its tile, or raises its window — instead of
+  //     mounting a second one;
+  //   - the COPY verbs (Alt+T / Alt+N / Alt+Shift+H / Alt+Shift+V, the tile
+  //     menu's "Open in new tab" and "Open a copy in a window", the palette's
+  //     split and window modes) are refused, the menus greyed with a reason;
+  //   - a restored layout holding duplicates keeps the FIRST (desktop order,
+  //     then tile order; live tabs before archived pages).
+  //
+  // MOVE verbs (float, dock, drag a tab, move to desktop) carry the one
+  // instance somewhere else and are untouched.
+  /** The instance key of a tab spec, or null when its kind is not single. */
+  _instanceKey(kind, props) {
+    return this.taxonomy.instanceKey(kind, props);
+  }
+  /** Whether `kind` exists once, and so refuses the copy verbs. */
+  isSingleKind(kind) {
+    return this.taxonomy.isSingle(kind);
+  }
+  /** Where the one instance of a single kind is open, or null — also null
+   *  for a kind that is not single. One of:
+   *    `{ where: 'window',  windowId, idx, desktopIdx }`
+   *    `{ where: 'tab',     desktopIdx, leafId, idx }`
+   *    `{ where: 'archive', desktopIdx, leafId, page, idx }` — a tab of a
+   *      top-nav page the tile has switched away from (`pageTabs`). */
+  findInstance(kind, props = {}) {
+    const key = this._instanceKey(kind, props);
+    if (key == null) return null;
+    const same = (t) => !!t && this._instanceKey(t.kind, t.props) === key;
+    for (const [windowId, rec] of this._windowToLeaf) {
+      const idx = _windowTabSpecs(rec).findIndex(same);
+      if (idx >= 0) return { where: "window", windowId, idx, desktopIdx: rec.desktopIdx };
+    }
+    const desktops = this.desktops.desktops;
+    for (const [desktopIdx, d] of desktops.entries()) {
+      for (const leaf of d.tree.leaves()) {
+        const idx = (leaf.tabs || []).findIndex(same);
+        if (idx >= 0) return { where: "tab", desktopIdx, leafId: leaf.id, idx };
+      }
+    }
+    for (const [desktopIdx, d] of desktops.entries()) {
+      for (const leaf of d.tree.leaves()) {
+        for (const [page, arc] of this._archivedPages(leaf)) {
+          const idx = arc.tabs.findIndex(same);
+          if (idx >= 0) return { where: "archive", desktopIdx, leafId: leaf.id, page, idx };
+        }
+      }
+    }
+    return null;
+  }
+  /** Reveal the instance of a single kind that is open: answers whether
+   *  there was one. Every open path asks this first. */
+  revealInstance(kind, props = {}) {
+    const loc = this.findInstance(kind, props);
+    return loc ? this._revealAt(loc) : false;
+  }
+  /** A leaf's archived pages that can come back — every `pageTabs` entry
+   *  but the CURRENT page's. `swapToPage` restores an archive without
+   *  deleting it, so the current page's entry is a stale copy of the live
+   *  tabs, overwritten the next time the tile leaves the page; counting it
+   *  would find every live instance twice. */
+  _archivedPages(leaf) {
+    const kind = leaf?.content?.kind;
+    const current = kind ? this.taxonomy.topNavFor(kind) || null : null;
+    return Object.entries(leaf?.pageTabs || {}).filter(([page, arc]) => page !== current && Array.isArray(arc?.tabs));
+  }
+  /** Reveal `loc` with ONE change notification. The verbs a reveal is made
+   *  of — `showWindowTab`, `switchDesktop` (directly or via `revealWindow`)
+   *  — each notify on their own; inside a reveal they are quiet, and the
+   *  reveal notifies once, as every other verb does. */
+  _revealAt(loc) {
+    this._quietDepth += 1;
+    let shown = false;
+    try {
+      shown = this._revealAtQuietly(loc);
+    } finally {
+      this._quietDepth -= 1;
+    }
+    if (shown) this._notifyChange("single-reveal");
+    return shown;
+  }
+  _revealAtQuietly(loc) {
+    if (loc.where === "window") {
+      const rec = this._windowToLeaf.get(loc.windowId);
+      if (!rec) return false;
+      if (Array.isArray(rec.tabs) && rec.tabs.length) this.showWindowTab(loc.windowId, loc.idx);
+      this.revealWindow(rec.window);
+      try {
+        rec.window.show();
+      } catch (err) {
+        console.warn("[wm] reveal: show failed", err);
+      }
+      return true;
+    }
+    const tree = this.desktops.desktops[loc.desktopIdx]?.tree;
+    const leaf = tree?.get(loc.leafId);
+    if (!leaf || leaf.kind !== "leaf") return false;
+    if (loc.where === "archive") {
+      const tab = leaf.pageTabs[loc.page].tabs[loc.idx];
+      const key = this._instanceKey(tab.kind, tab.props);
+      const curKind = leaf.content?.kind;
+      const current = curKind ? this.taxonomy.topNavFor(curKind) || null : null;
+      this._swapToPage(
+        tree,
+        loc.leafId,
+        { kind: tab.kind, props: tab.props || {}, title: tab.title },
+        current,
+        loc.page,
+        { recordHistory: false }
+      );
+      const at = (leaf.tabs || []).findIndex((t) => this._instanceKey(t.kind, t.props) === key);
+      if (at >= 0) tree.setActiveLeafTab(loc.leafId, at);
+    } else {
+      tree.setActiveLeafTab(loc.leafId, loc.idx);
+    }
+    tree.focus(loc.leafId);
+    if (loc.desktopIdx !== this.desktops.activeIdx) {
+      this.switchDesktop(loc.desktopIdx);
+    } else {
+      this.renderer.render();
+      this._persist();
+    }
+    return true;
+  }
+  /** `TileTree.swapToPage`, and then no restored tab is a second copy of a
+   *  single kind. Every page restore in the WM goes through here.
+   *
+   *  A page archive (`pageTabs`) is a snapshot: the instance it lists can
+   *  have moved to another tile or a window since — and the current page's
+   *  own entry is a stale copy of the live tabs that comes back into play as
+   *  soon as the tile leaves the page by a path other than `swapToPage`
+   *  (`navigateActiveTab`). So a restored tab whose instance is live
+   *  anywhere else is dropped from the tile and from the restored archive;
+   *  the instance stays where it is. */
+  _swapToPage(tree, leafId, target, currentTopNav, targetTopNav, opts) {
+    const done = tree.swapToPage(leafId, target, currentTopNav, targetTopNav, opts);
+    if (done) this._dropRestoredCopies(tree, leafId, targetTopNav, target);
+    return done;
+  }
+  _dropRestoredCopies(tree, leafId, page, target) {
+    const leaf = tree.get(leafId);
+    const tabs = Array.isArray(leaf?.tabs) ? leaf.tabs : null;
+    if (!tabs) return;
+    const elsewhere = this._liveInstanceKeys(tree, leafId);
+    const keeper = () => {
+      const seen = /* @__PURE__ */ new Set();
+      return (t) => {
+        const k = t ? this._instanceKey(t.kind, t.props) : null;
+        if (k == null) return true;
+        if (elsewhere.has(k) || seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      };
+    };
+    const arc = leaf.pageTabs?.[page];
+    if (arc && Array.isArray(arc.tabs)) {
+      const kept = arc.tabs.filter(keeper());
+      if (kept.length !== arc.tabs.length) {
+        arc.tabs = kept;
+        arc.activeTabIdx = Math.max(0, Math.min(kept.length - 1, arc.activeTabIdx || 0));
+      }
+    }
+    const keep = keeper();
+    let active = leaf.activeTabIdx || 0;
+    let changed = false;
+    for (let i = 0; i < tabs.length; ) {
+      if (keep(tabs[i])) {
+        i++;
+        continue;
+      }
+      tabs.splice(i, 1);
+      if (i < active) active -= 1;
+      changed = true;
+    }
+    if (!changed) return;
+    if (!tabs.length) {
+      tabs.push({
+        kind: target.kind,
+        props: target.props || {},
+        title: target.title || _tabTitle(target.kind, target.props),
+        history: []
+      });
+      active = 0;
+    }
+    tree.setActiveLeafTab(leafId, Math.max(0, Math.min(tabs.length - 1, active)));
+  }
+  /** The instance keys of every LIVE tab — windows, and every leaf of every
+   *  desktop but `leafId` of `tree`. Archived pages are not live. */
+  _liveInstanceKeys(tree, leafId) {
+    const keys = /* @__PURE__ */ new Set();
+    const add = (t) => {
+      const k = t ? this._instanceKey(t.kind, t.props) : null;
+      if (k != null) keys.add(k);
+    };
+    for (const [, rec] of this._windowToLeaf) _windowTabSpecs(rec).forEach(add);
+    for (const d of this.desktops.desktops) {
+      for (const leaf of d.tree.leaves()) {
+        if (d.tree === tree && leaf.id === leafId) continue;
+        (leaf.tabs || []).forEach(add);
+      }
+    }
+    return keys;
+  }
+  /** A restored layout keeps the FIRST instance of each single kind: later
+   *  live tabs are dropped (the tile shows the tab that took the dropped
+   *  one's place, or closes when it held nothing else), and so are later
+   *  archived ones. Answers whether anything was dropped. */
+  _dropDuplicateSingles() {
+    const seen = /* @__PURE__ */ new Set();
+    let dropped = false;
+    const keep = (t) => {
+      const k = t ? this._instanceKey(t.kind, t.props) : null;
+      if (k == null) return true;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    };
+    for (const d of this.desktops.desktops) {
+      const tree = d.tree;
+      for (const leaf of tree.leaves()) {
+        const tabs = Array.isArray(leaf.tabs) ? leaf.tabs : [];
+        let active = leaf.activeTabIdx || 0;
+        let changed = false;
+        for (let i = 0; i < tabs.length; ) {
+          if (keep(tabs[i])) {
+            i++;
+            continue;
+          }
+          tabs.splice(i, 1);
+          if (i < active) active -= 1;
+          changed = true;
+        }
+        if (!changed) continue;
+        dropped = true;
+        if (tabs.length) {
+          tree.setActiveLeafTab(leaf.id, Math.max(0, Math.min(tabs.length - 1, active)));
+          continue;
+        }
+        tree.close(leaf.id);
+        if (!tree.rootId) tree.setRoot(makeLeaf(this._rootLeaf()));
+        if (!tree.leaves().some((l) => !String(l.content?.kind || "").startsWith("panel:"))) {
+          const spawned = this._spawnContentLeaf(tree);
+          if (spawned) this._seedHome(tree, spawned);
+        }
+      }
+    }
+    for (const d of this.desktops.desktops) {
+      for (const leaf of d.tree.leaves()) {
+        for (const [page, arc] of this._archivedPages(leaf)) {
+          const kept = arc.tabs.filter(keep);
+          if (kept.length === arc.tabs.length) continue;
+          dropped = true;
+          if (!kept.length) {
+            delete leaf.pageTabs[page];
+            continue;
+          }
+          arc.tabs = kept;
+          arc.activeTabIdx = Math.max(0, Math.min(kept.length - 1, arc.activeTabIdx || 0));
+        }
+      }
+    }
+    return dropped;
   }
   // ── Content loading ─────────────────────────────────────────────
   /** Load content into the primary tile (last-active non-panel leaf).
@@ -5131,11 +5762,13 @@ var WindowManager = class _WindowManager {
     const tree = this._tree();
     const prior = tree.popActiveTabHistory?.(id);
     if (!prior || !prior.kind) return false;
+    if (this.revealInstance(prior.kind, prior.props || {})) return true;
     const curKind = tree.get(id)?.content?.kind;
     const curTopNav = curKind ? this.taxonomy.topNavFor(curKind) : null;
     const title = prior.title || _tabTitle(prior.kind, prior.props);
     if (prior.topNav && curTopNav && prior.topNav !== curTopNav) {
-      tree.swapToPage?.(
+      this._swapToPage(
+        tree,
         id,
         { kind: prior.kind, props: prior.props || {}, title },
         curTopNav,
@@ -5245,6 +5878,7 @@ var WindowManager = class _WindowManager {
    *  the leaf. Used by Backspace + breadcrumb segments + anything
    *  else that should walk WITHIN the tile rather than reset it. */
   navigateActiveTab(leafId, kind, props = {}) {
+    if (this.revealInstance(kind, props)) return;
     const tree = this._tree();
     const leaf = tree.get(leafId);
     if (!leaf || leaf.kind !== "leaf") {
@@ -5298,6 +5932,7 @@ var WindowManager = class _WindowManager {
    *  tab feature shipped), the behavior is identical to the old
    *  setLeafContent: one tab in, one tab out. */
   openInLeaf(leafId, kind, props = {}) {
+    if (this.revealInstance(kind, props)) return;
     const tree = this._tree();
     const leaf = tree.get(leafId);
     if (!leaf || leaf.kind !== "leaf") {
@@ -5314,6 +5949,7 @@ var WindowManager = class _WindowManager {
    *  previous mount, mounts the new kind into the same body element,
    *  and updates the window's title. */
   openInWindow(winId, kind, props = {}) {
+    if (this.revealInstance(kind, props)) return;
     const rec = this._windowToLeaf.get(winId);
     if (!rec) {
       this.openInPrimary(kind, props);
@@ -5352,6 +5988,7 @@ var WindowManager = class _WindowManager {
    *  If only panel tiles exist (or the tree is empty), spawn a new
    *  content leaf and canonicalize so the panels wrap it. */
   openInPrimary(kind, props = {}) {
+    if (this.revealInstance(kind, props)) return;
     const tree = this._tree();
     let leafId = tree.primaryLeafId();
     let spawned = false;
@@ -5364,7 +6001,8 @@ var WindowManager = class _WindowManager {
     const currentTopNav = leaf?.content?.kind ? this.taxonomy.topNavFor(leaf.content.kind) || null : null;
     const targetTopNav = this.taxonomy.topNavFor(kind) || kind;
     const title = _tabTitle(kind, props);
-    tree.swapToPage(
+    this._swapToPage(
+      tree,
       leafId,
       { kind, props, title },
       currentTopNav,
@@ -5410,6 +6048,7 @@ var WindowManager = class _WindowManager {
    *  pane in a split never dismounts the original). Returns the new
    *  leaf id, or null if the leaf can't be split. */
   splitLeafWith(leafId, dir, kind, props = {}, title = "") {
+    if (this.revealInstance(kind, props)) return null;
     const tree = this._tree();
     leafId = this._contentLeafId(leafId);
     const src = leafId ? tree.get(leafId) : null;
@@ -5445,17 +6084,18 @@ var WindowManager = class _WindowManager {
     if (!kind || kind === PLACEHOLDER_KIND || kind.startsWith("panel:")) return null;
     return { leafId: id, kind, props: leaf.content.props || {}, title: leaf.title };
   }
-  /** Alt+T — open the focused tile's content in a new tab on that tile. */
+  /** Alt+T — open the focused tile's content in a new tab on that tile.
+   *  A copy verb, so a single kind refuses it (and Alt+N, Alt+Shift+H/V). */
   openFocusedInTab() {
     const c = this._focusedContent();
-    if (!c) return;
+    if (!c || this.isSingleKind(c.kind)) return;
     this.openInTabFromContext({ leafId: c.leafId }, c.kind, c.props);
   }
   /** Alt+N — open the focused tile's content in a fresh managed window.
    *  Unlike Alt+F (promote) this DUPLICATES: the source tile stays put. */
   openFocusedInWindow() {
     const c = this._focusedContent();
-    if (!c) return;
+    if (!c || this.isSingleKind(c.kind)) return;
     this._navigateWindow(c.kind, c.props);
   }
   /** Alt+Shift+H / Alt+Shift+V — split the focused tile and open a fresh
@@ -5467,6 +6107,7 @@ var WindowManager = class _WindowManager {
       this.split(dir);
       return;
     }
+    if (this.isSingleKind(c.kind)) return;
     this.splitLeafWith(c.leafId, dir, c.kind, c.props, c.title);
   }
   closeFocused() {
@@ -7227,15 +7868,94 @@ var WindowManager = class _WindowManager {
    *  edge (a recursive split) or closes that leaf. */
   isPanelOpen(side) {
     const d = this.desktops.active();
-    return !!d.panels[side];
+    return !!d.panels[side] && this.isPanelAvailable(side);
   }
+  /** Flip a panel. A withheld panel is not flipped: answers `false` and
+   *  touches nothing — not the remembered open state, not the layout, not
+   *  what is persisted. Answers `true` when it flipped. */
   togglePanel(side) {
+    if (!this.isPanelAvailable(side)) return false;
     const d = this.desktops.active();
     d.panels[side] = !d.panels[side];
     this._canonicalize(this._tree(), d);
     this.renderer.render();
     this._persist();
     this._notifyChange();
+    return true;
+  }
+  // ── Panel availability ──────────────────────────────────────────
+  /** Whether the panel on `side` is offered on the active desktop right now:
+   *  `{ available, reason }`. A runtime override wins; else the primary
+   *  tile's kind says (`KindDef.panels`, see kind_taxonomy.js); else it is
+   *  offered. `desktops.panels` is untouched by any of this — it remembers
+   *  what the user OPENED, so a panel withheld while it was open comes back
+   *  open once it is offered again. */
+  getPanelAvailability(side, tree = this._tree()) {
+    assertPanelSide(side, "getPanelAvailability");
+    const override = this._panelOverrides[side];
+    if (override) return override;
+    const id = tree.primaryLeafId();
+    const content = id ? tree.get(id)?.content : null;
+    const kind = content?.kind === PLACEHOLDER_KIND ? content.props?.originalKind : content?.kind;
+    return this.taxonomy.panelOffer(kind, side);
+  }
+  isPanelAvailable(side) {
+    return this.getPanelAvailability(side).available;
+  }
+  /** Content's say, at runtime: `offer` is `true`, `false` or `{ reason }`
+   *  and beats the kind's declaration until it is cleared with `null`. The
+   *  override belongs to the shell, not to a tile — content that sets one
+   *  clears it when it goes (its `destroy`). */
+  setPanelAvailability(side, offer) {
+    assertPanelSide(side, "setPanelAvailability");
+    if (offer === null || offer === void 0) delete this._panelOverrides[side];
+    else this._panelOverrides[side] = readPanelOffer(offer, "setPanelAvailability");
+    this._notifyChange("panel-availability");
+  }
+  /** Subscribe to availability changes. `fn({ panels, changed })` runs ONCE
+   *  per change, however many sides changed in it: `panels` is every side's
+   *  `{ available, reason }`, `changed` the sides that differ from the last
+   *  call. The same payload goes out on the bus as `wm:panels:availability`.
+   *  Returns the unsubscribe. */
+  onPanelAvailabilityChange(fn) {
+    this._panelAvailabilityListeners.add(fn);
+    return () => this._panelAvailabilityListeners.delete(fn);
+  }
+  /** Bring the active desktop's panel leaves in line with what is offered,
+   *  and announce a change of availability. Called from `_notifyChange`, so
+   *  every path that can change the primary kind passes through it. */
+  _reconcilePanels() {
+    if (this._reconcilingPanels || !this.desktops) return;
+    this._reconcilingPanels = true;
+    try {
+      const d = this.desktops.active();
+      const panels = {};
+      for (const side of PANEL_SIDES) panels[side] = this.getPanelAvailability(side, d.tree);
+      const shown = (side) => !!d.panels[side] && panels[side].available;
+      if (d.tree.rootId && PANEL_SIDES.some((s) => shown(s) !== !!this._findPanelLeaf(s))) {
+        this._canonicalize(d.tree, d);
+        this.renderer.render();
+      }
+      const last = this._panelAvailability;
+      const changed = PANEL_SIDES.filter((s) => last[s].available !== panels[s].available || last[s].reason !== panels[s].reason);
+      if (!changed.length) return;
+      this._panelAvailability = panels;
+      const payload = Object.freeze({ panels: Object.freeze(panels), changed, wm: this });
+      for (const fn of [...this._panelAvailabilityListeners]) {
+        try {
+          fn(payload);
+        } catch (err) {
+          console.error("[wm] panel availability listener threw", err);
+        }
+      }
+      try {
+        this.eventBus?.emit?.("wm:panels:availability", payload);
+      } catch (err) {
+        console.warn("[wm] event emit failed", err);
+      }
+    } finally {
+      this._reconcilingPanels = false;
+    }
   }
   /** Rebuild the tree so panel:* leaves sit in the canonical positions:
    *
@@ -7249,13 +7969,13 @@ var WindowManager = class _WindowManager {
    *  Existing panel leaves are detached + re-attached (same id), so the
    *  renderer cache keeps the mounted content (nav filter state, etc.). */
   _canonicalize(tree, desktop) {
-    const panel = {};
-    for (const leaf of tree.leaves()) {
-      const kind = leaf.content?.kind;
-      if (kind === "panel:left") panel.left = leaf;
-      else if (kind === "panel:right") panel.right = leaf;
-      else if (kind === "panel:bottom") panel.bottom = leaf;
+    const open = {};
+    for (const side of PANEL_SIDES) {
+      open[side] = !!desktop.panels[side] && this.getPanelAvailability(side, tree).available;
     }
+    const panel = _panelLeaves(tree);
+    this._recordPanelShares(tree, desktop);
+    const share = desktop.panelShares;
     const detach = (leaf) => {
       if (!leaf) return;
       const pid = leaf.parentId;
@@ -7279,7 +7999,7 @@ var WindowManager = class _WindowManager {
     detach(panel.bottom);
     let seededSide = null;
     if (!tree.rootId) {
-      seededSide = desktop.panels.left ? "left" : desktop.panels.bottom ? "bottom" : desktop.panels.right ? "right" : null;
+      seededSide = open.left ? "left" : open.bottom ? "bottom" : open.right ? "right" : null;
       if (seededSide) {
         const seed = panel[seededSide] || makeLeaf({
           content: { kind: `panel:${seededSide}`, props: {} },
@@ -7294,6 +8014,15 @@ var WindowManager = class _WindowManager {
         tree.rootId = seed.id;
       }
     }
+    const willWrap = (side) => open[side] && seededSide !== side && !!tree.rootId;
+    const DEFAULT_SHARE = 1 / 5;
+    const slotShare = (side) => {
+      const own = share[side];
+      if (own == null) return null;
+      if (side !== "left" || !willWrap("right")) return _clampSlotShare(own);
+      const right = _clampSlotShare(share.right ?? DEFAULT_SHARE);
+      return _clampSlotShare(own / (1 - right));
+    };
     const wrap = (panelLeaf, side) => {
       if (panelLeaf && !tree.nodes.has(panelLeaf.id)) {
         tree.nodes.set(panelLeaf.id, panelLeaf);
@@ -7309,7 +8038,8 @@ var WindowManager = class _WindowManager {
       const before = side === "left";
       const dir = side === "bottom" ? "v" : "h";
       const children = before ? [leaf.id, tree.rootId] : [tree.rootId, leaf.id];
-      const sizes = side === "bottom" ? [4, 1] : side === "left" ? [1, 4] : [4, 1];
+      const kept = slotShare(side);
+      const sizes = kept != null ? before ? [kept, 1 - kept] : [1 - kept, kept] : before ? [1, 4] : [4, 1];
       const split = {
         id: `split-panel-${side}-${Math.random().toString(36).slice(2, 7)}`,
         kind: "split",
@@ -7324,9 +8054,9 @@ var WindowManager = class _WindowManager {
       leaf.parentId = split.id;
       tree.rootId = split.id;
     };
-    if (desktop.panels.left && seededSide !== "left" && tree.rootId) wrap(panel.left, "left");
-    if (desktop.panels.right && seededSide !== "right" && tree.rootId) wrap(panel.right, "right");
-    if (desktop.panels.bottom && seededSide !== "bottom" && tree.rootId) wrap(panel.bottom, "bottom");
+    if (willWrap("left")) wrap(panel.left, "left");
+    if (willWrap("right")) wrap(panel.right, "right");
+    if (willWrap("bottom")) wrap(panel.bottom, "bottom");
     const reachable = /* @__PURE__ */ new Set();
     const walk = (id) => {
       if (!id || reachable.has(id)) return;
@@ -7338,6 +8068,68 @@ var WindowManager = class _WindowManager {
     for (const id of [...tree.nodes.keys()]) {
       if (!reachable.has(id)) tree.nodes.delete(id);
     }
+  }
+  /** A finished splitter drag of split `splitId` is a layout change like
+   *  any other: record the shares of the panels that split sizes (the ones
+   *  inside it; the Navigator sits inside the right panel's split) while
+   *  the tree is still canonical (a drag never changes its structure), then
+   *  save, so the dragged size is what the next load, or the next
+   *  structural change, gives back. */
+  _onSplitResized(splitId) {
+    this._recordPanelShares(this._tree(), this.desktops.active(), splitId);
+    this._persist();
+    this._notifyChange("split-resized");
+  }
+  /** Keep `desktop.panelShares` current: each panel's share of the WM area
+   *  along its own axis (width for left/right, height for bottom), kept on
+   *  the desktop record and serialized with it, so a panel the user closes
+   *  comes back at the size it had, even across a reload while it was
+   *  closed. With `resizedSplitId`, the panels inside that split are
+   *  measured (a drag); without, the panels that have no share yet are.
+   *  A panel that measures nothing (not on the tree, the root, or under a
+   *  split that is not one of its canonical panel splits) keeps the share
+   *  it last had. A share is recorded as measured, never clamped: the drag
+   *  range belongs to the slot of the split being built (step 5 of
+   *  _canonicalize), not to an area share. A stored value that is not a
+   *  share at all (not a finite number strictly between 0 and 1) is
+   *  dropped, so that panel opens at the default again. */
+  _recordPanelShares(tree, desktop, resizedSplitId = null) {
+    const panel = _panelLeaves(tree);
+    for (const side of PANEL_SIDES) {
+      const kept = _validShare(desktop.panelShares[side]);
+      const measure = resizedSplitId == null ? kept == null : _isInside(tree, panel[side], resizedSplitId);
+      const v = (measure ? this._panelShare(tree, panel[side], side) : null) ?? kept;
+      if (v == null) delete desktop.panelShares[side];
+      else desktop.panelShares[side] = v;
+    }
+  }
+  /** The share (0..1) of the WM area the `side` panel leaf takes along its
+   *  axis: the product of its shares in every ancestor split running that
+   *  way (splits across the axis do not change it). Only a CANONICAL
+   *  placement measures: the leaf's own parent is its `split-panel-<side>`
+   *  split and every ancestor is a panel split. Any other tree is one a
+   *  structural change has left in passing (the last content tile closed,
+   *  or a spawned content leaf wrapping the whole root), whose sizes are
+   *  not the user's; that, a missing or root leaf, or a degenerate split
+   *  gives null. */
+  _panelShare(tree, leaf, side) {
+    if (!leaf?.parentId) return null;
+    if (!String(leaf.parentId).startsWith(`split-panel-${side}-`)) return null;
+    const axis = side === "bottom" ? "v" : "h";
+    let frac = 1;
+    let node = leaf;
+    while (node.parentId) {
+      const parent = tree.get(node.parentId);
+      if (!parent || !String(parent.id).startsWith("split-panel-")) return null;
+      if (parent.dir === axis) {
+        const idx = parent.children.indexOf(node.id);
+        const total = parent.sizes.reduce((a, b) => a + b, 0);
+        if (idx < 0 || !(total > 0) || !(parent.sizes[idx] > 0)) return null;
+        frac *= parent.sizes[idx] / total;
+      }
+      node = parent;
+    }
+    return frac > 0 && frac < 1 ? frac : null;
   }
   _findPanelLeaf(side) {
     const kind = `panel:${side}`;
@@ -7684,6 +8476,7 @@ var WindowManager = class _WindowManager {
   /** Spawn a fresh ManagedWindow with the requested content. No
    *  source leaf — closing the window just disposes the content. */
   _navigateWindow(kind, props) {
+    if (this.revealInstance(kind, props)) return;
     const winId = `twm-mw-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`;
     const contentEl = document.createElement("div");
     contentEl.className = "twm-window-content";
@@ -7801,6 +8594,7 @@ var WindowManager = class _WindowManager {
    *  routing) but uses `appendLeafTab` so the existing content
    *  stays in place as a tab. */
   openInTabFromContext(ctx, kind, props = {}, transient = false, background = false) {
+    if (this.revealInstance(kind, props)) return;
     if (ctx?.windowId && this._windowToLeaf.has(ctx.windowId)) {
       this.openInWindow(ctx.windowId, kind, props);
       return;
@@ -7833,6 +8627,7 @@ var WindowManager = class _WindowManager {
    *  "Add row" button, which passes no ctx) reliably lands as a sibling
    *  tab in the main tile rather than swapping its content. */
   openInTabInPrimary(kind, props = {}, transient = false, background = false) {
+    if (this.revealInstance(kind, props)) return;
     const tree = this._tree();
     const leafId = tree.primaryLeafId();
     if (!leafId) {
@@ -7851,10 +8646,37 @@ var WindowManager = class _WindowManager {
     this._notifyChange("tab-open");
   }
 };
+function _panelLeaves(tree) {
+  const panel = {};
+  for (const leaf of tree.leaves()) {
+    const kind = leaf.content?.kind;
+    if (kind === "panel:left") panel.left = leaf;
+    else if (kind === "panel:right") panel.right = leaf;
+    else if (kind === "panel:bottom") panel.bottom = leaf;
+  }
+  return panel;
+}
+function _isInside(tree, node, splitId) {
+  for (let id = node?.parentId; id; id = tree.get(id)?.parentId) {
+    if (id === splitId) return true;
+  }
+  return false;
+}
+function _validShare(v) {
+  return typeof v === "number" && Number.isFinite(v) && v > 0 && v < 1 ? v : null;
+}
+function _clampSlotShare(v) {
+  const min = TileRenderer.MIN_SLOT_FRACTION;
+  return Math.min(Math.max(v, min), 1 - min);
+}
 function _tabTitle(kind, props) {
   if (props && typeof props.label === "string" && props.label) return props.label;
   if (props && (typeof props.id === "string" || typeof props.id === "number") && String(props.id)) return String(props.id);
   return kind || "";
+}
+function _windowTabSpecs(rec) {
+  if (Array.isArray(rec?.tabs) && rec.tabs.length) return rec.tabs;
+  return rec?.original ? [rec.original] : [];
 }
 function _leafTabSpecs(leaf) {
   const tabs = Array.isArray(leaf.tabs) ? leaf.tabs : [];
@@ -8116,17 +8938,17 @@ function openTileTabMenu({
         return `
                     <li class="twm-tile-tabmenu__item${idx === _cursor ? " twm-tile-tabmenu__item--cursor" : ""}"
                         data-flat-idx="${idx}">
-                        <span class="twm-tile-tabmenu__item-label">${_esc7(label)}</span>
-                        ${hint ? `<span class="twm-tile-tabmenu__item-hint">${_esc7(hint)}</span>` : ""}
+                        <span class="twm-tile-tabmenu__item-label">${_esc8(label)}</span>
+                        ${hint ? `<span class="twm-tile-tabmenu__item-hint">${_esc8(hint)}</span>` : ""}
                     </li>
                 `;
       }).join("");
       return `
                 <section class="twm-tile-tabmenu__section"
-                         data-section="${_esc7(s.src.navKind)}">
+                         data-section="${_esc8(s.src.navKind)}">
                     <header class="twm-tile-tabmenu__section-head">
-                        <span class="material-symbols-outlined">${_esc7(s.meta?.icon || "arrow_right")}</span>
-                        <span class="twm-tile-tabmenu__section-label">${_esc7(s.meta?.label || s.src.navKind)}</span>
+                        <span class="material-symbols-outlined">${_esc8(s.meta?.icon || "arrow_right")}</span>
+                        <span class="twm-tile-tabmenu__section-label">${_esc8(s.meta?.label || s.src.navKind)}</span>
                         <span class="twm-tile-tabmenu__section-count">${s.total}</span>
                     </header>
                     ${s.view.length === 0 ? `
@@ -8135,11 +8957,11 @@ function openTileTabMenu({
                     ${!_query && s.pages > 1 ? `
                         <div class="twm-tile-tabmenu__pager">
                             <button type="button" data-action="prev"
-                                    data-section="${_esc7(s.src.navKind)}"
+                                    data-section="${_esc8(s.src.navKind)}"
                                     ${s.page === 0 ? "disabled" : ""}>&lt;</button>
                             <span>${s.page + 1} / ${s.pages}</span>
                             <button type="button" data-action="next"
-                                    data-section="${_esc7(s.src.navKind)}"
+                                    data-section="${_esc8(s.src.navKind)}"
                                     ${s.page >= s.pages - 1 ? "disabled" : ""}>&gt;</button>
                         </div>
                     ` : ""}
@@ -8203,7 +9025,7 @@ function openTileTabSwitcher({ x, y, tabs, activeIdx = 0, onPick }) {
         <li class="twm-tile-tabswitch__item${i === activeIdx ? " twm-tile-tabswitch__item--on" : ""}"
             data-idx="${i}" role="option" aria-selected="${i === activeIdx}">
             <span class="material-symbols-outlined twm-tile-tabswitch__check">${i === activeIdx ? "check" : ""}</span>
-            <span class="twm-tile-tabswitch__label">${_esc7(t.title || t.kind || "Tab")}</span>
+            <span class="twm-tile-tabswitch__label">${_esc8(t.title || t.kind || "Tab")}</span>
         </li>
     `).join("");
   overlay.innerHTML = `
@@ -8304,7 +9126,7 @@ function _matchesShaped(shaped, query) {
   const hint = String(shaped.hint ?? "").toLowerCase();
   return id.includes(query) || label.includes(query) || hint.includes(query);
 }
-function _esc7(s) {
+function _esc8(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;",
     "<": "&lt;",
@@ -8442,17 +9264,34 @@ async function createShell({
   tabLayout = null,
   newTabButton = true,
   desktopBar = {},
+  menuBar: menuBarCfg = null,
   chrome = {},
   // An embedder that moved its sections out of the top bar — into an icon
   // rail, say — passes the selector its own buttons match, and F1..F8 keep
   // working. Omitted, the default top-bar selector applies.
-  navSelector = null
+  navSelector = null,
+  keymap = null
 } = {}) {
   if (!root || typeof root.appendChild !== "function") {
     throw new TypeError("createShell: `root` must be an element");
   }
   if (!taxonomy) throw new Error("createShell: a taxonomy is required");
   if (!entities) throw new Error("createShell: an entity catalog is required");
+  if (chrome.menuBar && !menuBarCfg?.menus) {
+    throw new TypeError("createShell: `chrome.menuBar` needs `menuBar: { menus }`");
+  }
+  if (menuBarCfg && !chrome.menuBar) {
+    throw new TypeError("createShell: `menuBar` needs `chrome.menuBar`, the element it is painted into");
+  }
+  if (keymap != null) {
+    if (typeof keymap !== "object" || Array.isArray(keymap)) {
+      throw new TypeError("createShell: `keymap` must be an object of { bindings }");
+    }
+    const extra = Object.keys(keymap).filter((k) => k !== "bindings");
+    if (extra.length) {
+      throw new TypeError(`createShell: unknown \`keymap\` key(s) ${extra.map((k) => `"${k}"`).join(", ")} \u2014 the only key is \`bindings\``);
+    }
+  }
   const log = logger ?? { info() {
   }, warn() {
   }, error() {
@@ -8503,21 +9342,28 @@ async function createShell({
     },
     onChange: () => syncChrome()
   });
+  const menuBar = chrome.menuBar ? createMenuBar(chrome.menuBar, menuBarCfg) : null;
+  const ownCommands = paletteCfg.commands;
+  const commands = menuBar && menuBarCfg.palette !== false ? () => [...typeof ownCommands === "function" ? ownCommands() || [] : [], ...menuBar.commands()] : ownCommands;
+  const bindings = keymap?.bindings ?? null;
   const palette = createCommandPalette({
     wm,
     api,
     taxonomy,
     catalog: entities,
-    ...paletteCfg
+    // What *Keyboard shortcuts* lists is what the keys do in THIS shell.
+    shortcuts: keymapShortcuts(bindings),
+    ...paletteCfg,
+    commands
   });
-  const disposeKeymap = installKeymap({ wm, palette, navSelector });
+  const disposeKeymap = installKeymap({ wm, palette, navSelector, bindings, logger });
   const paletteBtn = mountPaletteButton(chrome.paletteButton, palette);
   topNavEl = mountTopNav(chrome.topNav, taxonomy, wm);
   desktopsEl = mountDesktopBar(chrome.desktops, wm, desktopBar || {});
   const zoom = mountZoomControl(chrome.zoom, { root, host });
   if (zoom) await zoom.ready;
   toggles = bindPanelToggles(chrome.panelToggles, wm);
-  eventBus?.on?.("wm:changed", syncChrome);
+  const chromeSubscription = eventBus?.on?.("wm:changed", syncChrome);
   await wm.load();
   syncChrome();
   log.info?.("shell mounted");
@@ -8535,7 +9381,9 @@ async function createShell({
       panelToggles: toggles,
       // `get`/`set` so an embedder can drive the zoom from its own settings
       // pane, or read it, without reaching into the control's DOM.
-      zoom
+      zoom,
+      // STORY-0030. `setEnabled` / `setChecked` / `open` / `commands`.
+      menuBar
     }),
     // A shell that can be built can be built TWICE — an embedder that
     // rebuilds on a context change (a different project, a different
@@ -8544,7 +9392,7 @@ async function createShell({
     // with the first one's keyboard.
     dispose: () => {
       try {
-        eventBus?.off?.("wm:changed", syncChrome);
+        chromeSubscription?.dispose?.();
       } catch {
       }
       try {
@@ -8566,6 +9414,10 @@ async function createShell({
       }
       try {
         desktopsEl?.remove();
+      } catch {
+      }
+      try {
+        menuBar?.dispose();
       } catch {
       }
     }
@@ -8619,6 +9471,7 @@ function mountPaletteButton(hostEl, palette) {
   hostEl.insertBefore(btn, hostEl.firstChild);
   return btn;
 }
+var OWN_TOOLTIPS = /* @__PURE__ */ new WeakMap();
 function bindPanelToggles(map, wm) {
   const fresh = {};
   for (const side of ["left", "right", "bottom"]) {
@@ -8631,6 +9484,10 @@ function bindPanelToggles(map, wm) {
     el.removeAttribute("aria-pressed");
     btn.replaceWith(el);
     el.addEventListener("click", () => wm.togglePanel(side));
+    OWN_TOOLTIPS.set(el, {
+      tooltip: el.getAttribute("data-tooltip"),
+      title: el.getAttribute("title")
+    });
     fresh[side] = el;
   }
   return fresh;
@@ -8640,6 +9497,21 @@ function syncPanelToggles(map, wm) {
     const btn = map?.[side];
     if (!btn) continue;
     btn.classList.toggle("twm-panel-toggle-btn--on", wm.isPanelOpen(side));
+    const { available, reason } = wm.getPanelAvailability(side);
+    const own = OWN_TOOLTIPS.get(btn) || {};
+    const restore = (attr, value) => value == null ? btn.removeAttribute(attr) : btn.setAttribute(attr, value);
+    if (available) {
+      btn.removeAttribute("aria-disabled");
+      restore("data-tooltip", own.tooltip);
+      restore("title", own.title);
+      continue;
+    }
+    btn.setAttribute("aria-disabled", "true");
+    if (btn.classList.contains("twm-has-tooltip")) {
+      restore("data-tooltip", reason ?? own.tooltip);
+    } else {
+      restore("title", reason ?? own.title);
+    }
   }
 }
 function mountDesktopBar(hostEl, wm, { switchOnAdd = false } = {}) {
@@ -8795,6 +9667,8 @@ function _tileContextMenu(wm, leafId, x, y) {
   const isPanel = String(leaf.content?.kind || "").startsWith("panel:");
   tree.focus(leafId);
   wm.renderer._updateFocusClasses();
+  const single = !!leaf.content && wm.isSingleKind(leaf.content.kind);
+  const singleTitle = single ? wm.taxonomy.singleReason(leaf.content.kind) : void 0;
   const items = [
     { label: "Split horizontally", icon: "splitscreen_vertical_add", action: "split-h" },
     { label: "Split vertically", icon: "splitscreen_add", action: "split-v" },
@@ -8803,7 +9677,8 @@ function _tileContextMenu(wm, leafId, x, y) {
       label: "Open in new tab",
       icon: "tab",
       action: "open-tab",
-      disabled: isPanel || !leaf.content
+      disabled: isPanel || !leaf.content || single,
+      title: singleTitle
     },
     // TWO DIFFERENT GLYPHS FOR TWO DIFFERENT DESTINATIONS. `web_asset` is a
     // window INSIDE the application — the same glyph `ManagedWindow` uses
@@ -8816,7 +9691,8 @@ function _tileContextMenu(wm, leafId, x, y) {
       label: "Open a copy in a window",
       icon: "web_asset",
       action: "open-window",
-      disabled: isPanel || !leaf.content
+      disabled: isPanel || !leaf.content || single,
+      title: singleTitle
     },
     // C20, THE OTHER HALF — and it was missing while the `close` half
     // below carried a paragraph explaining why it could not be.
@@ -8882,6 +9758,8 @@ function _tileContextMenu(wm, leafId, x, y) {
 export {
   BADGE_LEVELS,
   DesktopManager,
+  KEYBOARD_SHORTCUTS_TOPIC_ID,
+  KEYMAP_SHORTCUTS,
   PLACEHOLDER_KIND,
   PanelKeyRouter,
   TILE_TAB_MIME,
@@ -8910,6 +9788,8 @@ export {
   getPanelKeyRouter,
   installKeymap,
   installPanelKeyRouter,
+  keyboardShortcutsTopic,
+  keymapShortcuts,
   loadDesktops,
   makeLeaf,
   makeLoadingOverlay,

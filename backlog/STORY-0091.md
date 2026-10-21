@@ -2,7 +2,7 @@
 id: 91
 type: story
 title: "A crosstab grid draws spanned header rows with pinned header rows and label columns in one scroller"
-status: review
+status: done
 parent: 1
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: grid
 labels: [grid, editing, tables-consumer]
 links: [blocked-by 66]
 created: 2026-10-18
-updated: 2026-10-20T21:06Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -38,6 +38,7 @@ Owner decisions (norman, 2026-10-18): FlexDesk provides every UI operation and m
 - 2026-10-20 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-20 · norman_agent · status: in-progress -> review
 - 2026-10-20 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -62,3 +63,7 @@ Ticked: all 6 criteria (2-level column axis spans, pinned header rows with measu
 Tests: after the rebase, `node tests/run.mjs` (Linux /usr/bin/node) ran to completion: exit 0, "FLEXDESK TESTS: GREEN — 182 suite(s)", 0 `: SKIPPED` lines. That includes tests/crosstab.test.mjs §1-§7 with the §3 stylesheet checks: the exact important layer stack; each of the 12 td state rules has a pinned mirror with the same tint and specificity of the original plus 2 classes; tied originals keep their order; a sweep for any other body-cell background; the `@property` flash registration and keyframes. `node build.mjs` succeeded. dist/ was reverted afterwards and not committed.
 
 App check: none in a real browser, because there is no browser on the machine. The stylesheet checks read the CSS, the same way the existing §3 checks do.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

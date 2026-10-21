@@ -2,7 +2,7 @@
 id: 48
 type: story
 title: "A public tab strip with optional pane host, decoupled from bus names and file paths"
-status: review
+status: done
 parent: 40
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: widgets
 labels: [widgets, new-component, tabs]
 links: []
 created: 2026-10-17
-updated: 2026-10-19T09:54Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -39,6 +39,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-19 · norman_agent · status: in-progress -> review
 - 2026-10-19 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -78,3 +79,7 @@ Landed tip on main: 51ef144. Before landing, the branch was rebased onto origin/
 Tests: `node tests/run.mjs` (Linux /usr/bin/node) on the rebased tip 51ef144 printed "FLEXDESK TESTS: GREEN — 144 suite(s)" and exited 0, with no SKIPPED lines. I watched it finish. `node build.mjs` exited 0, and dist/ was reverted afterwards. The build ran while the suite was running, so I also reran every suite that reads dist/ against the committed dist/, and all passed. tests/tabs.test.mjs and tests/bottom_panel_tabs.test.mjs also pass on their own.
 
 App check: none in this run. The strip was checked only in jsdom; no FlexDesk demo or EcoSim app was launched.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

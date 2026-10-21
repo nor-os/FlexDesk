@@ -2,6 +2,8 @@ import {
   StateMachine
 } from "./chunk-3PHCPZHT.js";
 import {
+  DEFAULT_SETTINGS_STORAGE_KEY,
+  configureSettings,
   createSettingsStore,
   getAllSettings,
   getCategories,
@@ -9,13 +11,15 @@ import {
   getSchema,
   getSetting,
   getSettingsByCategory,
+  getSettingsStorageKey,
+  getSettingsStore,
   registerSettings,
   registerSettingsEventBus,
   resetAllSettings,
   resetCategory,
   resetSetting,
   setSetting
-} from "./chunk-FL5KFNQH.js";
+} from "./chunk-HNU6MM2B.js";
 import "./chunk-JYWURG5T.js";
 
 // src/core/event_bus.js
@@ -213,7 +217,7 @@ var DEFAULT_NAMESPACE = "app";
 var QUIET_MODE_LEVEL = "warn";
 var LoggingService = class {
   constructor({
-    name = "ecosim",
+    name = "flexdesk",
     eventBus = null,
     minLevel = "info",
     historyLimit = 500,
@@ -464,7 +468,6 @@ var DEFAULT_ALLOWED_ATTRIBUTES = Object.freeze([
   "aria-busy",
   "role",
   "title",
-  "twm-has-tooltip",
   "data-tooltip",
   "data-help-topic"
 ]);
@@ -476,7 +479,6 @@ var DEFAULT_ALLOWED_DATASET_KEYS = Object.freeze([
   "deleting",
   // Notification center
   "notification-id",
-  "notificationId",
   // Plotly.js internal attributes (third-party charting library)
   "unformatted",
   "toggle",
@@ -491,56 +493,37 @@ var DEFAULT_ALLOWED_DATASET_KEYS = Object.freeze([
   "group",
   "trace",
   "point",
-  "curveNumber",
-  "pointNumber",
+  "curve-number",
+  "point-number",
   // UI state keys used by original HTML structure
   "active-content",
-  "activeContent",
   "panel-content",
-  "panelContent",
   "collapsible-id",
-  "collapsibleId",
   "collapsible-default",
-  "collapsibleDefault",
-  "twm-collapsible-header",
-  "collapsibleHeader",
-  "twm-collapsible-content",
-  "collapsibleContent",
+  "collapsible-header",
+  "collapsible-content",
   "collapsible-group",
-  "collapsibleGroup",
   "collapsible-exclusive",
-  "collapsibleExclusive",
   "collapsible-float",
-  "collapsibleFloat",
   "collapsible-fill",
-  "collapsibleFill",
   "tool",
   "tab",
   "role",
   "op",
   "func-name",
-  "funcName",
   "func-expr",
-  "funcExpr",
   "arity",
   "tooltip",
-  "twm-latex-tooltip",
-  "latexTooltip",
+  "latex-tooltip",
   "node-type",
-  "nodeType",
-  "twm-node-name",
-  "nodeName",
+  "node-name",
   "lang",
   "playback-control",
-  "playbackControl",
   // Simulation/scenario state keys
   "status",
   "scenario-id",
-  "scenarioId",
   "run-id",
-  "runId",
   "run-state",
-  "runState",
   "selected",
   "active",
   "disabled",
@@ -550,53 +533,33 @@ var DEFAULT_ALLOWED_DATASET_KEYS = Object.freeze([
   "hidden",
   // Node/canvas state keys
   "node-id",
-  "nodeId",
   "connector-id",
-  "connectorId",
   "connector-type",
-  "connectorType",
   "connection-id",
-  "connectionId",
   "input-index",
-  "inputIndex",
   "output-index",
-  "outputIndex",
   "port-index",
-  "portIndex",
   // Scenario editor keys
   "source",
   "series-id",
-  "seriesId",
   "dataset-id",
-  "datasetId",
   "mirror-input-bound",
-  "mirrorInputBound",
   "mirror-change-bound",
-  "mirrorChangeBound",
   "mirror-input",
-  "mirrorInput",
   "bound",
   "field",
   "key",
   "namespace",
   "namespace-id",
-  "namespaceId",
   "tab-id",
-  "tabId",
   "param-id",
-  "paramId",
   "target-id",
-  "targetId",
   "override-type",
-  "overrideType",
   // Tree view component keys
   "item-id",
-  "itemId",
   "category-id",
-  "categoryId",
   // Calibration page keys
   "info-for",
-  "infoFor",
   "column",
   // Data page keys
   "readonly",
@@ -619,48 +582,101 @@ var DEFAULT_ALLOWED_DATASET_KEYS = Object.freeze([
   "description",
   // DSL generator keys
   "dsl-state",
-  "dslState",
   "dsl-section-registered",
-  "dslSectionRegistered",
   "dsl-scrollbars-installed",
-  "dslScrollbarsInstalled",
   "dsl-tabs-bound",
-  "dslTabsBound",
   "dsl-controls-bound",
-  "dslControlsBound",
   // Inline highlighter keys
   "inline-hl",
-  "inlineHl",
-  "tooltip",
   // Overlay scrollbar keys (UI-only, not state storage)
   "scrollable",
   "scrollable-x",
-  "scrollableX",
   "scrollable-y",
-  "scrollableY",
   // ManagedWindow component keys
   "window-id",
-  "windowId",
   // Help system keys
   "help-topic",
-  "helpTopic"
+  // FlexDesk widgets: every literal data key written under src/ is listed
+  // here (tests/state_guard_defaults.test.mjs scans for them), so the
+  // shell, dialogs, forms, tooltips and editors pass a strict guard.
+  "accent",
+  "act",
+  "action-idx",
+  "action-value",
+  "add",
+  "category",
+  "code",
+  "data",
+  "direction",
+  "dismiss",
+  "entry",
+  "error",
+  "extra",
+  "flow",
+  "from",
+  "gap",
+  "group-id",
+  "item",
+  "kind",
+  "lane",
+  "leaf-id",
+  "level",
+  "list-action",
+  "match",
+  "mode",
+  "node",
+  "note-id",
+  "notification-summary",
+  "open",
+  "pager",
+  "pane",
+  "pane-id",
+  "parameter",
+  "placeholder",
+  "placement",
+  "port",
+  "record-key",
+  "ref",
+  "refusal",
+  "refusal-for",
+  "renameable",
+  "row-key",
+  "rule",
+  "scope",
+  "shape",
+  "slot",
+  "slot-idx",
+  "split-id",
+  "state",
+  "step",
+  "syntax",
+  "tile-id",
+  "tile-type",
+  "tip",
+  "to",
+  "tone",
+  "tooltip-max-width",
+  "tooltip-placement",
+  "twm-flow-item",
+  "twm-flow-title",
+  "twm-icon",
+  "twm-required",
+  "twm-tabs",
+  "twm-tail",
+  "verb"
 ]);
-var DEFAULT_OVERRIDES = Object.freeze([
-  {
-    // Panel controller writes dataset hooks for field identification/focus.
-    pattern: /js_new\/ui\/controllers\/panel_controller\.js/,
-    datasetKeys: ["field", "descriptor-key", "descriptorKey"],
-    attributes: ["data-field", "data-descriptor-key"],
-    attributePrefixes: []
-  }
-]);
-var DEFAULT_MODE = typeof window !== "undefined" && Boolean(window.__ECOSIM_DEBUG__) ? "strict" : "warn";
 var DEFAULT_STATE_GUARD_CONFIG = Object.freeze({
-  mode: DEFAULT_MODE,
+  mode: "warn",
   allowedAttributes: DEFAULT_ALLOWED_ATTRIBUTES,
   allowedAttributePrefixes: DEFAULT_ALLOWED_ATTRIBUTE_PREFIXES,
   allowedDatasetKeys: DEFAULT_ALLOWED_DATASET_KEYS,
-  moduleOverrides: DEFAULT_OVERRIDES
+  // FlexDesk ships no module overrides: which of YOUR modules may write which
+  // keys is yours to say, through `moduleOverrides` or `allow()`.
+  moduleOverrides: Object.freeze([]),
+  // null: a write is attributed to the frame that made it. A RegExp (or a
+  // literal string) picks the first frame from there up whose location
+  // matches instead; its first capture group, if any, names the module.
+  moduleFramePattern: null
 });
 function normalizeStateGuardConfig(config = {}) {
   if (!config || typeof config !== "object") {
@@ -679,7 +695,8 @@ function normalizeStateGuardConfig(config = {}) {
     ),
     moduleOverrides: normalizeOverrides(
       config.moduleOverrides ?? DEFAULT_STATE_GUARD_CONFIG.moduleOverrides
-    )
+    ),
+    moduleFramePattern: config.moduleFramePattern == null || config.moduleFramePattern === "" ? DEFAULT_STATE_GUARD_CONFIG.moduleFramePattern : patternToRegExp(config.moduleFramePattern)
   };
 }
 function normalizeMode(mode) {
@@ -744,8 +761,10 @@ var HOOK_REGISTRY = {
   datasetDescriptor: null,
   datasetProxyCache: /* @__PURE__ */ new WeakMap()
 };
-var STACK_CACHE = /* @__PURE__ */ new Map();
+var STACK_CACHE_LIMIT = 500;
+var FRAME_LOCATION = /(?:\(|@|\bat\s+)([^()\s@][^()\s]*?):\d+(?::\d+)?\)?\s*$/;
 var DATA_ATTRIBUTE_PREFIX = "data-";
+var VIA_DOM_HOOK = /* @__PURE__ */ Symbol("state-guard:via-dom-hook");
 var EVENT_CHANNELS = Object.freeze({
   READY: "state-guard:ready",
   VIOLATION: "state-guard:violation",
@@ -765,13 +784,15 @@ var StateGuardService = class {
     this.mode = this.config.mode;
     this.allowedAttributes = new Set(this.config.allowedAttributes.map((attr) => attr.toLowerCase()));
     this.allowedAttributePrefixes = this.config.allowedAttributePrefixes.map((attr) => attr.toLowerCase());
-    this.allowedDatasetKeys = new Set(this.config.allowedDatasetKeys.map((key) => key.toLowerCase()));
+    this.allowedDatasetKeys = new Set(this.config.allowedDatasetKeys.map(normalizeDatasetKey));
     this.moduleOverrides = (this.config.moduleOverrides ?? []).map((entry) => ({
       pattern: entry.pattern,
       attributes: new Set(entry.attributes.map((attr) => attr.toLowerCase())),
-      datasetKeys: new Set(entry.datasetKeys.map((key) => key.toLowerCase())),
+      datasetKeys: new Set(entry.datasetKeys.map(normalizeDatasetKey)),
       attributePrefixes: entry.attributePrefixes.map((prefix) => prefix.toLowerCase())
     }));
+    this.moduleFramePattern = this.config.moduleFramePattern;
+    this.stackCache = /* @__PURE__ */ new Map();
     this.#installHooks();
   }
   setMode(mode) {
@@ -797,7 +818,7 @@ var StateGuardService = class {
     const entry = {
       pattern,
       attributes: new Set(attributes.map((attr) => String(attr).toLowerCase())),
-      datasetKeys: new Set(datasetKeys.map((key) => String(key).toLowerCase())),
+      datasetKeys: new Set(datasetKeys.map(normalizeDatasetKey)),
       attributePrefixes: attributePrefixes.map((prefix) => String(prefix).toLowerCase())
     };
     this.moduleOverrides.push(entry);
@@ -837,7 +858,11 @@ var StateGuardService = class {
       this.bypassDepth = Math.max(0, this.bypassDepth - 1);
     }
   }
-  handleAttributeMutation(element, action, attribute, value) {
+  /**
+   * Check one attribute write. The write is attributed to the caller of this
+   * method, or to the caller of the patched DOM API when it came through one.
+   */
+  handleAttributeMutation(element, action, attribute, value, options = {}) {
     const attrName = this.#normalizeAttribute(attribute);
     if (!this.#shouldGuard(attrName)) {
       return;
@@ -847,15 +872,19 @@ var StateGuardService = class {
       attribute: attrName,
       element,
       value,
-      source: "attribute"
+      source: "attribute",
+      stack: new Error().stack,
+      writerFrame: options?.[VIA_DOM_HOOK] ? 2 : 1
     });
   }
-  handleDatasetMutation(element, key, value, { deleting = false } = {}) {
-    const attrName = this.#datasetKeyToAttribute(key);
+  handleDatasetMutation(element, key, value, { deleting = false, [VIA_DOM_HOOK]: viaHook = false } = {}) {
+    const attrName = datasetKeyToAttribute(key);
     if (!this.#shouldGuard(attrName)) {
       return;
     }
     this.#evaluateMutation({
+      stack: new Error().stack,
+      writerFrame: viaHook ? 2 : 1,
       action: deleting ? "dataset:delete" : "dataset:set",
       attribute: attrName,
       element,
@@ -902,8 +931,8 @@ var StateGuardService = class {
     }
     return true;
   }
-  #evaluateMutation({ action, attribute, element, value, source }) {
-    const moduleKey = this.#resolveModuleFromStack();
+  #evaluateMutation({ action, attribute, element, value, source, stack, writerFrame }) {
+    const moduleKey = this.#resolveModuleFromStack(stack, writerFrame);
     if (this.#isAllowedForModule(moduleKey, attribute)) {
       return;
     }
@@ -955,37 +984,48 @@ var StateGuardService = class {
     }
     return String(attribute).toLowerCase();
   }
-  #datasetKeyToAttribute(key) {
-    if (!key && key !== 0) {
-      return "";
-    }
-    const normalized = String(key).replace(/([A-Z])/g, "-$1").replace(/[^a-zA-Z0-9_-]/g, "-").toLowerCase().replace(/-{2,}/g, "-").replace(/^-+/, "").replace(/-+$/, "");
-    if (!normalized) {
-      return "";
-    }
-    return `${DATA_ATTRIBUTE_PREFIX}${normalized}`;
-  }
-  #resolveModuleFromStack() {
-    const stack = new Error().stack;
+  /**
+   * The module a write is attributed to. `stack` was captured in a
+   * handle*Mutation method (frame 0); `writerFrame` is the index of the frame
+   * that made the write (1 for a direct call, 2 through a DOM hook). Without a
+   * `moduleFramePattern` that writer's location (its URL or path, line and
+   * column dropped) is the module. With one, the first frame from the writer
+   * up whose location matches is used, and the module is the pattern's first
+   * capture group, or that frame's whole location when it has none.
+   */
+  #resolveModuleFromStack(stack, writerFrame) {
     if (!stack) {
       return null;
     }
-    if (STACK_CACHE.has(stack)) {
-      return STACK_CACHE.get(stack);
+    const cacheKey = `${writerFrame}
+${stack}`;
+    if (this.stackCache.has(cacheKey)) {
+      return this.stackCache.get(cacheKey);
     }
-    const lines = stack.split("\n");
-    let modulePath = null;
-    for (const line of lines) {
-      const match = line.match(/(js_new\/[^)\s]+)/);
+    const locations = [];
+    for (const line of String(stack).split("\n")) {
+      const match = line.match(FRAME_LOCATION);
       if (match) {
-        modulePath = match[1];
-        break;
+        locations.push(match[1]);
       }
     }
-    if (STACK_CACHE.size > 500) {
-      STACK_CACHE.clear();
+    const callers = locations.slice(writerFrame);
+    let modulePath = null;
+    if (!this.moduleFramePattern) {
+      modulePath = callers[0] ?? null;
+    } else {
+      for (const location of callers) {
+        const match = location.match(this.moduleFramePattern);
+        if (match) {
+          modulePath = match[1] ?? location;
+          break;
+        }
+      }
     }
-    STACK_CACHE.set(stack, modulePath);
+    if (this.stackCache.size > STACK_CACHE_LIMIT) {
+      this.stackCache.clear();
+    }
+    this.stackCache.set(cacheKey, modulePath);
     return modulePath;
   }
   #previewValue(value) {
@@ -999,6 +1039,19 @@ var StateGuardService = class {
     return str.length > 50 ? `${str.slice(0, 47)}...` : str;
   }
 };
+function datasetKeyToAttribute(key) {
+  if (!key && key !== 0) {
+    return "";
+  }
+  const normalized = String(key).replace(/([A-Z])/g, "-$1").replace(/[^a-zA-Z0-9_-]/g, "-").toLowerCase().replace(/-{2,}/g, "-").replace(/^-+/, "").replace(/-+$/, "");
+  if (!normalized) {
+    return "";
+  }
+  return `${DATA_ATTRIBUTE_PREFIX}${normalized}`;
+}
+function normalizeDatasetKey(key) {
+  return datasetKeyToAttribute(key).slice(DATA_ATTRIBUTE_PREFIX.length);
+}
 function installDomHooks(service) {
   if (HOOK_REGISTRY.installed) {
     HOOK_REGISTRY.service = service;
@@ -1013,20 +1066,12 @@ function installDomHooks(service) {
   HOOK_REGISTRY.originals.removeAttribute = nativeRemoveAttribute;
   Element.prototype.setAttribute = function patchedSetAttribute(name, value) {
     const guard = HOOK_REGISTRY.service;
-    try {
-      guard?.handleAttributeMutation(this, "setAttribute", name, value);
-    } catch (error) {
-      throw error;
-    }
+    guard?.handleAttributeMutation(this, "setAttribute", name, value, { [VIA_DOM_HOOK]: true });
     return nativeSetAttribute.call(this, name, value);
   };
   Element.prototype.removeAttribute = function patchedRemoveAttribute(name) {
     const guard = HOOK_REGISTRY.service;
-    try {
-      guard?.handleAttributeMutation(this, "removeAttribute", name, void 0);
-    } catch (error) {
-      throw error;
-    }
+    guard?.handleAttributeMutation(this, "removeAttribute", name, void 0, { [VIA_DOM_HOOK]: true });
     return nativeRemoveAttribute.call(this, name);
   };
   wrapDataset(service);
@@ -1056,7 +1101,7 @@ function wrapDataset(service) {
           const guard = HOOK_REGISTRY.service;
           const key = typeof prop === "string" ? prop : null;
           if (guard && key) {
-            guard.handleDatasetMutation(proxyState.element, key, value);
+            guard.handleDatasetMutation(proxyState.element, key, value, { [VIA_DOM_HOOK]: true });
           }
           return Reflect.set(target, prop, value);
         },
@@ -1064,7 +1109,10 @@ function wrapDataset(service) {
           const guard = HOOK_REGISTRY.service;
           const key = typeof prop === "string" ? prop : null;
           if (guard && key) {
-            guard.handleDatasetMutation(proxyState.element, key, void 0, { deleting: true });
+            guard.handleDatasetMutation(proxyState.element, key, void 0, {
+              deleting: true,
+              [VIA_DOM_HOOK]: true
+            });
           }
           return Reflect.deleteProperty(target, prop);
         }
@@ -1075,11 +1123,13 @@ function wrapDataset(service) {
   });
 }
 export {
+  DEFAULT_SETTINGS_STORAGE_KEY,
   DEFAULT_STATE_GUARD_CONFIG,
   EventBus,
   LoggingService,
   StateGuardService,
   StateMachine,
+  configureSettings,
   createSettingsStore,
   getAllSettings,
   getCategories,
@@ -1087,6 +1137,8 @@ export {
   getSchema,
   getSetting,
   getSettingsByCategory,
+  getSettingsStorageKey,
+  getSettingsStore,
   normalizeStateGuardConfig,
   registerSettings,
   registerSettingsEventBus,

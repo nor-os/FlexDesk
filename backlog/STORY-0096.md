@@ -2,10 +2,10 @@
 id: 96
 type: story
 title: "Dictation: hold-to-talk that types into the focused field"
-status: refined
+status: in-progress
 parent: 40
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 3
@@ -13,7 +13,7 @@ subsystem: widgets
 labels: [widgets, voice, input]
 links: []
 created: 2026-10-21
-updated: 2026-10-21T07:19Z
+updated: 2026-10-21T07:30Z
 ---
 
 ## Description
@@ -32,6 +32,8 @@ AI Desk (`../aidesk/backlog/STORY-0185.md`): norman (2026-10-21) wants to dictat
 
 - 2026-10-21 · norman_agent · filed as draft
 - 2026-10-21 · norman_agent · status: draft -> refined
+- 2026-10-21 · norman_agent · status: refined -> in-progress
+- 2026-10-21 · norman_agent · assignee -> norman_agent
 
 ## Comments
 

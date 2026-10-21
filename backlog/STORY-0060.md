@@ -2,7 +2,7 @@
 id: 60
 type: story
 title: "renderPlotGrid draws a plot_config into any container; PlotPopoutWindow uses it"
-status: review
+status: done
 parent: 59
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: charts
 labels: [charts]
 links: [blocked-by 62]
 created: 2026-10-17
-updated: 2026-10-20T10:56Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -44,6 +44,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-18 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-20 · norman_agent · status: in-progress -> review
 - 2026-10-20 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -161,3 +162,7 @@ Landed on main and handed back to norman for review.
 **Tests (on c414ac2, the tree that landed).** I ran `node tests/run.mjs` with the Linux /usr/bin/node v18.19.1 and watched it finish: "FLEXDESK TESTS: GREEN — 169 suite(s)", exit 0, 0 ': SKIPPED' lines. `node build.mjs` succeeded (exit 0). dist/ was restored with `git checkout -- dist && git clean -fdq dist`, so it is not committed. The builder's earlier runs on ade3098 (168 suites) and 4633e84 (169 suites) were also green.
 
 **App check:** none was run during this landing. This story is FlexDesk library code, and the checks above are the FlexDesk test suite and build.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

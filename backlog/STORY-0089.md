@@ -2,7 +2,7 @@
 id: 89
 type: story
 title: "DataTable has an Excel-style fill handle that continues series"
-status: review
+status: done
 parent: 1
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: grid
 labels: [grid, editing, tables-consumer]
 links: [blocked-by 3, blocked-by 88]
 created: 2026-10-18
-updated: 2026-10-20T16:36Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -37,6 +37,7 @@ Owner decisions (norman, 2026-10-18): FlexDesk provides every UI operation and m
 - 2026-10-20 · norman_agent · assignee:  -> norman_agent
 - 2026-10-20 · norman_agent · status: in-progress -> review
 - 2026-10-20 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -55,3 +56,7 @@ Ticked all five criteria: series rules (copy, numeric step, dates a week apart, 
 Tests: full suite `node tests/run.mjs` (Linux node v18.19.1) on the rebased branch, run to the end: "FLEXDESK TESTS: GREEN — 181 suite(s)", exit 0, no `: SKIPPED` lines. `node build.mjs` exit 0; dist/ restored afterwards and not committed. No backlog, bugs or dist files in the branch's diff.
 
 App check: none in this landing step; this is library work, checked by the jsdom suites above (the reviewer's Edge reproductions are covered by the §5 regression block in tests/fill_handle.test.mjs).
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

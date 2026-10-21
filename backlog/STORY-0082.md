@@ -2,7 +2,7 @@
 id: 82
 type: story
 title: "Canvas editor viewport API, zoom buttons and an optional minimap"
-status: review
+status: done
 parent: 73
 phase: 
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: canvas
 labels: [flexdesk, modeler]
 links: [relates-to 7]
 created: 2026-10-17
-updated: 2026-10-19T16:39Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -34,6 +34,7 @@ The canvas editor has no viewport API and no zoom controls, and auto-fits on loa
 - 2026-10-18 · norman_agent · assignee:  -> norman_agent
 - 2026-10-19 · norman_agent · status: in-progress -> review
 - 2026-10-19 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -71,3 +72,7 @@ Ticked: all four criteria.
 Tests on the rebased tip: `node tests/run.mjs` with Linux node v18.19.1 finished GREEN, 158 suites, exit 0, with no ': SKIPPED' line. `node build.mjs` exits 0, and dist/ was restored and cleaned, not committed.
 
 App check: `demo/flow_canvas_probe.mjs` run with Windows node in headless Edge on the rebased tip printed 'every check held'. That includes the zoom buttons' layout checks, the minimap's placement and its cover over a step, a real minimap click (centred, same scale, one viewport report), a real Zoom out, and the minimap frame following a resize to 700px. Alongside these, the many and bodies checks from main held too.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

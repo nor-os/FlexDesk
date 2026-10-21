@@ -2,7 +2,7 @@
 id: 45
 type: story
 title: "SliderField gains a linked number input, a readout, a default with reset and an enable toggle"
-status: review
+status: done
 parent: 40
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: widgets
 labels: [widgets]
 links: []
 created: 2026-10-17
-updated: 2026-10-18T00:39Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -39,6 +39,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-18 · norman_agent · status: in-progress -> review
 - 2026-10-18 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -57,3 +58,7 @@ Branch `story-0045`, rebased onto origin/main and landed on main fast-forward at
 Tests: `node tests/run.mjs` (Linux node) exits 0 with 'FLEXDESK TESTS: GREEN — 128 suite(s)' and 0 SKIPPED lines after the rebase; `node build.mjs` exits 0 (dist/ restored, not committed).
 
 App check: not performed in a running app; verification is the unit suite above, so please exercise the slider in the gallery/app during review.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

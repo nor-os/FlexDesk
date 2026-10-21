@@ -2,7 +2,7 @@
 id: 78
 type: story
 title: "Canvas graphs carry flat groups and free-text notes that move, edit and undo with the nodes"
-status: review
+status: done
 parent: 73
 phase: 
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: canvas
 labels: [flexdesk, modeler]
 links: [blocked-by 74, blocked-by 76]
 created: 2026-10-17
-updated: 2026-10-20T09:37Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -37,6 +37,7 @@ The legacy modeler had named, coloured groups whose members moved together, and 
 - 2026-10-19 · norman_agent · assignee:  -> norman_agent
 - 2026-10-20 · norman_agent · status: in-progress -> review
 - 2026-10-20 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -110,3 +111,7 @@ Landed on main and handed back for review. All 7 criteria are ticked.
 - a title-bar drag moves both steps as one entry, and one Ctrl+Z puts them back
 - the note opens on a real double-click, takes typed text and Ctrl+Enter, and moves on a drag
 - a real marquee picks the steps and the note together
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

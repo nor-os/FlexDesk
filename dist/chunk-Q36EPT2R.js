@@ -1,7 +1,368 @@
 import {
   isRowActivation,
   isRowControl
-} from "./chunk-6JSOVNID.js";
+} from "./chunk-CVMCZZX2.js";
+
+// src/ui/components/cell_editor_host.js
+function createTextEditor({ value, initialText = null }) {
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "twm-dt-editor";
+  input.spellcheck = false;
+  input.setAttribute("autocomplete", "off");
+  const start = value == null ? "" : String(value);
+  input.value = initialText != null ? String(initialText) : start;
+  return {
+    el: input,
+    getValue: () => initialText == null && input.value === start ? value : input.value,
+    focus: () => {
+      input.focus({ preventScroll: true });
+      const end = input.value.length;
+      try {
+        input.setSelectionRange(end, end);
+      } catch (_) {
+      }
+    }
+  };
+}
+function normalise(made) {
+  if (!made) return null;
+  const isNode = typeof Node !== "undefined" && made instanceof Node;
+  const el = isNode ? made : made.el;
+  if (!el || typeof Node !== "undefined" && !(el instanceof Node)) return null;
+  const own = isNode ? {} : made;
+  let getValue = typeof own.getValue === "function" ? own.getValue : null;
+  if (!getValue && el.matches?.("input, select, textarea")) getValue = () => el.value;
+  return {
+    el,
+    getValue,
+    focus: typeof own.focus === "function" ? own.focus : null,
+    destroy: typeof own.destroy === "function" ? own.destroy : null
+  };
+}
+var CellEditorHost = class {
+  /**
+   * @param {object} o
+   * @param {(session, value, move, reason) => void} o.onCommit  after the
+   *   cell is drawn as it was again; `move` is 'down', 'up', 'right', 'left'
+   *   or null; `reason` is 'key', 'blur', 'editor' or 'scroll'.
+   * @param {(session, reason) => void} o.onCancel
+   */
+  constructor({ onCommit, onCancel }) {
+    this._onCommit = onCommit;
+    this._onCancel = onCancel;
+    this.session = null;
+  }
+  /**
+   * Open an editor in `td`. Returns whether one opened (a factory that
+   * throws or returns nothing opens none, and the cell is untouched).
+   */
+  open({ td, factory, value, row, rowIdx, colIdx, column, initialText = null, ...extra }) {
+    if (this.session) return false;
+    const s = {
+      ...extra,
+      td,
+      value,
+      row,
+      rowIdx,
+      colIdx,
+      column,
+      previous: value,
+      closed: false,
+      offs: [],
+      saved: null,
+      editor: null
+    };
+    let made = null;
+    try {
+      made = factory({
+        value,
+        row,
+        rowIdx,
+        colIdx,
+        column,
+        initialText,
+        commit: (v) => this._finish(s, v, null, "editor"),
+        cancel: () => this._cancel(s, "editor")
+      });
+    } catch (err) {
+      console.error("[DataTable] cell editor factory threw", err);
+      return false;
+    }
+    const editor = normalise(made);
+    if (!editor) return false;
+    s.editor = editor;
+    s.saved = [...td.childNodes];
+    s.savedTitle = td.getAttribute("title");
+    this.session = s;
+    td.classList.add("twm-dt-cell--editing");
+    td.replaceChildren(editor.el);
+    const on = (type, fn) => {
+      editor.el.addEventListener(type, fn);
+      s.offs.push(() => editor.el.removeEventListener(type, fn));
+    };
+    on("keydown", (ev) => {
+      if (ev.isComposing) return;
+      ev.stopPropagation();
+      if (ev.key === "Escape") {
+        ev.preventDefault();
+        this._cancel(s, "key");
+      } else if (ev.key === "Enter" && !ev.altKey && !ev.ctrlKey && !ev.metaKey && editor.getValue) {
+        ev.preventDefault();
+        this._finish(s, editor.getValue(), ev.shiftKey ? "up" : "down", "key");
+      } else if (ev.key === "Tab" && !ev.altKey && !ev.ctrlKey && !ev.metaKey && editor.getValue) {
+        ev.preventDefault();
+        this._finish(s, editor.getValue(), ev.shiftKey ? "left" : "right", "key");
+      }
+    });
+    for (const type of ["click", "dblclick", "mousedown", "contextmenu"]) {
+      on(type, (ev) => ev.stopPropagation());
+    }
+    on("focusout", (ev) => {
+      if (s.closed || !editor.getValue) return;
+      const to = ev.relatedTarget;
+      if (to && editor.el.contains(to)) return;
+      const doc = editor.el.ownerDocument;
+      if (!to && doc && typeof doc.hasFocus === "function" && !doc.hasFocus()) return;
+      this._finish(s, editor.getValue(), null, "blur");
+    });
+    try {
+      if (editor.focus) editor.focus();
+      else editor.el.focus?.({ preventScroll: true });
+    } catch (_) {
+    }
+    return true;
+  }
+  /** Commit the open session with what its editor holds. */
+  commit(move = null, reason = "editor") {
+    const s = this.session;
+    if (!s) return false;
+    if (!s.editor.getValue) {
+      this._cancel(s, reason);
+      return false;
+    }
+    return this._finish(s, s.editor.getValue(), move, reason);
+  }
+  /** Cancel the open session: the cell is drawn as it was. */
+  cancel(reason = "editor") {
+    const s = this.session;
+    if (!s) return false;
+    return this._cancel(s, reason);
+  }
+  /** Take the editor out and put the cell's own content back. */
+  _close(s) {
+    s.closed = true;
+    if (this.session === s) this.session = null;
+    for (const off of s.offs) {
+      try {
+        off();
+      } catch (_) {
+      }
+    }
+    s.offs = [];
+    try {
+      s.editor.destroy?.();
+    } catch (err) {
+      console.error("[DataTable] cell editor destroy threw", err);
+    }
+    s.td.classList.remove("twm-dt-cell--editing");
+    s.td.replaceChildren(...s.saved);
+    if (s.savedTitle == null) s.td.removeAttribute("title");
+    else s.td.setAttribute("title", s.savedTitle);
+  }
+  _finish(s, value, move, reason) {
+    if (s.closed) return false;
+    this._close(s);
+    this._onCommit?.(s, value, move, reason);
+    return true;
+  }
+  _cancel(s, reason) {
+    if (s.closed) return false;
+    this._close(s);
+    this._onCancel?.(s, reason);
+    return true;
+  }
+};
+
+// src/ui/components/cell_selection.js
+var CellSelection = class {
+  constructor() {
+    this.anchor = null;
+    this.focus = null;
+    this.first = 0;
+    this.last = -1;
+    this.cols = [];
+  }
+  /** The rows (positions, inclusive) and columns (data indices, shown order)
+   *  the cursor may stand on. A selection outside them is pulled in. */
+  setBounds(first, last, cols) {
+    this.first = first;
+    this.last = last;
+    this.cols = Array.isArray(cols) ? cols.slice() : [];
+    if (this.isEmptyGrid()) {
+      this.anchor = null;
+      this.focus = null;
+      return;
+    }
+    if (this.focus) this.focus = this._clamp(this.focus);
+    if (this.anchor) this.anchor = this._clamp(this.anchor);
+  }
+  isEmptyGrid() {
+    return this.last < this.first || this.cols.length === 0;
+  }
+  _ord(col) {
+    const i = this.cols.indexOf(col);
+    return i >= 0 ? i : 0;
+  }
+  _clamp({ row, col }) {
+    const r = Math.max(this.first, Math.min(this.last, row));
+    const c = this.cols.includes(col) ? col : this.cols[Math.max(0, Math.min(this.cols.length - 1, this._nearestOrd(col)))];
+    return { row: r, col: c };
+  }
+  /** A column that is not shown any more: the shown one nearest its index. */
+  _nearestOrd(col) {
+    let best = 0;
+    for (let i = 0; i < this.cols.length; i++) if (this.cols[i] <= col) best = i;
+    return best;
+  }
+  _inside(row, ord) {
+    return row >= this.first && row <= this.last && ord >= 0 && ord < this.cols.length;
+  }
+  /** Put the cursor on one cell and collapse the range onto it. */
+  setCursor(row, col) {
+    if (this.isEmptyGrid()) return false;
+    this.focus = this._clamp({ row, col });
+    this.anchor = { ...this.focus };
+    return true;
+  }
+  /** Move the cursor to a cell and keep the anchor: the range grows. */
+  extendTo(row, col) {
+    if (!this.anchor) return this.setCursor(row, col);
+    if (this.isEmptyGrid()) return false;
+    this.focus = this._clamp({ row, col });
+    return true;
+  }
+  _go(cell, extend) {
+    return extend ? this.extendTo(cell.row, cell.col) : this.setCursor(cell.row, cell.col);
+  }
+  /** One step: the arrows. At an edge the cursor stays put. */
+  move(dRow, dCol, { extend = false } = {}) {
+    if (!this.focus) return this.setCursor(this.first, this.cols[0]);
+    const ord = Math.max(0, Math.min(this.cols.length - 1, this._ord(this.focus.col) + dCol));
+    const row = Math.max(this.first, Math.min(this.last, this.focus.row + dRow));
+    return this._go({ row, col: this.cols[ord] }, extend);
+  }
+  /**
+   * Ctrl+arrow: to the edge of the block of filled cells, as a spreadsheet
+   * does. From a filled cell whose neighbour is filled, to the last filled
+   * cell of that run; otherwise to the next filled cell along the line, or
+   * the edge of the grid when there is none.
+   *
+   * @param {number} dRow  -1, 0 or 1
+   * @param {number} dCol  -1, 0 or 1
+   * @param {(row:number, col:number) => boolean} filled
+   */
+  jump(dRow, dCol, filled, { extend = false } = {}) {
+    if (!this.focus) return this.setCursor(this.first, this.cols[0]);
+    let r = this.focus.row;
+    let o = this._ord(this.focus.col);
+    const isFilled = (row, ord) => !!filled(row, this.cols[ord]);
+    if (this._inside(r + dRow, o + dCol)) {
+      if (isFilled(r, o) && isFilled(r + dRow, o + dCol)) {
+        while (this._inside(r + dRow, o + dCol) && isFilled(r + dRow, o + dCol)) {
+          r += dRow;
+          o += dCol;
+        }
+      } else {
+        r += dRow;
+        o += dCol;
+        while (!isFilled(r, o) && this._inside(r + dRow, o + dCol)) {
+          r += dRow;
+          o += dCol;
+        }
+      }
+    }
+    return this._go({ row: r, col: this.cols[o] }, extend);
+  }
+  /** Home / End: the first or last column of the cursor's row; with
+   *  `corner` (Ctrl), the first or last cell of the grid. */
+  lineEnd(toEnd, { extend = false, corner = false } = {}) {
+    if (!this.focus) return this.setCursor(this.first, this.cols[0]);
+    const col = toEnd ? this.cols[this.cols.length - 1] : this.cols[0];
+    const row = corner ? toEnd ? this.last : this.first : this.focus.row;
+    return this._go({ row, col }, extend);
+  }
+  /** Tab: one cell right, wrapping to the first cell of the next row (Shift:
+   *  left, wrapping to the last cell of the row before). The last cell of
+   *  the grid (the first, going back) stays put. */
+  tab(back = false) {
+    if (!this.focus) return this.setCursor(this.first, this.cols[0]);
+    let row = this.focus.row;
+    let ord = this._ord(this.focus.col) + (back ? -1 : 1);
+    if (ord >= this.cols.length) {
+      if (row >= this.last) return this.setCursor(row, this.focus.col);
+      row += 1;
+      ord = 0;
+    } else if (ord < 0) {
+      if (row <= this.first) return this.setCursor(row, this.focus.col);
+      row -= 1;
+      ord = this.cols.length - 1;
+    }
+    return this.setCursor(row, this.cols[ord]);
+  }
+  /** Whether Tab (Shift+Tab with `back`) has nowhere to go: the cursor is
+   *  on the grid's last cell (its first, going back). The grid then lets
+   *  the key move focus on, out of the table. */
+  tabEnds(back = false) {
+    if (!this.focus || this.isEmptyGrid()) return false;
+    const col = back ? this.cols[0] : this.cols[this.cols.length - 1];
+    const row = back ? this.first : this.last;
+    return this.focus.row === row && this.focus.col === col;
+  }
+  /** Every cell of the grid: from its first cell to its last, which is
+   *  where the cursor goes. */
+  selectAll() {
+    if (this.isEmptyGrid()) return false;
+    this.anchor = { row: this.first, col: this.cols[0] };
+    this.focus = { row: this.last, col: this.cols[this.cols.length - 1] };
+    return true;
+  }
+  /** The range collapses onto the cursor. */
+  collapse() {
+    if (!this.focus) return false;
+    const was = this.anchor && (this.anchor.row !== this.focus.row || this.anchor.col !== this.focus.col);
+    this.anchor = { ...this.focus };
+    return !!was;
+  }
+  clear() {
+    this.anchor = null;
+    this.focus = null;
+  }
+  /** `{top, bottom, left, right, columns}` — rows as positions, `left` and
+   *  `right` and `columns` as data indices — or null with nothing selected. */
+  range() {
+    if (!this.focus || !this.anchor) return null;
+    const a = this._ord(this.anchor.col);
+    const b = this._ord(this.focus.col);
+    const lo = Math.min(a, b);
+    const hi = Math.max(a, b);
+    return {
+      top: Math.min(this.anchor.row, this.focus.row),
+      bottom: Math.max(this.anchor.row, this.focus.row),
+      left: this.cols[lo],
+      right: this.cols[hi],
+      columns: this.cols.slice(lo, hi + 1)
+    };
+  }
+  contains(row, col) {
+    const r = this.range();
+    if (!r || row < r.top || row > r.bottom) return false;
+    return r.columns.includes(col);
+  }
+  isCursor(row, col) {
+    return !!this.focus && this.focus.row === row && this.focus.col === col;
+  }
+};
 
 // src/ui/utils/raf_resize_observer.js
 function createRafResizeObserver(callback) {
@@ -373,7 +734,7 @@ function createChipsFilter(ctx = {}, spec = {}) {
   const chips = /* @__PURE__ */ new Map();
   let value = null;
   const keyOf = (v) => String(v ?? "");
-  const normalise = (v) => {
+  const normalise2 = (v) => {
     if (multiple) {
       const list = Array.isArray(v) ? v : isAll(v) ? [] : [v];
       return list.filter((x) => !isAll(x)).map(keyOf);
@@ -383,12 +744,12 @@ function createChipsFilter(ctx = {}, spec = {}) {
   };
   const chosen = () => multiple ? value.length === 0 : value === null;
   for (const opt of options) {
-    const key = keyOf(opt.value);
-    valueOf.set(key, opt.value);
+    const key3 = keyOf(opt.value);
+    valueOf.set(key3, opt.value);
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "twm-dt-filter-chip";
-    btn.dataset.value = key;
+    btn.dataset.value = key3;
     if (opt.title) btn.title = String(opt.title);
     if (opt.icon) {
       const icon = document.createElement("span");
@@ -399,7 +760,7 @@ function createChipsFilter(ctx = {}, spec = {}) {
     }
     const label = document.createElement("span");
     label.className = "twm-dt-filter-chip__label";
-    label.textContent = String(opt.label ?? key);
+    label.textContent = String(opt.label ?? key3);
     btn.appendChild(label);
     let count = null;
     if (showCounts) {
@@ -410,21 +771,21 @@ function createChipsFilter(ctx = {}, spec = {}) {
     }
     btn.addEventListener("click", (ev) => {
       ev.stopPropagation();
-      pick(key);
+      pick(key3);
     });
-    chips.set(key, { btn, count });
+    chips.set(key3, { btn, count });
     el.appendChild(btn);
   }
   function outward() {
     if (multiple) return value.length ? value.map((k) => valueOf.get(k)) : null;
     return value === null ? null : valueOf.get(value);
   }
-  function pick(key) {
-    if (isAll(key)) value = multiple ? [] : null;
+  function pick(key3) {
+    if (isAll(key3)) value = multiple ? [] : null;
     else if (multiple) {
-      value = value.includes(key) ? value.filter((k) => k !== key) : [...value, key];
+      value = value.includes(key3) ? value.filter((k) => k !== key3) : [...value, key3];
     } else {
-      value = value === key ? null : key;
+      value = value === key3 ? null : key3;
     }
     paint();
     const out = outward();
@@ -436,19 +797,19 @@ function createChipsFilter(ctx = {}, spec = {}) {
     }
   }
   function paint() {
-    for (const [key, { btn }] of chips) {
-      const on = isAll(key) ? chosen() : multiple ? value.includes(key) : value === key;
+    for (const [key3, { btn }] of chips) {
+      const on = isAll(key3) ? chosen() : multiple ? value.includes(key3) : value === key3;
       btn.classList.toggle("twm-dt-filter-chip--on", on);
       btn.setAttribute("aria-pressed", on ? "true" : "false");
     }
   }
   function setValue(v) {
-    value = normalise(v);
+    value = normalise2(v);
     paint();
   }
   function setCounts(counts) {
-    for (const [key, { btn, count }] of chips) {
-      const n = counts == null ? void 0 : counts[key];
+    for (const [key3, { btn, count }] of chips) {
+      const n = counts == null ? void 0 : counts[key3];
       const known = typeof n === "number" && Number.isFinite(n);
       if (count) count.textContent = known ? n.toLocaleString() : "\u2013";
       btn.classList.toggle("twm-dt-filter-chip--empty", known && n === 0);
@@ -465,6 +826,2293 @@ function createChipsFilter(ctx = {}, spec = {}) {
     }
   };
 }
+
+// src/ui/components/staged_history.js
+var ACTIONS = Object.freeze(["cell:stage"]);
+var DEFAULT_HISTORY_LIMIT = 100;
+var StagedHistory = class {
+  /**
+   * @param {object} cfg
+   * @param {(entry, direction: 'undo'|'redo') => void} cfg.apply  writes one
+   *   leaf entry's `before` (undo) or `after` (redo) into the staged cells.
+   *   Called once per leaf; the ring holds no reference to those cells.
+   * @param {({canUndo, canRedo, depth}) => void} [cfg.onState]  after every
+   *   change of the stacks.
+   * @param {number} [cfg.limit=100]  entries kept; the oldest fall off.
+   */
+  constructor({ apply, onState = null, limit = DEFAULT_HISTORY_LIMIT } = {}) {
+    if (typeof apply !== "function") {
+      throw new Error("StagedHistory needs an `apply(entry, direction)`: a ring with no writer would report every undo as done and change nothing.");
+    }
+    this.apply = apply;
+    this.onState = onState;
+    this.limit = Number.isFinite(limit) && limit >= 1 ? Math.floor(limit) : DEFAULT_HISTORY_LIMIT;
+    this.undoStack = [];
+    this.redoStack = [];
+    this.group = null;
+    this.depthOpen = 0;
+    this.applying = false;
+  }
+  get canUndo() {
+    return this.undoStack.length > 0;
+  }
+  get canRedo() {
+    return this.redoStack.length > 0;
+  }
+  get depth() {
+    return this.undoStack.length;
+  }
+  /** Open a group: everything recorded until the matching `endGroup` is one
+   *  undo (a fill, a paste). */
+  beginGroup(label = "") {
+    this.depthOpen += 1;
+    if (this.depthOpen === 1) this.group = { action: "batch", label, entries: [] };
+  }
+  /** Close a group. An empty one is dropped, so it costs no undo step; one
+   *  holding a single entry is that entry. */
+  endGroup() {
+    if (!this.depthOpen) return;
+    this.depthOpen -= 1;
+    if (this.depthOpen) return;
+    const group = this.group;
+    this.group = null;
+    if (!group) return;
+    if (group.entries.length === 1) this._push(group.entries[0]);
+    else if (group.entries.length) this._push(group);
+  }
+  /** Record one delta. Returns whether it was recorded (false while an
+   *  entry is being applied). Throws on an action that is not in `ACTIONS`. */
+  record(entry) {
+    if (this.applying) return false;
+    if (!entry || !ACTIONS.includes(entry.action)) {
+      throw new Error(`${entry?.action} is not an undoable action: the ring reverses staged cells only, never a commit.`);
+    }
+    if (this.group) {
+      this.group.entries.push(entry);
+      return true;
+    }
+    this._push(entry);
+    return true;
+  }
+  undo() {
+    this._closeOpenGroup();
+    const entry = this.undoStack.pop();
+    if (!entry) return false;
+    this._run(entry, "undo");
+    this.redoStack.push(entry);
+    this._publish();
+    return true;
+  }
+  redo() {
+    this._closeOpenGroup();
+    const entry = this.redoStack.pop();
+    if (!entry) return false;
+    this._run(entry, "redo");
+    this.undoStack.push(entry);
+    this._publish();
+    return true;
+  }
+  /** Forget everything — after a commit or a discard, whose cells the
+   *  entries no longer describe. An open group is closed with it. */
+  reset() {
+    this.undoStack = [];
+    this.redoStack = [];
+    this.group = null;
+    this.depthOpen = 0;
+    this._publish();
+  }
+  /** A group left open (a caller that threw) is closed before an undo, so it
+   *  cannot swallow every later entry. */
+  _closeOpenGroup() {
+    if (!this.depthOpen) return;
+    this.depthOpen = 1;
+    this.endGroup();
+  }
+  _push(entry) {
+    this.undoStack.push(entry);
+    this.redoStack = [];
+    if (this.undoStack.length > this.limit) this.undoStack.splice(0, this.undoStack.length - this.limit);
+    this._publish();
+  }
+  _publish() {
+    try {
+      this.onState?.({ canUndo: this.canUndo, canRedo: this.canRedo, depth: this.undoStack.length });
+    } catch (err) {
+      console.error("[StagedHistory] onState threw", err);
+    }
+  }
+  _run(entry, direction) {
+    this.applying = true;
+    try {
+      this._applyOne(entry, direction);
+    } finally {
+      this.applying = false;
+    }
+  }
+  /** A group replays in REVERSE on the way back (two writes to one cell must
+   *  unwind last first) and in order on the way forward. */
+  _applyOne(entry, direction) {
+    if (entry.action === "batch") {
+      const entries = direction === "undo" ? [...entry.entries].reverse() : entry.entries;
+      for (const child of entries) this._applyOne(child, direction);
+      return;
+    }
+    this.apply(entry, direction);
+  }
+};
+
+// src/ui/components/series.js
+var ISO_DATE2 = /^\d{4}-\d{2}-\d{2}$/;
+var TRAILING_NUMBER = /^(.*?)(\d+)(\D*)$/;
+var NUMERIC_TEXT = /^[-+]?(\d+\.?\d*|\.\d+)$/;
+var DAY_MS = 864e5;
+var isBlank = (v) => v === null || v === void 0 || v === "";
+function detectSeries(values) {
+  if (!Array.isArray(values) || values.length === 0) return null;
+  if (values.every(isBlank)) return null;
+  if (values.length === 1) return { kind: "copy", step: 0 };
+  const numbers = values.map(toNumber);
+  if (numbers.every((n) => n !== null)) {
+    const step = numbers[1] - numbers[0];
+    const constant = numbers.every((n, i) => i === 0 || nearlyEqual(n - numbers[i - 1], step));
+    if (constant && step !== 0) return { kind: "number", step };
+    if (constant) return { kind: "copy", step: 0 };
+    return { kind: "cycle", step: 0 };
+  }
+  const days = values.map(toDayMs);
+  if (days.every((d) => d !== null)) {
+    const step = Math.round((days[1] - days[0]) / DAY_MS);
+    const constant = days.every((d, i) => i === 0 || Math.round((d - days[i - 1]) / DAY_MS) === step);
+    if (constant && step !== 0) return { kind: "date", step };
+    if (constant) return { kind: "copy", step: 0 };
+    return { kind: "cycle", step: 0 };
+  }
+  const parts = values.map((v) => typeof v === "string" ? TRAILING_NUMBER.exec(v) : null);
+  if (parts.every(Boolean)) {
+    const prefix = parts[0][1];
+    const suffix = parts[0][3];
+    if (parts.every((p) => p[1] === prefix && p[3] === suffix)) {
+      const nums = parts.map((p) => Number(p[2]));
+      const step = nums[1] - nums[0];
+      const constant = nums.every((n, i) => i === 0 || n - nums[i - 1] === step);
+      if (constant && step !== 0) {
+        return { kind: "text-number", step, prefix, suffix, pad: parts[0][2].length };
+      }
+    }
+  }
+  return { kind: "cycle", step: 0 };
+}
+function projectSeries(values, count, { forceCopy = false } = {}) {
+  const out = [];
+  const n = Math.max(0, Math.floor(Number(count) || 0));
+  if (!Array.isArray(values) || values.length === 0 || n === 0) return out;
+  const series = forceCopy ? null : detectSeries(values);
+  const last = values[values.length - 1];
+  if (series?.kind === "number") {
+    const base = toNumber(last);
+    const decimals = Math.min(15, Math.max(...values.map(decimalsOf)));
+    const allNumbers = values.every((v) => typeof v === "number");
+    for (let i = 1; i <= n; i++) {
+      const next = base + series.step * i;
+      out.push(allNumbers ? Number(next.toFixed(decimals)) : next.toFixed(decimals));
+    }
+    return out;
+  }
+  if (series?.kind === "date") {
+    const asDate = last instanceof Date;
+    for (let i = 1; i <= n; i++) {
+      if (asDate) {
+        const next = new Date(last.getTime());
+        next.setDate(next.getDate() + series.step * i);
+        out.push(next);
+      } else {
+        const next = new Date(toDayMs(last));
+        next.setUTCDate(next.getUTCDate() + series.step * i);
+        out.push(next.toISOString().slice(0, 10));
+      }
+    }
+    return out;
+  }
+  if (series?.kind === "text-number") {
+    const base = Number(TRAILING_NUMBER.exec(last)[2]);
+    for (let i = 1; i <= n; i++) {
+      const next = base + series.step * i;
+      const digits = String(Math.abs(next)).padStart(series.pad, "0");
+      out.push(`${series.prefix}${next < 0 ? "-" : ""}${digits}${series.suffix}`);
+    }
+    return out;
+  }
+  for (let i = 0; i < n; i++) out.push(values[i % values.length]);
+  return out;
+}
+function toNumber(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  return NUMERIC_TEXT.test(text) ? Number(text) : null;
+}
+function toDayMs(value) {
+  if (value instanceof Date) {
+    const t2 = value.getTime();
+    return Number.isNaN(t2) ? null : t2;
+  }
+  if (typeof value !== "string" || !ISO_DATE2.test(value.trim())) return null;
+  const text = value.trim();
+  const t = (/* @__PURE__ */ new Date(`${text}T00:00:00Z`)).getTime();
+  if (Number.isNaN(t) || new Date(t).toISOString().slice(0, 10) !== text) return null;
+  return t;
+}
+function decimalsOf(value) {
+  const text = typeof value === "number" ? String(value) : String(value).trim();
+  if (/e/i.test(text)) return 15;
+  return (text.split(".")[1] || "").length;
+}
+function nearlyEqual(a, b) {
+  return Math.abs(a - b) < 1e-9;
+}
+
+// src/ui/components/inline_renamer.js
+function assertLabel(label) {
+  if (!label || typeof label.appendChild !== "function") {
+    throw new Error("[InlineRenamer] options.label must be an HTMLElement");
+  }
+}
+function buildInput(label, options) {
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = ["twm-node-edit-input", options?.inputClass || ""].join(" ").trim();
+  input.placeholder = options?.placeholder || label.textContent || "Name";
+  input.value = options?.initialValue ?? label.textContent ?? "";
+  input.spellcheck = false;
+  input.autocomplete = "off";
+  input.setAttribute("aria-label", "Edit name");
+  return input;
+}
+function attachInlineRenamer(options = {}) {
+  const label = options.label;
+  assertLabel(label);
+  let input = null;
+  let editing = false;
+  let destroyed = false;
+  let originalText = label.textContent || "";
+  const cleanup = () => {
+    if (input && input.parentNode === label) {
+      input.remove();
+    }
+    input = null;
+    editing = false;
+  };
+  const cancel = () => {
+    if (destroyed) return;
+    cleanup();
+    label.textContent = originalText;
+    options.onCancel?.({ value: originalText });
+  };
+  const commit = async (reason = "commit") => {
+    if (destroyed || !input) return;
+    const raw = input.value;
+    let next = raw;
+    try {
+      next = options.transformInput ? options.transformInput(raw, { reason }) : raw;
+    } catch (err) {
+      window.logger?.warn("inline-renamer", "transformInput failed", err);
+    }
+    try {
+      const result = await options.onCommit?.(next, { reason }) || {};
+      if (result.success === false) {
+        if (result.keepEditing) {
+          input.focus();
+          input.select();
+          return;
+        }
+        cancel();
+        return;
+      }
+      const finalValue = result.newValue ?? next ?? "";
+      label.textContent = finalValue;
+      cleanup();
+      options.onFinish?.({ value: finalValue });
+    } catch (err) {
+      window.logger?.warn("inline-renamer", "onCommit failed", err);
+      cancel();
+    }
+  };
+  const start = (triggerEvent = null) => {
+    if (destroyed || editing) return;
+    editing = true;
+    originalText = label.textContent || "";
+    label.textContent = "";
+    input = buildInput(label, { ...options, initialValue: originalText });
+    label.appendChild(input);
+    const stopEvents = (ev) => ev.stopPropagation();
+    input.addEventListener("mousedown", stopEvents);
+    input.addEventListener("click", stopEvents);
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        commit("enter");
+      } else if (ev.key === "Escape") {
+        ev.preventDefault();
+        cancel();
+      }
+    });
+    input.addEventListener("blur", () => commit("blur"));
+    options.onStart?.({ value: originalText, triggerEvent });
+    setTimeout(() => {
+      input?.focus();
+      input?.select?.();
+    }, 0);
+  };
+  const destroy = () => {
+    destroyed = true;
+    cleanup();
+  };
+  return { start, cancel, commit, destroy };
+}
+
+// src/ui/components/staged_edits.js
+var key = (rowIdx, colIdx) => `${rowIdx}:${colIdx}`;
+var FROZEN_SELECTORS = [
+  "th.sortable",
+  ".data-table__filter-cell:not(.data-table__filter-cell--empty)",
+  ".data-table__filter-cell:not(.data-table__filter-cell--empty) input",
+  ".data-table__filter-cell:not(.data-table__filter-cell--empty) button",
+  ".data-table__filter-cell:not(.data-table__filter-cell--empty) select",
+  ".data-table__filter-cell:not(.data-table__filter-cell--empty) textarea",
+  ".twm-pagination-controls button:not(.twm-pagination-btn--export)",
+  ".twm-pagination-controls input",
+  ".twm-dt-paging button",
+  ".twm-dt-paging input"
+].join(", ");
+var SAVED_ATTRS = ["title", "data-refusal", "data-tooltip", "aria-disabled"];
+var StagedEdits = class {
+  /** @param {import('./cell_grid.js').CellGrid} grid */
+  constructor(grid) {
+    this.grid = grid;
+    this.table = grid.table;
+    this.cells = /* @__PURE__ */ new Map();
+    this.errors = /* @__PURE__ */ new Map();
+    this.committing = null;
+    this.generation = 0;
+    this._touched = null;
+    this._frozen = /* @__PURE__ */ new Map();
+    const limit = this.table.config.historyLimit;
+    this.history = new StagedHistory({
+      apply: (entry, direction) => this._apply(entry, direction),
+      limit: limit == null ? DEFAULT_HISTORY_LIMIT : limit
+    });
+  }
+  // ── what is staged ───────────────────────────────────────────────────
+  has(k) {
+    return this.cells.has(k);
+  }
+  value(k) {
+    return this.cells.get(k)?.value;
+  }
+  /** The value the row holds for a cell: what "no change" means. */
+  original(rowIdx, colIdx) {
+    const row = this.grid.currentRow(rowIdx);
+    return row ? row[colIdx] : void 0;
+  }
+  /** Every staged cell as `{rowIdx, colIdx, value, previous}`, by row then
+   *  column; `previous` is the value the row holds. */
+  edits() {
+    return [...this.cells.values()].sort((a, b) => a.rowIdx - b.rowIdx || a.colIdx - b.colIdx).map(({ rowIdx, colIdx, value }) => ({
+      rowIdx,
+      colIdx,
+      value,
+      previous: this.original(rowIdx, colIdx)
+    }));
+  }
+  _side(k) {
+    return this.cells.has(k) ? { has: true, value: this.cells.get(k).value } : { has: false, value: null };
+  }
+  /** Write one side of a delta: stage the value, or take the cell out. */
+  _write(rowIdx, colIdx, side) {
+    const k = key(rowIdx, colIdx);
+    if (side.has) this.cells.set(k, { rowIdx, colIdx, value: side.value });
+    else this.cells.delete(k);
+    this.errors.delete(k);
+  }
+  /**
+   * Stage a value in a cell, as one undo entry (inside an open group, part
+   * of it). The value its row holds takes the cell back to no change.
+   * Returns whether anything changed.
+   */
+  stage(rowIdx, colIdx, value) {
+    if (this.committing || !this._stageOne(rowIdx, colIdx, value)) return false;
+    this.grid._redraw(rowIdx, colIdx);
+    this._changed();
+    return true;
+  }
+  /**
+   * STORY-0089. Stage many cells (`[{rowIdx, colIdx, value}]`) as ONE undo
+   * entry — a fill, a paste — each as `stage` would; the rows are drawn and
+   * the listeners told once, at the end. Returns how many cells changed.
+   */
+  stageMany(cells, label = "") {
+    if (this.committing) return 0;
+    const rows = /* @__PURE__ */ new Set();
+    let changed = 0;
+    this.history.beginGroup(label);
+    try {
+      for (const { rowIdx, colIdx, value } of cells) {
+        if (this._stageOne(rowIdx, colIdx, value)) {
+          changed++;
+          rows.add(rowIdx);
+        }
+      }
+    } finally {
+      this.history.endGroup();
+    }
+    for (const rowIdx of rows) this.grid._redraw(rowIdx);
+    if (changed) this._changed();
+    return changed;
+  }
+  /** One cell's new state and its delta in the ring; whether it changed. */
+  _stageOne(rowIdx, colIdx, value) {
+    const k = key(rowIdx, colIdx);
+    const before = this._side(k);
+    const after = Object.is(value, this.original(rowIdx, colIdx)) ? { has: false, value: null } : { has: true, value };
+    if (before.has === after.has && Object.is(before.value, after.value)) return false;
+    this._write(rowIdx, colIdx, after);
+    this.history.record({ action: "cell:stage", row: rowIdx, col: colIdx, before, after });
+    return true;
+  }
+  _apply(entry, direction) {
+    this._write(entry.row, entry.col, direction === "undo" ? entry.before : entry.after);
+    this._touched?.add(entry.row);
+  }
+  _walk(step) {
+    if (this.committing) return false;
+    this._touched = /* @__PURE__ */ new Set();
+    let moved = false;
+    try {
+      moved = step();
+    } finally {
+      const rows = this._touched;
+      this._touched = null;
+      for (const rowIdx of rows) this.grid._redraw(rowIdx);
+    }
+    if (moved) this._changed();
+    return moved;
+  }
+  undo() {
+    return this._walk(() => this.history.undo());
+  }
+  redo() {
+    return this._walk(() => this.history.redo());
+  }
+  /** Drop every staged cell, its marks and the ring. */
+  discard() {
+    if (this.committing) return false;
+    const rows = this._rows();
+    const had = this.cells.size > 0 || this.errors.size > 0;
+    this.cells.clear();
+    this.errors.clear();
+    this.history.reset();
+    for (const rowIdx of rows) this.grid._redraw(rowIdx);
+    if (had) this._changed();
+    return had;
+  }
+  /** New rows (`setData({rows})`): the cells named rows that are gone. */
+  clear() {
+    this.generation++;
+    this.committing = null;
+    const had = this.cells.size > 0 || this.errors.size > 0;
+    this.cells.clear();
+    this.errors.clear();
+    this.history.reset();
+    if (had) this._changed();
+  }
+  _rows() {
+    const rows = /* @__PURE__ */ new Set();
+    for (const c of this.cells.values()) rows.add(c.rowIdx);
+    for (const k of this.errors.keys()) rows.add(Number(k.split(":")[0]));
+    return rows;
+  }
+  // ── the commit ───────────────────────────────────────────────────────
+  /**
+   * Hand every staged cell to `onCommit({edits})`, once. Resolves
+   * `{ok: true, committed}` when it succeeded — the values are written into
+   * the rows the table holds, and the staged cells and the ring are gone —
+   * or `{ok: false, errors}` when it refused: per-cell errors mark their
+   * cells, a refusal with none marks every staged cell, and every staged
+   * value stays.
+   */
+  commit() {
+    if (this.committing) return this.committing;
+    if (this.grid.isEditing()) this.grid.editor.commit(null, "commit");
+    const fn = this.table.config.onCommit;
+    const edits = this.edits();
+    if (!edits.length) return Promise.resolve({ ok: true, committed: 0 });
+    if (typeof fn !== "function") {
+      console.warn("[DataTable] commit() needs an `onCommit`; nothing was committed.");
+      return Promise.resolve({ ok: false, errors: [] });
+    }
+    const generation = this.generation;
+    const refused = (err) => ({ ok: false, error: err?.message || String(err ?? "Not saved") });
+    let result;
+    try {
+      result = fn({ edits: edits.map((e) => ({ ...e })) });
+    } catch (err) {
+      result = refused(err);
+    }
+    const out = Promise.resolve(result).then((r) => r, refused).then((r) => {
+      if (generation !== this.generation) return { ok: false, errors: [] };
+      this.committing = null;
+      return this._settle(edits, r);
+    });
+    this.committing = out;
+    this._changed();
+    return out;
+  }
+  _settle(edits, result) {
+    const listed = Array.isArray(result?.errors) ? result.errors : [];
+    if (listed.length || result?.ok === false) {
+      const errors = [];
+      const mark = (rowIdx, colIdx, message) => {
+        const k = key(rowIdx, colIdx);
+        if (!this.cells.has(k)) return;
+        const text = String(message ?? "Not saved");
+        this.errors.set(k, text);
+        errors.push({ rowIdx, colIdx, error: text });
+      };
+      if (listed.length) {
+        for (const e of listed) mark(e?.rowIdx, e?.colIdx, e?.error ?? e?.message);
+      } else {
+        for (const e of edits) mark(e.rowIdx, e.colIdx, result.error);
+      }
+      for (const rowIdx of this._rows()) this.grid._redraw(rowIdx);
+      this._changed();
+      return { ok: false, errors };
+    }
+    const rows = this._rows();
+    for (const e of edits) {
+      const row = this.grid.currentRow(e.rowIdx);
+      if (Array.isArray(row)) row[e.colIdx] = e.value;
+    }
+    this.cells.clear();
+    this.errors.clear();
+    this.history.reset();
+    for (const rowIdx of rows) this.grid._redraw(rowIdx);
+    this._changed();
+    return { ok: true, committed: edits.length };
+  }
+  // ── the freeze ───────────────────────────────────────────────────────
+  /** Why sort, filters and pages are held, or null when nothing is staged. */
+  freezeReason() {
+    const n = this.cells.size;
+    if (!n) return null;
+    const own = this.table.config.stagedRefusal;
+    if (typeof own === "function") {
+      try {
+        return String(own(n));
+      } catch (err) {
+        console.error("[DataTable] stagedRefusal threw", err);
+      }
+    } else if (typeof own === "string" && own) return own;
+    return `Sorting, filtering and paging are held while ${n} change${n === 1 ? " is" : "s are"} not committed. Commit or discard them first.`;
+  }
+  /** Disable every control the freeze holds with the reason on it, or put
+   *  back the ones it held. Run after every render and every change. */
+  paintFreeze() {
+    const root = this.table._wrapperEl;
+    const reason = this.freezeReason();
+    root?.classList.toggle("twm-dt--frozen", !!reason);
+    if (!reason) {
+      for (const [el, saved] of this._frozen) this._thaw(el, saved);
+      this._frozen.clear();
+      return;
+    }
+    for (const el of this._frozen.keys()) if (!el.isConnected) this._frozen.delete(el);
+    if (!root) return;
+    for (const el of root.querySelectorAll(FROZEN_SELECTORS)) {
+      if (!this._frozen.has(el)) {
+        const saved = {};
+        for (const a of SAVED_ATTRS) saved[a] = el.getAttribute(a);
+        saved.disabled = "disabled" in el ? el.disabled : null;
+        this._frozen.set(el, saved);
+      }
+      el.setAttribute("data-refusal", reason);
+      el.setAttribute("title", reason);
+      if (el.hasAttribute("data-tooltip")) el.setAttribute("data-tooltip", reason);
+      el.setAttribute("aria-disabled", "true");
+      if ("disabled" in el) el.disabled = true;
+    }
+  }
+  _thaw(el, saved) {
+    for (const a of SAVED_ATTRS) {
+      if (saved[a] == null) el.removeAttribute(a);
+      else el.setAttribute(a, saved[a]);
+    }
+    if (saved.disabled !== null) el.disabled = saved.disabled;
+  }
+  /** After every change: the freeze, and whoever listens. */
+  _changed() {
+    this.paintFreeze();
+    const fn = this.table.config.onStagedChange;
+    if (typeof fn !== "function") return;
+    try {
+      fn({
+        count: this.cells.size,
+        canUndo: this.history.canUndo,
+        canRedo: this.history.canRedo,
+        committing: !!this.committing
+      });
+    } catch (err) {
+      console.error("[DataTable] onStagedChange threw", err);
+    }
+  }
+};
+
+// src/ui/components/fill_handle.js
+var key2 = (rowIdx, colIdx) => `${rowIdx}:${colIdx}`;
+var FillHandle = class {
+  /** @param {import('./cell_grid.js').CellGrid} grid */
+  constructor(grid) {
+    this.grid = grid;
+    this.el = null;
+    this.corner = null;
+    this.skipped = /* @__PURE__ */ new Set();
+    this.preview = /* @__PURE__ */ new Set();
+    this.drag = null;
+    this._unguard = null;
+  }
+  // ── painting (called by the grid for every cell it paints) ───────────
+  /** One cell: its preview and skipped marks, and the handle when it is
+   *  the range's corner. */
+  paintCell(td, pos, col) {
+    const rowIdx = td.parentNode?.__rowIndex;
+    td.classList.toggle("twm-dt-cell--fill-preview", this.preview.has(`${pos}:${col}`));
+    td.classList.toggle("twm-dt-cell--fill-skipped", this.skipped.has(key2(rowIdx, col)));
+    const r = this.grid.sel.range();
+    if (r && r.bottom === pos && r.right === col) this._place(td);
+    else if (td === this.corner) this._unplace();
+  }
+  _handle() {
+    if (this.el) return this.el;
+    const el = document.createElement("div");
+    el.className = "twm-dt-fill-handle";
+    el.setAttribute("aria-hidden", "true");
+    el.title = "Drag to fill; hold Ctrl to repeat instead of continuing a series";
+    el.addEventListener("pointerdown", (ev) => this._begin(ev));
+    this.el = el;
+    return el;
+  }
+  _place(td) {
+    if (this.grid.isEditing() || this.grid.staged.committing) {
+      this._unplace();
+      return;
+    }
+    if (this.corner && this.corner !== td) this.corner.classList.remove("twm-dt-cell--fill-corner");
+    this.corner = td;
+    td.classList.add("twm-dt-cell--fill-corner");
+    const el = this._handle();
+    if (el.parentNode !== td) td.appendChild(el);
+  }
+  _unplace() {
+    this.corner?.classList.remove("twm-dt-cell--fill-corner");
+    this.corner = null;
+    this.el?.remove();
+  }
+  // ── what a fill covers ───────────────────────────────────────────────
+  /**
+   * The fill that reaching cell `to` (`{row, col}`, position and data
+   * column) from `range` makes: `{direction, count}`, or null when `to` is
+   * inside the range's rows and columns. The direction is the one the cell
+   * lies furthest out in; up and down win a tie. Clamped to the page drawn.
+   */
+  plan(range, to) {
+    if (!range || !to) return null;
+    const cols = this.grid.columns();
+    const [first, last] = this.grid.span();
+    const row = Math.max(first, Math.min(last, Number(to.row)));
+    const ordL = cols.indexOf(range.left);
+    const ordR = cols.indexOf(range.right);
+    const ordTo = cols.indexOf(to.col);
+    const out = [
+      ["down", row - range.bottom],
+      ["up", range.top - row],
+      ["right", ordTo < 0 ? 0 : ordTo - ordR],
+      ["left", ordTo < 0 ? 0 : ordL - ordTo]
+    ];
+    let best = null;
+    for (const [direction, count] of out) {
+      if (count > 0 && (!best || count > best.count)) best = { direction, count };
+    }
+    return best;
+  }
+  /** The cells a plan covers, as `{pos, col}`, line by line in fill order:
+   *  `[{seed: [{pos, col}], targets: [{pos, col}]}]`. */
+  _lines(range, { direction, count }) {
+    const cols = this.grid.columns();
+    const ordL = cols.indexOf(range.left);
+    const ordR = cols.indexOf(range.right);
+    const lines = [];
+    if (direction === "down" || direction === "up") {
+      const down = direction === "down";
+      for (let o = ordL; o <= ordR; o++) {
+        const col = cols[o];
+        const seed = [];
+        for (let p = range.top; p <= range.bottom; p++) seed.push({ pos: p, col });
+        if (!down) seed.reverse();
+        const targets = [];
+        for (let i = 1; i <= count; i++) {
+          targets.push({ pos: down ? range.bottom + i : range.top - i, col });
+        }
+        lines.push({ seed, targets });
+      }
+    } else {
+      const right = direction === "right";
+      for (let p = range.top; p <= range.bottom; p++) {
+        const seed = [];
+        for (let o = ordL; o <= ordR; o++) seed.push({ pos: p, col: cols[o] });
+        if (!right) seed.reverse();
+        const targets = [];
+        for (let i = 1; i <= count; i++) {
+          const o = right ? ordR + i : ordL - i;
+          if (o >= 0 && o < cols.length) targets.push({ pos: p, col: cols[o] });
+        }
+        lines.push({ seed, targets });
+      }
+    }
+    return lines;
+  }
+  // ── the fill ─────────────────────────────────────────────────────────
+  /**
+   * Fill from the range to cell `to`, staging the values as ONE undo
+   * entry. Returns `{direction, count, staged, skipped}` (`skipped` the
+   * cells `editable` refused, `{row, col, rowIdx}`), or null when nothing
+   * was filled: no range, `to` inside it, an editor open or a commit out.
+   */
+  fill(to, { forceCopy = false } = {}) {
+    const g = this.grid;
+    g._sync();
+    const range = g.sel.range();
+    const plan = this.plan(range, to);
+    if (!plan || g.staged.committing || g.isEditing()) return null;
+    const cells = [];
+    const skipped = [];
+    for (const { seed, targets } of this._lines(range, plan)) {
+      const values = projectSeries(
+        seed.map(({ pos, col }) => g.shownValue(g.rowIndexAt(pos), col)),
+        targets.length,
+        { forceCopy }
+      );
+      targets.forEach(({ pos, col }, i) => {
+        const rowIdx = g.rowIndexAt(pos);
+        if (g.canEdit(pos, col)) cells.push({ rowIdx, colIdx: col, value: values[i] });
+        else skipped.push({ row: pos, col, rowIdx });
+      });
+    }
+    const staged = g.staged.stageMany(cells, `fill ${cells.length} cell(s)`);
+    const cols = g.columns();
+    const ordL = cols.indexOf(range.left);
+    const ordR = cols.indexOf(range.right);
+    const { direction, count } = plan;
+    if (direction === "down") g.set({ row: range.bottom + count, col: range.right }, { row: range.top, col: range.left });
+    else if (direction === "up") g.set({ row: range.top - count, col: range.left }, { row: range.bottom, col: range.right });
+    else if (direction === "right") g.set({ row: range.bottom, col: cols[Math.min(cols.length - 1, ordR + count)] }, { row: range.top, col: range.left });
+    else g.set({ row: range.top, col: cols[Math.max(0, ordL - count)] }, { row: range.bottom, col: range.right });
+    for (const s of skipped) this.skipped.add(key2(s.rowIdx, s.col));
+    if (skipped.length) g.paint();
+    return { direction, count, staged, skipped };
+  }
+  /** The selection moved, or new rows came: the skipped marks are over. */
+  clearMarks() {
+    this.skipped.clear();
+  }
+  // ── the drag ─────────────────────────────────────────────────────────
+  _begin(ev) {
+    if (ev.button != null && ev.button !== 0) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const g = this.grid;
+    g._sync();
+    const range = g.sel.range();
+    if (!range || this.drag || g.isEditing() || g.staged.committing) return;
+    const doc = this.el.ownerDocument;
+    this._guardClick(doc);
+    const onMove = (move) => this._move(move);
+    const onUp = (up) => {
+      const plan = this.drag?.plan;
+      this._end();
+      if (plan) this.fill(this._reach(range, plan), { forceCopy: !!(up.ctrlKey || up.metaKey) });
+      try {
+        g.table._tableEl?.focus({ preventScroll: true });
+      } catch (_) {
+      }
+    };
+    const onCancel = () => this._end();
+    const onKey = (k) => {
+      if (k.key === "Escape") {
+        k.preventDefault();
+        k.stopPropagation();
+        this._end();
+      }
+    };
+    doc.addEventListener("pointermove", onMove);
+    doc.addEventListener("pointerup", onUp);
+    doc.addEventListener("pointercancel", onCancel);
+    doc.addEventListener("keydown", onKey, true);
+    this.drag = {
+      range,
+      plan: null,
+      unbind: () => {
+        doc.removeEventListener("pointermove", onMove);
+        doc.removeEventListener("pointerup", onUp);
+        doc.removeEventListener("pointercancel", onCancel);
+        doc.removeEventListener("keydown", onKey, true);
+      }
+    };
+  }
+  /**
+   * A press on the handle and its release make, in a browser, a click (and
+   * on a second press a dblclick) of their own, on the element under both:
+   * the corner cell, the row, the body. Filled, cancelled by Escape or
+   * released where it began, a drag is no click on the table: from the
+   * press, the next click in the document is swallowed in the capture
+   * phase, and so is every dblclick until the task the release is handled
+   * in is over. A cancelled pointer makes no click; the guard ends with it.
+   */
+  _guardClick(doc) {
+    this._unguard?.();
+    const view = doc.defaultView;
+    let timer = null;
+    const swallow = (c) => {
+      c.stopPropagation();
+      c.preventDefault();
+    };
+    const swallowOnce = (c) => {
+      swallow(c);
+      doc.removeEventListener("click", swallowOnce, true);
+    };
+    const released = () => {
+      doc.removeEventListener("pointerup", released, true);
+      doc.removeEventListener("pointercancel", unguard, true);
+      timer = view.setTimeout(unguard, 0);
+    };
+    const unguard = () => {
+      if (timer !== null) view.clearTimeout(timer);
+      doc.removeEventListener("click", swallowOnce, true);
+      doc.removeEventListener("dblclick", swallow, true);
+      doc.removeEventListener("pointerup", released, true);
+      doc.removeEventListener("pointercancel", unguard, true);
+      if (this._unguard === unguard) this._unguard = null;
+    };
+    doc.addEventListener("click", swallowOnce, true);
+    doc.addEventListener("dblclick", swallow, true);
+    doc.addEventListener("pointerup", released, true);
+    doc.addEventListener("pointercancel", unguard, true);
+    this._unguard = unguard;
+  }
+  /** The cell a plan reaches, as `fill` takes it. */
+  _reach(range, { direction, count }) {
+    const cols = this.grid.columns();
+    if (direction === "down") return { row: range.bottom + count, col: range.right };
+    if (direction === "up") return { row: range.top - count, col: range.left };
+    if (direction === "right") return { row: range.bottom, col: cols[cols.indexOf(range.right) + count] };
+    return { row: range.top, col: cols[cols.indexOf(range.left) - count] };
+  }
+  /** The data cell under the pointer: the event's target, or (a touch,
+   *  whose events stay on the handle) the element at its point. */
+  _cellUnder(ev) {
+    const tbody = this.grid.table._tbodyEl;
+    const hit = (el) => {
+      const td = el?.closest?.("td");
+      if (!td || td.__colIdx === void 0 || !tbody?.contains(td)) return null;
+      const pos = td.parentNode?.__cellPos;
+      return pos === void 0 ? null : { row: pos, col: td.__colIdx };
+    };
+    let cell = ev.target === this.el ? null : hit(ev.target);
+    const doc = this.el.ownerDocument;
+    if (!cell && typeof doc.elementFromPoint === "function") {
+      cell = hit(doc.elementFromPoint(ev.clientX, ev.clientY));
+    }
+    return cell;
+  }
+  _move(ev) {
+    const d = this.drag;
+    if (!d) return;
+    const cell = this._cellUnder(ev);
+    if (!cell) return;
+    d.plan = this.plan(d.range, cell);
+    this.preview.clear();
+    if (d.plan) {
+      for (const { targets } of this._lines(d.range, d.plan)) {
+        for (const t of targets) this.preview.add(`${t.pos}:${t.col}`);
+      }
+    }
+    this.grid.paint();
+  }
+  _end() {
+    const d = this.drag;
+    if (!d) return;
+    this.drag = null;
+    d.unbind();
+    this.preview.clear();
+    this.grid.paint();
+  }
+  dispose() {
+    this._end();
+    this._unguard?.();
+    this._unplace();
+    this.skipped.clear();
+  }
+};
+
+// src/ui/components/cell_grid.js
+function isFilledValue(value) {
+  if (value == null) return false;
+  if (typeof value === "string") return value !== "";
+  if (typeof value === "number") return !Number.isNaN(value);
+  return true;
+}
+function isPrintable(ev) {
+  return typeof ev.key === "string" && [...ev.key].length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey;
+}
+var ARROWS = {
+  ArrowUp: [-1, 0],
+  ArrowDown: [1, 0],
+  ArrowLeft: [0, -1],
+  ArrowRight: [0, 1]
+};
+var CellGrid = class {
+  /** @param {import('./data_table.js').DataTable} table */
+  constructor(table) {
+    this.table = table;
+    this.sel = new CellSelection();
+    this.pending = /* @__PURE__ */ new Map();
+    this.errors = /* @__PURE__ */ new Map();
+    this.renderWaiting = false;
+    this.rowsWaiting = /* @__PURE__ */ new Set();
+    this.latest = /* @__PURE__ */ new Map();
+    this.generation = 0;
+    this.editor = new CellEditorHost({
+      onCommit: (s, value, move, reason) => this._committed(s, value, move, reason),
+      onCancel: (s, reason) => this._closed(s, reason)
+    });
+    this.staged = null;
+    if (this._cfg().staged) {
+      if (this._cfg().editable) this.staged = new StagedEdits(this);
+      else console.warn("[DataTable] `staged` needs `editable`; ignored.");
+    }
+    this.fill = null;
+    if (this._cfg().fillHandle) {
+      if (this.staged) this.fill = new FillHandle(this);
+      else console.warn("[DataTable] `fillHandle` needs `staged`; ignored.");
+    }
+  }
+  // ── what the table is, read through its own helpers ──────────────────
+  _cfg() {
+    return this.table.config;
+  }
+  /** The data columns shown, in the order shown. */
+  columns() {
+    return this.table._shownColumns();
+  }
+  /** The positions of the rows on the page drawn, `[first, last]`. */
+  span() {
+    const s = this.table._pageSpan || { start: 0, count: 0 };
+    return [s.start, s.start + s.count - 1];
+  }
+  _sync() {
+    const [first, last] = this.span();
+    this.sel.setBounds(first, last, this.columns());
+  }
+  /** A position's original row index (the `__rowIndex` space). */
+  rowIndexAt(pos) {
+    const t = this.table;
+    if (t._isServerSide()) return (t.config.dataSource ? 0 : t.config.offset || 0) + pos;
+    t._getProcessedRows();
+    return t._processedIndexMap?.[pos] ?? pos;
+  }
+  rowAt(pos) {
+    return this.table._getProcessedRows()[pos] ?? null;
+  }
+  /**
+   * The row the table holds NOW for an original row index — the window's
+   * row list, else `config.rows` at the place the table draws it from —
+   * the one `updateRow` writes. Never a row captured earlier.
+   */
+  currentRow(rowIdx) {
+    const t = this.table;
+    const local = t._virtLocalOf(rowIdx);
+    if (local >= 0) return t._virt.rows[local] ?? null;
+    const rows = t.config.rows;
+    if (!Array.isArray(rows)) return null;
+    const at = t._isServerSide() ? rowIdx - (t.config.dataSource ? 0 : t.config.offset || 0) : rowIdx;
+    return rows[at] ?? null;
+  }
+  /** What a cell shows: a refused or pending commit's value, else the row's. */
+  shownValue(rowIdx, col) {
+    const key3 = `${rowIdx}:${col}`;
+    const err = this.errors.get(key3);
+    if (err) return err.value;
+    if (this.pending.has(key3)) return this.pending.get(key3);
+    if (this.staged?.has(key3)) return this.staged.value(key3);
+    const row = this.currentRow(rowIdx);
+    return row ? row[col] : void 0;
+  }
+  /** Whether the open editor sits in this row element. */
+  _holds(tr) {
+    const s = this.editor.session;
+    return !!s && !!tr && tr.contains(s.td);
+  }
+  /**
+   * `updateRow` on a drawn row: the table has stored the data already. When
+   * the row holds the open editor the rebuild — which would take the editor
+   * out of the document — waits for that editor to close, the editor's cell
+   * left as it is. Returns whether it waits.
+   */
+  holdRow(tr, rowIdx) {
+    if (!this._holds(tr)) return false;
+    this.rowsWaiting.add(rowIdx);
+    return true;
+  }
+  valueAt(pos, col) {
+    const row = this.rowAt(pos);
+    return row ? row[col] : void 0;
+  }
+  /** The `<td>` drawing a cell, or null when it is not drawn. */
+  cellEl(pos, col) {
+    const tr = this.table.getRowElement(this.rowIndexAt(pos));
+    if (!tr) return null;
+    for (const td of tr.children) if (td.__colIdx === col) return td;
+    return null;
+  }
+  // ── the public face (DataTable delegates) ────────────────────────────
+  /** `{anchor, focus, range}`; each cell is `{row, col, rowIdx}`, and the
+   *  range also lists its `rows` (original indices) and `columns`. */
+  get() {
+    this._sync();
+    const cell = (c) => c ? { row: c.row, col: c.col, rowIdx: this.rowIndexAt(c.row) } : null;
+    const r = this.sel.range();
+    let range = null;
+    if (r) {
+      const rows = [];
+      for (let p = r.top; p <= r.bottom; p++) rows.push(this.rowIndexAt(p));
+      range = { ...r, rows };
+    }
+    return { anchor: cell(this.sel.anchor), focus: cell(this.sel.focus), range };
+  }
+  /** Rows (original indices) the range touches, ascending. */
+  rowIndices() {
+    const r = this.sel.range();
+    if (!r) return [];
+    const out = [];
+    for (let p = r.top; p <= r.bottom; p++) out.push(this.rowIndexAt(p));
+    return out.sort((a, b) => a - b);
+  }
+  /** Select from `anchor` to `focus` (`{row, col}`, positions and data
+   *  indices), or put the cursor on `focus` alone. */
+  set(focus, anchor = null) {
+    this._sync();
+    if (!focus) {
+      this.sel.clear();
+      this._changed();
+      return;
+    }
+    this.sel.setCursor(anchor ? anchor.row : focus.row, anchor ? anchor.col : focus.col);
+    if (anchor) this.sel.extendTo(focus.row, focus.col);
+    this._changed({ reveal: true });
+  }
+  /** `setSelection(indices)` in cell mode: whole rows, the first to the last
+   *  of them as shown. */
+  selectRows(indices) {
+    this._sync();
+    const t = this.table;
+    t._getProcessedRows();
+    const map = t._processedIndexMap || [];
+    const positions = indices.map((i) => t._isServerSide() ? i - (t.config.dataSource ? 0 : t.config.offset || 0) : map.indexOf(i)).filter((p) => p >= 0);
+    const cols = this.sel.cols;
+    if (!positions.length || !cols.length) {
+      this.sel.clear();
+      this._changed();
+      return;
+    }
+    this.sel.setCursor(Math.min(...positions), cols[0]);
+    this.sel.extendTo(Math.max(...positions), cols[cols.length - 1]);
+    this._changed();
+  }
+  clear() {
+    this.sel.clear();
+    this._changed();
+  }
+  /** New rows (`setData({rows})`): the marks were about the old ones. */
+  newRows() {
+    this.generation++;
+    this.pending.clear();
+    this.errors.clear();
+    this.latest.clear();
+    this.rowsWaiting.clear();
+    this.staged?.clear();
+    this.fill?.clearMarks();
+  }
+  isEditing() {
+    return !!this.editor.session;
+  }
+  // ── painting ─────────────────────────────────────────────────────────
+  /** Called for every row drawn — on render, on a scroll, on `updateRow` —
+   *  so a row that arrives later is painted like the rest. */
+  decorateRow(tr) {
+    const pos = tr.__cellPos;
+    if (pos === void 0) return;
+    for (const td of tr.children) {
+      if (td.__colIdx !== void 0) this._decorateCell(td, pos, tr.__rowIndex, td.__colIdx);
+    }
+  }
+  /** One cell: the selection, its commit's pending or refused mark, and
+   *  (STORY-0088) its staged value and a refused batch's mark. */
+  _decorateCell(td, pos, rowIdx, col) {
+    this._paintCell(td, pos, col);
+    const key3 = `${rowIdx}:${col}`;
+    const err = this.errors.get(key3);
+    const waiting = this.pending.has(key3);
+    const staged = !!this.staged?.has(key3);
+    if (err || waiting) {
+      td.textContent = this.table._formatValue(err ? err.value : this.pending.get(key3), col);
+    } else if (staged) {
+      td.textContent = this.table._formatValue(this.staged.value(key3), col);
+    }
+    const message = err ? err.message : this.staged?.errors.get(key3);
+    td.classList.toggle("twm-dt-cell--pending", waiting);
+    td.classList.toggle("twm-dt-cell--staged", staged);
+    td.classList.toggle("twm-dt-cell--error", message != null);
+    if (message != null) {
+      td.title = message;
+      td.setAttribute("data-error", message);
+    } else td.removeAttribute("data-error");
+    this.fill?.paintCell(td, pos, col);
+  }
+  _paintCell(td, pos, col) {
+    td.classList.toggle("twm-dt-cell--selected", this.sel.contains(pos, col));
+    const cursor = this.sel.isCursor(pos, col);
+    td.classList.toggle("twm-dt-cell--cursor", cursor);
+    if (cursor) td.setAttribute("aria-selected", "true");
+    else td.removeAttribute("aria-selected");
+    this.fill?.paintCell(td, pos, col);
+  }
+  paint() {
+    const tbody = this.table._tbodyEl;
+    if (!tbody) return;
+    for (const tr of tbody.children) {
+      const pos = tr.__cellPos;
+      if (pos === void 0) continue;
+      for (const td of tr.children) {
+        if (td.__colIdx !== void 0) this._paintCell(td, pos, td.__colIdx);
+      }
+    }
+  }
+  /** The selection moved: the cells, the rows `getSelection()` answers, and
+   *  whoever listens. */
+  _changed({ reveal = false } = {}) {
+    const t = this.table;
+    this.fill?.clearMarks();
+    if (reveal && this.sel.focus) t.scrollToRow(this.rowIndexAt(this.sel.focus.row));
+    this.paint();
+    const before = t.getSelection().join();
+    const rows = this.rowIndices();
+    t._state.selected.clear();
+    for (const i of rows) t._state.selected.add(i);
+    t._state.anchorIndex = this.sel.anchor ? this.rowIndexAt(this.sel.anchor.row) : null;
+    if (rows.join() !== before) t._notifySelectionChange();
+    try {
+      t.config.onCellSelectionChange?.(this.get());
+    } catch (err) {
+      console.error("[DataTable] onCellSelectionChange threw", err);
+    }
+  }
+  // ── the pointer and the keys ─────────────────────────────────────────
+  /** Bound by `_installInteractions` on every render, BEFORE the table's own
+   *  activation, detail and copy listeners, so a key the cell mode takes
+   *  goes no further. Listeners go on the table's disposers. */
+  install(tbody, table) {
+    const t = this.table;
+    const on = (el, type, fn) => {
+      el.addEventListener(type, fn);
+      t._disposers.push(() => el.removeEventListener(type, fn));
+    };
+    this._sync();
+    const cellOf = (target) => {
+      const td = target?.closest?.("td");
+      if (!td || td.__colIdx === void 0 || !tbody.contains(td)) return null;
+      const tr = td.parentNode;
+      if (tr?.__cellPos === void 0) return null;
+      return { td, row: tr.__cellPos, col: td.__colIdx };
+    };
+    const inEditor = (target) => !!this.editor.session && this.editor.session.td.contains(target);
+    on(tbody, "click", (ev) => {
+      if (ev.button != null && ev.button !== 0) return;
+      if (inEditor(ev.target)) return;
+      const hit = cellOf(ev.target);
+      if (!hit) return;
+      this._sync();
+      if (ev.shiftKey && this.sel.anchor) this.sel.extendTo(hit.row, hit.col);
+      else this.sel.setCursor(hit.row, hit.col);
+      this._changed();
+      try {
+        table.focus({ preventScroll: true });
+      } catch (_) {
+      }
+    });
+    on(tbody, "dblclick", (ev) => {
+      if (inEditor(ev.target)) return;
+      const hit = cellOf(ev.target);
+      if (!hit || !this.canEdit(hit.row, hit.col)) return;
+      this._sync();
+      this.sel.setCursor(hit.row, hit.col);
+      this._changed();
+      if (this.open(hit.row, hit.col)) ev.stopImmediatePropagation();
+    });
+    on(tbody, "contextmenu", (ev) => {
+      if (inEditor(ev.target)) return;
+      const hit = cellOf(ev.target);
+      if (!hit || this.sel.contains(hit.row, hit.col)) return;
+      this._sync();
+      this.sel.setCursor(hit.row, hit.col);
+      this._changed();
+    });
+    on(table, "keydown", (ev) => {
+      if (ev.isComposing || inEditor(ev.target)) return;
+      if (ev.target !== table && ev.target?.closest?.('input, select, textarea, button, [contenteditable="true"]')) return;
+      if (this._onKey(ev)) {
+        ev.preventDefault();
+        ev.stopImmediatePropagation();
+      }
+    });
+    this.paint();
+    this.staged?.paintFreeze();
+  }
+  /** One key on the focused table. Returns whether the cell mode took it. */
+  _onKey(ev) {
+    this._sync();
+    const ctrl = ev.ctrlKey || ev.metaKey;
+    const k = ev.key;
+    if (this.staged && ctrl && !ev.altKey) {
+      const lower = String(k).toLowerCase();
+      if (lower === "z" && !ev.shiftKey) {
+        this.staged.undo();
+        return true;
+      }
+      if (lower === "y" || lower === "z" && ev.shiftKey) {
+        this.staged.redo();
+        return true;
+      }
+    }
+    if (ARROWS[k] && !ev.altKey) {
+      const [dr, dc] = ARROWS[k];
+      if (ctrl) {
+        this.sel.jump(dr, dc, (r, c) => isFilledValue(this.valueAt(r, c)), { extend: ev.shiftKey });
+      } else this.sel.move(dr, dc, { extend: ev.shiftKey });
+      this._changed({ reveal: true });
+      return true;
+    }
+    if ((k === "Home" || k === "End") && !ev.altKey) {
+      this.sel.lineEnd(k === "End", { extend: ev.shiftKey, corner: ctrl });
+      this._changed({ reveal: true });
+      return true;
+    }
+    if (k === "Tab" && !ctrl && !ev.altKey) {
+      if (this.sel.tabEnds(ev.shiftKey)) return false;
+      this.sel.tab(ev.shiftKey);
+      this._changed({ reveal: true });
+      return true;
+    }
+    if (ctrl && !ev.altKey && String(k).toLowerCase() === "a") {
+      this.sel.selectAll();
+      this._changed();
+      return true;
+    }
+    if (k === "Escape") {
+      this.sel.collapse();
+      this._changed();
+      this.table._hideContextMenu();
+      return true;
+    }
+    const f = this.sel.focus;
+    if (!f) return false;
+    if ((k === "F2" || k === "Enter" && !ctrl && !ev.altKey && !ev.shiftKey) && this.canEdit(f.row, f.col)) {
+      return this.open(f.row, f.col);
+    }
+    if (isPrintable(ev) && this.canEdit(f.row, f.col)) {
+      return this.open(f.row, f.col, { initialText: ev.key });
+    }
+    return false;
+  }
+  // ── editing ──────────────────────────────────────────────────────────
+  /** Whether a cell opens an editor: `editable` says so for its column. */
+  canEdit(pos, col) {
+    const spec = this._cfg().editable;
+    if (!spec) return false;
+    if (this.staged?.committing) return false;
+    if (spec === true) return true;
+    if (Array.isArray(spec)) return spec.includes(col);
+    if (typeof spec === "function") {
+      try {
+        return !!spec(col, this.rowAt(pos), this.rowIndexAt(pos));
+      } catch (err) {
+        console.error("[DataTable] editable threw", err);
+        return false;
+      }
+    }
+    return false;
+  }
+  /** The column's type, as `editors` is keyed by: the declared one, else the
+   *  detected one. */
+  _typeOf(col) {
+    const declared = this._cfg().columnTypes?.[col];
+    return declared || this.table._columnTypes?.[col] || "text";
+  }
+  _factoryFor(col) {
+    const editors = this._cfg().editors;
+    if (editors && typeof editors === "object") {
+      if (typeof editors[col] === "function") return editors[col];
+      const type = this._typeOf(col);
+      if (typeof editors[type] === "function") return editors[type];
+    }
+    return createTextEditor;
+  }
+  /**
+   * Open the editor on a cell (position, data column). Brings the row into
+   * view first. Returns whether an editor opened.
+   */
+  open(pos, col, { initialText = null } = {}) {
+    if (this.editor.session || !this.canEdit(pos, col)) return false;
+    this.table.scrollToRow(this.rowIndexAt(pos));
+    const td = this.cellEl(pos, col);
+    if (!td) return false;
+    const rowIdx = this.rowIndexAt(pos);
+    const row = this.currentRow(rowIdx);
+    const headers = this._cfg().headers || [];
+    return this.editor.open({
+      td,
+      factory: this._factoryFor(col),
+      pos,
+      colIdx: col,
+      rowIdx,
+      row,
+      generation: this.generation,
+      value: this.shownValue(rowIdx, col),
+      column: { index: col, header: headers[col], type: this._typeOf(col) },
+      initialText
+    });
+  }
+  /** The virtual window is taking a row out: an editor in it commits, as a
+   *  click elsewhere would — what was typed is not thrown away. An editor
+   *  with no `getValue` has nothing to commit, and is cancelled. */
+  rowLeaving(tr) {
+    const s = this.editor.session;
+    if (s && tr.contains(s.td)) this.editor.commit(null, "scroll");
+  }
+  dispose() {
+    this.fill?.dispose();
+    this.editor.cancel("dispose");
+    this.renderWaiting = false;
+    this.rowsWaiting.clear();
+  }
+  /** After every close: focus back on the table when the keyboard closed it,
+   *  and the render that waited for the editor. */
+  _closed(s, reason) {
+    const t = this.table;
+    if (reason === "dispose") return;
+    if (reason === "key" || reason === "editor") {
+      try {
+        t._tableEl?.focus({ preventScroll: true });
+      } catch (_) {
+      }
+    }
+    if (this.renderWaiting) {
+      this.renderWaiting = false;
+      this.rowsWaiting.clear();
+      if (reason === "scroll") queueMicrotask(() => {
+        if (t._wrapperEl) t.render();
+      });
+      else t.render();
+      return;
+    }
+    if (this.rowsWaiting.size) {
+      const flush = () => {
+        const waiting = [...this.rowsWaiting];
+        this.rowsWaiting.clear();
+        for (const rowIdx of waiting) this._redraw(rowIdx);
+      };
+      if (reason === "scroll") queueMicrotask(() => {
+        if (t._wrapperEl) flush();
+      });
+      else flush();
+    }
+  }
+  /**
+   * Draw a row again after a commit, from the row the table holds now
+   * (`currentRow`). `updateRow` rebuilds EVERY cell of the row, so while an
+   * editor is open in it (save, Tab, type — the commit settles under the
+   * next editor) the row waits for that editor to close (`_closed`), and
+   * only the committed cell's marks are painted now.
+   */
+  _redraw(rowIdx, col = null) {
+    const t = this.table;
+    const tr = t.getRowElement(rowIdx);
+    const row = this.currentRow(rowIdx);
+    if (!tr || !row) return;
+    if (this._holds(tr)) {
+      this.rowsWaiting.add(rowIdx);
+      if (col === null || tr.__cellPos === void 0) return;
+      const s = this.editor.session;
+      for (const td of tr.children) {
+        if (td.__colIdx === col && td !== s.td) this._decorateCell(td, tr.__cellPos, rowIdx, col);
+      }
+      return;
+    }
+    this.rowsWaiting.delete(rowIdx);
+    t.updateRow(rowIdx, row);
+  }
+  _committed(s, value, move, reason) {
+    if (move) {
+      this._sync();
+      if (move === "down" || move === "up") this.sel.move(move === "down" ? 1 : -1, 0);
+      else this.sel.tab(move === "left");
+      this._changed({ reveal: true });
+    }
+    const live = s.generation === this.generation;
+    const key3 = `${s.rowIdx}:${s.colIdx}`;
+    if (Object.is(value, s.previous)) {
+      this._closed(s, reason);
+      return;
+    }
+    if (this.staged) {
+      if (live) this.staged.stage(s.rowIdx, s.colIdx, value);
+      this._closed(s, reason);
+      return;
+    }
+    const held = live ? this.currentRow(s.rowIdx) : s.row;
+    const stored = held ? held[s.colIdx] : void 0;
+    if (live && this.errors.has(key3) && !this.pending.has(key3) && Object.is(value, stored)) {
+      this.errors.delete(key3);
+      this.latest.delete(key3);
+      this._redraw(s.rowIdx, s.colIdx);
+      this._closed(s, reason);
+      return;
+    }
+    const fn = this._cfg().onCellCommit;
+    const token = {};
+    if (live) this.latest.set(key3, token);
+    const finish = (result2) => {
+      if (!live || s.generation !== this.generation) return;
+      const newest = this.latest.get(key3) === token;
+      const good = !(result2 && result2.ok === false);
+      if (good) {
+        const row = this.currentRow(s.rowIdx);
+        if (Array.isArray(row)) row[s.colIdx] = value;
+      }
+      if (newest) {
+        this.latest.delete(key3);
+        this.pending.delete(key3);
+        if (good) this.errors.delete(key3);
+        else this.errors.set(key3, { value, message: String(result2.error ?? "Not saved") });
+      }
+      this._redraw(s.rowIdx, s.colIdx);
+    };
+    const refused = (err) => ({ ok: false, error: err?.message || String(err ?? "Not saved") });
+    let result;
+    if (typeof fn === "function") {
+      try {
+        result = fn({ rowIdx: s.rowIdx, colIdx: s.colIdx, value, previous: stored });
+      } catch (err) {
+        result = refused(err);
+      }
+    }
+    if (result && typeof result.then === "function") {
+      if (live) {
+        this.pending.set(key3, value);
+        this.errors.delete(key3);
+        this._redraw(s.rowIdx, s.colIdx);
+      }
+      this._closed(s, reason);
+      result.then(finish, (err) => finish(refused(err)));
+      return;
+    }
+    finish(result);
+    this._closed(s, reason);
+  }
+};
+
+// src/ui/components/column_order.js
+function isColumnOrder(order, n) {
+  if (!Array.isArray(order) || order.length !== n) return false;
+  const seen = /* @__PURE__ */ new Set();
+  for (const c of order) {
+    if (!Number.isInteger(c) || c < 0 || c >= n || seen.has(c)) return false;
+    seen.add(c);
+  }
+  return true;
+}
+function naturalOrder(n) {
+  return Array.from({ length: Math.max(0, n) }, (_, i) => i);
+}
+function cellOrder(order, count) {
+  if (!order) return naturalOrder(count);
+  const out = order.filter((c) => c < count);
+  for (let c = order.length; c < count; c++) out.push(c);
+  return out;
+}
+function moveInOrder(order, from, to) {
+  const next = order.slice();
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved);
+  return next;
+}
+var ColumnReorder = class {
+  /** @param {import('./data_table.js').DataTable} table */
+  constructor(table) {
+    this.table = table;
+    this.dragging = null;
+    this.onGrip = false;
+  }
+  /** Wire the header row of a fresh render. Its cells are new each render,
+   *  so nothing needs taking off. */
+  install(headRow) {
+    if (!headRow) return;
+    [...headRow.children].forEach((th, domIdx) => {
+      const col = this.table._dataIdxOfDom(domIdx);
+      if (col === null) return;
+      th.draggable = true;
+      th.classList.add("twm-dt-col--movable");
+      th.addEventListener("mousedown", (ev) => {
+        this.onGrip = !!ev.target?.closest?.(".twm-dt-col-resizer");
+      }, true);
+      th.addEventListener("dragstart", (ev) => {
+        if (this.onGrip || ev.target?.closest?.(".twm-dt-col-resizer")) {
+          ev.preventDefault();
+          return;
+        }
+        this.dragging = col;
+        try {
+          ev.dataTransfer?.setData("text/plain", String(col));
+          if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "move";
+        } catch (_) {
+        }
+        th.classList.add("twm-dt-col--dragging");
+      });
+      th.addEventListener("dragover", (ev) => {
+        if (this.dragging === null || this.dragging === col) return;
+        ev.preventDefault();
+        if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
+        const order = this.table.getColumnOrder();
+        th.classList.add("twm-dt-col--drop");
+        th.classList.toggle("twm-dt-col--drop-after", order.indexOf(col) > order.indexOf(this.dragging));
+      });
+      th.addEventListener("dragleave", () => th.classList.remove("twm-dt-col--drop", "twm-dt-col--drop-after"));
+      th.addEventListener("drop", (ev) => {
+        th.classList.remove("twm-dt-col--drop", "twm-dt-col--drop-after");
+        const from = this.dragging;
+        this.dragging = null;
+        if (from === null || from === col) return;
+        ev.preventDefault();
+        const order = this.table.getColumnOrder();
+        this.table.moveColumn(order.indexOf(from), order.indexOf(col));
+      });
+      th.addEventListener("dragend", () => {
+        th.classList.remove("twm-dt-col--dragging");
+        this.dragging = null;
+      });
+    });
+  }
+  /** "Move left" / "Move right" for the header menu of data column `col`:
+   *  past the shown column next to it. */
+  menuItems(col) {
+    const shown = this.table._shownColumns();
+    const at = shown.indexOf(col);
+    if (at < 0) return [];
+    const order = this.table.getColumnOrder();
+    const step = (to) => () => this.table.moveColumn(order.indexOf(col), order.indexOf(to));
+    return [
+      {
+        label: "Move left",
+        icon: "arrow_back",
+        action: "move-left",
+        disabled: at === 0,
+        onChoose: at === 0 ? void 0 : step(shown[at - 1])
+      },
+      {
+        label: "Move right",
+        icon: "arrow_forward",
+        action: "move-right",
+        disabled: at === shown.length - 1,
+        onChoose: at === shown.length - 1 ? void 0 : step(shown[at + 1])
+      }
+    ];
+  }
+};
+
+// src/ui/components/header_actions.js
+function callOption(config, name, ...args) {
+  const fn = config?.[name];
+  if (typeof fn !== "function") return void 0;
+  try {
+    return fn.apply(config, args);
+  } catch (err) {
+    console.error(`[DataTable] ${name} threw`, err);
+    return void 0;
+  }
+}
+function headerActionButton(className, { icon, label, title, disabled } = {}, onClick) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = className;
+  if (icon) {
+    const span = document.createElement("span");
+    span.className = "material-symbols-outlined";
+    span.textContent = String(icon);
+    b.appendChild(span);
+  } else if (label != null) {
+    b.appendChild(document.createTextNode(String(label)));
+  }
+  const name = title ?? label;
+  if (name != null) {
+    b.title = String(name);
+    b.setAttribute("aria-label", String(name));
+  }
+  if (disabled) b.disabled = true;
+  b.addEventListener("mousedown", (ev) => ev.stopPropagation());
+  b.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    onClick(ev);
+  });
+  return b;
+}
+
+// src/ui/components/column_groups.js
+function normalizeSpans(spec, n, { requireKey = false, defaultLabel = () => "" } = {}) {
+  const taken = /* @__PURE__ */ new Set();
+  const out = [];
+  (Array.isArray(spec) ? spec : []).forEach((g, index) => {
+    if (!g || requireKey && g.key == null) return;
+    const columns = [];
+    for (const c of Array.isArray(g.columns) ? g.columns : []) {
+      const i = Number(c);
+      if (!Number.isInteger(i) || i < 0 || i >= n || taken.has(i)) continue;
+      taken.add(i);
+      columns.push(i);
+    }
+    out.push({ key: g.key, label: g.label == null ? defaultLabel(g) : String(g.label), columns, index });
+  });
+  return out;
+}
+function normalize(spec, n) {
+  return normalizeSpans(spec, n, { requireKey: true, defaultLabel: (g) => String(g.key) });
+}
+function blankSpanCell(span) {
+  const th = document.createElement("th");
+  th.className = "twm-dt-group twm-dt-group--none";
+  th.colSpan = span;
+  return th;
+}
+function labelSpanCell(span, label, title = label) {
+  const th = document.createElement("th");
+  th.className = "twm-dt-group";
+  th.colSpan = span;
+  th.title = title;
+  const el = document.createElement("span");
+  el.className = "twm-dt-group__label";
+  el.textContent = label;
+  th.appendChild(el);
+  return th;
+}
+var ColumnGroups = class {
+  /** @param {import('./data_table.js').DataTable} table */
+  constructor(table) {
+    this.table = table;
+    this._memoKey = null;
+    this._memo = null;
+    this._el = null;
+  }
+  _cfg() {
+    return this.table.config;
+  }
+  /**
+   * The drawn columns after the lead, in order: `{col, group}` for a shown
+   * data column (`group` the index in `groups`, or null) and
+   * `{placeholder: true, group}` for an empty group's column. The data
+   * columns come in the order the table draws them (STORY-0086's
+   * `columnOrder`, hidden ones left out). Memoised on the groups' content,
+   * the column count and the drawn columns.
+   */
+  layout() {
+    const cfg = this._cfg();
+    const n = cfg.headers?.length || 0;
+    const shown = this.table._shownColumns();
+    const spec = Array.isArray(cfg.columnGroups) ? cfg.columnGroups : [];
+    const key3 = `${n}|${shown.join(",")}|${spec.map((g) => g ? `${g.key}${g.label}${(g.columns || []).join(",")}` : "").join("")}`;
+    if (key3 === this._memoKey) return this._memo;
+    const groups = normalize(spec, n);
+    const groupOf = new Array(n).fill(null);
+    groups.forEach((g, gi) => {
+      for (const c of g.columns) groupOf[c] = gi;
+    });
+    const empty = groups.map((g) => g.columns.length === 0);
+    const placed = /* @__PURE__ */ new Set();
+    const slots = [];
+    const placeEmptyBefore = (gi) => {
+      for (let e = 0; e < gi; e++) {
+        if (empty[e] && !placed.has(e)) {
+          placed.add(e);
+          slots.push({ placeholder: true, group: e });
+        }
+      }
+    };
+    for (const c of shown) {
+      const gi = groupOf[c];
+      if (gi !== null) placeEmptyBefore(gi);
+      slots.push({ col: c, group: gi });
+    }
+    placeEmptyBefore(groups.length);
+    const slotOfCol = /* @__PURE__ */ new Map();
+    slots.forEach((s, i) => {
+      if (!s.placeholder) slotOfCol.set(s.col, i);
+    });
+    const placeholders = slots.filter((s) => s.placeholder).length;
+    this._memoKey = key3;
+    this._memo = { groups, slots, slotOfCol, placeholders };
+    return this._memo;
+  }
+  /** How many placeholder columns are drawn. */
+  placeholderCount() {
+    return this.layout().placeholders;
+  }
+  /** A shown data column's place after the lead, or -1 when the layout
+   *  has no placeholder (the table's own arithmetic then holds). */
+  slotOf(colIdx) {
+    const l = this.layout();
+    if (!l.placeholders) return -1;
+    return l.slotOfCol.has(colIdx) ? l.slotOfCol.get(colIdx) : -1;
+  }
+  /** What the drawn column `i` after the lead is: the data column, null for
+   *  a placeholder or past the end, `undefined` when the layout has no
+   *  placeholder (the table's own arithmetic then holds). */
+  slotAt(i) {
+    const l = this.layout();
+    if (!l.placeholders) return void 0;
+    const s = l.slots[i];
+    return s && !s.placeholder ? s.col : null;
+  }
+  /** Part of the table's column signature: where the placeholders stand. */
+  sig() {
+    const l = this.layout();
+    if (!l.placeholders) return "";
+    return `|g${l.slots.map((s, i) => s.placeholder ? i : "").filter((x) => x !== "").join(",")}`;
+  }
+  /** The drawn positions (after the lead) of the placeholders, ascending,
+   *  with their groups. */
+  _placeholderSlots() {
+    const out = [];
+    this.layout().slots.forEach((s, i) => {
+      if (s.placeholder) out.push({ at: i, group: s.group });
+    });
+    return out;
+  }
+  /** Put the placeholders' cells into a drawn row whose cells are the lead
+   *  and the shown data columns, in order. */
+  _insert(tr, make) {
+    const lead = this.table._lead().all;
+    for (const { at, group } of this._placeholderSlots()) {
+      const ref = tr.children[lead + at] || null;
+      tr.insertBefore(make(this.layout().groups[group]), ref);
+    }
+  }
+  /** STORY-0066. A body row gets an empty cell under each placeholder. */
+  fillRow(tr) {
+    if (!this.placeholderCount()) return;
+    this._insert(tr, () => {
+      const td = document.createElement("td");
+      td.className = "twm-dt-cell--placeholder";
+      return td;
+    });
+  }
+  /**
+   * After the header is built and in the header table: the placeholders'
+   * header and filter cells, and the group table above the header table.
+   */
+  decorate(headerWrap, headerTable) {
+    this._el = null;
+    if (!headerWrap || !headerTable) return;
+    const thead = headerTable.querySelector("thead");
+    const labelRow = thead?.querySelector("tr");
+    if (!labelRow) return;
+    if (this.placeholderCount()) {
+      this._insert(labelRow, (g) => this._placeholderHead(g));
+      for (const tr of thead.querySelectorAll("tr.twm-data-table__filter-row")) {
+        this._insert(tr, () => {
+          const th = document.createElement("th");
+          th.className = "data-table__filter-cell data-table__filter-cell--empty twm-dt-col--placeholder";
+          return th;
+        });
+      }
+    }
+    const groupTable = this._buildGroupTable(headerTable);
+    headerWrap.insertBefore(groupTable, headerTable);
+    this._el = groupTable;
+    this.align();
+  }
+  _placeholderHead(group) {
+    const th = document.createElement("th");
+    th.className = "text twm-dt-col--placeholder";
+    if (typeof this._cfg().onColumnAdd === "function") {
+      th.appendChild(this._addButton(group));
+    }
+    return th;
+  }
+  _addButton(group) {
+    return headerActionButton(
+      "twm-dt-group__add",
+      { icon: "add", title: `Add column to ${group.label}` },
+      () => callOption(this._cfg(), "onColumnAdd", group.key)
+    );
+  }
+  _buildGroupTable(headerTable) {
+    const { groups, slots } = this.layout();
+    const lead = this.table._lead().all;
+    const table = document.createElement("table");
+    table.className = `${headerTable.className} twm-dt-groups`;
+    const colgroup = document.createElement("colgroup");
+    for (let i2 = 0; i2 < lead + slots.length; i2++) colgroup.appendChild(document.createElement("col"));
+    table.appendChild(colgroup);
+    const thead = document.createElement("thead");
+    const tr = document.createElement("tr");
+    tr.className = "twm-dt-group-row";
+    if (lead) {
+      const th = document.createElement("th");
+      th.className = "twm-dt-group twm-dt-group--lead";
+      th.colSpan = lead;
+      tr.appendChild(th);
+    }
+    let i = 0;
+    while (i < slots.length) {
+      const gi = slots[i].group;
+      let j = i + 1;
+      while (j < slots.length && slots[j].group === gi) j++;
+      tr.appendChild(gi === null ? blankSpanCell(j - i) : this._groupCell(groups[gi], j - i, slots[i].placeholder));
+      i = j;
+    }
+    thead.appendChild(tr);
+    table.appendChild(thead);
+    return table;
+  }
+  _groupCell(group, span, empty) {
+    const th = labelSpanCell(span, group.label);
+    if (empty) th.classList.add("twm-dt-group--empty");
+    const actions = document.createElement("span");
+    actions.className = "twm-dt-group__actions";
+    const cfg = this._cfg();
+    const items = callOption(cfg, "groupActions", cfg.columnGroups[group.index], { key: group.key, columns: group.columns.slice(), table: this.table });
+    for (const item of Array.isArray(items) ? items.filter(Boolean) : []) {
+      actions.appendChild(headerActionButton(
+        "twm-dt-group__action",
+        item,
+        () => callOption(cfg, "onGroupAction", item.action, group.key)
+      ));
+    }
+    if (typeof cfg.onColumnAdd === "function") actions.appendChild(this._addButton(group));
+    if (actions.childNodes.length) th.appendChild(actions);
+    return th;
+  }
+  /** The group table follows the header table: the same column widths,
+   *  table width, layout and sideways offset. */
+  align() {
+    const groupTable = this._el;
+    const headerTable = this.table._headerTableEl;
+    if (!groupTable || !headerTable) return;
+    const labelRow = headerTable.querySelector("thead > tr");
+    const cols = groupTable.querySelector("colgroup")?.children || [];
+    for (let i = 0; i < cols.length; i++) {
+      const th = labelRow?.children[i];
+      const w = th ? parseFloat(th.style.width) : NaN;
+      cols[i].style.width = Number.isFinite(w) ? `${w}px` : "";
+    }
+    groupTable.style.width = headerTable.style.width;
+    groupTable.style.tableLayout = headerTable.style.tableLayout;
+    groupTable.style.transform = headerTable.style.transform;
+  }
+};
+
+// src/ui/components/crosstab.js
+var DEFAULT_EMPTY_LABEL = "(none)";
+function unzoom(el) {
+  return 1 / (el?.currentCSSZoom || 1);
+}
+var Crosstab = class {
+  /** @param {import('./data_table.js').DataTable} table */
+  constructor(table) {
+    this.table = table;
+    this._lefts = [];
+    this._leafRow = null;
+  }
+  _spec() {
+    const s = this.table.config.crosstab;
+    return s && typeof s === "object" ? s : {};
+  }
+  /** How many of the drawn data columns are row labels: the leading ones. */
+  labelCount() {
+    const k = Math.floor(Number(this._spec().labelColumns) || 0);
+    return Math.max(0, Math.min(k, this.table._shownColumns().length));
+  }
+  /** The drawn columns that pin to the left: the select and row-number
+   *  columns, and the label columns. */
+  pinnedCount() {
+    return this.table._lead().all + this.labelCount();
+  }
+  /** The drawn data columns after the label columns, in order. */
+  bodyColumns() {
+    return this.table._shownColumns().slice(this.labelCount());
+  }
+  /** Columns drawn that are no data column: the empty axis's one. */
+  extraColumns() {
+    return this.bodyColumns().length ? 0 : 1;
+  }
+  /** The header rows as drawn: per row, `{cell, span}` runs over the body
+   *  columns (`cell` null for a run in no cell of that row). None for an
+   *  empty axis. */
+  headerRuns() {
+    const body = this.bodyColumns();
+    if (!body.length) return [];
+    const spec = this._spec().headerRows;
+    const n = this.table.config.headers?.length || 0;
+    return (Array.isArray(spec) ? spec : []).map((rowSpec) => {
+      const cells = normalizeSpans(rowSpec, n);
+      const cellOf = /* @__PURE__ */ new Map();
+      cells.forEach((c) => {
+        for (const col of c.columns) cellOf.set(col, c);
+      });
+      const runs = [];
+      for (const col of body) {
+        const cell = cellOf.get(col) || null;
+        const last = runs[runs.length - 1];
+        if (last && last.cell === cell) last.span++;
+        else runs.push({ cell, span: 1, rowSpec });
+      }
+      return runs;
+    });
+  }
+  /** STORY-0091. A body row: its pinned cells marked and put at the measured
+   *  offsets (a row the virtual window draws later lines up at once), and
+   *  the empty axis's cell. */
+  fillRow(tr) {
+    if (this.extraColumns()) {
+      const td = document.createElement("td");
+      td.className = "twm-dt-crosstab__none";
+      tr.appendChild(td);
+    }
+    this._pinRowCells(tr);
+  }
+  _pinRowCells(tr) {
+    const p = this.pinnedCount();
+    for (let j = 0; j < p && j < tr.children.length; j++) {
+      const cell = tr.children[j];
+      cell.classList.add("twm-dt-pin");
+      if (j === p - 1) cell.classList.add("twm-dt-pin--last");
+      cell.__pinCol = j;
+      if (this._lefts[j] != null) cell.style.left = `${this._lefts[j]}px`;
+    }
+  }
+  /**
+   * After `_createTable`: the header rows above the column headers, the
+   * corner, the pinned header cells and the empty axis's header — all in the
+   * body table's own `<thead>`.
+   */
+  decorate(tableEl) {
+    this._leafRow = null;
+    const thead = tableEl?.querySelector("thead");
+    const leaf = thead?.querySelector("tr");
+    if (!leaf) return;
+    tableEl.classList.add("twm-dt-crosstab");
+    this._leafRow = leaf;
+    leaf.classList.add("twm-dt-crosstab__leaf");
+    const filters = [...thead.querySelectorAll("tr.twm-data-table__filter-row")];
+    if (this.extraColumns()) {
+      const th = document.createElement("th");
+      th.className = "text twm-dt-crosstab__none";
+      const label = this._spec().emptyLabel;
+      th.textContent = label == null ? DEFAULT_EMPTY_LABEL : String(label);
+      leaf.appendChild(th);
+      for (const tr of filters) {
+        const cell = document.createElement("th");
+        cell.className = "data-table__filter-cell data-table__filter-cell--empty twm-dt-crosstab__none";
+        tr.appendChild(cell);
+      }
+    }
+    for (const tr of [leaf, ...filters]) this._pinRowCells(tr);
+    const levels = this.headerRuns();
+    const p = this.pinnedCount();
+    levels.forEach((runs, r) => {
+      const tr = document.createElement("tr");
+      tr.className = "twm-dt-crosstab__band";
+      if (r === 0) {
+        for (let j = 0; j < p; j++) {
+          const th = document.createElement("th");
+          th.className = "twm-dt-crosstab__corner twm-dt-pin";
+          if (j === p - 1) th.classList.add("twm-dt-pin--last");
+          th.rowSpan = levels.length;
+          th.__pinCol = j;
+          tr.appendChild(th);
+        }
+      }
+      for (const run of runs) tr.appendChild(this._bandCell(run));
+      thead.insertBefore(tr, leaf);
+    });
+  }
+  /** A header row's cell: STORY-0066's spanning cells, the consumer's
+   *  `className` and `title` on a labelled one. */
+  _bandCell({ cell, span, rowSpec }) {
+    if (!cell) return blankSpanCell(span);
+    const own = rowSpec[cell.index];
+    const th = labelSpanCell(span, cell.label, own?.title == null ? cell.label : String(own.title));
+    if (own?.className) this.table._addClasses(th, own.className);
+    return th;
+  }
+  /**
+   * Once the table is in the document: pin now (a layout already there is
+   * used at once), on the next frame (when it has settled), and whenever a
+   * header row, a pinned header cell or the table's box changes size. The
+   * observer goes with the render (`_disposers`).
+   *
+   * The split layout's own resize observer and settle frame hang off its
+   * header table, which a crosstab has none of; so the virtual window's
+   * re-measure and resize (`_virtRemeasure`, `_virtUpdate`) run from here.
+   */
+  install() {
+    const table = this.table;
+    const tableEl = table._tableEl;
+    if (!tableEl || !this._leafRow) return;
+    this.pin();
+    requestAnimationFrame(() => {
+      if (table._tableEl !== tableEl) return;
+      this.pin();
+      table._virtRemeasure();
+    });
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = createRafResizeObserver(() => {
+      if (table._tableEl !== tableEl) return;
+      this.pin();
+      table._virtUpdate();
+    });
+    if (table._wrapperEl) observer.observe(table._wrapperEl);
+    const thead = tableEl.querySelector("thead");
+    for (const tr of thead.querySelectorAll("tr")) observer.observe(tr);
+    for (let j = 0; j < this.pinnedCount(); j++) {
+      const cell = this._leafRow.children[j];
+      if (cell) observer.observe(cell);
+    }
+    table._disposers.push(() => {
+      try {
+        observer.disconnect();
+      } catch (_) {
+      }
+    });
+  }
+  /** Measure and write every offset: each header row's `top`, each pinned
+   *  column's `left`. */
+  pin() {
+    const tableEl = this.table._tableEl;
+    const thead = tableEl?.querySelector("thead");
+    if (!thead || !this._leafRow) return;
+    const rows = [...thead.rows];
+    const scale = unzoom(thead);
+    const origin = rows[0].getBoundingClientRect().top;
+    for (const tr of rows) {
+      const top = Math.max(0, (tr.getBoundingClientRect().top - origin) * scale);
+      const css = `${+top.toFixed(2)}px`;
+      for (const th of tr.cells) th.style.top = css;
+    }
+    const p = this.pinnedCount();
+    const lefts = [0];
+    for (let j = 1; j < p; j++) {
+      const cell = this._leafRow.children[j - 1];
+      const w = cell ? cell.getBoundingClientRect().width * scale : 0;
+      lefts[j] = +(lefts[j - 1] + w).toFixed(2);
+    }
+    this._lefts = p ? lefts : [];
+    for (const cell of tableEl.querySelectorAll(".twm-dt-pin")) {
+      const left = this._lefts[cell.__pinCol];
+      if (left != null) cell.style.left = `${left}px`;
+    }
+    this._lockColumns(scale);
+  }
+  /**
+   * Under `virtualize` the rows drawn change with every scroll, and with
+   * them the widths an automatic layout gives the columns. The first pass
+   * that sees a layout writes the widths it measured on the column headers
+   * into the `<colgroup>` and fixes the layout, so the columns hold still.
+   * No layout (every width 0) is no measurement, and nothing is written.
+   */
+  _lockColumns(scale) {
+    const cols = this.table._cols();
+    const tableEl = this.table._tableEl;
+    if (!cols || !tableEl || tableEl.__crosstabLocked) return;
+    const cells = this._leafRow.children;
+    if (cells.length !== cols.length) return;
+    const widths = [...cells].map((c) => c.getBoundingClientRect().width * scale);
+    if (!widths.every((w) => w > 0)) return;
+    widths.forEach((w, i) => {
+      cols[i].style.width = `${+w.toFixed(2)}px`;
+    });
+    tableEl.style.tableLayout = "fixed";
+    tableEl.style.width = `${+widths.reduce((a, b) => a + b, 0).toFixed(2)}px`;
+    tableEl.__crosstabLocked = true;
+  }
+};
+
+// src/ui/components/table_structure.js
+var STRUCTURE_OPTIONS = ["columnActions", "onColumnRename", "onColumnDelete", "onRowAdd", "onRowDelete"];
+var TableStructure = class {
+  /** @param {import('./data_table.js').DataTable} table */
+  constructor(table) {
+    this.table = table;
+    this._renamer = null;
+  }
+  _cfg() {
+    return this.table.config;
+  }
+  _has(name) {
+    return typeof this._cfg()[name] === "function";
+  }
+  _call(name, ...args) {
+    return callOption(this._cfg(), name, ...args);
+  }
+  /** Whether the header's right-click has items of this module's. */
+  hasHeaderItems() {
+    return this._has("onColumnRename") || this._has("onColumnDelete") || this._has("onRowAdd");
+  }
+  /** Whether a row's right-click has items of this module's. */
+  hasRowItems() {
+    return this._has("onRowAdd") || this._has("onRowDelete");
+  }
+  /** The header menu's items for the data column `colIdx` (null off one). */
+  headerItems(colIdx) {
+    const items = [];
+    if (colIdx !== null && this._has("onColumnRename")) {
+      items.push({ label: "Rename column", icon: "edit", onChoose: () => this.rename(colIdx) });
+    }
+    if (colIdx !== null && this._has("onColumnDelete")) {
+      items.push({
+        label: "Delete column",
+        icon: "delete",
+        danger: true,
+        onChoose: () => this._call("onColumnDelete", colIdx)
+      });
+    }
+    if (this._has("onRowAdd")) {
+      items.push({ label: "Add row", icon: "add", onChoose: () => this._call("onRowAdd", null) });
+    }
+    return items;
+  }
+  /** The body menu's items for the row `rowIdx` (its original index). */
+  rowItems(rowIdx) {
+    const items = [];
+    if (this._has("onRowAdd")) {
+      items.push({ label: "Insert row below", icon: "add", onChoose: () => this._call("onRowAdd", rowIdx) });
+    }
+    if (this._has("onRowDelete")) {
+      items.push({
+        label: "Delete row",
+        icon: "delete",
+        danger: true,
+        onChoose: () => this._call("onRowDelete", rowIdx)
+      });
+    }
+    return items;
+  }
+  /**
+   * After the header is built: each data column's label in a span the
+   * renamer can take over, and the consumer's action buttons.
+   */
+  decorate(headerTable) {
+    this._renamer?.destroy();
+    this._renamer = null;
+    const labelRow = headerTable?.querySelector("thead > tr");
+    if (!labelRow) return;
+    const headers = this._cfg().headers || [];
+    const rename = this._has("onColumnRename");
+    const actions = this._has("columnActions");
+    if (!rename && !actions) return;
+    for (let colIdx = 0; colIdx < headers.length; colIdx++) {
+      const th = labelRow.children[this.table._domIdxOf(colIdx)];
+      if (!th) continue;
+      if (rename) this._wrapLabel(th, colIdx);
+      if (actions) this._addActions(th, colIdx, headers[colIdx]);
+    }
+  }
+  _wrapLabel(th, colIdx) {
+    const text = [...th.childNodes].find((n) => n.nodeType === 3);
+    if (!text) return;
+    const label = document.createElement("span");
+    label.className = "twm-dt-col-label";
+    th.insertBefore(label, text);
+    label.appendChild(text);
+    label.addEventListener("keydown", (ev) => ev.stopPropagation());
+    if (!this._cfg().sortable) {
+      label.addEventListener("dblclick", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        this.rename(colIdx);
+      });
+    }
+  }
+  _addActions(th, colIdx, header) {
+    const items = this._call("columnActions", colIdx, { colIdx, header, table: this.table });
+    const list = Array.isArray(items) ? items.filter(Boolean) : [];
+    if (!list.length) return;
+    const box = document.createElement("span");
+    box.className = "twm-dt-col-actions";
+    for (const item of list) {
+      box.appendChild(headerActionButton(
+        "twm-dt-col-action",
+        item,
+        () => this._call("onColumnAction", item.action, colIdx)
+      ));
+    }
+    th.appendChild(box);
+  }
+  /**
+   * Open the renamer on the data column's header. Enter (or the focus
+   * leaving) with a different, non-empty name calls
+   * `onColumnRename(colIdx, name)`; Escape, or the name left as it was,
+   * restores the header and calls nothing. Returns whether it opened.
+   */
+  rename(colIdx) {
+    if (!this._has("onColumnRename")) return false;
+    const labelRow = this.table._headerTableEl?.querySelector("thead > tr");
+    const dom = this.table._domIdxOf(colIdx);
+    const label = dom < 0 ? null : labelRow?.children[dom]?.querySelector(".twm-dt-col-label");
+    if (!label) return false;
+    this._renamer?.cancel();
+    const before = label.textContent || "";
+    const done = () => {
+      if (this._renamer === renamer) this._renamer = null;
+    };
+    const renamer = attachInlineRenamer({
+      label,
+      inputClass: "twm-dt-col-rename",
+      onCommit: async (raw) => {
+        const name = String(raw ?? "").trim();
+        if (!name || name === before) return { success: false };
+        const answer = await this._call("onColumnRename", colIdx, name);
+        if (answer === false || answer && answer.ok === false) return { success: false };
+        return { newValue: name };
+      },
+      onCancel: done,
+      onFinish: done
+    });
+    this._renamer = renamer;
+    renamer.start();
+    return true;
+  }
+  dispose() {
+    this._renamer?.destroy();
+    this._renamer = null;
+  }
+};
 
 // src/ui/components/data_table.js
 var DEFAULT_PAGE_SIZE = 100;
@@ -764,12 +3412,67 @@ var DataTable = class {
       hiddenColumns: null,
       columnChooser: false,
       onColumnsChange: null,
+      // STORY-0086. Off — columns in their natural order, as in 0.16.
+      reorderable: false,
+      columnOrder: null,
       // STORY-0016. Off — no select column, as in 0.11 — until set.
       selectToggle: false,
       selectMode: false,
       onSelectModeChange: null,
+      // STORY-0003. Off — rows selected as in 0.16, no editing — until
+      // set. The typedef says what each does.
+      selectionMode: "rows",
+      editable: false,
+      editors: null,
+      onCellCommit: null,
+      onCellSelectionChange: null,
+      headerMenu: null,
+      onHeaderMenuAction: null,
+      // STORY-0088. Off — commits go to onCellCommit — until set.
+      staged: false,
+      historyLimit: 100,
+      onCommit: null,
+      onStagedChange: null,
+      stagedRefusal: null,
+      // STORY-0066. Off — one header row, no structural edits — until
+      // set. The typedef says what each does.
+      columnGroups: null,
+      groupActions: null,
+      onGroupAction: null,
+      onColumnAdd: null,
+      columnActions: null,
+      onColumnAction: null,
+      onColumnRename: null,
+      onColumnDelete: null,
+      onRowAdd: null,
+      onRowDelete: null,
+      // STORY-0089. Off — no fill handle — until set.
+      fillHandle: false,
       ...config
     };
+    this._cellGrid = null;
+    this._columnGroups = null;
+    this._tableStructure = null;
+    this._crosstabLayout = null;
+    if (this.config.selectionMode === "cells") {
+      const clash = ["selectToggle", "selectMode", "keyboardNav"].filter((k) => !!this.config[k]);
+      if (clash.length) {
+        console.warn(`[DataTable] ${clash.join("/")} cannot be combined with selectionMode: 'cells'; ignored.`);
+        for (const k of clash) this.config[k] = false;
+      }
+      this._cellGrid = new CellGrid(this);
+    } else if (this.config.editable) {
+      console.warn("[DataTable] `editable` needs selectionMode: 'cells'; ignored.");
+    }
+    if (this.config.staged && !this._cellGrid) {
+      console.warn("[DataTable] `staged` needs `editable`; ignored.");
+    }
+    if (this.config.fillHandle && !this._cellGrid) {
+      console.warn("[DataTable] `fillHandle` needs `staged`; ignored.");
+    }
+    if (Array.isArray(this.config.columnGroups) && this.config.columnGroups.length && this._crosstab()) {
+      console.warn("[DataTable] `columnGroups` cannot be combined with `crosstab` (use crosstab.headerRows); ignored.");
+    }
     {
       const sel = this.config.selectable;
       const asked = !!this.config.selectToggle || !!this.config.selectMode;
@@ -790,6 +3493,13 @@ var DataTable = class {
     this._pendingFilter = null;
     this._hidden = /* @__PURE__ */ new Set();
     this._setHidden(this.config.hiddenColumns);
+    this._order = null;
+    this._askedOrder = null;
+    this._askedUnchecked = false;
+    if (!this._setOrder(this.config.columnOrder, true)) {
+      console.warn("[DataTable] columnOrder is not an order of the columns; ignored.");
+    }
+    this._reorder = this.config.reorderable ? new ColumnReorder(this) : null;
     this._activeKey = this.config.activeRow == null ? null : String(this.config.activeRow);
     this._error = null;
     this._virt = null;
@@ -891,6 +3601,9 @@ var DataTable = class {
       this._setHidden(blob.hidden);
       applied = true;
     }
+    if (Array.isArray(blob.order) && this._setOrder(blob.order)) {
+      applied = true;
+    }
     if (blob.colWidths && typeof blob.colWidths === "object") {
       this._colWidths = {};
       const shift = this._lead().select - (Number(blob.colWidthsLead) || 0);
@@ -911,7 +3624,7 @@ var DataTable = class {
   /** Identity of the current column set — restored widths/sort are
    *  keyed by position, so a schema change invalidates them. */
   _colSig() {
-    return (this.config.headers || []).join("") + (this.config.showRowNumbers ? "|#" : "") + (this._hidden?.size ? `|-${this.getHiddenColumns().join(",")}` : "");
+    return (this.config.headers || []).join("") + (this.config.showRowNumbers ? "|#" : "") + (this._hidden?.size ? `|-${this.getHiddenColumns().join(",")}` : "") + (this._columnOrder() ? `|>${this._columnOrder().join(",")}` : "") + (this._colGroups()?.sig() || "");
   }
   /** Snapshot the persistable slice of state to the project store.
    *  No-op unless `persistKey` is set. Debounced inside the store. */
@@ -930,7 +3643,9 @@ var DataTable = class {
       ...this.config.persistPage ? { offset: this._state.offset } : {},
       // STORY-0012. Only for a table that hides columns or lets them be
       // hidden.
-      ...this._columnsOn() ? { hidden: this.getHiddenColumns() } : {}
+      ...this._columnsOn() ? { hidden: this.getHiddenColumns() } : {},
+      // STORY-0086. Only for a table that orders its columns.
+      ...this._orderOn() ? { order: this.getColumnOrder() } : {}
     });
   }
   // ─────────────────────────────────────────────────────────────────
@@ -954,7 +3669,28 @@ var DataTable = class {
   /** The cells a drawn row has: the shown columns, and the row number. */
   _domColCount() {
     const n = Math.max(0, (this.config.headers?.length || 0) - this._hidden.size);
-    return n + this._lead().all;
+    return n + this._lead().all + (this._colGroups()?.placeholderCount() || 0) + (this._crosstab()?.extraColumns() || 0);
+  }
+  /** STORY-0066. The column groups (column_groups.js) while `columnGroups`
+   *  holds any; null otherwise. */
+  _colGroups() {
+    const spec = this.config.columnGroups;
+    if (!Array.isArray(spec) || !spec.length) return null;
+    if (this._crosstab()) return null;
+    return this._columnGroups ||= new ColumnGroups(this);
+  }
+  /** STORY-0091. The crosstab layout (crosstab.js) while `crosstab` is an
+   *  object; null otherwise. */
+  _crosstab() {
+    const spec = this.config.crosstab;
+    if (!spec || typeof spec !== "object") return null;
+    return this._crosstabLayout ||= new Crosstab(this);
+  }
+  /** STORY-0066. The structural edits (table_structure.js) while any of
+   *  their options is set; null otherwise. */
+  _structure() {
+    if (!STRUCTURE_OPTIONS.some((k) => typeof this.config[k] === "function")) return null;
+    return this._tableStructure ||= new TableStructure(this);
   }
   /** STORY-0016. The drawn columns in front of the data: the select column
    *  (`select`, 0 or 1, always first) and the row number. */
@@ -962,24 +3698,30 @@ var DataTable = class {
     const select = this._gutter ? 1 : 0;
     return { select, all: select + (this.config.showRowNumbers ? 1 : 0) };
   }
+  /** The data columns drawn, in the order drawn (STORY-0086): the order
+   *  without the hidden ones. */
+  _shownColumns() {
+    return this._rowColumns(this.config.headers?.length || 0);
+  }
+  /** The data indices of a row of `count` cells to draw, in order: the
+   *  shown columns, and any cell past the headers after them. */
+  _rowColumns(count) {
+    return cellOrder(this._columnOrder(), count).filter((c) => !this._isHidden(c));
+  }
   /** A data column's drawn index (row number included), or -1 when hidden. */
   _domIdxOf(colIdx) {
-    if (this._isHidden(colIdx)) return -1;
-    let dom = this._lead().all;
-    for (const h of this._hidden) if (h < colIdx) dom--;
-    return dom + colIdx;
+    const slot = this._colGroups()?.slotOf(colIdx) ?? -1;
+    if (slot >= 0) return this._lead().all + slot;
+    const at = this._shownColumns().indexOf(colIdx);
+    return at < 0 ? -1 : this._lead().all + at;
   }
   /** A drawn cell's data column, or null for the row number. */
   _dataIdxOfDom(domIdx) {
-    let i = domIdx - this._lead().all;
+    const i = domIdx - this._lead().all;
     if (i < 0) return null;
-    const n = this.config.headers?.length || 0;
-    for (let c = 0; c < n; c++) {
-      if (this._isHidden(c)) continue;
-      if (i === 0) return c;
-      i--;
-    }
-    return null;
+    const slot = this._colGroups()?.slotAt(i);
+    if (slot !== void 0) return slot;
+    return this._shownColumns()[i] ?? null;
   }
   /** The columns not drawn, by data index, ascending. */
   getHiddenColumns() {
@@ -1010,12 +3752,23 @@ var DataTable = class {
    *  that stay drawn to their new places, and tell whoever listens. */
   _applyHidden(next) {
     const before = this.getHiddenColumns();
+    this._carryWidths(() => this._setHidden([...next]));
+    const after = this.getHiddenColumns();
+    if (before.join() === after.join()) return;
+    this._savePersisted();
+    if (this._wrapperEl) this.render();
+    this._columnsChanged();
+  }
+  /** STORY-0012/0086. Run `change` (a new hidden set or order), carrying
+   *  the drawn widths of the columns drawn before and after to their new
+   *  places. */
+  _carryWidths(change) {
     const n = this.config.headers?.length || 0;
     const old = this._colWidths;
     const kept = this._colWidthsSig === this._colSig();
     const domBefore = [];
     for (let c = 0; c < n; c++) domBefore[c] = this._domIdxOf(c);
-    this._setHidden([...next]);
+    change();
     if (kept) {
       const widths = {};
       for (let i = 0; i < this._lead().all; i++) if (old[i] != null) widths[i] = old[i];
@@ -1027,22 +3780,101 @@ var DataTable = class {
       this._colWidths = widths;
       this._colWidthsSig = this._colSig();
     }
-    const after = this.getHiddenColumns();
-    if (before.join() === after.join()) return;
-    this._savePersisted();
-    if (this._wrapperEl) this.render();
+  }
+  /** `onColumnsChange(hidden, {hidden, order})`, after a change of either. */
+  _columnsChanged() {
+    const hidden = this.getHiddenColumns();
     try {
-      this.config.onColumnsChange?.(after);
+      this.config.onColumnsChange?.(hidden, { hidden, order: this.getColumnOrder() });
     } catch (err) {
       console.error("[DataTable] onColumnsChange threw", err);
     }
   }
-  /** `columnChooser`: the header's right-click menu, one checkable item a
-   *  column. */
-  _showColumnChooser(clientX, clientY) {
+  // ─────────────────────────────────────────────────────────────────
+  // STORY-0086 — the order the columns are drawn in (column_order.js)
+  // ─────────────────────────────────────────────────────────────────
+  /** Whether this table orders its columns at all (and so saves the order). */
+  _orderOn() {
+    return !!this.config.reorderable || Array.isArray(this.config.columnOrder) || !!this._orderTouched;
+  }
+  /** Take `list` as the order (`asked`: it is `columnOrder`, kept apart as
+   *  the fallback). Refused (false, nothing changed) when it is no
+   *  permutation of the columns; a table with no headers yet keeps it for
+   *  the headers `setData` brings, and `_checkAskedOrder` checks it then. */
+  _setOrder(list, asked = false) {
+    const n = this.config.headers?.length || 0;
+    if (list != null && (!Array.isArray(list) || n && !isColumnOrder(list, n))) return false;
+    this._order = list == null ? null : list.map(Number);
+    if (asked) {
+      this._askedOrder = this._order;
+      this._askedUnchecked = !!this._order && !n;
+    }
+    return true;
+  }
+  /** The first headers have come: a `columnOrder` taken before them, unchecked,
+   *  that is no order of them is dropped with the same warning a table with
+   *  headers gives at once — once, as the check is made once. */
+  _checkAskedOrder() {
+    const n = this.config.headers?.length || 0;
+    if (!this._askedUnchecked || !n) return;
+    this._askedUnchecked = false;
+    if (isColumnOrder(this._askedOrder, n)) return;
+    console.warn("[DataTable] columnOrder is not an order of the columns; ignored.");
+    if (this._order === this._askedOrder) this._order = null;
+    this._askedOrder = null;
+  }
+  /** The order in force, or null for the natural one. One rule, whether the
+   *  headers were known when an order came or not: the first of the live
+   *  order (dragged, moved or restored) and `columnOrder` that is an order
+   *  of today's columns — so a saved order of the wrong length never
+   *  displaces `columnOrder`. */
+  _columnOrder() {
+    const n = this.config.headers?.length || 0;
+    for (const o of [this._order, this._askedOrder]) {
+      if (o && isColumnOrder(o, n)) return o;
+    }
+    return null;
+  }
+  /**
+   * Every data column's index, hidden ones included, in the order drawn.
+   * @returns {number[]}
+   */
+  getColumnOrder() {
+    return (this._columnOrder() || naturalOrder(this.config.headers?.length || 0)).slice();
+  }
+  /**
+   * Move the column at position `from` of `getColumnOrder()` to position
+   * `to`, the others closing up behind it: from the natural order,
+   * `moveColumn(3, 1)` draws 0, 3, 1, 2. The widths stay with their columns.
+   * Saved under `persistKey`, and `onColumnsChange` is told.
+   *
+   * @param {number} from
+   * @param {number} to
+   * @returns {boolean} whether the order changed
+   */
+  moveColumn(from, to) {
+    const order = this.getColumnOrder();
+    const n = order.length;
+    if (![from, to].every((i) => Number.isInteger(i) && i >= 0 && i < n) || from === to) return false;
+    this._applyOrder(moveInOrder(order, from, to));
+    return true;
+  }
+  /** Swap in a new order (a permutation, or null), widths carried, and
+   *  tell whoever listens. */
+  _applyOrder(next) {
+    const before = this.getColumnOrder().join();
+    this._orderTouched = true;
+    this._carryWidths(() => this._setOrder(next));
+    if (this.getColumnOrder().join() === before) return;
+    this._savePersisted();
+    if (this._wrapperEl) this.render();
+    this._columnsChanged();
+  }
+  /** `columnChooser`'s items: one checkable item a column. */
+  _columnChooserItems() {
     const headers = this.config.headers || [];
     const lastShown = headers.length - this._hidden.size <= 1;
-    const items = headers.map((h, c) => {
+    return headers.map((h, c) => {
       const shown = !this._isHidden(c);
       return {
         label: String(h ?? ""),
@@ -1053,7 +3885,70 @@ var DataTable = class {
         onChoose: () => this.setColumnVisible(c, !shown)
       };
     });
-    this._showContextMenu(clientX, clientY, { ctx: null, items, copy: false });
+  }
+  /**
+   * STORY-0003. The header's right-click menu for a press on `target`: the
+   * consumer's `headerMenu` items for the data column under it, then — with
+   * `columnChooser` — the chooser's items behind a separator. Empty when
+   * there is nothing to show.
+   */
+  _headerMenuItems(target) {
+    const items = [];
+    const hook = this.config.headerMenu;
+    const colIdx = this._headerColumnAt(target);
+    if (typeof hook === "function" && colIdx !== null) {
+      let asked = null;
+      try {
+        asked = hook(colIdx, {
+          colIdx,
+          header: this.config.headers?.[colIdx],
+          hiddenColumns: this.getHiddenColumns(),
+          table: this
+        });
+      } catch (err) {
+        console.error("[DataTable] headerMenu threw", err);
+      }
+      for (const item of Array.isArray(asked) ? asked.filter(Boolean) : []) {
+        if (item.separator) {
+          items.push({ separator: true });
+          continue;
+        }
+        items.push({
+          ...item,
+          onChoose: () => {
+            try {
+              this.config.onHeaderMenuAction?.(item.action, colIdx);
+            } catch (err) {
+              console.error("[DataTable] onHeaderMenuAction threw", err);
+            }
+          }
+        });
+      }
+    }
+    if (this._reorder && colIdx !== null) {
+      const moves = this._reorder.menuItems(colIdx);
+      if (moves.length && items.length) items.push({ separator: true });
+      items.push(...moves);
+    }
+    const structural = this._structure()?.headerItems(colIdx) || [];
+    if (structural.length) {
+      if (items.length) items.push({ separator: true });
+      items.push(...structural);
+    }
+    if (this.config.columnChooser) {
+      if (items.length) items.push({ separator: true });
+      items.push(...this._columnChooserItems());
+    }
+    return items;
+  }
+  /** The data column of a header cell (the header row, or the filter row
+   *  under it), or null off one — the row number, the select column. */
+  _headerColumnAt(target) {
+    const cell = target?.closest?.("th, td");
+    const tr = cell?.parentNode;
+    if (!tr || tr.parentNode?.tagName !== "THEAD") return null;
+    if (tr.children.length !== this._domColCount()) return null;
+    return this._dataIdxOfDom(Array.prototype.indexOf.call(tr.children, cell));
   }
   /** STORY-0010 `persistPage`: the client page changed, so save it. */
   _savePage() {
@@ -1089,18 +3984,26 @@ var DataTable = class {
       this._setHidden(updates.hiddenColumns);
       if (this.getHiddenColumns().join() !== before) {
         this._savePersisted();
-        try {
-          this.config.onColumnsChange?.(this.getHiddenColumns());
-        } catch (err) {
-          console.error("[DataTable] onColumnsChange threw", err);
-        }
+        this._columnsChanged();
       }
     } else if (updates.headers && this._hidden.size) {
       this._setHidden([...this._hidden]);
     }
+    if (Object.prototype.hasOwnProperty.call(updates, "columnOrder")) {
+      const before = this.getColumnOrder().join();
+      if (!this._setOrder(updates.columnOrder, true)) {
+        console.warn("[DataTable] columnOrder is not an order of the columns; ignored.");
+      } else if (this.getColumnOrder().join() !== before) {
+        this._savePersisted();
+        this._columnsChanged();
+      }
+    } else if (updates.headers) {
+      this._checkAskedOrder();
+    }
     if (updates.rows) {
       this._state.selected.clear();
       this._state.anchorIndex = null;
+      this._cellGrid?.newRows();
       if (this._state.offset >= updates.rows.length) {
         this._state.offset = 0;
       }
@@ -1167,6 +4070,10 @@ var DataTable = class {
    * @param {number[]} indices - Row indices to select
    */
   setSelection(indices) {
+    if (this._cellGrid) {
+      this._cellGrid.selectRows(indices);
+      return;
+    }
     this._state.selected.clear();
     for (const idx of indices) {
       if (idx >= 0 && idx < this.config.rows.length) {
@@ -1194,9 +4101,9 @@ var DataTable = class {
    *
    * @param {*} key
    */
-  setActiveRow(key) {
-    this._activeKey = key == null ? null : String(key);
-    this.config.activeRow = key ?? null;
+  setActiveRow(key3) {
+    this._activeKey = key3 == null ? null : String(key3);
+    this.config.activeRow = key3 ?? null;
     const tbody = this._tbodyEl;
     if (!tbody) return;
     for (const tr of tbody.children) {
@@ -1247,16 +4154,112 @@ var DataTable = class {
    * Clear selection
    */
   clearSelection() {
+    if (this._cellGrid) {
+      this._cellGrid.clear();
+      return;
+    }
     this._state.selected.clear();
     this._state.anchorIndex = null;
     this._updateRowSelection();
     this._notifySelectionChange();
+  }
+  // ─────────────────────────────────────────────────────────────────
+  // STORY-0003 — cell mode (`selectionMode: 'cells'`), see cell_grid.js
+  // ─────────────────────────────────────────────────────────────────
+  /**
+   * The cell selection: `{anchor, focus, range}`. `anchor` and `focus` (the
+   * cursor) are `{row, col, rowIdx}` — `row` the position in the order
+   * shown, `col` the data column, `rowIdx` the original row index — and
+   * `range` is `{top, bottom, left, right, rows, columns}`: positions,
+   * data columns at its edges, and the original row indices and data
+   * columns it covers. All null with nothing selected. Null outside cell
+   * mode.
+   */
+  getCellSelection() {
+    return this._cellGrid ? this._cellGrid.get() : null;
+  }
+  /**
+   * Put the cursor on a cell (`row` a position in the order shown, `col` a
+   * data column) — with `anchor`, select the range from there. `null`
+   * clears. The row is brought into view. A no-op outside cell mode.
+   *
+   * @param {{row:number, col:number}|null} focus
+   * @param {{row:number, col:number}} [anchor]
+   */
+  setCellSelection(focus, anchor = null) {
+    this._cellGrid?.set(focus, anchor);
+  }
+  /** Open the editor on a cell (position, data column), as F2 would.
+   *  Returns whether one opened. */
+  editCell(row, col) {
+    return !!this._cellGrid?.open(row, col);
+  }
+  /** Whether a cell editor is open. */
+  isEditing() {
+    return !!this._cellGrid?.isEditing();
+  }
+  // ── STORY-0088 `staged` ──────────────────────────────────────────────
+  /**
+   * Send every staged cell to `onCommit({edits})`, in one call. Resolves
+   * `{ok: true, committed}` (the staged cells and the undo ring are
+   * cleared), or `{ok: false, errors}` (the cells refused are marked and
+   * every staged value stays). An open editor's value is staged first.
+   * Without `staged`, resolves `{ok: false, errors: []}`.
+   *
+   * @returns {Promise<{ok: boolean, committed?: number, errors?: Array<{rowIdx:number, colIdx:number, error:string}>}>}
+   */
+  commit() {
+    const st = this._cellGrid?.staged;
+    return st ? st.commit() : Promise.resolve({ ok: false, errors: [] });
+  }
+  /** Drop every staged cell, its marks and the undo ring. Returns whether
+   *  there was anything to drop. */
+  discard() {
+    return !!this._cellGrid?.staged?.discard();
+  }
+  /** Take the last staged edit back (Ctrl+Z). Returns whether it moved. */
+  undo() {
+    return !!this._cellGrid?.staged?.undo();
+  }
+  /** Put the last edit taken back back again (Ctrl+Y). */
+  redo() {
+    return !!this._cellGrid?.staged?.redo();
+  }
+  /** Every staged cell, `{rowIdx, colIdx, value, previous}`, by row then
+   *  column. Empty without `staged`. */
+  getStagedEdits() {
+    return this._cellGrid?.staged ? this._cellGrid.staged.edits() : [];
+  }
+  /**
+   * STORY-0089. Fill from the cell range to the cell `to` (`{row, col}`:
+   * position in the order shown, data column), as dragging the fill handle
+   * there does: staged as ONE undo entry, Ctrl's repeat as `forceCopy`.
+   * Returns `{direction, count, staged, skipped}` —
+   * `staged` the NUMBER of cells that changed, `skipped` the cells `editable` refused
+   * (`{row, col, rowIdx}`) — or null when nothing was filled (no
+   * `fillHandle`, no range, `to` inside it, an editor open, a commit out).
+   */
+  fill(to, { forceCopy = false } = {}) {
+    return this._cellGrid?.fill ? this._cellGrid.fill.fill(to, { forceCopy }) : null;
+  }
+  /** Why sort, filters and pages are held — a staged edit — or null; with
+   *  a reason, `what` is refused out loud. */
+  _stagedRefusal(what) {
+    const why = this._cellGrid?.staged?.freezeReason() || null;
+    if (why) console.warn(`[DataTable] ${what} refused: ${why}`);
+    return why;
+  }
+  /** STORY-0066. Open the inline renamer on a data column's header (needs
+   *  `onColumnRename`). Returns whether it opened. */
+  renameColumn(colIdx) {
+    return !!this._structure()?.rename(colIdx);
   }
   /**
    * Go to specific page
    * @param {number} page - Page number (0-indexed)
    */
   goToPage(page) {
+    if (this._stagedRefusal("goToPage")) return;
     if (this.config.dataSource) {
       const size = this._sourcePageSize();
       let p = Math.max(0, Math.floor(Number(page)) || 0);
@@ -1275,6 +4278,7 @@ var DataTable = class {
    * @param {number} rowIndex - Row index
    */
   goToRow(rowIndex) {
+    if (this._stagedRefusal("goToRow")) return;
     if (this.config.dataSource) {
       const size = this._sourcePageSize();
       return this.goToPage(Math.floor(Math.max(0, Math.floor(Number(rowIndex)) || 0) / size));
@@ -1291,6 +4295,7 @@ var DataTable = class {
    * @param {boolean} [ascending] - Sort direction (toggles if same column)
    */
   sortBy(colIndex, ascending) {
+    if (this._stagedRefusal("sortBy")) return;
     if (this._state.sortColumn === colIndex && ascending === void 0) {
       this._state.sortAscending = !this._state.sortAscending;
     } else {
@@ -1317,6 +4322,7 @@ var DataTable = class {
    * Clear all column filters
    */
   clearFilters() {
+    if (this._stagedRefusal("clearFilters")) return;
     this._state.filters.clear();
     this._processedRows = null;
     this._processedIndexMap = null;
@@ -1384,6 +4390,10 @@ var DataTable = class {
    * Render the table
    */
   render() {
+    if (this._cellGrid?.isEditing()) {
+      this._cellGrid.renderWaiting = true;
+      return;
+    }
     const activeFilterColIdx = this._getActiveFilterColIdx();
     const doc = this.container.ownerDocument;
     const hadTableFocus = !!this._tableEl && doc?.activeElement === this._tableEl;
@@ -1436,7 +4446,7 @@ var DataTable = class {
     if (this._error && rows.length > 0) {
       this._wrapperEl.appendChild(this._createErrorBanner());
     }
-    const keepFilterRow = rows.length === 0 && !!this.config.dataSource && this.config.filterable;
+    const keepFilterRow = rows.length === 0 && (!!this.config.dataSource && this.config.filterable || !!this._crosstab());
     if (rows.length === 0 && !keepFilterRow) {
       const { headers, showRowNumbers } = this.config;
       const headerWrap = document.createElement("div");
@@ -1453,13 +4463,12 @@ var DataTable = class {
         th.textContent = "#";
         tr.appendChild(th);
       }
-      headers.forEach((h, colIdx) => {
-        if (this._isHidden(colIdx)) return;
+      for (const colIdx of this._shownColumns()) {
         const th = document.createElement("th");
         th.className = this._columnTypes[colIdx] || "text";
-        th.textContent = h;
+        th.textContent = headers[colIdx];
         tr.appendChild(th);
-      });
+      }
       thead.appendChild(tr);
       headerTable.appendChild(thead);
       headerWrap.appendChild(headerTable);
@@ -1478,7 +4487,13 @@ var DataTable = class {
     } else {
       const fullTable = this._createTable();
       this._tableEl = fullTable;
-      const thead = fullTable.querySelector("thead");
+      const crosstab = this._crosstab();
+      const thead = crosstab ? null : fullTable.querySelector("thead");
+      if (crosstab) {
+        crosstab.decorate(fullTable);
+        this._headerTableEl = null;
+        this._headerWrapEl = null;
+      }
       if (thead) {
         const headerWrap = document.createElement("div");
         headerWrap.className = "twm-preview-table-header-wrap";
@@ -1500,15 +4515,26 @@ var DataTable = class {
       this._wrapperEl.appendChild(tableWrap);
     }
     this._tableWrapEl = tableWrap;
-    if (this.config.columnChooser && this._headerTableEl) {
+    this._colGroups()?.decorate(this._headerWrapEl, this._headerTableEl);
+    this._structure()?.decorate(this._headerTableEl);
+    if ((this.config.columnChooser || typeof this.config.headerMenu === "function" || this._reorder || this._structure()?.hasHeaderItems()) && this._headerTableEl) {
       const head = this._headerTableEl;
       const onHeadMenu = (ev) => {
+        const items = this._headerMenuItems(ev.target);
+        if (!items.length) return;
         ev.preventDefault();
         ev.stopPropagation();
-        setTimeout(() => this._showColumnChooser(ev.clientX, ev.clientY), 0);
+        setTimeout(() => this._showContextMenu(
+          ev.clientX,
+          ev.clientY,
+          { ctx: null, items, copy: false }
+        ), 0);
       };
       head.addEventListener("contextmenu", onHeadMenu);
       this._disposers.push(() => head.removeEventListener("contextmenu", onHeadMenu));
+    }
+    if (this._reorder && this._headerTableEl) {
+      this._reorder.install(this._headerTableEl.querySelector("thead > tr"));
     }
     if (this._paginationEl && this.config.pagerPosition === "bottom") {
       this._paginationEl.classList.add("twm-pagination-controls--bottom");
@@ -1522,6 +4548,7 @@ var DataTable = class {
       if (this._pagingEl) this._wrapperEl.appendChild(this._pagingEl);
     }
     this.container.appendChild(this._wrapperEl);
+    this._crosstab()?.install();
     if (this.config.scrollLock && typeof this.config.scrollLock.attach === "function") {
       this._disposers.push(this.config.scrollLock.attach(tableWrap));
     }
@@ -1567,7 +4594,7 @@ var DataTable = class {
       this._installHeaderScrollSync();
       if (rows.length > 0) this._installColumnResizers();
     }
-    if (rows.length > 0 && (this.config.selectable || this.config.copyable || !this.config.readonly || typeof this.config.onRowActivate === "function" || typeof this.config.rowDetail === "function" || typeof this.config.onRowKeyDown === "function")) {
+    if (rows.length > 0 && (this.config.selectable || this.config.copyable || !this.config.readonly || typeof this.config.onRowActivate === "function" || typeof this.config.rowDetail === "function" || typeof this.config.onRowKeyDown === "function" || this._cellGrid)) {
       this._installInteractions();
     }
     if (activeFilterColIdx !== null) {
@@ -1609,12 +4636,11 @@ var DataTable = class {
       return;
     }
     const { headers, rows } = this.config;
-    const shown = (_, colIdx) => !this._isHidden(colIdx);
-    const matrix = [headers.filter(shown)];
+    const matrix = [this._rowColumns(headers.length).map((c) => headers[c])];
     for (const idx of indices) {
       const row = rows[idx];
       if (row) {
-        matrix.push(row.map((val, colIdx) => this._formatValue(val, colIdx)).filter(shown));
+        matrix.push(this._rowColumns(row.length).map((c) => this._formatValue(row[c], c)));
       }
     }
     const separator = format === "csv" ? "," : "	";
@@ -1645,12 +4671,11 @@ var DataTable = class {
       this._notify("Download", "No data to download.", "warn");
       return;
     }
-    const shown = (_, colIdx) => !this._isHidden(colIdx);
-    const lines = [headers.filter(shown).join(",")];
+    const lines = [this._rowColumns(headers.length).map((c) => headers[c]).join(",")];
     for (const row of rows) {
-      lines.push(row.map(
-        (val, colIdx) => this._csvEscape(this._formatValue(val, colIdx))
-      ).filter(shown).join(","));
+      lines.push(this._rowColumns(row.length).map(
+        (c) => this._csvEscape(this._formatValue(row[c], c))
+      ).join(","));
     }
     const csv = lines.join("\n");
     const dialogs = this.config.host?.dialogs;
@@ -1698,6 +4723,8 @@ var DataTable = class {
     this._teardown(false);
   }
   _teardown(emptyHost) {
+    this._cellGrid?.dispose();
+    this._tableStructure?.dispose();
     autoDisposeUnwatch(this);
     this._autoSeen = false;
     if (this._autoTimer) {
@@ -1965,8 +4992,8 @@ var DataTable = class {
       th.className = "data-table__filter-cell data-table__filter-cell--empty";
       tr.appendChild(th);
     }
-    headers.forEach((header, colIdx) => {
-      if (this._isHidden(colIdx)) return;
+    this._shownColumns().forEach((colIdx) => {
+      const header = headers[colIdx];
       const th = document.createElement("th");
       th.className = "data-table__filter-cell";
       const control = this._filterControlFor(colIdx, header);
@@ -2255,6 +5282,7 @@ var DataTable = class {
     }, 200);
   }
   _onFilterInput(colIdx, value) {
+    if (this._stagedRefusal("A filter")) return;
     const empty = typeof value === "string" ? !value : this._isEmptyFilterValue(value);
     if (!empty) {
       this._state.filters.set(colIdx, value);
@@ -2420,6 +5448,7 @@ var DataTable = class {
     const spacer = document.createElement("div");
     spacer.style.flex = "1";
     const handlePageChange = (newOffset) => {
+      if (this._stagedRefusal("Turning the page")) return;
       if (isServerSide) {
         this._awaitWithSpinner(onPageChange(newOffset, pageSize));
       } else {
@@ -2479,12 +5508,14 @@ var DataTable = class {
   _createExportBtn() {
     const name = this.config.exportFilename;
     const filename = (typeof name === "function" ? name(this) : name) || "data.csv";
-    return this._createPaginationBtn(
+    const btn = this._createPaginationBtn(
       "download",
       "Download visible rows as CSV",
       false,
       () => this.downloadCSV(filename)
     );
+    btn.classList.add("twm-pagination-btn--export");
+    return btn;
   }
   /**
    * The strip on a table with one page: nothing, as always, unless the export
@@ -2606,6 +5637,7 @@ var DataTable = class {
       this._wrapperEl.appendChild(next);
     }
     this._pagingEl = next;
+    this._cellGrid?.staged?.paintFreeze();
   }
   /**
    * Call one of the consumer's paging callbacks. A Promise holds every other
@@ -2615,6 +5647,7 @@ var DataTable = class {
    */
   _pagingCall(kind, fn, ...args) {
     if (typeof fn !== "function" || this._pagingBusy) return;
+    if (this._stagedRefusal(`paging ${kind}`)) return;
     let result;
     try {
       result = fn(...args);
@@ -2645,6 +5678,7 @@ var DataTable = class {
   _pagingMaybeLoadMore() {
     const p = this._pagingConfig();
     if (!p || !p.hasMore || this._pagingBusy) return;
+    if (this._cellGrid?.staged?.freezeReason()) return;
     if (this.config.dataSource && this._source?.inFlight) return;
     const state = this.pagingState;
     if (state.mode !== "scroll" || p.held >= state.hardLimit) return;
@@ -2791,6 +5825,10 @@ var DataTable = class {
     const processedRows = isServerSide ? rows : this._getProcessedRows();
     const offset = isServerSide ? configOffset || 0 : this._state.offset;
     const pageRows = isServerSide || !this.config.pagination || this._pagingConfig() ? processedRows : processedRows.slice(offset, offset + pageSize);
+    this._pageSpan = {
+      start: pageRows === processedRows ? 0 : offset,
+      count: pageRows.length
+    };
     const table = document.createElement("table");
     table.className = this._tableClassName();
     table.tabIndex = 0;
@@ -2803,8 +5841,8 @@ var DataTable = class {
       th.textContent = "#";
       headerRow.appendChild(th);
     }
-    headers.forEach((header, colIdx) => {
-      if (this._isHidden(colIdx)) return;
+    this._shownColumns().forEach((colIdx) => {
+      const header = headers[colIdx];
       const th = document.createElement("th");
       th.className = this._columnTypes[colIdx] || "text";
       if (sortable) {
@@ -2884,7 +5922,8 @@ var DataTable = class {
     tr.__rowIndex = globalIdx;
     tr.__position = (this._positionBase || 0) + localIdx;
     tr.className = "data-preview-row";
-    if (this._state.selected.has(globalIdx)) {
+    if (this._cellGrid) tr.__cellPos = (this._pageSpan?.start || 0) + localIdx;
+    if (this._state.selected.has(globalIdx) && !this._cellGrid) {
       tr.classList.add("selected");
     }
     this._decorateRow(tr, row, globalIdx);
@@ -3176,6 +6215,7 @@ var DataTable = class {
     const wanted = new Set(want);
     for (const [i, tr] of v.map) {
       if (!wanted.has(i)) {
+        this._cellGrid?.rowLeaving(tr);
         tr.remove();
         this._removeDetailPieces(tr);
         v.map.delete(i);
@@ -3386,10 +6426,10 @@ var DataTable = class {
     const diff = this._diffOf(row, globalIdx);
     const gap = diff?.status === "gap";
     const changedCells = diff?.cells ? diff.cells instanceof Set ? diff.cells : new Set(diff.cells) : null;
-    for (let colIdx = 0; colIdx < row.length; colIdx++) {
-      if (this._isHidden(colIdx)) continue;
+    for (const colIdx of this._rowColumns(row.length)) {
       const td = document.createElement("td");
       td.className = this._columnTypes[colIdx] || "text";
+      if (this._cellGrid) td.__colIdx = colIdx;
       const value = row[colIdx];
       let handled = false;
       if (gap) {
@@ -3430,6 +6470,9 @@ var DataTable = class {
       }
       tr.appendChild(td);
     }
+    this._colGroups()?.fillRow(tr);
+    this._crosstab()?.fillRow(tr);
+    this._cellGrid?.decorateRow(tr);
   }
   /** Re-render ONE row in place, preserving everything around it.
    *
@@ -3450,6 +6493,9 @@ var DataTable = class {
    *     selection set rather than carried on the old element;
    *   - keyboard focus, because the focused element's position is recorded
    *     before the replace and restored after.
+   *
+   *  STORY-0003: on the row an open cell editor is in, the data is stored
+   *  now and the row is drawn when the editor closes (true is returned).
    *
    *  @param {number} index   row index as tracked by `tr.__rowIndex`
    *  @param {any[]}  row     the new cell values
@@ -3476,6 +6522,7 @@ var DataTable = class {
       this.config.rows[index] = row;
     }
     if (this._virt) this._virtSetRow(index, row);
+    if (this._cellGrid?.holdRow(tr, index)) return true;
     const active = document.activeElement;
     let focusedCol = -1;
     if (active && tr.contains(active)) {
@@ -3498,7 +6545,7 @@ var DataTable = class {
         cell.style.maxWidth = saved.maxWidth;
       });
     }
-    tr.classList.toggle("selected", this._state?.selected?.has(index) === true);
+    tr.classList.toggle("selected", this._state?.selected?.has(index) === true && !this._cellGrid);
     this._decorateRow(tr, row, index);
     if (this._detailOn()) this._redrawDetail(tr);
     if (focusedCol >= 0 && tr.children[focusedCol]) {
@@ -3544,8 +6591,8 @@ var DataTable = class {
       td.insertBefore(gap, td.firstChild);
       return;
     }
-    const key = this._rowKey(row, rowIdx);
-    const open = key !== null && this._expanded.has(key);
+    const key3 = this._rowKey(row, rowIdx);
+    const open = key3 !== null && this._expanded.has(key3);
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "material-symbols-outlined twm-dt-detail-toggle";
@@ -3567,14 +6614,14 @@ var DataTable = class {
     const row = tr.__row;
     const idx = tr.__rowIndex;
     if (!this._rowHasDetail(row, idx)) return;
-    const key = this._rowKey(row, idx);
-    if (key === null || !this._expanded.has(key)) return;
-    const pieces = this._buildDetailPieces(tr, key);
+    const key3 = this._rowKey(row, idx);
+    if (key3 === null || !this._expanded.has(key3)) return;
+    const pieces = this._buildDetailPieces(tr, key3);
     const parent = tr.parentNode;
     if (!parent) return;
     for (const p of pieces) parent.insertBefore(p, ref);
   }
-  _buildDetailPieces(tr, key) {
+  _buildDetailPieces(tr, key3) {
     const n = this._domColCount();
     const detailTr = document.createElement("tr");
     detailTr.className = "twm-dt-detail-row";
@@ -3593,16 +6640,16 @@ var DataTable = class {
     filler.setAttribute("aria-hidden", "true");
     detailTr.__detailOf = tr;
     tr.__detail = [detailTr, filler];
-    this._drawDetail(tr, host, key);
+    this._drawDetail(tr, host, key3);
     const btn = tr.querySelector(":scope > td > .twm-dt-detail-toggle");
     if (btn) btn.setAttribute("aria-controls", host.id);
     return tr.__detail;
   }
-  _drawDetail(tr, host, key) {
+  _drawDetail(tr, host, key3) {
     host.replaceChildren();
     let out;
     try {
-      out = this.config.rowDetail(tr.__row, tr.__rowIndex, { host, key, table: this });
+      out = this.config.rowDetail(tr.__row, tr.__rowIndex, { host, key: key3, table: this });
     } catch (err) {
       console.error("[DataTable] rowDetail threw", err);
       out = err?.message || String(err);
@@ -3621,8 +6668,8 @@ var DataTable = class {
   }
   /** `updateRow`'s half: the detail follows the row's new data. */
   _redrawDetail(tr) {
-    const key = this._rowKey(tr.__row, tr.__rowIndex);
-    const want = this._rowHasDetail(tr.__row, tr.__rowIndex) && key !== null && this._expanded.has(key);
+    const key3 = this._rowKey(tr.__row, tr.__rowIndex);
+    const want = this._rowHasDetail(tr.__row, tr.__rowIndex) && key3 !== null && this._expanded.has(key3);
     const pieces = tr.__detail;
     if (!want) {
       if (pieces) this._removeDetailPieces(tr);
@@ -3631,7 +6678,7 @@ var DataTable = class {
     if (pieces) {
       const host = pieces[0].querySelector(".twm-dt-detail");
       if (host) {
-        this._drawDetail(tr, host, key);
+        this._drawDetail(tr, host, key3);
         const btn = tr.querySelector(":scope > td > .twm-dt-detail-toggle");
         if (btn) btn.setAttribute("aria-controls", host.id);
       }
@@ -3644,27 +6691,27 @@ var DataTable = class {
   _setRowElExpanded(tr, open, ev = null) {
     if (!this._detailOn() || tr.__rowIndex === void 0) return false;
     if (!this._rowHasDetail(tr.__row, tr.__rowIndex)) return false;
-    const key = this._rowKey(tr.__row, tr.__rowIndex);
-    if (key === null || this._expanded.has(key) === !!open) return false;
-    if (open) this._expanded.add(key);
-    else this._expanded.delete(key);
-    this._syncDetailOnScreen(tr, key);
+    const key3 = this._rowKey(tr.__row, tr.__rowIndex);
+    if (key3 === null || this._expanded.has(key3) === !!open) return false;
+    if (open) this._expanded.add(key3);
+    else this._expanded.delete(key3);
+    this._syncDetailOnScreen(tr, key3);
     this._afterDetailChange();
     try {
-      this.config.onRowDetailToggle?.(tr.__rowIndex, tr.__row, !!open, key, ev);
+      this.config.onRowDetailToggle?.(tr.__rowIndex, tr.__row, !!open, key3, ev);
     } catch (err) {
       console.error("[DataTable] onRowDetailToggle threw", err);
     }
     return true;
   }
   /** Make the row on screen agree with `_expanded` for its key. */
-  _syncDetailOnScreen(tr, key) {
-    const open = this._expanded.has(key);
+  _syncDetailOnScreen(tr, key3) {
+    const open = this._expanded.has(key3);
     const btn = tr.querySelector(":scope > td > .twm-dt-detail-toggle");
     if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
     if (open && !tr.__detail && tr.parentNode) {
       const ref = tr.nextSibling;
-      for (const p of this._buildDetailPieces(tr, key)) tr.parentNode.insertBefore(p, ref);
+      for (const p of this._buildDetailPieces(tr, key3)) tr.parentNode.insertBefore(p, ref);
     } else if (!open && tr.__detail) {
       this._removeDetailPieces(tr);
     }
@@ -3678,9 +6725,9 @@ var DataTable = class {
    *  measured height open, three rows until it has been measured. */
   _detailHeightOf(row, rowIdx, base) {
     if (!this._rowHasDetail(row, rowIdx)) return 0;
-    const key = this._rowKey(row, rowIdx);
-    if (key === null || !this._expanded.has(key)) return 0;
-    const h = this._detailHeights.get(key);
+    const key3 = this._rowKey(row, rowIdx);
+    if (key3 === null || !this._expanded.has(key3)) return 0;
+    const h = this._detailHeights.get(key3);
     return h > 0 ? h : base * 3;
   }
   /** Measure the open details among `trs` (client pixels, the zoom divided
@@ -3703,9 +6750,9 @@ var DataTable = class {
       if (!d || !d.isConnected) continue;
       const h = d.getBoundingClientRect().height / zoom;
       if (!(h > 0)) continue;
-      const key = this._rowKey(tr.__row, tr.__rowIndex);
-      if (Math.abs((this._detailHeights.get(key) || 0) - h) > 0.5) {
-        this._detailHeights.set(key, h);
+      const key3 = this._rowKey(tr.__row, tr.__rowIndex);
+      if (Math.abs((this._detailHeights.get(key3) || 0) - h) > 0.5) {
+        this._detailHeights.set(key3, h);
         changed = true;
       }
     }
@@ -3720,9 +6767,9 @@ var DataTable = class {
    * @param {boolean} [open=true]
    * @returns {boolean} whether anything changed
    */
-  setRowExpanded(key, open = true) {
-    if (key == null) return false;
-    const k = String(key);
+  setRowExpanded(key3, open = true) {
+    if (key3 == null) return false;
+    const k = String(key3);
     if (this._expanded.has(k) === !!open) return false;
     if (open) this._expanded.add(k);
     else this._expanded.delete(k);
@@ -3743,8 +6790,8 @@ var DataTable = class {
     return true;
   }
   /** Whether the row whose key is `key` has its detail open. */
-  isRowExpanded(key) {
-    return key != null && this._expanded.has(String(key));
+  isRowExpanded(key3) {
+    return key3 != null && this._expanded.has(String(key3));
   }
   /** The keys of the rows whose detail is open, as text. */
   getExpandedRows() {
@@ -3755,12 +6802,12 @@ var DataTable = class {
     for (const k of [...this._expanded]) this.setRowExpanded(k, false);
   }
   /** The `<tr>` on screen for a key, or null. */
-  _rowElByKey(key) {
+  _rowElByKey(key3) {
     const tbody = this._tbodyEl;
     if (!tbody) return null;
     for (const tr of tbody.children) {
       if (tr.__rowIndex === void 0) continue;
-      if (this._rowKey(tr.__row, tr.__rowIndex) === key) return tr;
+      if (this._rowKey(tr.__row, tr.__rowIndex) === key3) return tr;
     }
     return null;
   }
@@ -4027,6 +7074,7 @@ var DataTable = class {
   }
   /** Go to the page at `offset` (paging back stops following). */
   _sourceGoTo(offset) {
+    if (this._stagedRefusal("Turning the page")) return void 0;
     const next = Math.max(0, offset | 0);
     if (this._following && next > 0) this.setFollow(false);
     return this._sourceLoad({ offset: next, reason: "page" });
@@ -4300,6 +7348,7 @@ var DataTable = class {
     if (!known && !hasPrev && !hasNext) return this._createExportOnlyStrip();
     const maxJump = Number.isFinite(c.maxJumpOffset) ? c.maxJumpOffset : null;
     const go = (newOffset) => {
+      if (this._stagedRefusal("Turning the page")) return;
       if (source) {
         this._sourceGoTo(newOffset);
         return;
@@ -4504,6 +7553,7 @@ var DataTable = class {
    * value is whatever the column's control works in — text for the 0.4 box.
    */
   setFilter(colIdx, value) {
+    if (this._stagedRefusal("setFilter")) return;
     const textBox = !this._filterKindFor(colIdx, (this.config.headers || [])[colIdx]);
     const v = textBox && value != null && typeof value !== "string" ? String(value) : value;
     if (textBox) {
@@ -4639,6 +7689,7 @@ var DataTable = class {
     if (this._isClickable()) names.push("twm-dt--clickable");
     if (this._gutter) names.push("twm-dt--select");
     if (this._selecting) names.push("twm-dt--selecting");
+    if (this._cellGrid) names.push("twm-dt--cells");
     return names.join(" ");
   }
   /** `clickable` when it is said; otherwise exactly when rows open. */
@@ -4685,18 +7736,18 @@ var DataTable = class {
   /** A row's key, as text, or null: `getRowKey`, else its original index. */
   _rowKey(row, rowIdx) {
     const fn = this.config.getRowKey;
-    let key;
+    let key3;
     if (typeof fn === "function") {
       try {
-        key = fn(row, rowIdx);
+        key3 = fn(row, rowIdx);
       } catch (err) {
         console.error("[DataTable] getRowKey threw", err);
-        key = null;
+        key3 = null;
       }
     } else {
-      key = rowIdx;
+      key3 = rowIdx;
     }
-    return key == null ? null : String(key);
+    return key3 == null ? null : String(key3);
   }
   /** The gestures `activateOn` names, as a set. */
   _activateOn() {
@@ -5392,6 +8443,7 @@ var DataTable = class {
     headerWrap.scrollLeft = x;
     const residual = x - headerWrap.scrollLeft;
     headerTable.style.transform = residual ? `translateX(${-residual}px)` : "";
+    this._colGroups()?.align();
   }
   /** Drag-to-resize: hang a thin grab handle off the right edge of
    *  every header cell. Dragging it writes a per-column width override
@@ -5561,10 +8613,11 @@ var DataTable = class {
   _installInteractions() {
     if (!this._tbodyEl || !this._tableEl) return;
     const { selectable, copyable } = this.config;
-    const customMenu = this.config.contextMenuItems != null;
+    const customMenu = this.config.contextMenuItems != null || !!this._structure()?.hasRowItems();
     const tbody = this._tbodyEl;
     const table = this._tableEl;
-    if (selectable) {
+    if (this._cellGrid) this._cellGrid.install(tbody, table);
+    if (selectable && !this._cellGrid) {
       const handleRowClick = (event) => {
         const rowEl = event.target.closest("tr");
         if (!rowEl || rowEl.__rowIndex === void 0) return;
@@ -5759,13 +8812,13 @@ var DataTable = class {
       const handleKeyDown = (event) => {
         const ctrlLike = event.ctrlKey || event.metaKey;
         if (ctrlLike && !event.altKey) {
-          const key = String(event.key || "").toLowerCase();
-          if (key === "a" && selectable === "single") {
+          const key3 = String(event.key || "").toLowerCase();
+          if (key3 === "a" && selectable === "single") {
             event.preventDefault();
-          } else if (key === "a" && selectable) {
+          } else if (key3 === "a" && selectable) {
             event.preventDefault();
             this._selectAllShown();
-          } else if (key === "c") {
+          } else if (key3 === "c") {
             event.preventDefault();
             this.copyToClipboard(event.shiftKey ? "csv" : "tsv");
           }
@@ -5788,7 +8841,7 @@ var DataTable = class {
       const idx = tr.__rowIndex;
       if (idx !== void 0) {
         const on = this._state.selected.has(idx);
-        tr.classList.toggle("selected", on);
+        tr.classList.toggle("selected", on && !this._cellGrid);
         const box = this._gutter ? tr.querySelector(":scope > td.twm-dt-select-cell > input") : null;
         if (box) box.checked = on;
       }
@@ -6045,7 +9098,10 @@ var DataTable = class {
         items = null;
       }
     }
-    return Array.isArray(items) ? items.filter(Boolean) : [];
+    const list = Array.isArray(items) ? items.filter(Boolean) : [];
+    const structural = this._structure()?.rowItems(ctx.rowIdx) || [];
+    if (structural.length && list.length) list.push({ separator: true });
+    return list.concat(structural);
   }
   /**
    * STORY-0010. Fill the menu for this right-click: the consumer's items,
@@ -6164,6 +9220,9 @@ var DataTable = class {
 };
 
 export {
+  createTextEditor,
+  CellEditorHost,
+  CellSelection,
   createRafResizeObserver,
   ISO_DATE,
   ISO_DATETIME,
@@ -6175,9 +9234,15 @@ export {
   matchDateFilter,
   matchDurationFilter,
   createChipsFilter,
+  ACTIONS,
+  DEFAULT_HISTORY_LIMIT,
+  StagedHistory,
+  detectSeries,
+  projectSeries,
+  attachInlineRenamer,
   PAGING_HARD_LIMIT,
   PAGING_SOFT_LIMIT,
   resolvePaging,
   DataTable
 };
-//# sourceMappingURL=chunk-FBGP5KN5.js.map
+//# sourceMappingURL=chunk-Q36EPT2R.js.map

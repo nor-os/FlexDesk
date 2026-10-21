@@ -2,7 +2,7 @@
 id: 36
 type: story
 title: "A collapsible section stack for inspector-style panel content"
-status: review
+status: done
 parent: 29
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: widgets
 labels: [widgets, new-component]
 links: []
 created: 2026-10-17
-updated: 2026-10-18T14:54Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -40,6 +40,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-18 · norman_agent · status: in-progress -> review
 - 2026-10-18 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -75,3 +76,7 @@ How it landed: I rebased story-0036 onto origin/main locally. Main had gained co
 Tests: `node tests/run.mjs` (Linux node v18.19.1) ran in the worktree at 083fbb2 and I watched it finish: 'FLEXDESK TESTS: GREEN — 140 suite(s)', exit 0, no ': SKIPPED' lines and no 'not ok' lines. `node build.mjs` succeeded (flexdesk.css 408.4 kB), and dist/ was restored afterwards, not committed.
 
 App check: no app check in this step. This is a FlexDesk-only component, and nothing in FlexDesk mounts it yet. Using it in EcoSim is EcoSim STORY-0040 (`../EcoSim/backlog/STORY-0040.md`). The fill layout was measured in headless Edge when the component was built, as the README notes.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

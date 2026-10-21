@@ -2,7 +2,7 @@
 id: 41
 type: story
 title: "openForm selects take dependent, disabled and grouped options; multi-select and radio fields exist"
-status: review
+status: done
 parent: 40
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: widgets
 labels: [widgets, forms]
 links: []
 created: 2026-10-17
-updated: 2026-10-19T09:10Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -41,6 +41,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-19 · norman_agent · status: in-progress -> review
 - 2026-10-19 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -92,3 +93,7 @@ The choice controls are the flow kit's controls, in src/ui/components/choice_con
 **Tests on 7768f72.** I ran `node tests/run.mjs` (Linux node v18.19.1) to completion. It printed "FLEXDESK TESTS: GREEN — 143 suite(s)", exited 0, and had 0 `: SKIPPED` lines. `node tests/open_form_choices.test.mjs` passed (116 ok, all assertions passed). `node build.mjs` succeeded; I restored dist/ and did not commit it.
 
 **App check.** I did not check this in a running app; the only coverage is the jsdom tests above. No EcoSim screen uses the new field types yet; the EcoSim stories that will use them are linked in the description.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

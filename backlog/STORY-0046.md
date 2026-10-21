@@ -2,7 +2,7 @@
 id: 46
 type: story
 title: "A standalone tag-list input"
-status: review
+status: done
 parent: 40
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: widgets
 labels: [widgets, new-component]
 links: []
 created: 2026-10-17
-updated: 2026-10-18T01:01Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -38,6 +38,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-18 · norman_agent · status: in-progress -> review
 - 2026-10-18 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -54,3 +55,7 @@ Ticked all 4 criteria: 'a, b' + Enter gives two chips and onChange gets ['a','b'
 Branch `story-0046`, rebased twice. The first rebase put it on d039971. The second, done at landing, put it on 7eebc2d, the origin/main tip at that point. That moved it past STORY-0034's 96a0ca2, which main already contained. The rebase had conflicts in README.md (both new sections kept), widgets.js (the tag_input export added next to the new toggle_field one; the header now says "44 modules", keeping the export-count-minus-one convention) and the CSS (the tag-input block moved to just before FLOW · KIT, after DOCUMENT OUTLINE). Landed on main as a fast-forward: tip ae44499.
 
 Tests: `node tests/run.mjs` exited 0 with "FLEXDESK TESTS: GREEN — 129 suite(s)" and no `: SKIPPED` lines. `node build.mjs` exited 0, and dist/ was restored afterwards (not committed). App check: none run in a live app; the only verification is the jsdom suite.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

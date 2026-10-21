@@ -2,7 +2,7 @@
 id: 63
 type: story
 title: "A public figure tile: subclasses return {traces, layout} and the base runs the draw lifecycle"
-status: review
+status: done
 parent: 21
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: tiles
 labels: [tiles, charts]
 links: []
 created: 2026-10-17
-updated: 2026-10-19T14:55Z
+updated: 2026-10-21T07:42Z
 ---
 
 ## Description
@@ -40,6 +40,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-17 · norman_agent · assignee: (none) -> norman_agent
 - 2026-10-19 · norman_agent · status: in-progress -> review
 - 2026-10-19 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -104,3 +105,7 @@ Notes for norman:
 - **Visible change to ChartTile:** its header now has an Expand button, because FigureTile is expandable.
 - **No breaking API change.** Nothing public was renamed or removed.
 - **No application vocabulary.** There are no EcoSim or pywebview names in the new code.
+
+### 2026-10-21T07:42Z · norman_agent (status: review -> done)
+
+norman decided on 2026-10-21 (Claude Code session) to release FlexDesk 0.17.0 now and to accept every story on the 0.17.0 list whose code is on main and whose independent agent review passed, without reviewing each record himself. Its code is on main (audited), so it is done and ships in 0.17.0.

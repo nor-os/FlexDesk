@@ -2,10 +2,10 @@
 id: 97
 type: story
 title: "0.17.1 ships the four 0.17.0 stories that were still being built at release: modeler demo, cell copy, the six editors, paste"
-status: refined
+status: in-progress
 parent: 68
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 1
@@ -13,7 +13,7 @@ subsystem:
 labels: [release]
 links: [relates-to BUG-0032, blocked-by 84, blocked-by 85, blocked-by 87, blocked-by 90]
 created: 2026-10-21
-updated: 2026-10-21T08:31Z
+updated: 2026-10-21T19:08Z
 ---
 
 ## Description
@@ -30,6 +30,8 @@ norman decided on 2026-10-21 to publish 0.17.0 at once and to move the four stor
 ## History
 
 - 2026-10-21 · norman_agent · status: draft -> refined
+- 2026-10-21 · norman_agent · status: refined -> in-progress
+- 2026-10-21 · norman_agent · assignee: (none) -> norman_agent
 
 ## Comments
 

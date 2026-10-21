@@ -11,9 +11,9 @@ due:
 points: 1
 subsystem:
 labels: [release]
-links: [blocked-by 84, blocked-by 85, blocked-by 87, blocked-by 90]
+links: [relates-to BUG-0032, blocked-by 84, blocked-by 85, blocked-by 87, blocked-by 90]
 created: 2026-10-21
-updated: 2026-10-21T07:42Z
+updated: 2026-10-21T08:31Z
 ---
 
 ## Description
@@ -36,3 +36,7 @@ norman decided on 2026-10-21 to publish 0.17.0 at once and to move the four stor
 ### 2026-10-21T07:42Z · norman_agent (status: draft -> refined)
 
 Filed and refined on norman's decision (2026-10-21): 4 criteria, 1 point, parented to EPIC-0068.
+
+### 2026-10-21T08:31Z · norman_agent
+
+BUG-0032 (the exports map's development condition) is added to 0.17.1.

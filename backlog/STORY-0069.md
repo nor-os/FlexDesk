@@ -2,7 +2,7 @@
 id: 69
 type: story
 title: "0.17.0 ships every defect fix and capability an embedder migration needs, in one release"
-status: review
+status: done
 parent: 68
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: build
 labels: [release]
 links: [relates-to 97, blocked-by 31, blocked-by 32, blocked-by 33, blocked-by 34, blocked-by 35, blocked-by 36, blocked-by 37, blocked-by 38, blocked-by 62, blocked-by 39, blocked-by 43, blocked-by 44, blocked-by 50, blocked-by 30, blocked-by 41, blocked-by 42, blocked-by 45, blocked-by 46, blocked-by 47, blocked-by 48, blocked-by 49, blocked-by 67, blocked-by 52, blocked-by 53, blocked-by 55, blocked-by 57, blocked-by 56, blocked-by 58, blocked-by 60, blocked-by 61, blocked-by 63, blocked-by 64, blocked-by 65, blocked-by 66, blocked-by 3, blocked-by 86, blocked-by 88, blocked-by 89, blocked-by 91, blocked-by 74, blocked-by 75, blocked-by 76, blocked-by 77, blocked-by 78, blocked-by 79, blocked-by 80, blocked-by 81, blocked-by 82, blocked-by 83, relates-to BUG-0003, relates-to BUG-0004, relates-to BUG-0005, relates-to BUG-0006, relates-to BUG-0008, relates-to BUG-0009, relates-to BUG-0026, relates-to BUG-0011, relates-to BUG-0012, relates-to BUG-0013, relates-to BUG-0014, relates-to BUG-0015, relates-to BUG-0016, relates-to BUG-0017, relates-to BUG-0018, relates-to BUG-0019, relates-to BUG-0020, relates-to BUG-0023, relates-to BUG-0024, relates-to BUG-0025, relates-to BUG-0027, relates-to BUG-0028, relates-to BUG-0031]
 created: 2026-10-17
-updated: 2026-10-21T08:29Z
+updated: 2026-10-21T08:31Z
 ---
 
 ## Description
@@ -39,6 +39,7 @@ Filed from the EcoSim -> FlexDesk 0.16 migration analysis (2026-10-17).
 - 2026-10-21 · norman_agent · assignee: (unset) -> norman_agent
 - 2026-10-21 · norman_agent · status: in-progress -> review
 - 2026-10-21 · norman_agent · assignee: norman_agent -> norman
+- 2026-10-21 · norman_agent · status: review -> done
 
 ## Comments
 
@@ -96,3 +97,7 @@ Released. Handing back to norman for review.
   - **Run B (published dist):** the barrels became `export * from './dist/<entry>.js'`. Every suite that imports a barrel (tooltip_visible, state_guard_attribution, keyboard_shortcuts_topic, slide_out_host_resize, the monaco loader suites, diff_editor_models, editor_panes_css) passed against dist, and so did css_exports. no_app_globals failed only its three checks that a barrel export is the same object as the src module, which cannot hold when one copy comes from dist and the other from src. With its src imports pointed at dist as well, it passed in full against the published dist.
 - **Records:** EPIC-0073 stays in-progress, because its STORY-0084 moved to 0.17.1 (STORY-0097). The `assignee:` frontmatter of this record was empty although the claim's History line says norman_agent. The handback line records norman_agent -> norman.
 - The release worktree has been removed. The release-0.17.0 branch is kept.
+
+### 2026-10-21T08:31Z · norman_agent (status: review -> done)
+
+Checked by the orchestrating session: `npm view flexdesk@0.17.0 version dist-tags` prints 0.17.0 with latest = 0.17.0, and origin/main holds the release commit 10b3e1a. Done under norman's 2026-10-21 process decision (FlexDesk stories go to done once landed and independently checked).

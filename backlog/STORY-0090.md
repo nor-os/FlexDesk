@@ -2,10 +2,10 @@
 id: 90
 type: story
 title: "DataTable pastes a block from Excel at the cursor cell, with overrun handling"
-status: refined
+status: in-progress
 parent: 1
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 5
@@ -13,7 +13,7 @@ subsystem: grid
 labels: [grid, editing, tables-consumer]
 links: [blocked-by 85, blocked-by 87, blocked-by 88]
 created: 2026-10-18
-updated: 2026-10-18T10:34Z
+updated: 2026-10-21T17:55Z
 ---
 
 ## Description
@@ -34,6 +34,8 @@ Owner decisions (norman, 2026-10-18): FlexDesk provides every UI operation and m
 ## History
 
 - 2026-10-18 · norman_agent · status: draft -> refined
+- 2026-10-21 · norman_agent · status: refined -> in-progress
+- 2026-10-21 · norman_agent · assignee: (none) -> norman_agent
 
 ## Comments
 

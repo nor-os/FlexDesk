@@ -43,7 +43,7 @@ manager, and neither of them should drag in a plotting engine or a code editor.
 | `@flexdesk/core` | 30 kB | Event bus, settings store, logging, state machine, state guard |
 | `@flexdesk/host` | 5 kB | The host port (below) |
 | `@flexdesk/wm` | 166 kB | Tiling window manager: tabs, splits, desktops, command palette, taxonomy, `createShell()` |
-| `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus, menu bars, a document outline, progress, a conversation view |
+| `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus, menu bars, a document outline, progress, a conversation view, dictation |
 | `@flexdesk/charts` | 26 kB | Plotly wrapper, chart types, subplot layouts, downsampling, a plot grid, a plot-config editor, plot windows, injected series transforms |
 | `@flexdesk/tiles` | 67 kB | Draggable/resizable widget grid, tile base class, widget registry, layout persistence, figure, chart and KPI tiles |
 | `@flexdesk/editor` | 62 kB | Monaco loader + factory, multi-file tab bar, search, split panes, undo manager |
@@ -3332,6 +3332,102 @@ view.setBusy(false);
 
 `tests/conversation_view.test.mjs` drives all of it in jsdom with a fake
 scroll geometry.
+
+## Dictation: `attachDictation` (0.17.0)
+
+Hold a key, speak, let go: the words appear at the cursor of whatever had
+focus. It is in `@flexdesk/widgets`. FlexDesk only records the audio. You pass
+`transcribe(blob)`, which turns it into text, so no speech service is in here.
+
+```js
+const dictation = attachDictation({
+    transcribe: async (blob, { mimeType, durationMs, signal }) => {
+        const res = await fetch('/speech', { method: 'POST', body: blob, signal });
+        return (await res.json()).text;           // a string, or { text }
+    },
+    hotkey: 'Ctrl+Space',                         // held; null for the button only
+});
+toolbar.append(dictation.createMicButton());
+
+// A widget that is not a text field takes the text through its own handler:
+const off = registerDictationTarget(terminalEl, (text) => term.paste(text));
+```
+
+- **Hold to talk.** Keydown of the hotkey starts recording. Keyup of the key or
+  one of its modifiers stops it and transcribes. So does the window losing
+  focus. Esc discards the recording. The hotkey is caught in the capture phase
+  on the window and goes no further, so a terminal never sees it and an input
+  never gets the space. `parseHotkey` reads `'Ctrl+Space'`, `'Alt+Shift+D'`,
+  `'Meta+1'` or a `KeyboardEvent.code` such as `'F9'`. A hold shorter than
+  `minHoldMs` (250) is a tap, and is discarded.
+- **Where the text goes** is fixed when recording starts: the element the key
+  came from, through shadow roots. The text goes there on release, even if
+  focus moved while it transcribed. For the mic button, it is the focused
+  field. Pressing the button does not take focus from the field. When the
+  button itself has focus (Tab, then Enter), it is the field focused last. A
+  hotkey held over no field types nowhere: the text is shown in a toast.
+  `createMicButton({ target })` sends one button's text to one element, such as
+  a tile's terminal.
+- **What takes text:**
+  - An element registered with `registerDictationTarget(el, insert)`, or
+    anything inside it. A terminal's hidden helper textarea finds its terminal,
+    and the nearest registration wins. `insert(text, { element })` is used
+    instead of the DOM. It may return or resolve to `false` to decline, and the
+    decline is reported.
+  - Otherwise an `<input>` of a text type, a `<textarea>` or a contenteditable
+    region (not disabled, not read-only). The text goes in at the cursor and
+    replaces a selection. It is spaced from the words around it. It goes in
+    through `execCommand('insertText')` when the browser does that (native
+    undo). Otherwise the value or range is edited and an `input` event
+    (`inputType: 'insertText'`) is fired.
+  - Editors from `MonacoEditorFactory` (`createEditor`, `createInlineEditor`)
+    register themselves. The text replaces their selections as one undo step.
+    A read-only editor declines.
+- **No Enter, ever.** The text is always one line. Line breaks and tabs become
+  spaces, and every other control character is dropped, escape sequences
+  included. That happens before any target or handler sees it
+  (`sanitizeDictatedText`). In a terminal, you read the line and then send it
+  yourself.
+- **Starting at once, so the first word is kept.** Once the microphone is open
+  it stays open for `keepMicMs` (30 s) after each recording. The browser shows
+  its recording indicator meanwhile. The next press starts the recorder inside
+  the keydown handler itself. `prepare()` opens the microphone ahead of time.
+  `release()` closes it. `keepMicMs: Infinity` keeps it open and `0` closes it
+  after every recording. A cold press asks `getUserMedia` within the key event.
+  A release before the microphone was ready says so instead of transcribing
+  silence. `stats().lastStartLatencyMs` is the last press-to-recording delay.
+- **It says why it cannot.** Each problem is a toast on `eventBus`
+  (`toast:show`), or on the toast helpers' bus, and goes to
+  `onError(code, error)`:
+
+| Code | When |
+|---|---|
+| `insecure-origin` | The page is not a secure context. Browsers give the microphone only to https and localhost. The message names the page's origin |
+| `unsupported` | No `getUserMedia` or `MediaRecorder` |
+| `permission-denied`, `no-microphone`, `microphone-busy` | `getUserMedia` refused: permission, no device, or one in use |
+| `not-ready` | Released before a cold microphone opened |
+| `transcribe-failed` | `transcribe` threw. This one is an error toast, with its message |
+| `nothing-heard` | The transcript was empty |
+| `no-target`, `declined` | No field to type into, or a target that declined. The text is in the toast, so it is not lost |
+
+- **The mic button** (`twm-dictation-mic`) toggles the same recording.
+  `aria-pressed` and `--recording` are set while it listens, and `--busy` while
+  it transcribes. A level meter rises with the input: `--twm-dictation-level`
+  (0..1) is set on the button each frame from an `AnalyserNode`.
+- **Embedded pages.** `observe(iframe.contentWindow)` adds a same-origin
+  window, such as an embedded form, to the hotkey and focus tracking.
+- `state()` is `idle`, `starting`, `recording` or `transcribing`, and
+  `onStateChange(state)` hears each change. `onTranscript(text, target,
+  inserted)` hears every transcript. `start()`, `stop()`, `cancel()` and
+  `toggle()` drive it from code. `destroy()` removes every listener, closes the
+  microphone, aborts transcriptions in flight and disables its buttons.
+- `labels` replaces any of the texts. `mediaDevices`, `MediaRecorder` and
+  `AudioContext` can be passed in, and the tests pass fakes. `mimeType` picks
+  the recording format. By default it is the first of Opus in WebM, Opus in
+  Ogg, WebM and MP4 that the recorder supports.
+
+`tests/dictation.test.mjs` drives all of it in jsdom with a fake microphone,
+recorder and audio context.
 
 ## The host port
 

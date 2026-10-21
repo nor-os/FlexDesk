@@ -11196,6 +11196,21 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 .twm-chat__send--cancel:hover { background: var(--color-danger-hover); }
 .twm-chat--busy .twm-chat__input { border-color: var(--border-default); }
 
+/* ── Dictation (dictation.js, STORY-0096) ─────────────────────────────────
+ * The mic button: an icon, and a level meter that rises with the input while
+ * it records. `--twm-dictation-level` (0..1) is set on the button each frame. */
+.twm-dictation-mic { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 2px; width: 28px; height: 28px; padding: 0; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text-muted); cursor: pointer; }
+.twm-dictation-mic:hover { background: var(--state-hover); color: var(--text-body); }
+.twm-dictation-mic:disabled { opacity: 0.5; cursor: default; }
+.twm-dictation-mic__icon { font-size: 18px; line-height: 1; }
+.twm-dictation-mic__meter { display: none; position: absolute; right: 3px; bottom: 4px; width: 3px; height: 16px; border-radius: 2px; background: var(--surface-3); overflow: hidden; }
+.twm-dictation-mic__level { position: absolute; left: 0; right: 0; bottom: 0; height: 100%; background: var(--color-danger); transform-origin: bottom; transform: scaleY(var(--twm-dictation-level, 0)); transition: transform 60ms linear; }
+.twm-dictation-mic--recording { color: var(--color-danger); background: var(--state-selected); }
+.twm-dictation-mic--recording .twm-dictation-mic__meter { display: block; }
+.twm-dictation-mic--busy { color: var(--accent-bright); }
+.twm-dictation-mic--busy .twm-dictation-mic__icon { animation: twm-dictation-pulse 1s ease-in-out infinite; }
+@keyframes twm-dictation-pulse { 50% { opacity: 0.4; } }
+
 /* ══ FLOW · KIT ═══════════════════════════════════════════════════════ */
 /* The shared flow-editor kit (36 §3, §3.12): the settings panel and its
  * fields, the generic widgets, reference chips and the chip input, the two

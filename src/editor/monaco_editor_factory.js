@@ -9,9 +9,12 @@
  *     setEditorThemeNames(); default flexdesk-dark, flexdesk-light)
  *   - Shared editor options
  *   - Instance lifecycle (dispose on cell removal)
+ *   - Dictation: every editor made here is a dictation target (STORY-0096), so
+ *     text dictated into it goes in at its cursor as one undoable edit
  */
 
 import { monacoReady, initMonaco } from './monaco_loader.js';
+import { registerDictationTarget } from '../ui/utils/dictation_targets.js';
 // The default language is the CONSUMER's. This imported ECOLANG_ID — EcoAgent's
 // expression language — so a generic Monaco factory shipped knowing the name of one
 // application's DSL. Register your language with Monaco and name it here.
@@ -226,6 +229,23 @@ function checkMaxHeight(px) {
  * @typedef {{ editor: object, dispose: () => void, getValue: () => string, setValue: (v: string) => void, onDidChange: (cb: () => void) => object, setMaxHeight?: (px: number) => void }} EditorHandle
  */
 
+/**
+ * Make `editor` (in `container`) a dictation target: dictated text replaces
+ * its selections at the cursor, as one edit undo takes back in one step. A
+ * read-only editor declines. Returns the function that removes it.
+ */
+function registerEditorDictation(container, editor) {
+    return registerDictationTarget(container, (text) => {
+        if (editor.getRawOptions?.().readOnly) return false;
+        const selections = editor.getSelections?.() ?? [];
+        if (!selections.length) return false;
+        editor.pushUndoStop?.();
+        editor.executeEdits('dictation', selections.map((range) => ({ range, text, forceMoveMarkers: true })));
+        editor.pushUndoStop?.();
+        return true;
+    });
+}
+
 export class MonacoEditorFactory {
     #monaco = null;
     #currentTheme = _themeNames.dark;
@@ -319,6 +339,7 @@ export class MonacoEditorFactory {
         };
         // Defer slightly — Monaco builds DOM asynchronously after create()
         requestAnimationFrame(observeFindWidget);
+        const dropDictation = registerEditorDictation(container, editor);
 
         return {
             editor,
@@ -335,6 +356,7 @@ export class MonacoEditorFactory {
             },
             updateHeight,
             dispose: () => {
+                dropDictation();
                 findWidgetObserver?.disconnect();
                 heightDisposable?.dispose();
                 safeDispose(editor);
@@ -369,6 +391,8 @@ export class MonacoEditorFactory {
             }
         });
 
+        const dropDictation = registerEditorDictation(container, editor);
+
         return {
             editor,
             getValue: () => editor.getValue(),
@@ -376,7 +400,7 @@ export class MonacoEditorFactory {
             onDidChange: (cb) => editor.onDidChangeModelContent(cb),
             focus: () => editor.focus(),
             layout: () => editor.layout(),
-            dispose: () => safeDispose(editor),
+            dispose: () => { dropDictation(); safeDispose(editor); },
         };
     }
 

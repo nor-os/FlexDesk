@@ -1306,9 +1306,7 @@ const grid = DataTable.mount(host, {
     virtualize: true,
     selectionMode: 'cells',
     editable: [1, 2],                       // or true, or (colIdx, row, rowIdx) => boolean
-    editTypes: [null, 'number', { type: 'choice', options: ['red', 'green'] }],
-    locale: 'de-DE',                        // '1.234,56' is 1234.56
-    editors: { 3: myNoteEditor },           // by column index or by type
+    editors: { num: myNumberEditor },       // by column index or by type
     onCellCommit: async ({ rowIdx, colIdx, value, previous }) => {
         const r = await api.save(rowIdx, colIdx, value);
         return r.ok ? { ok: true } : { ok: false, error: r.message };
@@ -1329,28 +1327,58 @@ grid.getCellSelection();   // { anchor, focus, range }
 | `getSelection()`, `setSelection()`, Ctrl+C | Still about rows: `getSelection()` returns the rows the range touches, `onSelectionChange` hears them, and Ctrl+C and the copy menu copy them. `setSelection(indices)` selects the cells of those rows, first to last as shown. |
 | `onCellSelectionChange(sel)` | Called with `getCellSelection()` after every change. |
 | `editable` | Which cells open an editor: `true`, an array of data column indices, or `(colIdx, row, rowIdx) => boolean`. Needs cell mode. F2, Enter, a double-click or a printable key opens it on the cursor cell (a printable key replaces the value with that character). In the editor Enter commits and moves down, Tab commits and moves right (Shift: up, left), Escape restores the cell and calls nothing; the focus leaving it commits without moving. `editCell(row, col)` opens one from code; `isEditing()` says whether one is open. |
-| `editors: {[colIdx \| type]: factory}` | The editor for a column, looked up by column index and then by type (`editTypes`, else `columnTypes`, else the detected `num`/`text`; as named, then as the built-in editors name it: `num` is `number`, `date` is `datetime`). A factory gets `{value, row, rowIdx, colIdx, column: {index, header, type, ...the editTypes entry}, locale, utc, messages, initialText, commit(value, move?), cancel()}` and returns an element or `{el, getValue?, parse?, multiline?, focus?, destroy?}`. An input, select or textarea commits its `value` on Enter and Tab; any other editor calls `commit(value)` itself. With `parse()` (`=> {ok: true, value} \| {ok: false, error}`) Enter, Tab and the focus leaving commit what it reads, and a refusal is handled as the built-in editors' is. `multiline` keeps Enter for a new line (Ctrl/Cmd+Enter commits). An injected editor replaces the built-in one for its type (or its column) only. Without one, a column gets the built-in editor for its type, else a text box (`createTextEditor`). |
-| The built-in editors (0.17.0) | `text` a text box; `multitext` a text area (Enter is a new line, Ctrl/Cmd+Enter commits); `number` a text box that commits a Number; `bool` a checkbox that commits `true`/`false` when ticked or unticked (a space that opens it ticks it over); `choice` an `AutocompleteField` over the column's `options` that commits the option's value; `datetime` a text box that commits a Date. A blank number, date or choice commits `null`. A value opened and left as it was commits nothing. |
-| `editTypes` | Each column's editor type, by position (an array) or by data column index (an object): a name (`'text'`, `'multitext'`, `'number'`, `'bool'`, `'choice'`, `'datetime'`, or any name `editors` is keyed by) or `{type, options?, allowOther?, rows?}`. Unset, it is the column's `columnTypes` type, else the detected one, so a numeric column opens the number editor and a `date` column the datetime editor. `choice` offers `options` (values, or `{value, label}`), filtered as you type; a pick commits its value, and typed text matching an option's label or value (any case) commits that value. Other text is refused unless `allowOther`, when it is the value. With the list open, Escape closes the list only. `rows` is a `multitext` area's height in lines (3). Only editing reads `editTypes`: drawing, sorting and filtering are as without it. |
-| `locale` | The locale the number and datetime editors read and show text in (Intl's; unset: the runtime's). `'1.234,56'` is 1234.56 under `de-DE` and `'1,234.56'` is under `en-US`, and `'1 234,5'` is 1234.5 under `fr-FR` (any space, a no-break one included, where the locale groups with a space); a group separator anywhere but between groups of three digits, or a space inside the number anywhere else, is refused, never misread. Spaces around the text are ignored. A number opens without groups, in the locale's decimal separator. A datetime reads ISO 8601 (`2026-12-31`, `2026-12-31T08:30`, with `Z` or an offset an exact instant) in any locale, and day, month and year in the locale's order with a four-digit year and an optional time (`31/12/2026 08:30` under `en-GB`); when the locale's order makes no date but the day-month swap does, the swap is read. A date with no zone is in `dateTimeZone`'s. It opens as ISO. |
-| A value that does not parse | `abc` in a number, `31/02/2026` in a date, a choice outside the options: Enter and Tab are refused, the editor stays open, and the cell carries the message (`twm-dt-cell--error`, `title`, `data-error`) until the next keystroke. Nothing is committed. If the focus leaves (or the row scrolls out of the window) with it, the editor closes and the cell keeps the text, marked as a refused commit is, and `onCellCommit` is not called. Under `staged` nothing is staged; anything staged into the cell afterwards (a typed value, a fill, the value the row holds) ends the refusal. The words are `EDITOR_MESSAGES`, overridden by `editorMessages: {number, datetime, bool, choice}`. |
+| `editors: {[colIdx \| type]: factory}` | The editor for a column, looked up by column index and then by type (`columnTypes`, else the detected `num`/`text`). A factory gets `{value, row, rowIdx, colIdx, column: {index, header, type}, initialText, commit(value), cancel()}` and returns an element or `{el, getValue?, focus?, destroy?}`. An input, select or textarea commits its `value` on Enter and Tab; any other editor calls `commit(value)` itself. Without one, a column gets the built-in editor for its type, else a text box (`createTextEditor`); see [Built-in cell editors](#built-in-cell-editors-0171) for the editors, the `editTypes`, `locale` and `editorMessages` options and what a factory is told since 0.17.1. |
 | `onCellCommit({rowIdx, colIdx, value, previous})` | Called exactly once per commit; `previous` is the value the row holds, and a value left as the cell showed it is no commit. Return nothing or `{ok: true}` (or a Promise of it) and the value is written into the row the table holds for `rowIdx` when it settles (`rows[rowIdx][colIdx]`, so a row put in by `updateRow` meanwhile keeps its other cells) and drawn. `{ok: false, error}`, a rejection or a throw leaves the typed value in the cell, drawn `twm-dt-cell--error` with the message as its `title` and `data-error`, until a later commit of that cell succeeds, the value the row holds is committed back (no call: nothing to save), or new rows arrive. While the Promise is out the cell is `twm-dt-cell--pending`. The editor always opens with the value the cell shows, a refused or pending one included. |
 | While an editor is open | `render()`, and so `setData`, a sort or a page, waits and runs when the editor closes, so what is being typed is never thrown away. A commit that settles while another editor is open in its row marks its cell at once and draws the row when that editor closes. `updateRow` on the row the editor is in stores the data at once (`config.rows`, the window's row list) and returns `true`, and the row is drawn with it when the editor closes; the editor's cell is left as it is. A row that scrolls out of the virtual window commits its editor first. An editor with no `getValue` (a `{el}` around an element that is not an input, select or textarea) has no value the table can read: Enter, Tab and the focus leaving do nothing, and its row scrolling out cancels it, so what it holds is lost unless it has called `commit(value)` itself. |
 | `headerMenu(colIdx, ctx) => items` | Items for the header's right-click menu, asked for the data column right-clicked (`ctx` is `{colIdx, header, hiddenColumns, table}`). Items are `{label, action, icon?, disabled?, danger?, title?}` or `{separator: true}`. Choosing one calls `onHeaderMenuAction(action, colIdx)`. With `columnChooser` the chooser's items follow behind a separator. `[]` or `null` shows only what would show without the hook: the chooser, or the page's own menu. Works in either selection mode. |
 
-The modules behind cell mode are exported for a consumer that builds its
+The two modules behind cell mode are exported for a consumer that builds its
 own grid: `CellSelection` (the anchor, the cursor and every key's move, with no
-DOM), `CellEditorHost` (one cell's editor, opened and closed exactly once),
-`createTextEditor` (the text box) and, from cell_editors.js, the six built-in
-editors as `CELL_EDITORS` (`{text, multitext, number, bool, choice, datetime}`,
-each `{create, parse}`: `create` a factory, `parse(text, {locale, utc, options,
-allowOther, messages})` the same reading of plain text, for a paste) with
-their parts: `parseNumber`, `parseDateTime`, `parseBool`, `parseChoice`,
-`formatNumberForEdit`, `formatDateTimeForEdit`, `numberSeparators`,
-`dateOrder`, `normalizeOptions`, `editorTypeOf`, `EDITOR_MESSAGES` and
-`createNumberEditor`, `createMultiTextEditor`, `createBoolEditor`,
-`createChoiceEditor`, `createDateTimeEditor`. The table's own half of cell
-mode is internal.
+DOM), `CellEditorHost` (one cell's editor, opened and closed exactly once) and
+`createTextEditor` (the default text box). The table's own half of cell mode
+is internal.
+
+#### Built-in cell editors (0.17.1)
+
+An editable column opens the editor for its type: `text`, `multitext`,
+`number`, `bool`, `choice` or `datetime`. Each reads what is typed with a
+parse, and a value that does not parse is refused on the cell. `editors`
+replaces any of them, for its type or its column only.
+
+```js
+const grid = DataTable.mount(host, {
+    headers: ['Item', 'Qty', 'Colour', 'Note'],
+    rows,
+    selectionMode: 'cells',
+    editable: true,
+    editTypes: [null, 'number', { type: 'choice', options: ['red', 'green'] }, 'multitext'],
+    locale: 'de-DE',                        // '1.234,56' is 1234.56
+    editorMessages: { number: 'Keine Zahl' },
+    editors: { 3: myNoteEditor },           // by column index or by type
+    onCellCommit: ({ value }) => save(value),   // Qty commits a Number
+});
+```
+
+| Option | What it does |
+|---|---|
+| The built-in editors | `text` a text box; `multitext` a text area (Enter is a new line, Ctrl/Cmd+Enter commits); `number` a text box that commits a Number; `bool` a checkbox that commits `true`/`false` when ticked or unticked (a space that opens it ticks it over); `choice` an `AutocompleteField` over the column's `options` that commits the option's value; `datetime` a text box that commits a Date. A blank number, date or choice commits `null`. A value opened and left as it was commits nothing. |
+| `editTypes` | Each column's editor type, by position (an array) or by data column index (an object): a name (`'text'`, `'multitext'`, `'number'`, `'bool'`, `'choice'`, `'datetime'`, or any name `editors` is keyed by) or `{type, options?, allowOther?, rows?}`. Unset, it is the column's `columnTypes` type, else the detected one, so a numeric column opens the number editor and a `date` column the datetime editor. `choice` offers `options` (values, or `{value, label}`), filtered as you type; a pick commits its value, and typed text matching an option's label or value (any case) commits that value. Other text is refused unless `allowOther`, when it is the value. With the list open, Escape closes the list only. `rows` is a `multitext` area's height in lines (3). Only editing reads `editTypes`: drawing, sorting and filtering are as without it. |
+| `locale` | The locale the number and datetime editors read and show text in (Intl's; unset: the runtime's). `'1.234,56'` is 1234.56 under `de-DE` and `'1,234.56'` is under `en-US`, and `'1 234,5'` is 1234.5 under `fr-FR` (any space, a no-break one included, where the locale groups with a space); a group separator anywhere but between groups of three digits, or a space inside the number anywhere else, is refused, never misread. Spaces around the text are ignored. A number opens without groups, in the locale's decimal separator. A datetime reads ISO 8601 (`2026-12-31`, `2026-12-31T08:30`, with `Z` or an offset an exact instant) in any locale, and day, month and year in the locale's order with a four-digit year and an optional time (`31/12/2026 08:30` under `en-GB`); when the locale's order makes no date but the day-month swap does, the swap is read. A date with no zone is in `dateTimeZone`'s. It opens as ISO. |
+| A value that does not parse | `abc` in a number, `31/02/2026` in a date, a choice outside the options: Enter and Tab are refused, the editor stays open, and the cell carries the message (`twm-dt-cell--error`, `title`, `data-error`) until the next keystroke. Nothing is committed. If the focus leaves (or the row scrolls out of the window) with it, the editor closes and the cell keeps the text, marked as a refused commit is, and `onCellCommit` is not called. Under `staged` nothing is staged; anything staged into the cell afterwards (a typed value, a fill, the value the row holds) ends the refusal. The words are `EDITOR_MESSAGES`, overridden by `editorMessages: {number, datetime, bool, choice}`. |
+| `editors` (0.17.1) | The editor for a column, looked up by column index and then by type (`editTypes`, else `columnTypes`, else the detected `num`/`text`; as named, then as the built-in editors name it: `num` is `number`, `date` is `datetime`). A factory gets `{value, row, rowIdx, colIdx, column: {index, header, type, ...the editTypes entry}, locale, utc, messages, initialText, commit(value, move?), cancel()}` and returns an element or `{el, getValue?, parse?, multiline?, focus?, destroy?}`. An input, select or textarea commits its `value` on Enter and Tab; any other editor calls `commit(value)` itself. With `parse()` (`=> {ok: true, value} \| {ok: false, error}`) Enter, Tab and the focus leaving commit what it reads, and a refusal is handled as the built-in editors' is. `multiline` keeps Enter for a new line (Ctrl/Cmd+Enter commits). An injected editor replaces the built-in one for its type (or its column) only. Without one, a column gets the built-in editor for its type, else a text box (`createTextEditor`). |
+
+Exported from cell_editors.js for a consumer that builds its own grid or
+reads pasted text: the six editors as `CELL_EDITORS` (`{text, multitext,
+number, bool, choice, datetime}`, each `{create, parse}`: `create` a factory,
+`parse(text, {locale, utc, options, allowOther, messages})` the same reading
+of plain text, for a paste) with their parts: `parseNumber`, `parseDateTime`,
+`parseBool`, `parseChoice`, `formatNumberForEdit`, `formatDateTimeForEdit`,
+`numberSeparators`, `dateOrder`, `normalizeOptions`, `editorTypeOf`,
+`EDITOR_MESSAGES` and `createNumberEditor`, `createMultiTextEditor`,
+`createBoolEditor`, `createChoiceEditor`, `createDateTimeEditor`.
+`CellEditorHost` takes an `onRefuse(session, error, text, reason)` beside
+`onCommit` and `onCancel`, called when an editor closes holding a value that
+does not parse (without it, such a close is a cancel).
 
 #### Staged edits, undo and redo, one commit (0.17.0)
 

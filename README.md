@@ -2100,7 +2100,7 @@ nor is a step whose type the palette does not offer (a start step) or that is
 `unavailable`. What is copied is the graph's own text, `{nodes, connections}`
 as `serialise()` writes it, so a graph from elsewhere pastes too. Ctrl/⌘+V
 gives every pasted step a fresh id (as a new step gets one), keeps the lines
-between them (data lines too, under `connections` with `dataPorts: 'connect'`), sets the copy off two grid steps right and down (each further
+between them (data lines too, under `connections` with `dataPorts: 'connect'`, from 0.17.1), sets the copy off two grid steps right and down (each further
 paste of the same text one more), picks it, and is one `flow:paste` entry. A
 paste right after Ctrl/⌘+X puts the steps back where they were; a cut is one
 remove entry. A step whose title the flow already has gets a derived label,
@@ -2182,7 +2182,7 @@ Edge:
   the step between its ends. Above the node limit the strip said so.
 - A real pointer over a step highlighted its lines, and moving off cleared them.
 
-#### Building a modeler (0.17.0)
+#### Building a modeler (0.17.1)
 
 A typed node modeler (a dataflow, a signal chain, a diagram of blocks) is the
 canvas editor with its modeler options turned on. Every one of them is a

@@ -13,7 +13,7 @@ subsystem: grid
 labels: [grid, editing, tables-consumer]
 links: [blocked-by 3]
 created: 2026-10-18
-updated: 2026-10-20T12:53Z
+updated: 2026-10-21T06:09Z
 ---
 
 ## Description
@@ -26,6 +26,8 @@ Owner decisions (norman, 2026-10-18): FlexDesk provides every UI operation and m
 
 - [ ] A 3×4 range copies 3 lines of 4 tab-separated values, in the order shown after sort and filter
 - [ ] With no range, Ctrl+C copies the cursor cell's value alone
+- [ ] A copied cell is its raw value, not the text it shows: a Price cell showing `1,234.50` (value 1234.5) copies as `1234.5`; dates copy as ISO
+- [ ] In cell mode the right-click menu offers "Copy Cells" (the same tab-separated raw values as Ctrl+C) and no "Copy as CSV"; Ctrl+Shift+C is not bound
 - [ ] Hidden columns are left out, and a value containing a tab, newline or quote is quoted the way Excel quotes it
 - [ ] In row mode, Ctrl+C and the copy menu work as before
 - [ ] The generic behaviour Tables' grid/clipboard tests (TSV writing) checks has a FlexDesk suite under tests/ that passes (ported, not imported from Tables)
@@ -60,3 +62,7 @@ Since the last handback I fixed the reviewer's label issue and pushed commit 619
 Checks: full suite green (175 suites, exit 0, no SKIPPED lines); `node build.mjs` succeeded, dist reverted afterwards, worktree clean; origin/main had no new commits, so nothing needed merging.
 
 Open: once norman answers, record his decision here. If he approves all three points (cells as CSV, shown text, the "Copy Cells" label), the branch is ready for review as it stands at story-0085 @ 61960fa. If he decides otherwise, the code to change is _copyCells in src/ui/components/data_table.js and copyMatrix in cell_grid.js. Nothing landed. Waiting on norman.
+
+### 2026-10-21T06:09Z · norman_agent
+
+Two criteria added by norman (Claude Code session, 2026-10-21), answering the question above: (1) a copy carries raw values, not the shown text; (2) cell mode has no CSV copy at all: the menu offers only "Copy Cells", and Copy as CSV needs no keyboard shortcut anywhere, so Ctrl+Shift+C is not bound. Row mode is unchanged.

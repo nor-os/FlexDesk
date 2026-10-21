@@ -4,7 +4,7 @@
  * Unified, reusable data table component with support for:
  * - Pagination (first/prev/next/last/jump to row)
  * - Row selection (single, range with Shift, toggle with Ctrl/Cmd)
- * - Keyboard shortcuts (Ctrl+A, Ctrl+C, Shift+Ctrl+C, Esc)
+ * - Keyboard shortcuts (Ctrl+A, Ctrl+C, Shift+Ctrl+C outside cell mode, Esc)
  * - Context menu (copy as TSV/CSV)
  * - Column sorting (internal or external via callback)
  * - Column drag-to-resize, and double-click-to-auto-size on the same grip
@@ -451,13 +451,19 @@ const AUTOSIZE_MAX_PX = 520;
  *  it were this tall. A ResizeObserver corrects it the moment a real size exists. */
 const VIRTUAL_FALLBACK_VIEWPORT_PX = 1000;
 
-/** The copy menu's two items — the whole right-click menu of a table without
- *  `contextMenuItems`, and its tail with them (STORY-0010). In cell mode the
- *  first item copies cells, not rows, and says so (STORY-0085). */
-const copyMenuHtml = (cells) => `
+/** The copy menu — the whole right-click menu of a table without
+ *  `contextMenuItems`, and its tail with them (STORY-0010). Row mode has two
+ *  items, "Copy Row(s)" and "Copy as CSV"; cell mode (STORY-0085) has one,
+ *  "Copy Cells", and no CSV copy. */
+const COPY_CELLS_MENU_HTML = `
             <div class="twm-context-menu-item" data-action="copy-tsv">
                 <span class="material-symbols-outlined">content_copy</span>
-                <span class="label">${cells ? 'Copy Cells' : 'Copy Row(s)'}</span>
+                <span class="label">Copy Cells</span>
+            </div>`;
+const copyMenuHtml = (cells) => cells ? COPY_CELLS_MENU_HTML : `
+            <div class="twm-context-menu-item" data-action="copy-tsv">
+                <span class="material-symbols-outlined">content_copy</span>
+                <span class="label">Copy Row(s)</span>
             </div>
             <div class="twm-context-menu-item" data-action="copy-csv">
                 <span class="material-symbols-outlined">table</span>
@@ -2148,12 +2154,20 @@ export class DataTable {
 
     /**
      * Copy selected rows to clipboard — in cell mode (STORY-0085) the cells
-     * selected, or the cursor cell alone, with no header line
+     * selected, or the cursor cell alone, as tab-separated raw values with no
+     * header line; cell mode has no CSV copy
      * @param {'tsv'|'csv'} [format='tsv'] - Output format
      */
     async copyToClipboard(format = 'tsv') {
-        // STORY-0085. Cell mode copies the cells selected, not their rows.
-        if (this._cellGrid) return this._copyCells(format);
+        // STORY-0085. Cell mode copies the cells selected, not their rows,
+        // and only as TSV.
+        if (this._cellGrid) {
+            if (format === 'csv') {
+                console.warn('[DataTable] copyToClipboard: cell mode has no CSV copy; nothing copied');
+                return;
+            }
+            return this._copyCells();
+        }
         const indices = this.getSelection();
         if (indices.length === 0) {
             this._notify('Copy', 'No rows selected.', 'warn');
@@ -2197,20 +2211,17 @@ export class DataTable {
     }
 
     /**
-     * STORY-0085. Cell mode's copy: the range (or the cursor cell alone) as
-     * TSV — Excel's quoting, `tsv.js` — or as CSV, with no header line.
-     * @param {'tsv'|'csv'} format
+     * STORY-0085. Cell mode's copy: the range (or the cursor cell alone), its
+     * raw values as TSV — Excel's quoting, `tsv.js` — with no header line.
      */
-    async _copyCells(format) {
+    async _copyCells() {
         const matrix = this._cellGrid.copyMatrix();
         if (!matrix || !matrix.length) {
             this._notify('Copy', 'No cells selected.', 'warn');
             this._hideContextMenu();
             return;
         }
-        const text = format === 'csv'
-            ? matrix.map((row) => row.map((cell) => this._csvEscape(cell)).join(',')).join('\n')
-            : toTSV(matrix);
+        const text = toTSV(matrix);
         let ok = false;
         try {
             await navigator.clipboard.writeText(text);
@@ -2222,7 +2233,7 @@ export class DataTable {
             const n = matrix.length;
             const m = matrix[0].length;
             const what = n * m === 1 ? '1 cell' : `${n} × ${m} cells`;
-            this._notify('Copy', `Copied ${what}${format === 'csv' ? ' as CSV' : ''}.`, 'info');
+            this._notify('Copy', `Copied ${what}.`, 'info');
         } else {
             this._notify('Copy', 'Clipboard unavailable.', 'warn');
         }
@@ -7085,7 +7096,9 @@ export class DataTable {
                     } else if (key === 'a' && selectable) {
                         event.preventDefault();
                         this._selectAllShown();
-                    } else if (key === 'c') {
+                    } else if (key === 'c' && !(event.shiftKey && this._cellGrid)) {
+                        // STORY-0085. Cell mode binds Ctrl+C only: it has no
+                        // CSV copy, so Ctrl+Shift+C is left to the page.
                         event.preventDefault();
                         this.copyToClipboard(event.shiftKey ? 'csv' : 'tsv');
                     }

@@ -97,6 +97,8 @@ check("ISO '2026-12-31'", parts(parseDateTime('2026-12-31', en).value), [2026, 1
 check("ISO '2026-12-31T08:30'", parts(parseDateTime('2026-12-31T08:30', gb).value), [2026, 12, 31, 8, 30]);
 check("ISO with Z is that instant", parseDateTime('2026-12-31T08:30:00Z').value.toISOString(), '2026-12-31T08:30:00.000Z');
 check('ISO with an offset', parseDateTime('2026-12-31T10:30+02:00').value.toISOString(), '2026-12-31T08:30:00.000Z');
+check("a timestamp written with a space and an offset ('2026-08-24 10:00:00+00:00', as a database writes one)",
+    parseDateTime('2026-08-24 10:00:00+00:00').value.toISOString(), '2026-08-24T10:00:00.000Z');
 check('a zoneless date under utc is UTC midnight', parseDateTime('2026-12-31', { utc: true }).value.toISOString(), '2026-12-31T00:00:00.000Z');
 check('12-hour times', parts(parseDateTime('12/31/2026 2:05 pm', en).value), [2026, 12, 31, 14, 5]);
 check('no 31 February, no month 13, no 25 o\'clock, no two-digit year',

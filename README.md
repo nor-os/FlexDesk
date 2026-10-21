@@ -4084,6 +4084,54 @@ slide-out; an open modal is left to the user, keeps its form and still saves on
 Save. A renderer's `commit` on a `readonly` field applies nothing and answers
 `{valid: false, error}`.
 
+### Managed tiles: one per entity, and closing one is not for good (0.17.0)
+
+A board of one tile per entity — a terminal per seat, a gauge per sensor — is
+not one the user composes: the tiles exist because the entities do. Declare
+them as **managed tiles** and the grid always seeds them; a removed one is
+hidden, not deleted; Reset and reopening bring it back. What the user arranged
+(sizes and order) is the saved layout and stays as it is.
+
+```js
+import { TileGrid, getLayoutPersistence } from '@flexdesk/tiles';
+const store = getLayoutPersistence();            // after configureLayoutPersistence
+const grid = new TileGrid({
+    container,
+    managedTiles: seats.map(s => ({ id: `seat:${s.id}`, type: 'myapp.terminal',
+                                    config: { seat: s.id }, w: 6, h: 4 })),
+    layout: store.getLayout(tabId),              // here, not setLayout() afterwards
+    onLayoutChange: (layout) => store.saveLayout(tabId, layout),
+});
+grid.setManagedTiles(nextSeats.map(toTile));     // the list changed
+```
+
+- **Opening** (`layout:` or `setLayout`) shows every managed tile: a saved one
+  where the layout puts it, a missing one after the saved tiles (the rest of the
+  last row, then below; `findPositionAfter(w, h)`, never a gap above). The
+  declared `config` fills the keys a saved config lacks; the saved one wins.
+  Built in the constructor, the grid reports a layout change only when that
+  differs from what was saved, so an autosaving `onLayoutChange` never saves the
+  seeds over the user's sizes. Pass the saved layout as `layout:` so the tiles
+  are built once.
+- **Removing** a managed tile (`removeTile`) disposes it, drops it from the
+  layout and emits `grid:managed-tile-hidden {tileId}`. It stays hidden
+  (`getHiddenManagedTiles()`) until Reset or a new seed. Hidden is held by the
+  grid only, never saved: a new grid over the saved layout shows it again.
+- **Reset** on a grid with managed tiles calls `restoreManagedTiles()`: every
+  hidden tile comes back after the others, at the size it had, and emits
+  `grid:managed-tiles-restored {ids}`. Nothing else moves, so there is no
+  confirmation, and `grid:layout-reset-requested` is not emitted. An embedder
+  that also wants its template back calls `resetLayout` itself.
+- **`setManagedTiles(tiles, {restore})`** replaces the set and answers
+  `{added, removed}`. A new id gets a tile after the others; a dropped id's tile
+  goes, hidden or not, and nothing about it is remembered; a hidden id stays
+  hidden unless `restore: true` (a new seed). A shown tile keeps its size and
+  config.
+- `getLayout()` marks a managed tile's entry `managed: true`, so a later opening
+  drops a saved entry whose id has left the set (a seat deleted while the tab was
+  closed). A tile the user added beside them is kept. `isManaged(id)` asks.
+  A grid without managed tiles saves, removes and resets exactly as before.
+
 ## Styling
 
 Three stylesheets, and that is the whole CSS contract:

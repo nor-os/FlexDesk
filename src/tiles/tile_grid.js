@@ -5,7 +5,7 @@
  * Manages a 12-column CSS grid with drag-and-drop repositioning and resize functionality.
  */
 
-import { createWidget, getWidgetCatalog } from './tile_registry.js';
+import { createWidget, getWidget, getWidgetCatalog } from './tile_registry.js';
 import { ActionDropdown } from '../ui/components/action_dropdown.js';
 
 export class TileGrid {
@@ -27,6 +27,12 @@ export class TileGrid {
      * @param {*} [options.scope=null] - The board's scope, a filter every tile
      *        follows (0.16.1); see `setScope`.
      * @param {Function} [options.onScopeChange] - `(scope)` after `setScope` changed it.
+     * @param {Array<{id: string, type: string, config?: Object, w?: number, h?: number}>}
+     *        [options.managedTiles] - Tiles the embedder owns, one per entity it
+     *        mirrors (a seat, a sensor, a queue); see `setManagedTiles`.
+     * @param {Array|Object} [options.layout] - A saved layout to open with. With
+     *        managed tiles, pass it here rather than calling `setLayout` after
+     *        construction, so the grid is built once.
      */
     constructor({ container, columns = 12, rowHeight = 80, gap = 16, eventBus = null,
                   showToolbar = true, readonly = false, onLayoutChange, onBeforeLayoutChange,
@@ -38,7 +44,8 @@ export class TileGrid {
                   host = null, stateGuard = null,
                   // Injected, never constructed here: the grid does not know what
                   // a binding is, only that a tile may have somewhere to ask.
-                  dataSource = null, scope = null, onScopeChange = null }) {
+                  dataSource = null, scope = null, onScopeChange = null,
+                  managedTiles = null, layout = null }) {
         this.host = host;
         this.scope = scope;
         this._onScopeChangeCallback = onScopeChange;
@@ -63,6 +70,23 @@ export class TileGrid {
         /** @type {Array<{id: string, x: number, y: number, w: number, h: number}>} */
         this.layout = [];
 
+        /**
+         * MANAGED TILES (0.17.0): the tiles that mirror the embedder's list of
+         * entities. Declared by id; the declaration is the seed, the layout is
+         * where the user put it.
+         * @type {Map<string, {id: string, type: string, config: Object, w?: number, h?: number}>}
+         */
+        this._managed = new Map();
+        /**
+         * Managed tiles the user removed, with the size they had. Held here and
+         * nowhere else: never written into the layout, so reopening the grid —
+         * a new grid over the same saved layout — brings every one of them back.
+         * @type {Map<string, {w: number, h: number}>}
+         */
+        this._hiddenManaged = new Map();
+        // While true, layout changes are not reported (construction only).
+        this._quiet = false;
+
         /** @type {Set<string>|null} IDs of documentation cells (for "Show in Documentation" visibility) */
         this.documentationCellIds = null;
 
@@ -80,6 +104,24 @@ export class TileGrid {
         this._boundOnPointerUp = this._onPointerUp.bind(this);
 
         this._init();
+
+        // Built QUIETLY: a constructor that reported every seeded tile would hand
+        // an autosaving `onLayoutChange` a layout of seeds alone, before the
+        // embedder had read its saved one — every saved size, overwritten by the
+        // act of opening the grid. Only a reconciliation that changed what was
+        // saved (an id dropped, a tile added) is reported, once, at the end.
+        if (managedTiles || layout) {
+            this._quiet = true;
+            let changed = false;
+            try {
+                if (managedTiles) this._declareManaged(managedTiles);
+                if (layout) changed = this.setLayout(layout);
+                else this._seedManaged();
+            } finally {
+                this._quiet = false;
+            }
+            if (changed) this._emitLayoutChanged();
+        }
     }
 
     /**
@@ -250,13 +292,148 @@ export class TileGrid {
         const tile = this.tiles.get(tileId);
         if (!tile) return;
 
+        // A managed tile is hidden, not deleted: the entity it mirrors still
+        // exists, and Reset (or reopening) brings the tile back at its size.
+        if (this._managed.has(tileId)) {
+            const item = this.layout.find(l => l.id === tileId);
+            this._hiddenManaged.set(tileId, { w: item?.w, h: item?.h });
+            this._discardTile(tileId);
+            this.eventBus?.emit?.('grid:managed-tile-hidden', { tileId });
+            this._emitLayoutChanged();
+            return;
+        }
+
+        this._discardTile(tileId);
+        this._emitLayoutChanged();
+    }
+
+    /**
+     * Dispose a tile and drop it from the layout, reporting nothing.
+     * @param {string} tileId
+     * @private
+     */
+    _discardTile(tileId) {
+        const tile = this.tiles.get(tileId);
+        if (!tile) return;
+
         tile.dispose();
         this.tiles.delete(tileId);
 
         // Remove from layout
         this.layout = this.layout.filter(l => l.id !== tileId);
+    }
 
-        this._emitLayoutChanged();
+    /**
+     * DECLARE THE MANAGED TILES: the ones that mirror a list the embedder owns.
+     *
+     * A grid of one tile per entity (a seat, a device, a queue) is not a
+     * dashboard the user composes: the tiles exist because the entities do. So
+     * the grid always seeds them, a removed one is hidden rather than deleted,
+     * and Reset brings it back — while the sizes and order the user gave the
+     * others, which are in the saved layout, stay as they are.
+     *
+     * Call it again whenever the list changes:
+     *   - a new id gets a tile, placed after the tiles already there;
+     *   - a dropped id's tile goes, and so does everything the grid remembered
+     *     about it (the next saved layout no longer has it);
+     *   - an id still hidden stays hidden, unless `restore` asks for a new seed;
+     *   - an id already shown keeps its tile, its size and its config.
+     *
+     * @param {Array<{id: string, type: string, config?: Object, w?: number, h?: number}>} tiles
+     *        `type` is the widget type; `w`/`h` the size a NEW tile gets
+     *        (default: the widget's `DEFAULT_SIZE`, else 4x3).
+     * @param {Object} [options]
+     * @param {boolean} [options.restore=false] - Bring back hidden ones too.
+     * @returns {{added: string[], removed: string[]}}
+     */
+    setManagedTiles(tiles, { restore = false } = {}) {
+        const before = new Set(this._managed.keys());
+        this._declareManaged(tiles);
+
+        const removed = [];
+        for (const id of before) {
+            if (this._managed.has(id)) continue;
+            removed.push(id);
+            this._hiddenManaged.delete(id);
+            this._discardTile(id);
+        }
+        const sizes = restore ? new Map(this._hiddenManaged) : null;
+        if (restore) this._hiddenManaged.clear();
+
+        const added = this._seedManaged(sizes);
+        if (removed.length && !added.length) this._emitLayoutChanged();
+        return { added, removed };
+    }
+
+    /**
+     * Bring back every managed tile the user removed: what Reset does on a grid
+     * with managed tiles. The tiles never removed keep their sizes and order;
+     * a returning tile comes back after them, at the size it had.
+     * @returns {string[]} the ids brought back
+     */
+    restoreManagedTiles() {
+        const sizes = new Map(this._hiddenManaged);
+        this._hiddenManaged.clear();
+        const restored = this._seedManaged(sizes);
+        this.eventBus?.emit?.('grid:managed-tiles-restored', { ids: restored });
+        return restored;
+    }
+
+    /**
+     * @param {string} tileId
+     * @returns {boolean} whether the embedder declared this tile as managed
+     */
+    isManaged(tileId) {
+        return this._managed.has(tileId);
+    }
+
+    /** @returns {string[]} managed tiles the user removed, until Reset or a new seed */
+    getHiddenManagedTiles() {
+        return [...this._hiddenManaged.keys()];
+    }
+
+    /**
+     * Replace the managed set.
+     * @private
+     */
+    _declareManaged(tiles) {
+        const next = new Map();
+        for (const t of tiles || []) {
+            if (!t || typeof t.id !== 'string' || !t.id || !t.type) {
+                throw new TypeError('[TileGrid] a managed tile needs a string `id` and a widget `type`');
+            }
+            next.set(t.id, { ...t, config: t.config || {} });
+        }
+        this._managed = next;
+    }
+
+    /**
+     * Add every managed tile that is neither on the grid nor hidden, in
+     * declaration order, each after the tiles already there.
+     * @param {Map<string, {w: number, h: number}>} [sizes] - The size a returning
+     *        tile had when it was removed.
+     * @returns {string[]} the ids added
+     * @private
+     */
+    _seedManaged(sizes = null) {
+        const added = [];
+        this._managed.forEach((spec, id) => {
+            if (this.tiles.has(id) || this._hiddenManaged.has(id)) return;
+            const had = sizes?.get(id);
+            const size = had?.w && had?.h ? { w: had.w, h: had.h } : this._managedSize(spec);
+            const pos = this.findPositionAfter(size.w, size.h);
+            // A copy, so a tile that edits its config does not edit the declaration.
+            if (this.addTile(spec.type, { ...pos, ...size }, { ...spec.config }, id)) added.push(id);
+        });
+        return added;
+    }
+
+    /** @private */
+    _managedSize(spec) {
+        if (spec.w && spec.h) return { w: spec.w, h: spec.h };
+        let def = null;
+        try { def = getWidget(spec.type)?.DEFAULT_SIZE; } catch { def = null; }
+        return { w: def?.w || 4, h: def?.h || 3 };
     }
 
     /**
@@ -329,20 +506,35 @@ export class TileGrid {
      * @returns {Array} Layout array
      */
     getLayout() {
-        return this.layout.map(l => ({
-            id: l.id,
-            type: l.type,
-            x: l.x,
-            y: l.y,
-            w: l.w,
-            h: l.h,
-            config: this.tiles.get(l.id)?.config || l.config
-        }));
+        return this.layout.map(l => {
+            const entry = {
+                id: l.id,
+                type: l.type,
+                x: l.x,
+                y: l.y,
+                w: l.w,
+                h: l.h,
+                config: this.tiles.get(l.id)?.config || l.config
+            };
+            // Only on a managed tile, so a grid without any saves what it always did.
+            // It is how a later `setLayout` knows a saved entry whose id has left
+            // the managed set is a forgotten tile, not one the user added.
+            if (this._managed.has(l.id)) entry.managed = true;
+            return entry;
+        });
     }
 
     /**
      * Set layout and rebuild tiles.
+     *
+     * With managed tiles this is an OPENING: every managed tile is shown again
+     * (none stays hidden), a saved one where the layout puts it, a missing one
+     * after the saved tiles. A saved entry marked `managed` whose id is no longer
+     * declared is dropped. Without managed tiles it is exactly what it was.
+     *
      * @param {Array|Object} layout - Layout array or object with tiles property
+     * @returns {boolean} with managed tiles, whether reconciling changed the
+     *          layout (an entry dropped or a tile added); otherwise false
      */
     setLayout(layout) {
         // Clear existing tiles
@@ -356,15 +548,55 @@ export class TileGrid {
         // Handle both array and object with tiles property
         const tilesArray = Array.isArray(layout) ? layout : (layout?.tiles || []);
 
+        const managed = this._managed.size > 0;
+        let changed = false;
+        if (managed) this._hiddenManaged.clear();
+
         // Rebuild from layout
         tilesArray.forEach(item => {
-            this.addTile(item.type, {
+            let { type, config } = item;
+            if (managed) {
+                if (item.managed && !this._managed.has(item.id)) { changed = true; return; }
+                const spec = this._managed.get(item.id);
+                // The embedder owns a managed tile's widget; its declaration seeds
+                // the config keys the saved one lacks, and what was saved wins.
+                if (spec) {
+                    type = spec.type;
+                    config = { ...spec.config, ...(item.config || {}) };
+                }
+            }
+            this.addTile(type, {
                 x: item.x,
                 y: item.y,
                 w: item.w,
                 h: item.h
-            }, item.config, item.id);
+            }, config, item.id);
         });
+
+        if (managed && this._seedManaged().length) changed = true;
+        return changed;
+    }
+
+    /**
+     * Find the first free position that comes AFTER every tile on the grid in
+     * reading order (row, then column): the rest of the last row, then below.
+     * Unlike `findNextPosition` it never fills a gap the user left higher up,
+     * so a tile that joins comes after the ones already arranged.
+     * @param {number} w - Width in cells
+     * @param {number} h - Height in cells
+     * @returns {{x: number, y: number}}
+     */
+    findPositionAfter(w, h) {
+        if (!this.layout.length) return { x: 0, y: 0 };
+        const last = this.layout.reduce((a, b) => (b.y > a.y || (b.y === a.y && b.x > a.x) ? b : a));
+        const fits = (x, y) => this.layout.every(l => !this._tilesOverlap({ x, y, w, h }, l));
+        const maxY = Math.max(...this.layout.map(l => l.y + l.h));
+        for (let y = last.y; y <= maxY; y++) {
+            for (let x = (y === last.y ? last.x + 1 : 0); x <= this.columns - w; x++) {
+                if (fits(x, y)) return { x, y };
+            }
+        }
+        return { x: 0, y: maxY };
     }
 
     /**
@@ -928,6 +1160,12 @@ export class TileGrid {
      * @private
      */
     _resetLayout() {
+        // A grid with managed tiles resets by bringing them back: nothing the
+        // user arranged is lost, so there is nothing to confirm.
+        if (this._managed.size) {
+            this.restoreManagedTiles();
+            return;
+        }
         this.eventBus?.emit?.('grid:reset-layout-confirm', {
             onConfirm: () => {
                 this.eventBus?.emit?.('grid:layout-reset-requested');
@@ -961,6 +1199,7 @@ export class TileGrid {
      * @private
      */
     _emitLayoutChanged() {
+        if (this._quiet) return;
         const layout = this.getLayout();
         this.eventBus?.emit?.('grid:layout-changed', { layout });
 

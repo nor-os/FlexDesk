@@ -78,6 +78,40 @@ const PLOT_LAYOUTS = Object.freeze({
     'wide-bottom': { label: '2 + 1',          slots: 3, grid: { columns: '1fr 1fr',   rows: '1fr 1fr' }, areas: [{ slot: 0, gridArea: '1/1/2/2' }, { slot: 1, gridArea: '1/2/2/3' }, { slot: 2, gridArea: '2/1/3/3' }] },
 });
 
+/**
+ * A new y axis with no series. Axis `index` 0, 2, 4, ... sits on the left,
+ * 1, 3, 5, ... on the right.
+ * @param {number} [index=0] - its place among the subplot's y axes
+ */
+function makeDefaultYAxis(index = 0) {
+    return {
+        id: uid('y'),
+        label: '',
+        scale: 'linear',
+        position: index % 2 === 0 ? 'left' : 'right',
+        min: null,
+        max: null,
+        step: null,
+        series: [],
+    };
+}
+
+/**
+ * A new series with no variable, coloured by its place in the subplot.
+ * @param {number} [index=0] - how many series the subplot already has
+ */
+function makeDefaultSeries(index = 0) {
+    return {
+        id: uid('s'),
+        variable: '',
+        label: '',
+        color: getSeriesColor(index),
+        lineWidth: 2,
+        lineStyle: 'solid',
+        stackGroup: null,
+    };
+}
+
 function makeDefaultSubplot(index) {
     return {
         id: uid('sp'),
@@ -89,16 +123,7 @@ function makeDefaultSubplot(index) {
         showDataPoints: false,
         xAxis: { useTime: true, variable: '' },
         zAxis: null,
-        yAxes: [{
-            id: uid('y'),
-            label: '',
-            scale: 'linear',
-            position: 'left',
-            min: null,
-            max: null,
-            step: null,
-            series: [],
-        }],
+        yAxes: [makeDefaultYAxis(0)],
     };
 }
 
@@ -150,24 +175,26 @@ function migrateSingleChart(data) {
         nanHandling:    data?.nanHandling ?? 'gap',
         showDataPoints: data?.showDataPoints ?? false,
         yAxes: [{
-            id: uid('y'),
+            ...makeDefaultYAxis(0),
             label: data?.yLabel ?? '',
-            scale: 'linear',
-            position: 'left',
-            min: null,
-            max: null,
-            series: series.map((s, i) => ({
-                id: s.id ?? uid('s'),
-                variable: s.variable ?? '',
-                label: s.label ?? '',
-                color: s.color ?? getSeriesColor(i),
-                lineWidth: s.lineWidth ?? 2,
-                lineStyle: s.lineStyle ?? 'solid',
-                stackGroup: s.stackGroup ?? null,
-                ...(s.overlay ? { overlay: s.overlay } : {}),
-            })),
+            series: series.map((s, i) => {
+                const d = makeDefaultSeries(i);
+                return {
+                    id: s.id ?? d.id,
+                    variable: s.variable ?? d.variable,
+                    label: s.label ?? d.label,
+                    color: s.color ?? d.color,
+                    lineWidth: s.lineWidth ?? d.lineWidth,
+                    lineStyle: s.lineStyle ?? d.lineStyle,
+                    stackGroup: s.stackGroup ?? d.stackGroup,
+                    ...(s.overlay ? { overlay: s.overlay } : {}),
+                };
+            }),
         }],
     };
 }
 
-export { uid, applyNanHandling, PLOT_LAYOUTS, makeDefaultSubplot, migrateData, migrateSingleChart };
+export {
+    uid, applyNanHandling, PLOT_LAYOUTS, makeDefaultSubplot, makeDefaultYAxis, makeDefaultSeries,
+    migrateData, migrateSingleChart,
+};

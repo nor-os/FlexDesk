@@ -14,6 +14,8 @@
 import { CellSelection } from './cell_selection.js';
 import { CellEditorHost, createTextEditor } from './cell_editor_host.js';
 import { CELL_EDITORS, editorTypeOf } from './cell_editors.js';
+import { StagedEdits } from './staged_edits.js';
+import { FillHandle } from './fill_handle.js';
 
 /** Is this a cell somebody filled? What Ctrl+arrow stops at. */
 export function isFilledValue(value) {
@@ -65,6 +67,18 @@ export class CellGrid {
             onCancel: (s, reason) => this._closed(s, reason),
             onRefuse: (s, error, text, reason) => this._refused(s, error, text, reason),
         });
+        /** STORY-0088 `staged`: commits are staged here instead of sent. */
+        this.staged = null;
+        if (this._cfg().staged) {
+            if (this._cfg().editable) this.staged = new StagedEdits(this);
+            else console.warn('[DataTable] `staged` needs `editable`; ignored.');
+        }
+        /** STORY-0089 `fillHandle`: the handle on the range's corner. */
+        this.fill = null;
+        if (this._cfg().fillHandle) {
+            if (this.staged) this.fill = new FillHandle(this);
+            else console.warn('[DataTable] `fillHandle` needs `staged`; ignored.');
+        }
     }
 
     // ── what the table is, read through its own helpers ──────────────────
@@ -73,10 +87,7 @@ export class CellGrid {
 
     /** The data columns shown, in the order shown. */
     columns() {
-        const n = this._cfg().headers?.length || 0;
-        const out = [];
-        for (let c = 0; c < n; c++) if (!this.table._isHidden(c)) out.push(c);
-        return out;
+        return this.table._shownColumns();
     }
 
     /** The positions of the rows on the page drawn, `[first, last]`. */
@@ -123,6 +134,7 @@ export class CellGrid {
         const err = this.errors.get(key);
         if (err) return err.value;
         if (this.pending.has(key)) return this.pending.get(key);
+        if (this.staged?.has(key)) return this.staged.value(key);
         const row = this.currentRow(rowIdx);
         return row ? row[col] : undefined;
     }
@@ -223,6 +235,8 @@ export class CellGrid {
         this.errors.clear();
         this.latest.clear();
         this.rowsWaiting.clear();
+        this.staged?.clear();
+        this.fill?.clearMarks();
     }
 
     isEditing() {
@@ -241,21 +255,28 @@ export class CellGrid {
         }
     }
 
-    /** One cell: the selection, and its commit's pending or refused mark. */
+    /** One cell: the selection, its commit's pending or refused mark, and
+     *  (STORY-0088) its staged value and a refused batch's mark. */
     _decorateCell(td, pos, rowIdx, col) {
         this._paintCell(td, pos, col);
         const key = `${rowIdx}:${col}`;
         const err = this.errors.get(key);
         const waiting = this.pending.has(key);
+        const staged = !!this.staged?.has(key);
         if (err || waiting) {
             td.textContent = this.table._formatValue(err ? err.value : this.pending.get(key), col);
+        } else if (staged) {
+            td.textContent = this.table._formatValue(this.staged.value(key), col);
         }
+        const message = err ? err.message : this.staged?.errors.get(key);
         td.classList.toggle('twm-dt-cell--pending', waiting);
-        td.classList.toggle('twm-dt-cell--error', !!err);
-        if (err) {
-            td.title = err.message;
-            td.setAttribute('data-error', err.message);
+        td.classList.toggle('twm-dt-cell--staged', staged);
+        td.classList.toggle('twm-dt-cell--error', message != null);
+        if (message != null) {
+            td.title = message;
+            td.setAttribute('data-error', message);
         } else td.removeAttribute('data-error');
+        this.fill?.paintCell(td, pos, col);   // STORY-0089, after the text
     }
 
     _paintCell(td, pos, col) {
@@ -264,6 +285,7 @@ export class CellGrid {
         td.classList.toggle('twm-dt-cell--cursor', cursor);
         if (cursor) td.setAttribute('aria-selected', 'true');
         else td.removeAttribute('aria-selected');
+        this.fill?.paintCell(td, pos, col);   // STORY-0089
     }
 
     paint() {
@@ -282,6 +304,7 @@ export class CellGrid {
      *  whoever listens. */
     _changed({ reveal = false } = {}) {
         const t = this.table;
+        this.fill?.clearMarks();   // STORY-0089: a skipped mark lasts until the selection moves
         if (reveal && this.sel.focus) t.scrollToRow(this.rowIndexAt(this.sel.focus.row));
         this.paint();
         const before = t.getSelection().join();
@@ -357,6 +380,8 @@ export class CellGrid {
         // An editor that was open across a render of its row (an `updateRow`)
         // is still the editor; the paint follows the model.
         this.paint();
+        // STORY-0088. The new controls are held while cells are staged.
+        this.staged?.paintFreeze();
     }
 
     /** One key on the focused table. Returns whether the cell mode took it. */
@@ -364,6 +389,14 @@ export class CellGrid {
         this._sync();
         const ctrl = ev.ctrlKey || ev.metaKey;
         const k = ev.key;
+        // STORY-0088. Ctrl+Z takes a staged edit back; Ctrl+Y (Ctrl+Shift+Z)
+        // puts it back. Taken even with nothing to undo: the browser's own
+        // undo has nothing to do on a table either.
+        if (this.staged && ctrl && !ev.altKey) {
+            const lower = String(k).toLowerCase();
+            if (lower === 'z' && !ev.shiftKey) { this.staged.undo(); return true; }
+            if (lower === 'y' || (lower === 'z' && ev.shiftKey)) { this.staged.redo(); return true; }
+        }
         if (ARROWS[k] && !ev.altKey) {
             const [dr, dc] = ARROWS[k];
             if (ctrl) {
@@ -413,6 +446,8 @@ export class CellGrid {
     canEdit(pos, col) {
         const spec = this._cfg().editable;
         if (!spec) return false;
+        // STORY-0088. While a staged batch is out, nothing new is typed into it.
+        if (this.staged?.committing) return false;
         if (spec === true) return true;
         if (Array.isArray(spec)) return spec.includes(col);
         if (typeof spec === 'function') {
@@ -500,6 +535,7 @@ export class CellGrid {
     }
 
     dispose() {
+        this.fill?.dispose();
         this.editor.cancel('dispose');
         this.renderWaiting = false;
         this.rowsWaiting.clear();
@@ -586,6 +622,12 @@ export class CellGrid {
         const key = `${s.rowIdx}:${s.colIdx}`;
         // Left as it was shown: no edit at all.
         if (Object.is(value, s.previous)) {
+            this._closed(s, reason);
+            return;
+        }
+        // STORY-0088 `staged`: the value is staged, not sent.
+        if (this.staged) {
+            if (live) this.staged.stage(s.rowIdx, s.colIdx, value);
             this._closed(s, reason);
             return;
         }

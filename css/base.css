@@ -275,6 +275,28 @@
     flex-direction: column;
     gap: var(--space-lg);
 }
+/* A toast card. The root takes no pointer events (it overlays the page), so the
+ * card takes them back: without this its buttons cannot be clicked (BUG-0033). */
+.twm-notification {
+    pointer-events: auto;
+    background: #1f1f20;
+    border: 1px solid #2f2f31;
+    border-left: 4px solid #4fc1ff;
+    border-radius: var(--radius-lg);
+    padding: var(--space-lg) 14px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+    animation: twm-notification-in 160ms ease-out;
+    min-width: 280px;
+    cursor: pointer;
+}
+.twm-notification--success { border-left-color: var(--color-success, #3fb950); }
+.twm-notification--warn    { border-left-color: var(--color-warning, #ff9800); }
+.twm-notification--error,
+.twm-notification--fatal   { border-left-color: var(--color-danger, #c74e4e); }
+@keyframes twm-notification-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
 .twm-notification__header {
     display: flex;
     align-items: center;
@@ -425,7 +447,7 @@
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
     display: flex;
     flex-direction: column;
-    animation: notification-in 160ms ease-out;
+    animation: twm-notification-in 160ms ease-out;
 }
 .twm-notification-history__header {
     display: flex;

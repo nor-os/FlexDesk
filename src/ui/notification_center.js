@@ -105,7 +105,7 @@ export class NotificationCenter extends ComponentBase {
             this.container = existingContainer;
             this.rootEl = existingContainer.querySelector('.twm-notification-center');
             this.listEl = existingContainer.querySelector('.twm-notification-center__list');
-            this.liveRegionEl = existingContainer.querySelector('.notification-center__live-region');
+            this.liveRegionEl = existingContainer.querySelector('.twm-notification-center__live-region');
             this._mounted = true;
             this.#subscribeEvents();
             this.#claimToastBus();
@@ -124,7 +124,7 @@ export class NotificationCenter extends ComponentBase {
         this.listEl.className = 'twm-notification-center__list';
 
         this.liveRegionEl = document.createElement('div');
-        this.liveRegionEl.className = 'notification-center__live-region';
+        this.liveRegionEl.className = 'twm-notification-center__live-region';
         this.liveRegionEl.setAttribute('aria-live', 'polite');
         this.liveRegionEl.setAttribute('aria-atomic', 'true');
         this.liveRegionEl.style.position = 'absolute';
@@ -599,7 +599,7 @@ export class NotificationCenter extends ComponentBase {
         if (!this.#summaryEl) {
             const more = document.createElement('button');
             more.type = 'button';
-            more.className = 'notification twm-notification--summary';
+            more.className = 'twm-notification twm-notification--summary';
             more.addEventListener('click', () => {
                 const held = [...this.held];
                 try { this.summaryAction?.(held); } catch (err) { this.logger?.warn?.('summaryAction failed', err); }
@@ -729,8 +729,8 @@ export class NotificationCenter extends ComponentBase {
     #patchItem(entry, notification) {
         const item = entry.el;
         if (entry.severity !== notification.severity) {
-            if (entry.severity) item.classList.remove(`notification--${entry.severity}`);
-            item.classList.add('notification', `notification--${notification.severity}`);
+            if (entry.severity) item.classList.remove(`twm-notification--${entry.severity}`);
+            item.classList.add('twm-notification', `twm-notification--${notification.severity}`);
             entry.severity = notification.severity;
         }
         if (entry.titleEl) NotificationCenter.#setText(entry.titleEl, notification.title);

@@ -165,8 +165,8 @@ section('§4 persistent while running; finishing into success dismisses after 3 
     clock.advance(10_000);
     ok('a running progress toast ignores timers and stays', toastEl(p));
     nc.update(p, { progress: 1, severity: 'success', message: 'Done', durationMs: 3000 });
-    ok('it shows success', toastEl(p).classList.contains('notification--success'));
-    ok('…not info any more', !toastEl(p).classList.contains('notification--info'));
+    ok('it shows success', toastEl(p).classList.contains('twm-notification--success'));
+    ok('…not info any more', !toastEl(p).classList.contains('twm-notification--info'));
     ok('its bar is done and full', toastEl(p).querySelector('.twm-progress--done') && fill(p).style.width === '100%');
     check('the message changed', toastEl(p).querySelector('.twm-notification__body').textContent, 'Done');
     clock.advance(2999);
@@ -181,7 +181,7 @@ section('§4 persistent while running; finishing into success dismisses after 3 
     ok('an error without a duration stays until dismissed', toastEl(e)?.querySelector('.twm-progress--error'));
     const w = nc.show(job());
     nc.update(w, { severity: 'warn', message: 'Slow' });
-    ok('warn restyles a running toast', toastEl(w)?.classList.contains('notification--warn'));
+    ok('warn restyles a running toast', toastEl(w)?.classList.contains('twm-notification--warn'));
     ok('…but does not finish it', toastEl(w)?.querySelector('.twm-progress--running')
         && !toastEl(w).querySelector('.twm-progress--cancelled'));
     nc.dispose();
@@ -194,7 +194,7 @@ section('§4 persistent while running; finishing into success dismisses after 3 
     try { check('a finished toast takes a non-outcome severity', nc.update(b, { severity: 'info', message: 'later' }), true); }
     catch (err) { threw = err; }
     ok('…without throwing', !threw);
-    ok('…restyles the toast', toastEl(b)?.classList.contains('notification--info') && !toastEl(b).classList.contains('notification--success'));
+    ok('…restyles the toast', toastEl(b)?.classList.contains('twm-notification--info') && !toastEl(b).classList.contains('twm-notification--success'));
     check('…and patches the rest of it', toastEl(b)?.querySelector('.twm-notification__body')?.textContent, 'later');
     ok('…while the bar keeps its end state', toastEl(b)?.querySelector('.twm-progress--done'));
     nc.update(b, { severity: 'error' });
@@ -296,7 +296,7 @@ section('§8 update() on plain toasts');
     ok('…which is still not drawn', !toastEl(b));
     nc.dismiss(a, 'manual');
     check('…and shows the change when it comes on screen', toastEl(b)?.querySelector('.twm-notification__body')?.textContent, 'held, changed');
-    ok('…with its new severity', toastEl(b)?.classList.contains('notification--warn'));
+    ok('…with its new severity', toastEl(b)?.classList.contains('twm-notification--warn'));
     nc.dispose();
 }
 {
@@ -329,7 +329,7 @@ section('§8 update() on plain toasts');
     check('description is patchable', toastEl(a).querySelector('.twm-notification__description')?.textContent, 'second');
     ok('…in the same element', toastEl(a) === el);
     nc.update(a, { severity: 'error' });
-    ok('a severity change swaps the class', el.classList.contains('notification--error') && !el.classList.contains('notification--info'));
+    ok('a severity change swaps the class', el.classList.contains('twm-notification--error') && !el.classList.contains('twm-notification--info'));
     check('…and the data', nc.notifications.find((x) => x.id === a).severity, 'error');
 
     nc.update(a, { description: '' });
@@ -337,7 +337,7 @@ section('§8 update() on plain toasts');
     ok('a description going rebuilds the toast', rebuilt && rebuilt !== el && !rebuilt.querySelector('.twm-notification__description'));
     check('…in its place', shownIds(), [a, other]);
     ok('…keeping its other parts', rebuilt.querySelector('.twm-notification__title')?.textContent === 'T'
-        && rebuilt.classList.contains('notification--error'));
+        && rebuilt.classList.contains('twm-notification--error'));
     nc.update(a, { title: '' });
     ok('a title going rebuilds it without one', toastEl(a) !== rebuilt && !toastEl(a).querySelector('.twm-notification__title'));
     nc.update(a, { title: 'Back', description: 'again' });

@@ -27,6 +27,14 @@
  * collapsed state and a hovered button survive. A running progress toast is
  * never held behind "+N more" (and never dropped by 'drop'); it counts toward
  * `maxVisible`, so it takes the place of the newest other toast.
+ *
+ * History subscribers (0.17.3)
+ * ----------------------------
+ * `history` holds one entry per toast, whichever way it came (`show()`, the
+ * `warn()`/`error()`/... helpers, `toast:show`, `notification:show`,
+ * `log:entry`). A toast that leaves marks its own entry `dismissed` with a
+ * `reason`; it adds none. `subscribe(fn)` calls `fn(entry, center)` for each
+ * entry added, so a history view follows the centre rather than the bus.
  */
 import { ComponentBase } from './base/component_base.js';
 import { getSetting } from '../core/settings.js';
@@ -55,6 +63,7 @@ const SUPPRESSED_NAMESPACE_TITLES = new Set(['bootstrap', 'app']);
 export class NotificationCenter extends ComponentBase {
     #items;
     #summaryEl;
+    #historyListeners;
 
     constructor({
         eventBus,
@@ -90,6 +99,7 @@ export class NotificationCenter extends ComponentBase {
         /** id -> the drawn toast's nodes, for the toasts on screen. */
         this.#items = new Map();
         this.#summaryEl = null;
+        this.#historyListeners = new Set();
 
         this.container = null;
         this.rootEl = null;
@@ -151,6 +161,7 @@ export class NotificationCenter extends ComponentBase {
     dispose() {
         this.#clearTimers();
         this.#unsubscribeEvents();
+        this.#historyListeners.clear();
         // Give the toast helpers back to the console — unless someone has
         // pointed them at another bus since this centre mounted.
         if (this.eventBus && getToastBus() === this.eventBus) setToastBus(null);
@@ -190,7 +201,7 @@ export class NotificationCenter extends ComponentBase {
             if (idx !== -1) {
                 const [removed] = this.notifications.splice(idx, 1);
                 this.#stopTimer(removed.id);
-                this.#recordHistory({ ...removed, dismissed: true, reason: 'overflow' });
+                this.#recordDismissal(removed, 'overflow');
             }
         }
 
@@ -207,13 +218,13 @@ export class NotificationCenter extends ComponentBase {
             const h = this.held.findIndex((item) => item.id === notificationId);
             if (h === -1) return false;
             const [gone] = this.held.splice(h, 1);
-            this.#recordHistory({ ...gone, dismissed: true, reason });
+            this.#recordDismissal(gone, reason);
             this.#render();
             return true;
         }
         const [removed] = this.notifications.splice(idx, 1);
         this.#stopTimer(notificationId);
-        this.#recordHistory({ ...removed, dismissed: true, reason });
+        this.#recordDismissal(removed, reason);
         // A place on screen came free: the oldest held-back toast takes it.
         this.#rebalance();
         this.#render();
@@ -475,12 +486,39 @@ export class NotificationCenter extends ComponentBase {
         this.activeTimers.clear();
     }
 
+    /**
+     * Hear of every entry added to `history`, by `show()`, `warn()`/`error()`/
+     * `info()`/`success()` and the bus alike: `listener(entry, center)`, once
+     * per toast, after the entry is in `history`. A dismissal changes the
+     * toast's own entry and is not an entry of its own. Answers the unsubscribe.
+     */
+    subscribe(listener) {
+        if (typeof listener !== 'function') return () => {};
+        this.#historyListeners.add(listener);
+        return () => { this.#historyListeners.delete(listener); };
+    }
+
     #recordHistory(entry) {
         if (entry.skipHistory) return;
         this.history.push(entry);
         if (this.history.length > this.historyLimit) {
             this.history.shift();
         }
+        [...this.#historyListeners].forEach((listener) => {
+            try {
+                listener(entry, this);
+            } catch (err) {
+                this.logger?.warn?.('twm-notification-center', 'History listener failed', { err });
+            }
+        });
+    }
+
+    /** A toast that left marks its own entry: one toast, one entry. */
+    #recordDismissal(notification, reason) {
+        if (notification.skipHistory) return;
+        const at = this.history.findLastIndex((entry) => entry.id === notification.id);
+        if (at === -1) return;
+        this.history[at] = { ...notification, dismissed: true, reason };
     }
 
     /** A progress toast that has not been given an outcome yet. */

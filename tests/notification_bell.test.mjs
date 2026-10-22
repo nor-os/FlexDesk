@@ -73,15 +73,19 @@ const shown = (el) => el.style.display !== 'none';
 console.log('§1 as before, without the new options');
 {
     const bus = new EventBus();
-    const center = { history: [{ title: 'old', message: 'seen at boot', timestamp: Date.now() }] };
+    const listeners = new Set();
+    const center = {
+        history: [{ title: 'old', message: 'seen at boot', timestamp: Date.now() }],
+        subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+    };
     const bell = new NotificationHistory({ notificationCenter: center, eventBus: bus });
     bell.mount();
     ok('in FlexDesk\'s own bottom bar', bell.triggerEl.parentElement === document.querySelector('.twm-bar-right'));
     ok('what was there at mount is not unread', !shown(badgeOf(bell)));
-    center.history.push({ title: 'new', message: 'x', timestamp: Date.now() });
-    bus.emit('toast:show', {});
-    await tick();
-    ok('a new toast is a seen-count delta', shown(badgeOf(bell)) && badgeOf(bell).textContent === '1');
+    const entry = { title: 'new', message: 'x', timestamp: Date.now() };
+    center.history.push(entry);
+    listeners.forEach((fn) => fn(entry, center));
+    ok('a recorded entry is one unread', shown(badgeOf(bell)) && badgeOf(bell).textContent === '1');
     ok('…in the plain badge', badgeOf(bell).className === 'twm-notification-history__badge');
     let asked = 0;
     const sub = bus.on('bottompanel:show', () => { asked++; });

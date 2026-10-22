@@ -2,8 +2,10 @@
  * NotificationHistory - Bottom bar notification history panel
  *
  * Bell icon in the global-bottom-bar that opens a popover listing past notifications.
- * Reads from NotificationCenter.history (no modifications to NotificationCenter needed).
- * Tracks unread count via lastSeenCount delta and updates a badge on the bell icon.
+ * Reads from NotificationCenter.history and follows it through
+ * `notificationCenter.subscribe()` (0.17.3): every entry the centre records — a
+ * toast from `show()`/`warn()`/... or from the bus — is one unread, until the
+ * popover is opened. The bus is not watched for toasts.
  *
  * THREE OPTIONS, all additive (FlexDesk STORY-0020); without them it is the bell
  * it always was:
@@ -34,7 +36,8 @@ export class NotificationHistory {
 
         this.triggerEl = null;
         this.badgeEl = null;
-        this.lastSeenCount = 0;
+        /** Entries recorded since the popover was last opened. */
+        this.unreadCount = 0;
         this._popoverCleanup = null;
         this._subscriptions = [];
     }
@@ -80,10 +83,14 @@ export class NotificationHistory {
             return;
         }
 
-        // Sync initial count so existing history doesn't show as unread
-        this.lastSeenCount = this.notificationCenter?.history?.length ?? 0;
-
-        this.#subscribeEvents();
+        // What is in the history at mount is not unread.
+        this.unreadCount = 0;
+        const unsubscribe = this.notificationCenter?.subscribe?.(() => {
+            this.unreadCount += 1;
+            this.#updateBadge();
+        });
+        if (typeof unsubscribe === 'function') this._subscriptions.push(unsubscribe);
+        this.#updateBadge();
     }
 
     unmount() {
@@ -99,20 +106,6 @@ export class NotificationHistory {
         this.badgeEl = null;
     }
 
-    #subscribeEvents() {
-        if (!this.eventBus) return;
-
-        // Update badge whenever a new notification comes in
-        const badgeUpdate = () => queueMicrotask(() => this.#updateBadge());
-        const events = ['toast:show', 'notification:show', 'log:entry',
-            'workspace:save:failed', 'workspace:import:failed'];
-
-        events.forEach(name => {
-            const handle = this.eventBus.on(name, badgeUpdate);
-            this._subscriptions.push(() => handle?.dispose?.());
-        });
-    }
-
     /** The Alerts tab, asked for on the bus — or the embedder's own verb. */
     #openAlerts() {
         if (this.onOpen) {
@@ -126,7 +119,7 @@ export class NotificationHistory {
         const historyLen = this.notificationCenter?.history?.length ?? 0;
         const unread = this.alertLog
             ? this.alertLog.unreadCount()
-            : Math.max(0, historyLen - this.lastSeenCount);
+            : Math.min(this.unreadCount, historyLen);
 
         if (!this.badgeEl) return;
 
@@ -164,7 +157,7 @@ export class NotificationHistory {
         this.#closePanel();
 
         // Mark all as seen
-        this.lastSeenCount = this.notificationCenter?.history?.length ?? 0;
+        this.unreadCount = 0;
         this.#updateBadge();
 
         const panel = document.createElement('div');
@@ -197,7 +190,7 @@ export class NotificationHistory {
         header.querySelector('.twm-notification-history__clear-btn')
             .addEventListener('click', () => {
                 this.notificationCenter.history.splice(0);
-                this.lastSeenCount = 0;
+                this.unreadCount = 0;
                 this.#updateBadge();
                 this.#renderList(list);
             });

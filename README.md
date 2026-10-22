@@ -3527,7 +3527,8 @@ again: its pane hears `onShow` and `onSelect` fires, and nothing is written back
 Toasts, from `toast:show` on the bus (or `toastInfo` / `toastWarn` /
 `toastError` / `toastSuccess`) or `show()`. A payload with `persistent: true`
 stays until its × is clicked. `history` keeps every notification shown, and
-`NotificationHistory` puts it behind a bell in the bottom bar.
+`NotificationHistory` puts it behind a bell in the bottom bar (one entry per toast;
+`subscribe(fn)` hears each one, 0.17.3).
 
 *New in 0.11.0:* **`overflow: 'collapse'`.** By default, a toast past
 `maxVisible` (3) pushes the oldest off the screen. With `'collapse'`, the toasts
@@ -3606,6 +3607,32 @@ clicked. A consumer stylesheet that targeted `.notification` should target
 `.twm-notification` instead. The live region is `.twm-notification-center__live-region`.
 `tests/notification_toast_styles.test.mjs` holds the classes, the cascade and
 the sheets.
+
+### One toast, one history entry, one unread (0.17.3)
+
+`history` holds **one entry per toast**, however it was raised: `show()`, the
+`warn()` / `error()` / `info()` / `success()` helpers, `toast:show`,
+`notification:show` or `log:entry`. A toast that leaves (timeout, ×, overflow,
+`clearAll`) marks its own entry `dismissed: true` with the `reason`, and adds
+no entry. **`nc.subscribe(fn)`** calls `fn(entry, center)` once for each entry
+added, after it is in `history` (not for a `skipHistory` toast, and not for a
+dismissal), and answers the unsubscribe; `dispose()` drops every listener.
+
+`NotificationHistory` follows the centre through `subscribe()`: every entry
+recorded is one unread on the bell until the popover is opened, also past
+`historyLimit`. It no longer watches the bus for toasts, so its
+`notificationCenter` is a `NotificationCenter` (or anything with `history` and
+`subscribe`).
+
+```js
+const off = nc.subscribe((entry) => console.log('recorded', entry.severity, entry.message));
+nc.warn('Disk almost full');          // the bell says 1
+```
+
+Until 0.17.3 the bell counted only on bus events, so a toast raised through
+`show()` / `warn()` / `error()` / `info()` never raised its badge, and a dismissal
+was pushed as a second entry: a toast that timed out was in `history` twice
+and counted twice. `tests/notification_history_follows_center.test.mjs` holds it.
 
 ### Alerts with history: a log, a pane, a tab host and a bell (0.14.0)
 

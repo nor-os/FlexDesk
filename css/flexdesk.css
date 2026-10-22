@@ -10541,6 +10541,17 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     padding: var(--space-xl) 0;
     color: var(--text-muted);
 }
+/* SettingsCategories (0.17.2): the sidebar's filter, categories and
+ * Reset all, mounted outside the view; the host sets its width and padding. */
+.twm-settings-categories {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
+    gap: var(--space-sm);
+    color: var(--text-body);
+    font-size: var(--font-size-sm);
+}
 /* ══ end SETTINGS VIEW ══ */
 
 /* ══ DOCUMENT OUTLINE (0.17.0) ═══════════════════════════════════════

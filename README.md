@@ -3034,6 +3034,52 @@ title; default "Settings"). The markup is `.twm-settings` >
 `.twm-settings__row` (`--modified`); `flexdesk.css` styles it from tokens.
 `tests/settings_view.test.mjs` covers it in jsdom.
 
+## The settings categories outside the page: `SettingsCategories` (0.17.2)
+
+A `SettingsView` made with `sidebar: false` draws no sidebar: no heading, no
+filter box, no category list and no *Reset all*, only the chosen category's
+settings (or the filter's matches). `new SettingsCategories({ view })` (in
+`@flexdesk/widgets`) draws those parts for that view wherever it is mounted,
+for example in an app's left navigator:
+
+```js
+import { SettingsView, SettingsCategories } from '@flexdesk/widgets';
+
+const view = new SettingsView({ store, eventBus: bus, sidebar: false });
+view.mount(pageHost);
+const cats = new SettingsCategories({ view });
+cats.mount(navigatorHost);
+
+const off = view.subscribe(({ category, query }) => { /* e.g. a tab title */ });
+// …
+off();
+cats.dispose();
+view.dispose();
+```
+
+It keeps no state of its own. Typing in its filter box is `view.setQuery()`,
+clicking a category is `view.selectCategory()` and its *Reset all* is
+`view.resetAll()`, which asks the view's `confirm` first and changes nothing
+unless it resolves true. It redraws from the view whenever the view's category,
+filter or registered categories change, so the two agree whichever side moved
+them: `view.selectCategory('window')` marks that category in the list, and
+`view.setQuery('shadow')` puts the text in its filter box. As in the view's own
+sidebar, choosing a category clears the filter, and no category is marked while
+the filter is in effect. Its clicks and keystrokes act once the view is mounted.
+
+Two methods on `SettingsView` serve it and anything else that follows the view:
+`subscribe(fn)` calls `fn({ category, query })` after each such change and
+answers the unsubscribe; `isFiltering()` is true while the filter's trimmed
+text is not empty. `settingsViewContent({ …, sidebar: false })` passes the
+option through. A view made without `sidebar` (or with `sidebar: true`) draws
+exactly as in 0.17.1.
+
+The markup is `.twm-settings-categories` > `.twm-settings__search`,
+`.twm-settings__nav` (`button.twm-settings__cat`, `--active`) and
+`.twm-settings__reset-all`, the same parts and classes as the sidebar's;
+`flexdesk.css` styles it, leaving its width and padding to the host.
+`tests/settings_view.test.mjs` §11–§14 cover it.
+
 ## A step wizard: `Wizard` (0.17.0)
 
 `new Wizard({ steps, data, onFinish, onCancel, labels })` (in `@flexdesk/widgets`)

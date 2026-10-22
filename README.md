@@ -3429,6 +3429,25 @@ job.on('end', () => nc.update(id, { progress: 1, severity: 'success', message: '
 
 `tests/notification_progress.test.mjs` holds it in jsdom.
 
+### Toast cards are styled and clickable (0.17.2)
+
+A toast card is `.twm-notification` with `.twm-notification--<severity>`
+(`info`, `success`, `warn`, `error`, `fatal`), and the "+N more" summary is
+`.twm-notification.twm-notification--summary`. `flexdesk.css` gives the card its
+background, a left border in the severity's colour (`--color-success`,
+`--color-warning`, `--color-danger`; info keeps the blue) and the entry
+animation `twm-notification-in`, which the sheet now defines. The card sets
+`pointer-events: auto` over the root's `none`, so its buttons and its
+click-to-close work.
+
+Until 0.17.2 the card carried the bare `notification` / `notification--<severity>`
+classes, which no FlexDesk sheet styled: the card had no background and no
+border, and inherited `pointer-events: none`, so its buttons could not be
+clicked. A consumer stylesheet that targeted `.notification` should target
+`.twm-notification` instead. The live region is `.twm-notification-center__live-region`.
+`tests/notification_toast_styles.test.mjs` holds the classes, the cascade and
+the sheets.
+
 ### Alerts with history: a log, a pane, a tab host and a bell (0.14.0)
 
 A toast is the moment. The **alert log** keeps what came in until it is

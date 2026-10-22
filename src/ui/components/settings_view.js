@@ -50,6 +50,20 @@
  * *Reset all* ask `confirm(…)` first (default `openConfirm`) and change
  * nothing unless it resolves true.
  *
+ * THE SIDEBAR ELSEWHERE (0.17.2). `sidebar: false` leaves the sidebar out:
+ * the view is the content alone. A `SettingsCategories` bound to it, mounted
+ * anywhere, draws the filter box, the categories and *Reset all* instead:
+ *
+ *   const view = new SettingsView({ store, eventBus, sidebar: false });
+ *   view.mount(pageHost);
+ *   const cats = new SettingsCategories({ view });
+ *   cats.mount(navigatorHost);
+ *
+ * Both draw from the view's state, so the filter text and the selected
+ * category are the same in both, whichever moved them; `view.subscribe(fn)`
+ * tells any other listener. *Reset all* there is `view.resetAll()`, so it asks
+ * to confirm as before.
+ *
  * Every word on screen that comes from the schema, the store or the user is
  * set as text, so a label or a query holding markup is shown as typed.
  *
@@ -58,7 +72,9 @@
  * + `.twm-settings__content` (`__header` > `__title`, `__description`,
  * `__reset-category`; `section.__group` > `__group-title` + `.__row`
  * [`--modified`] > `__info` (`__label`, `__marker`, `__description`,
- * `__path`) + `__control` + `__reset`; `__empty`).
+ * `__path`) + `__control` + `__reset`; `__empty`). A `SettingsCategories` is
+ * `.twm-settings-categories` > `.twm-settings__search`, `.twm-settings__nav`
+ * and `.twm-settings__reset-all`, the same parts as the sidebar's.
  */
 
 import { ComponentBase } from '../base/component_base.js';
@@ -121,6 +137,59 @@ function fitNumber(n, { min, max, step }) {
     return at(k);
 }
 
+// ── the sidebar's parts, drawn alike by SettingsView and SettingsCategories ──
+
+/** The filter box: `{ label, input }`; `onInput(text)` on every keystroke. */
+function filterBox(onInput) {
+    const label = el('label', 'twm-settings__search');
+    const input = el('input', 'twm-settings__search-input');
+    input.type = 'search';
+    input.placeholder = 'Filter settings…';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.setAttribute('aria-label', 'Filter settings');
+    input.addEventListener('input', () => onInput(input.value));
+    label.append(icon('search'), input);
+    return { label, input };
+}
+
+/** The category list; `onSelect(id)` when a category is clicked. */
+function categoryNav(onSelect) {
+    const nav = el('nav', 'twm-settings__nav');
+    nav.setAttribute('aria-label', 'Settings categories');
+    nav.addEventListener('click', (e) => {
+        const btn = e.target.closest?.('[data-category]');
+        if (btn && nav.contains(btn)) onSelect(btn.dataset.category);
+    });
+    return nav;
+}
+
+/** Draw `categories` into `nav`, `active` (an id, or null) marked. */
+function paintCategories(nav, categories, active) {
+    const buttons = categories.map((cat) => {
+        const b = el('button', 'twm-settings__cat');
+        b.type = 'button';
+        b.dataset.category = cat.id;
+        if (cat.id === active) {
+            b.classList.add('twm-settings__cat--active');
+            b.setAttribute('aria-current', 'page');
+        }
+        b.append(icon(cat.icon || 'tune'), el('span', 'twm-settings__cat-label', cat.label ?? cat.id));
+        if (cat.description) b.title = String(cat.description);
+        return b;
+    });
+    nav.replaceChildren(...buttons);
+}
+
+/** The *Reset all* button; `onClick()` when pressed. */
+function resetAllButton(onClick) {
+    const b = el('button', 'twm-btn twm-settings__reset-all');
+    b.type = 'button';
+    b.append(icon('restart_alt'), el('span', '', 'Reset all'));
+    b.addEventListener('click', () => { onClick(); });
+    return b;
+}
+
 export class SettingsView extends ComponentBase {
     /**
      * @param {object}    o
@@ -130,10 +199,12 @@ export class SettingsView extends ComponentBase {
      * @param {string}   [o.category] the category shown first (default: the first)
      * @param {number}   [o.textDebounceMs]
      * @param {string}   [o.title='Settings']  the sidebar heading
+     * @param {boolean}  [o.sidebar=true]  false leaves the sidebar (filter,
+     *        categories, *Reset all*) out, for a `SettingsCategories` elsewhere
      */
     constructor({
         store, eventBus, confirm = openConfirm, category = null,
-        textDebounceMs = SETTINGS_TEXT_DEBOUNCE_MS, title = 'Settings', logger,
+        textDebounceMs = SETTINGS_TEXT_DEBOUNCE_MS, title = 'Settings', sidebar = true, logger,
     } = {}) {
         super({ eventBus, logger });
         if (!store || typeof store.getSchema !== 'function') {
@@ -148,6 +219,9 @@ export class SettingsView extends ComponentBase {
         this._query = '';
         this._debounceMs = textDebounceMs;
         this._title = title;
+        this._sidebar = sidebar !== false;
+        /** `fn({ category, query })` after the category, the filter or the categories change. */
+        this._listeners = new Set();
 
         this.root = null;
         this._nav = null;
@@ -166,39 +240,20 @@ export class SettingsView extends ComponentBase {
     mount(container) {
         if (this.root) return this.root;
         const root = el('div', 'twm-settings');
-        const side = el('aside', 'twm-settings__sidebar');
-        const head = el('div', 'twm-settings__sidebar-title');
-        head.append(icon('settings'), el('span', '', this._title));
-
-        const search = el('label', 'twm-settings__search');
-        const input = el('input', 'twm-settings__search-input');
-        input.type = 'search';
-        input.placeholder = 'Filter settings…';
-        input.autocomplete = 'off';
-        input.spellcheck = false;
-        input.setAttribute('aria-label', 'Filter settings');
-        input.addEventListener('input', () => this.setQuery(input.value));
-        search.append(icon('search'), input);
-        this._search = input;
-
-        const nav = el('nav', 'twm-settings__nav');
-        nav.setAttribute('aria-label', 'Settings categories');
-        nav.addEventListener('click', (e) => {
-            const btn = e.target.closest?.('[data-category]');
-            if (btn && nav.contains(btn)) this.selectCategory(btn.dataset.category);
-        });
-        this._nav = nav;
-
-        const resetAll = el('button', 'twm-btn twm-settings__reset-all');
-        resetAll.type = 'button';
-        resetAll.append(icon('restart_alt'), el('span', '', 'Reset all'));
-        resetAll.addEventListener('click', () => { this.resetAll(); });
-
-        side.append(head, search, nav, resetAll);
+        if (this._sidebar) {
+            const side = el('aside', 'twm-settings__sidebar');
+            const head = el('div', 'twm-settings__sidebar-title');
+            head.append(icon('settings'), el('span', '', this._title));
+            const search = filterBox((text) => this.setQuery(text));
+            this._search = search.input;
+            this._nav = categoryNav((id) => this.selectCategory(id));
+            side.append(head, search.label, this._nav, resetAllButton(() => this.resetAll()));
+            root.append(side);
+        }
 
         const content = el('div', 'twm-settings__content');
         this._content = content;
-        root.append(side, content);
+        root.append(content);
         this.root = root;
         container.appendChild(root);
         this._mounted = true;
@@ -211,6 +266,7 @@ export class SettingsView extends ComponentBase {
 
         this.#paintNav();
         this.#paintContent();
+        this.#notify();
         return root;
     }
 
@@ -219,6 +275,19 @@ export class SettingsView extends ComponentBase {
 
     /** The filter text. */
     getQuery() { return this._query; }
+
+    /** True while the filter is in effect (its trimmed text is not empty). */
+    isFiltering() { return this.#searching(); }
+
+    /**
+     * `fn({ category, query })` after every change of the category, the filter
+     * or the registered categories, until the view is disposed. Answers the
+     * unsubscribe.
+     */
+    subscribe(fn) {
+        this._listeners.add(fn);
+        return () => this._listeners.delete(fn);
+    }
 
     /** Show one category; clears the filter. */
     selectCategory(id) {
@@ -229,6 +298,7 @@ export class SettingsView extends ComponentBase {
         if (this._search) this._search.value = '';
         this.#paintNav();
         this.#paintContent();
+        this.#notify();
     }
 
     /** Search every category; an empty query goes back to the category. */
@@ -239,6 +309,7 @@ export class SettingsView extends ComponentBase {
         if (this._search && this._search.value !== q) this._search.value = q;
         this.#paintNav();
         this.#paintContent();
+        this.#notify();
     }
 
     /** Reset one category after `confirm`; resolves true when it was reset. */
@@ -287,6 +358,7 @@ export class SettingsView extends ComponentBase {
         this._nav = null;
         this._content = null;
         this._search = null;
+        this._listeners.clear();
         super.dispose();
     }
 
@@ -310,12 +382,13 @@ export class SettingsView extends ComponentBase {
             || paths.some((p) => schema[p]?.category === active);
         if (touches) {
             this.#paintContent();
-            return;
+        } else {
+            // The slice's defaults may have moved values on screen; an edit still
+            // being typed is written first, so the sync shows it rather than drop it.
+            this.#flushAll();
+            this.#syncAll();
         }
-        // The slice's defaults may have moved values on screen; an edit still
-        // being typed is written first, so the sync shows it rather than drop it.
-        this.#flushAll();
-        this.#syncAll();
+        this.#notify();
     }
 
     /** True while a filter is in effect: the trimmed query is not empty. */
@@ -344,20 +417,14 @@ export class SettingsView extends ComponentBase {
     }
 
     #paintNav() {
-        const active = this.#searching() ? null : this.getCategory();
-        const buttons = this.store.getCategories().map((cat) => {
-            const b = el('button', 'twm-settings__cat');
-            b.type = 'button';
-            b.dataset.category = cat.id;
-            if (cat.id === active) {
-                b.classList.add('twm-settings__cat--active');
-                b.setAttribute('aria-current', 'page');
-            }
-            b.append(icon(cat.icon || 'tune'), el('span', 'twm-settings__cat-label', cat.label ?? cat.id));
-            if (cat.description) b.title = String(cat.description);
-            return b;
-        });
-        this._nav.replaceChildren(...buttons);
+        if (!this._nav) return;
+        paintCategories(this._nav, this.store.getCategories(), this.#searching() ? null : this.getCategory());
+    }
+
+    /** Tell the listeners, after the content is drawn (it settles the category). */
+    #notify() {
+        const state = { category: this.getCategory(), query: this._query };
+        for (const fn of [...this._listeners]) fn(state);
     }
 
     #paintContent() {
@@ -611,6 +678,80 @@ export class SettingsView extends ComponentBase {
             };
         }
         }
+    }
+}
+
+/**
+ * SettingsCategories — a SettingsView's filter box, category list and
+ * *Reset all*, mounted wherever the app wants them (0.17.2).
+ *
+ *   const view = new SettingsView({ store, eventBus, sidebar: false });
+ *   view.mount(pageHost);
+ *   const cats = new SettingsCategories({ view });
+ *   cats.mount(navigatorHost);
+ *   cats.dispose();   // before or with the view
+ *
+ * It holds no state of its own: typing in its filter is `view.setQuery()`,
+ * clicking a category `view.selectCategory()`, *Reset all* `view.resetAll()`
+ * (which asks the view's `confirm` first), and it redraws from the view on
+ * every `view.subscribe()` call. So the filter text and the selected category
+ * are always the view's, however either side moved them, and a category
+ * registered later joins the list. Its clicks and keystrokes act once the
+ * view is mounted.
+ *
+ * Markup: `.twm-settings-categories` > `.twm-settings__search` (>
+ * `__search-input`), `.twm-settings__nav` > `button.twm-settings__cat`
+ * [`--active`], `.twm-settings__reset-all`.
+ */
+export class SettingsCategories extends ComponentBase {
+    /**
+     * @param {object}       o
+     * @param {SettingsView} o.view  the view it lists the categories of
+     */
+    constructor({ view, logger } = {}) {
+        if (!(view instanceof SettingsView)) {
+            throw new TypeError('SettingsCategories: `view` must be a SettingsView');
+        }
+        super({ eventBus: view.eventBus, logger });
+        this.view = view;
+        this.root = null;
+        this._search = null;
+        this._nav = null;
+        this._unsubscribe = null;
+    }
+
+    /** Build the list into `container` (once). */
+    mount(container) {
+        if (this.root) return this.root;
+        const view = this.view;
+        const root = el('div', 'twm-settings-categories');
+        const search = filterBox((text) => view.setQuery(text));
+        this._search = search.input;
+        this._nav = categoryNav((id) => view.selectCategory(id));
+        root.append(search.label, this._nav, resetAllButton(() => view.resetAll()));
+        this.root = root;
+        container.appendChild(root);
+        this._mounted = true;
+        this._unsubscribe = view.subscribe(() => this.#paint());
+        this.#paint();
+        return root;
+    }
+
+    dispose() {
+        this._unsubscribe?.();
+        this._unsubscribe = null;
+        this.root?.remove();
+        this.root = null;
+        this._search = null;
+        this._nav = null;
+        super.dispose();
+    }
+
+    #paint() {
+        const view = this.view;
+        const q = view.getQuery();
+        if (this._search.value !== q) this._search.value = q;
+        paintCategories(this._nav, view.store.getCategories(), view.isFiltering() ? null : view.getCategory());
     }
 }
 

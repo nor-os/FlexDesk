@@ -2,10 +2,10 @@
 id: 99
 type: story
 title: "wm.navigate to a kind that is not registered warns once and changes nothing"
-status: refined
+status: in-progress
 parent: 29
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 1
@@ -13,7 +13,7 @@ subsystem:
 labels: [migration, flexdesk]
 links: []
 created: 2026-10-22
-updated: 2026-10-22T11:04Z
+updated: 2026-10-22T11:05Z
 ---
 
 ## Description
@@ -31,6 +31,9 @@ norman decided on 2026-10-22 (Claude Code session) that the generic capabilities
 ## History
 
 - 2026-10-22 · norman_agent · status: draft -> refined
+
+- 2026-10-22 · norman_agent · status: refined -> in-progress
+- 2026-10-22 · norman_agent · assignee: (none) -> norman_agent
 
 ## Comments
 

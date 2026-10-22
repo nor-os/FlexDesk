@@ -450,6 +450,31 @@ topic.* The fallback comes from `HelpModal.open(id, { fallback })`
 (`@flexdesk/widgets`), and you can pass one yourself. A topic id that nobody
 provides now shows *Help topic not found.* where it used to raise a load error.
 
+### A catalog source only behind its prefix: `scopedOnly` (0.17.2)
+
+A source can be too broad to compete with everything else in the palette: help
+topics, say, which would crowd every query. Mark it `scopedOnly` and its rows are
+listed only once its prefix has made the type chip:
+
+```js
+createEntityCatalog({
+    sources: [
+        { navKind: 'model', list: listModels, shape: toRow },
+        { navKind: 'topic', list: listTopics, shape: toRow, scopedOnly: true },
+    ],
+    aliases: { help: ['topic'] },
+});
+```
+
+A plain typed query (`solver`) lists no `topic` row, in the flat and the grouped
+layout alike: no row, no group header, no *Show all*. `help: solver` or
+`topic: solver` lists its rows as any source's, and `help:` alone lists them all.
+The mark is the palette's business: `loadAll`, `loadGrouped` and the tile menu
+still return every source, a picked row reaches `onPick` as its `shape` made it,
+and commands and `empty()` rows of the same kind are not held back. A source
+without the option, or with `scopedOnly: false`, is searched exactly as in
+0.17.1. A value that is not a boolean is refused with a `TypeError`.
+
 ### Your keys, not the window manager's: `keymap` (0.17.0)
 
 The window manager binds F1..F12, Backspace, Ctrl+K, Ctrl+Tab, Ctrl/Shift+Arrows,

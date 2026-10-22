@@ -72,6 +72,10 @@
  *   drillLabel the Tab hint ("search rows"); Tab is offered only with it
  *   shortcut   a key binding drawn on the right
  *   verb       the Enter hint ('open' by default, 'run' for a command)
+ * A catalog source with `scopedOnly: true` (0.17.2) contributes no rows to a
+ * plain typed query, in either layout: its rows are listed only once its
+ * prefix has made the type chip (`help: solver`).
+ *
  * `hint` keeps its old meaning — drawn AND searched — for a row that sets
  * neither `context` nor `keywords`. A group's header is the taxonomy's
  * `plural` for the kind, else its `label`.
@@ -585,6 +589,7 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
                 return;
             }
             let pool = entities;
+            if (!filterSet) pool = pool.filter((e) => !e._scopedOnly);
             if (commandsOnly) pool = pool.filter((e) => e.kind === 'command');
             else if (filterSet) pool = pool.filter((e) => filterSet.has(_groupOf(e)) || filterSet.has(e.kind));
             else if (q.length < commandMinChars) pool = pool.filter((e) => e.kind !== 'command');
@@ -649,7 +654,7 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
             const filterSet = typeFilter ? new Set(typeFilter) : null;
             const pool = filterSet
                 ? entities.filter((e) => filterSet.has(e.kind))
-                : entities;
+                : entities.filter((e) => !e._scopedOnly);
             if (!q) {
                 // Scoped + empty query → list every entity of that
                 // kind so the user sees what's available. Unscoped +
@@ -715,10 +720,18 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
             }
             return [...staticCommands, ...extra];
         };
+        // A `scopedOnly` source's rows are marked here, from the catalog's
+        // own source list, so only the rows the catalog produced are held
+        // back — a command or a Recent row of the same kind is not.
+        const scopedKinds = new Set((catalog?.sources || [])
+            .filter((s) => s?.scopedOnly === true).map((s) => s.navKind));
+        const tagScoped = (rows) => (scopedKinds.size
+            ? rows.map((r) => (scopedKinds.has(r.kind) ? { ...r, _scopedOnly: true } : r))
+            : rows);
         // Objects before commands in the grouped layout, so that a tie that
         // survives every rule goes to the object (first seen wins).
         const withCommands = (rows) => (grouped ? [...rows, ...commandRows()] : [...commandRows(), ...rows]);
-        entities = _decorateIcons(withCommands(cache && cached ? cached : []), taxonomy);
+        entities = _decorateIcons(withCommands(tagScoped(cache && cached ? cached : [])), taxonomy);
         if (grouped) {
             refilter();
             if (typeof empty === 'function') {
@@ -735,7 +748,7 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
                 const loaded = await catalog.loadAll(api);
                 if (cache) cached = loaded;
                 if (overlay !== mine) return;
-                entities = _decorateIcons(withCommands(loaded), taxonomy);
+                entities = _decorateIcons(withCommands(tagScoped(loaded)), taxonomy);
                 if (grouped ? (!scope && (input.value || typeFilter)) : input.value) refilter();
             } catch (err) {
                 console.warn('[cmdpal] entity load failed', err);
@@ -861,7 +874,7 @@ function _groupOf(r) { return r.group || r.kind; }
 
 /** Strip the palette's private fields before a row leaves it. */
 function _public(r) {
-    const { _hits, _score, ...rest } = r;
+    const { _hits, _score, _scopedOnly, ...rest } = r;
     return rest;
 }
 

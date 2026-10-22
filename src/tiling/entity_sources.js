@@ -27,6 +27,12 @@
  *             row to the record shape every search surface consumes.
  *             Return `null` to skip the row.
  *
+ *   scopedOnly? `true` keeps the source's rows out of a plain typed query:
+ *             the command palette lists them only behind the source's
+ *             prefix (`<navKind>:` or an alias that resolves to it). For a
+ *             source too broad to compete with everything else — help
+ *             topics, say. Absent or `false`: searched as always (0.17.2).
+ *
  * ## Aggregation
  *
  * An embedder whose backend can answer for every source in ONE call
@@ -47,6 +53,10 @@ export function createEntityCatalog({ sources, aliases = {}, aggregate = null } 
         if (!s?.navKind || typeof s.list !== 'function' || typeof s.shape !== 'function') {
             throw new TypeError(
                 `createEntityCatalog: source '${s?.navKind ?? '?'}' needs navKind + list() + shape()`);
+        }
+        if (s.scopedOnly != null && typeof s.scopedOnly !== 'boolean') {
+            throw new TypeError(
+                `createEntityCatalog: source '${s.navKind}' \`scopedOnly\` must be a boolean when present`);
         }
     }
     if (aggregate != null && typeof aggregate !== 'function') {

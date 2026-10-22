@@ -450,6 +450,35 @@ topic.* The fallback comes from `HelpModal.open(id, { fallback })`
 (`@flexdesk/widgets`), and you can pass one yourself. A topic id that nobody
 provides now shows *Help topic not found.* where it used to raise a load error.
 
+### A palette row drawn disabled, with a reason (0.17.2)
+
+A palette row (a command from `commands`, or any other row) may carry
+`enabled: () => boolean` and `disabledReason`. While `enabled()` returns false
+the row is still listed, so it can say why it does nothing:
+
+```js
+palette: {
+    commands: () => [
+        { id: 'save', label: 'Save', action: save,
+          enabled: () => dirty, disabledReason: 'Nothing to save' },
+    ],
+},
+```
+
+- The row gets the class `twm-cmdpal__item--disabled` and `aria-disabled="true"`,
+  and `disabledReason`, when given, is its `title` (the tooltip). The stylesheet
+  greys it.
+- Picking it with a click, Enter, Ctrl+Enter or Shift+Enter runs nothing: not
+  its `action`, not `onPick`. The palette stays open on it.
+- The arrow keys still move onto it and past it.
+- `enabled()` is called again on every draw and every pick, so the row follows
+  your state while the palette is open. An `enabled()` that throws counts as
+  false.
+- A row without `enabled` is drawn and picked as before. Both layouts (flat and
+  `grouped`) behave the same way.
+
+`tests/command_palette_disabled.test.mjs` drives it in jsdom.
+
 ### Your keys, not the window manager's: `keymap` (0.17.0)
 
 The window manager binds F1..F12, Backspace, Ctrl+K, Ctrl+Tab, Ctrl/Shift+Arrows,

@@ -237,6 +237,39 @@ with it. The taxonomy answers `isSingle(kind)`, `instanceKey(kind, props)` and
 `singleReason(kind)`; the window manager answers `isSingleKind(kind)`,
 `findInstance(kind, props)` and `revealInstance(kind, props)`.
 
+### An open single instance takes new props: `navigate(props)` (0.17.2)
+
+Revealing a `single` instance used to drop the props the open asked for: the
+observatory kept showing the planet it was opened with. A content factory that
+returns a `navigate(props)` hook from its mount is now handed them:
+
+```js
+content: {
+    observatory: (el, props) => {
+        const view = mountObservatory(el, props);
+        return {
+            destroy: () => view.destroy(),
+            navigate: (next) => view.focusPlanet(next.planet),   // already open: go there
+        };
+    },
+},
+
+wm.navigate('observatory', { planet: 'mars' });   // open: revealed, then navigate({ planet: 'mars' })
+```
+
+- **Every open path that reveals the instance calls it once**, after the
+  reveal, with a copy of the new props — `navigate`, the top nav,
+  `openInPrimary`, `openInTab*`, `splitLeafWith`, Back. The same props twice
+  are two calls; nothing is deduplicated, and no second instance is mounted.
+- **The props are recorded on the instance's tab** (or its window's), so a
+  top-nav page restore or a reload mounts it with the latest. The tile is not
+  rebuilt by the write.
+- **An open that names no props only reveals** — the top-nav button,
+  `openInPrimary(kind)`, `navigate(kind)`: it asks to see the instance, not to
+  empty it, so the hook is not called and the tab keeps its props.
+- **A content without the hook is revealed as before**: its tab keeps its props
+  and nothing is called. A hook that throws is a console warning.
+
 ### A pane that names what it shows: `ctx.setTitle` (0.12.1)
 
 A content factory receives `(hostEl, props, ctx)`, and `ctx` carries, per pane,

@@ -348,10 +348,57 @@ export class WindowManager {
     }
 
     /** Reveal the instance of a single kind that is open: answers whether
-     *  there was one. Every open path asks this first. */
+     *  there was one. Every open path asks this first.
+     *
+     *  An open path names props too, and revealing alone would drop them: the
+     *  instance keeps showing what it was opened with. So a revealed content
+     *  that returned a `navigate(props)` hook from its mount is handed the new
+     *  props — once per open, the same props twice are two calls — and they
+     *  are recorded on its tab, so a page restore or a reload mounts it with
+     *  the latest. A content without the hook is revealed as it is: its tab
+     *  keeps its props and nothing is called. So is every content when the
+     *  open names no props at all — a top-nav button, `openInPrimary(kind)` —
+     *  which asks to SEE the instance, not to empty it. */
     revealInstance(kind, props = {}) {
         const loc = this.findInstance(kind, props);
-        return loc ? this._revealAt(loc) : false;
+        if (!loc || !this._revealAt(loc)) return false;
+        if (props && Object.keys(props).length) this._deliverProps(kind, props);
+        return true;
+    }
+
+    /** Hand a revealed instance the props it was opened with, and record them
+     *  on its tab (and the tile's `content` mirror of it, re-baselining the
+     *  tile so the write does not rebuild it). Looks
+     *  the instance up again: a reveal from a page archive moved it into the
+     *  tile's tabs. A throwing hook is a warning, never a crash. */
+    _deliverProps(kind, props) {
+        const loc = this.findInstance(kind, props);
+        if (!loc || loc.where === 'archive') return;
+        const scope = loc.where === 'window' ? { windowId: loc.windowId } : { leafId: loc.leafId };
+        const content = this._scopeContent(scope);
+        if (typeof content?.navigate !== 'function') return;
+        const next = { ...(props || {}) };
+        if (loc.where === 'window') {
+            const rec = this._windowToLeaf.get(loc.windowId);
+            const tab = Array.isArray(rec.tabs) ? rec.tabs[loc.idx] : null;
+            if (tab) tab.props = { ...next };
+            if (rec.original) rec.original = { ...rec.original, props: { ...next } };
+        } else {
+            const leaf = this._tree().get(loc.leafId);
+            const expected = this.renderer?.leafKey?.(loc.leafId) ?? undefined;
+            leaf.tabs[loc.idx].props = { ...next };
+            // The tab is the active one now, and `content` mirrors it: the
+            // next tab activation re-mirrors it anyway, and a mirror left
+            // behind would change the tile's key then and rebuild it.
+            if (leaf.content?.kind === kind) leaf.content = { ...leaf.content, props: { ...next } };
+            this.renderer?.rebaselineLeaf?.(loc.leafId, expected);
+        }
+        this._persist();
+        try {
+            content.navigate({ ...next });
+        } catch (err) {
+            console.warn('[wm] content navigate threw', err);
+        }
     }
 
     /** A leaf's archived pages that can come back — every `pageTabs` entry

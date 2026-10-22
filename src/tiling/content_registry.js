@@ -8,6 +8,9 @@
  *
  * The tile renderer calls the factory once when the leaf is first
  * mounted with a given (kind, props) pair, and `destroy()` on unmount.
+ * A content of a `single` kind may return `navigate(props)`: an open path
+ * that reveals the instance instead of mounting it hands it the new props
+ * (`wm.revealInstance`, 0.17.2).
  *
  * `ctx` is the shell's ctx plus, per leaf, `leafId` and `setTitle(text)` —
  * rename the pane's chrome title from inside the content, at mount or any

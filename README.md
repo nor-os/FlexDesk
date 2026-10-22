@@ -237,6 +237,32 @@ with it. The taxonomy answers `isSingle(kind)`, `instanceKey(kind, props)` and
 `singleReason(kind)`; the window manager answers `isSingleKind(kind)`,
 `findInstance(kind, props)` and `revealInstance(kind, props)`.
 
+### A link to a kind nobody registered (0.17.2)
+
+`wm.navigate(kind, props, opts)` returns `true` once it has routed the
+navigation. A `kind` the shell's `content` map has no factory for is refused
+instead, on every destination (`main`, `origin`, a new tab, a window, a split,
+the legacy `target`):
+
+```js
+if (!wm.navigate(link.kind, link.props)) {
+    // nothing opened: tell the user the link is dead
+}
+```
+
+- **One `console.warn` naming the kind**, per call, and `false` back.
+- **Nothing changes**: no tile, tab, window or desktop, no per-tab history, no
+  `onChange` — and no "no factory registered yet" placeholder tile, which is
+  what such a link used to leave behind.
+- **No exception reaches the caller**, whatever `kind` is (`undefined`, `null`
+  and `''` included).
+
+A shell that only navigates to kinds it registered sees no change; the return
+value is new, so code that ignored it is unaffected. A split destination used
+to hand back the new leaf's id; it now returns `true` like the others — call
+`wm.splitLeafWith(...)` for the id. A restored layout that names an
+unregistered kind still draws its placeholder: only `navigate` refuses.
+
 ### A pane that names what it shows: `ctx.setTitle` (0.12.1)
 
 A content factory receives `(hostEl, props, ctx)`, and `ctx` carries, per pane,
@@ -449,6 +475,60 @@ manager's own bindings, `KEYMAP_SHORTCUTS` from `@flexdesk/wm`, as a table
 topic.* The fallback comes from `HelpModal.open(id, { fallback })`
 (`@flexdesk/widgets`), and you can pass one yourself. A topic id that nobody
 provides now shows *Help topic not found.* where it used to raise a load error.
+
+### A palette row drawn disabled, with a reason (0.17.2)
+
+A palette row (a command from `commands`, or any other row) may carry
+`enabled: () => boolean` and `disabledReason`. While `enabled()` returns false
+the row is still listed, so it can say why it does nothing:
+
+```js
+palette: {
+    commands: () => [
+        { id: 'save', label: 'Save', action: save,
+          enabled: () => dirty, disabledReason: 'Nothing to save' },
+    ],
+},
+```
+
+- The row gets the class `twm-cmdpal__item--disabled` and `aria-disabled="true"`,
+  and `disabledReason`, when given, is its `title` (the tooltip). The stylesheet
+  greys it.
+- Picking it with a click, Enter, Ctrl+Enter or Shift+Enter runs nothing: not
+  its `action`, not `onPick`. The palette stays open on it.
+- The arrow keys still move onto it and past it.
+- `enabled()` is called again on every draw and every pick, so the row follows
+  your state while the palette is open. An `enabled()` that throws counts as
+  false.
+- A row without `enabled` is drawn and picked as before. Both layouts (flat and
+  `grouped`) behave the same way.
+
+`tests/command_palette_disabled.test.mjs` drives it in jsdom.
+
+### A catalog source only behind its prefix: `scopedOnly` (0.17.2)
+
+A source can be too broad to compete with everything else in the palette: help
+topics, say, which would crowd every query. Mark it `scopedOnly` and its rows are
+listed only once its prefix has made the type chip:
+
+```js
+createEntityCatalog({
+    sources: [
+        { navKind: 'model', list: listModels, shape: toRow },
+        { navKind: 'topic', list: listTopics, shape: toRow, scopedOnly: true },
+    ],
+    aliases: { help: ['topic'] },
+});
+```
+
+A plain typed query (`solver`) lists no `topic` row, in the flat and the grouped
+layout alike: no row, no group header, no *Show all*. `help: solver` or
+`topic: solver` lists its rows as any source's, and `help:` alone lists them all.
+The mark is the palette's business: `loadAll`, `loadGrouped` and the tile menu
+still return every source, a picked row reaches `onPick` as its `shape` made it,
+and commands and `empty()` rows of the same kind are not held back. A source
+without the option, or with `scopedOnly: false`, is searched exactly as in
+0.17.1. A value that is not a boolean is refused with a `TypeError`.
 
 ### Your keys, not the window manager's: `keymap` (0.17.0)
 
@@ -3033,6 +3113,52 @@ title; default "Settings"). The markup is `.twm-settings` >
 `.twm-settings__sidebar` + `.twm-settings__content`, with rows
 `.twm-settings__row` (`--modified`); `flexdesk.css` styles it from tokens.
 `tests/settings_view.test.mjs` covers it in jsdom.
+
+## The settings categories outside the page: `SettingsCategories` (0.17.2)
+
+A `SettingsView` made with `sidebar: false` draws no sidebar: no heading, no
+filter box, no category list and no *Reset all*, only the chosen category's
+settings (or the filter's matches). `new SettingsCategories({ view })` (in
+`@flexdesk/widgets`) draws those parts for that view wherever it is mounted,
+for example in an app's left navigator:
+
+```js
+import { SettingsView, SettingsCategories } from '@flexdesk/widgets';
+
+const view = new SettingsView({ store, eventBus: bus, sidebar: false });
+view.mount(pageHost);
+const cats = new SettingsCategories({ view });
+cats.mount(navigatorHost);
+
+const off = view.subscribe(({ category, query }) => { /* e.g. a tab title */ });
+// …
+off();
+cats.dispose();
+view.dispose();
+```
+
+It keeps no state of its own. Typing in its filter box is `view.setQuery()`,
+clicking a category is `view.selectCategory()` and its *Reset all* is
+`view.resetAll()`, which asks the view's `confirm` first and changes nothing
+unless it resolves true. It redraws from the view whenever the view's category,
+filter or registered categories change, so the two agree whichever side moved
+them: `view.selectCategory('window')` marks that category in the list, and
+`view.setQuery('shadow')` puts the text in its filter box. As in the view's own
+sidebar, choosing a category clears the filter, and no category is marked while
+the filter is in effect. Its clicks and keystrokes act once the view is mounted.
+
+Two methods on `SettingsView` serve it and anything else that follows the view:
+`subscribe(fn)` calls `fn({ category, query })` after each such change and
+answers the unsubscribe; `isFiltering()` is true while the filter's trimmed
+text is not empty. `settingsViewContent({ …, sidebar: false })` passes the
+option through. A view made without `sidebar` (or with `sidebar: true`) draws
+exactly as in 0.17.1.
+
+The markup is `.twm-settings-categories` > `.twm-settings__search`,
+`.twm-settings__nav` (`button.twm-settings__cat`, `--active`) and
+`.twm-settings__reset-all`, the same parts and classes as the sidebar's;
+`flexdesk.css` styles it, leaving its width and padding to the host.
+`tests/settings_view.test.mjs` §11–§14 cover it.
 
 ## A step wizard: `Wizard` (0.17.0)
 

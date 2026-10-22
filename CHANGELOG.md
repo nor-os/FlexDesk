@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.17.3 (2026-10-22)
+
+A patch release: everything below is additive. Every entry is documented in a
+README section headed "(0.17.3)"; each entry links to it.
+
+### Added and changed
+
+- [One toast, one history entry, one unread](README.md#one-toast-one-history-entry-one-unread-0173): `NotificationCenter.history` holds one entry per toast however it was raised (`show()`, `warn()` / `error()` / `info()` / `success()`, `toast:show`, `notification:show`, `log:entry`), and a toast that leaves marks its own entry `dismissed: true` with the `reason` instead of adding a second one. `nc.subscribe(fn)` calls `fn(entry, center)` once per entry added and answers the unsubscribe. `NotificationHistory` follows the centre through `subscribe()`, so every toast counts once on the bell, also one raised through the API (BUG-0034). It no longer watches the bus for toasts: its `notificationCenter` is a `NotificationCenter` (or anything with `history` and `subscribe`).
+
+### Removed or renamed exports
+
+None. Compared with 0.17.2, across every entry point (`core`, `widgets`, `wm`,
+`host`, `canvas`, `flow`, `charts`, `tiles`, `editor`) and the package
+`exports` map, no export was added, removed or renamed. Not an export but worth
+knowing: `NotificationCenter` gained the `subscribe(fn)` method (see above).
+
 ## 0.17.2 (2026-10-22)
 
 A patch release: everything below is additive. Every entry is documented in a

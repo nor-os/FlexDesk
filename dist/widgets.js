@@ -3033,7 +3033,7 @@ var NotificationHistory = class {
     this.onOpen = typeof onOpen === "function" ? onOpen : null;
     this.triggerEl = null;
     this.badgeEl = null;
-    this.lastSeenCount = 0;
+    this.unreadCount = 0;
     this._popoverCleanup = null;
     this._subscriptions = [];
   }
@@ -3064,8 +3064,13 @@ var NotificationHistory = class {
       this.#updateBadge();
       return;
     }
-    this.lastSeenCount = this.notificationCenter?.history?.length ?? 0;
-    this.#subscribeEvents();
+    this.unreadCount = 0;
+    const unsubscribe = this.notificationCenter?.subscribe?.(() => {
+      this.unreadCount += 1;
+      this.#updateBadge();
+    });
+    if (typeof unsubscribe === "function") this._subscriptions.push(unsubscribe);
+    this.#updateBadge();
   }
   unmount() {
     this.#closePanel();
@@ -3078,21 +3083,6 @@ var NotificationHistory = class {
     }
     this.triggerEl = null;
     this.badgeEl = null;
-  }
-  #subscribeEvents() {
-    if (!this.eventBus) return;
-    const badgeUpdate = () => queueMicrotask(() => this.#updateBadge());
-    const events = [
-      "toast:show",
-      "notification:show",
-      "log:entry",
-      "workspace:save:failed",
-      "workspace:import:failed"
-    ];
-    events.forEach((name) => {
-      const handle = this.eventBus.on(name, badgeUpdate);
-      this._subscriptions.push(() => handle?.dispose?.());
-    });
   }
   /** The Alerts tab, asked for on the bus — or the embedder's own verb. */
   #openAlerts() {
@@ -3108,7 +3098,7 @@ var NotificationHistory = class {
   }
   #updateBadge() {
     const historyLen = this.notificationCenter?.history?.length ?? 0;
-    const unread = this.alertLog ? this.alertLog.unreadCount() : Math.max(0, historyLen - this.lastSeenCount);
+    const unread = this.alertLog ? this.alertLog.unreadCount() : Math.min(this.unreadCount, historyLen);
     if (!this.badgeEl) return;
     if (this.alertLog) {
       const level = unread > 0 ? this.alertLog.worstUnread() : null;
@@ -3140,7 +3130,7 @@ var NotificationHistory = class {
   }
   #openPanel() {
     this.#closePanel();
-    this.lastSeenCount = this.notificationCenter?.history?.length ?? 0;
+    this.unreadCount = 0;
     this.#updateBadge();
     const panel = document.createElement("div");
     panel.className = "twm-notification-history__panel";
@@ -3155,7 +3145,7 @@ var NotificationHistory = class {
     header.querySelector(".twm-notification-history__close-btn").addEventListener("click", () => this.#closePanel());
     header.querySelector(".twm-notification-history__clear-btn").addEventListener("click", () => {
       this.notificationCenter.history.splice(0);
-      this.lastSeenCount = 0;
+      this.unreadCount = 0;
       this.#updateBadge();
       this.#renderList(list);
     });
@@ -6699,6 +6689,7 @@ var SUPPRESSED_NAMESPACE_TITLES = /* @__PURE__ */ new Set(["bootstrap", "app"]);
 var NotificationCenter = class _NotificationCenter extends ComponentBase {
   #items;
   #summaryEl;
+  #historyListeners;
   constructor({
     eventBus,
     logger,
@@ -6729,6 +6720,7 @@ var NotificationCenter = class _NotificationCenter extends ComponentBase {
     this.eventDisposers = [];
     this.#items = /* @__PURE__ */ new Map();
     this.#summaryEl = null;
+    this.#historyListeners = /* @__PURE__ */ new Set();
     this.container = null;
     this.rootEl = null;
     this.listEl = null;
@@ -6777,6 +6769,7 @@ var NotificationCenter = class _NotificationCenter extends ComponentBase {
   dispose() {
     this.#clearTimers();
     this.#unsubscribeEvents();
+    this.#historyListeners.clear();
     if (this.eventBus && getToastBus() === this.eventBus) setToastBus(null);
     this.#items.forEach((entry) => entry.bar?.dispose());
     this.#items.clear();
@@ -6809,7 +6802,7 @@ var NotificationCenter = class _NotificationCenter extends ComponentBase {
       if (idx !== -1) {
         const [removed] = this.notifications.splice(idx, 1);
         this.#stopTimer(removed.id);
-        this.#recordHistory({ ...removed, dismissed: true, reason: "overflow" });
+        this.#recordDismissal(removed, "overflow");
       }
     }
     this.#recordHistory(normalized);
@@ -6824,13 +6817,13 @@ var NotificationCenter = class _NotificationCenter extends ComponentBase {
       const h = this.held.findIndex((item) => item.id === notificationId);
       if (h === -1) return false;
       const [gone] = this.held.splice(h, 1);
-      this.#recordHistory({ ...gone, dismissed: true, reason });
+      this.#recordDismissal(gone, reason);
       this.#render();
       return true;
     }
     const [removed] = this.notifications.splice(idx, 1);
     this.#stopTimer(notificationId);
-    this.#recordHistory({ ...removed, dismissed: true, reason });
+    this.#recordDismissal(removed, reason);
     this.#rebalance();
     this.#render();
     return true;
@@ -7057,12 +7050,40 @@ var NotificationCenter = class _NotificationCenter extends ComponentBase {
     this.activeTimers.forEach((timer) => clearTimeout(timer));
     this.activeTimers.clear();
   }
+  /**
+   * Hear of every entry added to `history`, by `show()`, `warn()`/`error()`/
+   * `info()`/`success()` and the bus alike: `listener(entry, center)`, once
+   * per toast, after the entry is in `history`. A dismissal changes the
+   * toast's own entry and is not an entry of its own. Answers the unsubscribe.
+   */
+  subscribe(listener) {
+    if (typeof listener !== "function") return () => {
+    };
+    this.#historyListeners.add(listener);
+    return () => {
+      this.#historyListeners.delete(listener);
+    };
+  }
   #recordHistory(entry) {
     if (entry.skipHistory) return;
     this.history.push(entry);
     if (this.history.length > this.historyLimit) {
       this.history.shift();
     }
+    [...this.#historyListeners].forEach((listener) => {
+      try {
+        listener(entry, this);
+      } catch (err) {
+        this.logger?.warn?.("twm-notification-center", "History listener failed", { err });
+      }
+    });
+  }
+  /** A toast that left marks its own entry: one toast, one entry. */
+  #recordDismissal(notification, reason) {
+    if (notification.skipHistory) return;
+    const at = this.history.findLastIndex((entry) => entry.id === notification.id);
+    if (at === -1) return;
+    this.history[at] = { ...notification, dismissed: true, reason };
   }
   /** A progress toast that has not been given an outcome yet. */
   static #isRunning(notification) {

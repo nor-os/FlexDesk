@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.17.2 (2026-10-22)
+
+A patch release: everything below is additive. Every entry is documented in a
+README section headed "(0.17.2)"; each entry links to it.
+
+### Added and changed
+
+- [An open single instance takes new props: `navigate(props)`](README.md#an-open-single-instance-takes-new-props-navigateprops-0172): opening a `single` kind that is already open with new props reveals it and calls its content's `navigate(props)` hook once; the props are recorded on the tab. An open that names no props only reveals.
+- [A link to a kind nobody registered](README.md#a-link-to-a-kind-nobody-registered-0172): `wm.navigate` to a kind that is not registered logs one warning, changes nothing and returns `false`.
+- [A palette row drawn disabled, with a reason](README.md#a-palette-row-drawn-disabled-with-a-reason-0172): a command with `enabled: () => false` is listed greyed (`aria-disabled`), does nothing when picked, and shows its `disabledReason` as a tooltip.
+- [A catalog source only behind its prefix: `scopedOnly`](README.md#a-catalog-source-only-behind-its-prefix-scopedonly-0172): a catalog source with `scopedOnly: true` is searched only when its prefix is typed, in the flat and the grouped palette.
+- [The settings categories outside the page: `SettingsCategories`](README.md#the-settings-categories-outside-the-page-settingscategories-0172): `SettingsView` can leave out its own category list and filter, and `SettingsCategories` (new export from `@flexdesk/widgets`) shows them anywhere, kept in step with the view.
+- [Toast cards are styled and clickable](README.md#toast-cards-are-styled-and-clickable-0172): toast cards use `twm-notification` and `twm-notification--<severity>`, styled in flexdesk.css and base.css, with their entry animation defined there; cards take pointer events, so their buttons work (BUG-0033). A sheet that targeted `.notification` must target `.twm-notification`.
+
+### Removed or renamed exports
+
+None. Compared with 0.17.1, across every entry point (`core`, `widgets`, `wm`,
+`host`, `canvas`, `flow`, `charts`, `tiles`, `editor`) and the package
+`exports` map, exports were only added: `SettingsCategories` in `@flexdesk/widgets`.
+Not an export but worth knowing: toast cards changed class from `notification`
+to `twm-notification` (see above).
+
 ## 0.17.1 (2026-10-21)
 
 A patch release: everything below is additive. Every entry is documented in a

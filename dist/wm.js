@@ -634,8 +634,7 @@ function createCommandPalette({
         return;
       }
       list.innerHTML = filtered.slice(0, MAX_ROWS).map((e, i) => `
-                <div class="twm-cmdpal__item${i === active ? " twm-cmdpal__item--active" : ""}"
-                     data-idx="${i}">
+                ${_itemOpen(e, i === active ? " twm-cmdpal__item--active" : "", `data-idx="${i}"`)}
                     <span class="material-symbols-outlined twm-cmdpal__icon">${e.icon || "arrow_right"}</span>
                     <span class="twm-cmdpal__label">${_esc2(e.label || e.id)}</span>
                     <span class="twm-cmdpal__kind">${e.kind}</span>
@@ -678,7 +677,7 @@ function createCommandPalette({
       if (modes.includes("split")) acts.push(`<span${refused}><kbd>Ctrl Enter</kbd> split</span>`);
       if (modes.includes("window")) acts.push(`<span${refused}><kbd>Shift Enter</kbd> window</span>`);
       const side = r.shortcut ? `<kbd class="twm-cmdpal__shortcut">${_esc2(r.shortcut)}</kbd>` : `<span class="twm-cmdpal__kind">${_esc2(kindLabel(r))}</span>`;
-      return `<div class="twm-cmdpal__item${on}" data-idx="${i}" role="option">
+      return `${_itemOpen(r, on, `data-idx="${i}" role="option"`)}
                 <span class="material-symbols-outlined twm-cmdpal__icon">${_esc2(r.icon || "arrow_right")}</span>
                 <span class="twm-cmdpal__main"><span class="twm-cmdpal__label">${_mark(r.label || r.id, r._hits)}</span>${ctx}</span>
                 <span class="twm-cmdpal__side">${side}<span class="twm-cmdpal__acts">${acts.join("")}</span></span>
@@ -747,6 +746,7 @@ function createCommandPalette({
         showAll(picked.more);
         return;
       }
+      if (_isDisabled(picked)) return;
       if (mode !== "open" && isSingle(picked)) return;
       const pick = _public(picked);
       const how = { mode, scope: scope?.id ?? null };
@@ -879,6 +879,7 @@ function createCommandPalette({
         return;
       }
       let pool = entities;
+      if (!filterSet) pool = pool.filter((e) => !e._scopedOnly);
       if (commandsOnly) pool = pool.filter((e) => e.kind === "command");
       else if (filterSet) pool = pool.filter((e) => filterSet.has(_groupOf(e)) || filterSet.has(e.kind));
       else if (q.length < commandMinChars) pool = pool.filter((e) => e.kind !== "command");
@@ -938,7 +939,7 @@ function createCommandPalette({
       }
       const q = input.value.trim().toLowerCase();
       const filterSet = typeFilter ? new Set(typeFilter) : null;
-      const pool = filterSet ? entities.filter((e) => filterSet.has(e.kind)) : entities;
+      const pool = filterSet ? entities.filter((e) => filterSet.has(e.kind)) : entities.filter((e) => !e._scopedOnly);
       if (!q) {
         filtered = typeFilter ? pool.slice().sort((a, b) => String(a.label || a.id).localeCompare(b.label || b.id)) : [];
       } else {
@@ -995,8 +996,10 @@ function createCommandPalette({
       }
       return [...staticCommands, ...extra];
     };
+    const scopedKinds = new Set((catalog?.sources || []).filter((s) => s?.scopedOnly === true).map((s) => s.navKind));
+    const tagScoped = (rows) => scopedKinds.size ? rows.map((r) => scopedKinds.has(r.kind) ? { ...r, _scopedOnly: true } : r) : rows;
     const withCommands = (rows) => grouped ? [...rows, ...commandRows()] : [...commandRows(), ...rows];
-    entities = _decorateIcons(withCommands(cache && cached ? cached : []), taxonomy);
+    entities = _decorateIcons(withCommands(tagScoped(cache && cached ? cached : [])), taxonomy);
     if (grouped) {
       refilter();
       if (typeof empty === "function") {
@@ -1015,7 +1018,7 @@ function createCommandPalette({
         const loaded = await catalog.loadAll(api);
         if (cache) cached = loaded;
         if (overlay !== mine) return;
-        entities = _decorateIcons(withCommands(loaded), taxonomy);
+        entities = _decorateIcons(withCommands(tagScoped(loaded)), taxonomy);
         if (grouped ? !scope && (input.value || typeFilter) : input.value) refilter();
       } catch (err) {
         console.warn("[cmdpal] entity load failed", err);
@@ -1114,8 +1117,23 @@ function _searched(r) {
 function _groupOf(r) {
   return r.group || r.kind;
 }
+function _isDisabled(r) {
+  if (!r || typeof r.enabled !== "function") return false;
+  try {
+    return !r.enabled();
+  } catch (err) {
+    console.warn("[cmdpal] enabled() threw", err);
+    return true;
+  }
+}
+function _itemOpen(r, extra, attrs) {
+  const off = _isDisabled(r);
+  const cls = "twm-cmdpal__item" + extra + (off ? " twm-cmdpal__item--disabled" : "");
+  const refused = !off ? "" : ' aria-disabled="true"' + (r.disabledReason ? ` title="${_esc2(r.disabledReason)}"` : "");
+  return `<div class="${cls}"${refused} ${attrs}>`;
+}
 function _public(r) {
-  const { _hits, _score, ...rest } = r;
+  const { _hits, _score, _scopedOnly, ...rest } = r;
   return rest;
 }
 function _byScore(a, b) {
@@ -2320,6 +2338,11 @@ function createEntityCatalog({ sources, aliases = {}, aggregate = null } = {}) {
     if (!s?.navKind || typeof s.list !== "function" || typeof s.shape !== "function") {
       throw new TypeError(
         `createEntityCatalog: source '${s?.navKind ?? "?"}' needs navKind + list() + shape()`
+      );
+    }
+    if (s.scopedOnly != null && typeof s.scopedOnly !== "boolean") {
+      throw new TypeError(
+        `createEntityCatalog: source '${s.navKind}' \`scopedOnly\` must be a boolean when present`
       );
     }
   }
@@ -5357,10 +5380,53 @@ var WindowManager = class _WindowManager {
     return null;
   }
   /** Reveal the instance of a single kind that is open: answers whether
-   *  there was one. Every open path asks this first. */
+   *  there was one. Every open path asks this first.
+   *
+   *  An open path names props too, and revealing alone would drop them: the
+   *  instance keeps showing what it was opened with. So a revealed content
+   *  that returned a `navigate(props)` hook from its mount is handed the new
+   *  props — once per open, the same props twice are two calls — and they
+   *  are recorded on its tab, so a page restore or a reload mounts it with
+   *  the latest. A content without the hook is revealed as it is: its tab
+   *  keeps its props and nothing is called. So is every content when the
+   *  open names no props at all — a top-nav button, `openInPrimary(kind)` —
+   *  which asks to SEE the instance, not to empty it. */
   revealInstance(kind, props = {}) {
     const loc = this.findInstance(kind, props);
-    return loc ? this._revealAt(loc) : false;
+    if (!loc || !this._revealAt(loc)) return false;
+    if (props && Object.keys(props).length) this._deliverProps(kind, props);
+    return true;
+  }
+  /** Hand a revealed instance the props it was opened with, and record them
+   *  on its tab (and the tile's `content` mirror of it, re-baselining the
+   *  tile so the write does not rebuild it). Looks
+   *  the instance up again: a reveal from a page archive moved it into the
+   *  tile's tabs. A throwing hook is a warning, never a crash. */
+  _deliverProps(kind, props) {
+    const loc = this.findInstance(kind, props);
+    if (!loc || loc.where === "archive") return;
+    const scope = loc.where === "window" ? { windowId: loc.windowId } : { leafId: loc.leafId };
+    const content = this._scopeContent(scope);
+    if (typeof content?.navigate !== "function") return;
+    const next = { ...props || {} };
+    if (loc.where === "window") {
+      const rec = this._windowToLeaf.get(loc.windowId);
+      const tab = Array.isArray(rec.tabs) ? rec.tabs[loc.idx] : null;
+      if (tab) tab.props = { ...next };
+      if (rec.original) rec.original = { ...rec.original, props: { ...next } };
+    } else {
+      const leaf = this._tree().get(loc.leafId);
+      const expected = this.renderer?.leafKey?.(loc.leafId) ?? void 0;
+      leaf.tabs[loc.idx].props = { ...next };
+      if (leaf.content?.kind === kind) leaf.content = { ...leaf.content, props: { ...next } };
+      this.renderer?.rebaselineLeaf?.(loc.leafId, expected);
+    }
+    this._persist();
+    try {
+      content.navigate({ ...next });
+    } catch (err) {
+      console.warn("[wm] content navigate threw", err);
+    }
   }
   /** A leaf's archived pages that can come back — every `pageTabs` entry
    *  but the CURRENT page's. `swapToPage` restores an archive without
@@ -8407,8 +8473,22 @@ var WindowManager = class _WindowManager {
    *
    *  The lower-level primitives (`openFromContext`,
    *  `openInTabFromContext`, `openInTabInPrimary`, `openInPrimary`,
-   *  `openInWindow`) stay internal; callers prefer `wm.navigate(...)`. */
+   *  `openInWindow`) stay internal; callers prefer `wm.navigate(...)`.
+   *
+   *  Returns `true` once the navigation is routed. A kind the shell's
+   *  content registry has no factory for is refused instead: one
+   *  `console.warn` naming it, no tile, tab, window or history touched, and
+   *  `false` — never a placeholder tile, never a throw. */
   navigate(kind, props = {}, opts = {}) {
+    if (!this.content.has(kind)) {
+      console.warn(`[wm] navigate: no content registered for kind "${String(kind)}"`);
+      return false;
+    }
+    this._route(kind, props, opts);
+    return true;
+  }
+  /** The routing behind `navigate`, for a kind known to be registered. */
+  _route(kind, props, opts) {
     const { ctx = null, transient = false } = opts;
     const background = !!opts.background;
     let { dest = "main", newTab = false } = opts;

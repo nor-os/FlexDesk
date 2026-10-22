@@ -3939,6 +3939,51 @@ function fitNumber(n, { min, max, step }) {
   if (lo != null && at(k) < lo) k = Math.ceil((lo - base) / s - EPS);
   return at(k);
 }
+function filterBox(onInput) {
+  const label = el2("label", "twm-settings__search");
+  const input = el2("input", "twm-settings__search-input");
+  input.type = "search";
+  input.placeholder = "Filter settings\u2026";
+  input.autocomplete = "off";
+  input.spellcheck = false;
+  input.setAttribute("aria-label", "Filter settings");
+  input.addEventListener("input", () => onInput(input.value));
+  label.append(icon("search"), input);
+  return { label, input };
+}
+function categoryNav(onSelect) {
+  const nav = el2("nav", "twm-settings__nav");
+  nav.setAttribute("aria-label", "Settings categories");
+  nav.addEventListener("click", (e) => {
+    const btn = e.target.closest?.("[data-category]");
+    if (btn && nav.contains(btn)) onSelect(btn.dataset.category);
+  });
+  return nav;
+}
+function paintCategories(nav, categories, active) {
+  const buttons = categories.map((cat) => {
+    const b = el2("button", "twm-settings__cat");
+    b.type = "button";
+    b.dataset.category = cat.id;
+    if (cat.id === active) {
+      b.classList.add("twm-settings__cat--active");
+      b.setAttribute("aria-current", "page");
+    }
+    b.append(icon(cat.icon || "tune"), el2("span", "twm-settings__cat-label", cat.label ?? cat.id));
+    if (cat.description) b.title = String(cat.description);
+    return b;
+  });
+  nav.replaceChildren(...buttons);
+}
+function resetAllButton(onClick) {
+  const b = el2("button", "twm-btn twm-settings__reset-all");
+  b.type = "button";
+  b.append(icon("restart_alt"), el2("span", "", "Reset all"));
+  b.addEventListener("click", () => {
+    onClick();
+  });
+  return b;
+}
 var SettingsView = class extends ComponentBase {
   /**
    * @param {object}    o
@@ -3948,6 +3993,8 @@ var SettingsView = class extends ComponentBase {
    * @param {string}   [o.category] the category shown first (default: the first)
    * @param {number}   [o.textDebounceMs]
    * @param {string}   [o.title='Settings']  the sidebar heading
+   * @param {boolean}  [o.sidebar=true]  false leaves the sidebar (filter,
+   *        categories, *Reset all*) out, for a `SettingsCategories` elsewhere
    */
   constructor({
     store,
@@ -3956,6 +4003,7 @@ var SettingsView = class extends ComponentBase {
     category = null,
     textDebounceMs = SETTINGS_TEXT_DEBOUNCE_MS,
     title = "Settings",
+    sidebar = true,
     logger
   } = {}) {
     super({ eventBus, logger });
@@ -3971,6 +4019,8 @@ var SettingsView = class extends ComponentBase {
     this._query = "";
     this._debounceMs = textDebounceMs;
     this._title = title;
+    this._sidebar = sidebar !== false;
+    this._listeners = /* @__PURE__ */ new Set();
     this.root = null;
     this._nav = null;
     this._content = null;
@@ -3984,36 +4034,19 @@ var SettingsView = class extends ComponentBase {
   mount(container) {
     if (this.root) return this.root;
     const root = el2("div", "twm-settings");
-    const side = el2("aside", "twm-settings__sidebar");
-    const head = el2("div", "twm-settings__sidebar-title");
-    head.append(icon("settings"), el2("span", "", this._title));
-    const search = el2("label", "twm-settings__search");
-    const input = el2("input", "twm-settings__search-input");
-    input.type = "search";
-    input.placeholder = "Filter settings\u2026";
-    input.autocomplete = "off";
-    input.spellcheck = false;
-    input.setAttribute("aria-label", "Filter settings");
-    input.addEventListener("input", () => this.setQuery(input.value));
-    search.append(icon("search"), input);
-    this._search = input;
-    const nav = el2("nav", "twm-settings__nav");
-    nav.setAttribute("aria-label", "Settings categories");
-    nav.addEventListener("click", (e) => {
-      const btn = e.target.closest?.("[data-category]");
-      if (btn && nav.contains(btn)) this.selectCategory(btn.dataset.category);
-    });
-    this._nav = nav;
-    const resetAll = el2("button", "twm-btn twm-settings__reset-all");
-    resetAll.type = "button";
-    resetAll.append(icon("restart_alt"), el2("span", "", "Reset all"));
-    resetAll.addEventListener("click", () => {
-      this.resetAll();
-    });
-    side.append(head, search, nav, resetAll);
+    if (this._sidebar) {
+      const side = el2("aside", "twm-settings__sidebar");
+      const head = el2("div", "twm-settings__sidebar-title");
+      head.append(icon("settings"), el2("span", "", this._title));
+      const search = filterBox((text) => this.setQuery(text));
+      this._search = search.input;
+      this._nav = categoryNav((id) => this.selectCategory(id));
+      side.append(head, search.label, this._nav, resetAllButton(() => this.resetAll()));
+      root.append(side);
+    }
     const content = el2("div", "twm-settings__content");
     this._content = content;
-    root.append(side, content);
+    root.append(content);
     this.root = root;
     container.appendChild(root);
     this._mounted = true;
@@ -4024,6 +4057,7 @@ var SettingsView = class extends ComponentBase {
     this._subs.push(this.eventBus.on("settings:registered", (p) => this.#onRegistered(p)));
     this.#paintNav();
     this.#paintContent();
+    this.#notify();
     return root;
   }
   /** The category on screen (its id), or null. */
@@ -4034,6 +4068,19 @@ var SettingsView = class extends ComponentBase {
   getQuery() {
     return this._query;
   }
+  /** True while the filter is in effect (its trimmed text is not empty). */
+  isFiltering() {
+    return this.#searching();
+  }
+  /**
+   * `fn({ category, query })` after every change of the category, the filter
+   * or the registered categories, until the view is disposed. Answers the
+   * unsubscribe.
+   */
+  subscribe(fn) {
+    this._listeners.add(fn);
+    return () => this._listeners.delete(fn);
+  }
   /** Show one category; clears the filter. */
   selectCategory(id) {
     if (!this.root) return;
@@ -4043,6 +4090,7 @@ var SettingsView = class extends ComponentBase {
     if (this._search) this._search.value = "";
     this.#paintNav();
     this.#paintContent();
+    this.#notify();
   }
   /** Search every category; an empty query goes back to the category. */
   setQuery(query) {
@@ -4052,6 +4100,7 @@ var SettingsView = class extends ComponentBase {
     if (this._search && this._search.value !== q) this._search.value = q;
     this.#paintNav();
     this.#paintContent();
+    this.#notify();
   }
   /** Reset one category after `confirm`; resolves true when it was reset. */
   async resetCategory(id = this.getCategory()) {
@@ -4097,6 +4146,7 @@ var SettingsView = class extends ComponentBase {
     this._nav = null;
     this._content = null;
     this._search = null;
+    this._listeners.clear();
     super.dispose();
   }
   // ── store events ─────────────────────────────────────────────────────
@@ -4115,10 +4165,11 @@ var SettingsView = class extends ComponentBase {
     const touches = this.#searching() || !this._rows.size || paths.some((p) => schema[p]?.category === active);
     if (touches) {
       this.#paintContent();
-      return;
+    } else {
+      this.#flushAll();
+      this.#syncAll();
     }
-    this.#flushAll();
-    this.#syncAll();
+    this.#notify();
   }
   /** True while a filter is in effect: the trimmed query is not empty. */
   #searching() {
@@ -4140,20 +4191,13 @@ var SettingsView = class extends ComponentBase {
     return cats.find((c) => c.id === this._category) ?? cats[0] ?? null;
   }
   #paintNav() {
-    const active = this.#searching() ? null : this.getCategory();
-    const buttons = this.store.getCategories().map((cat) => {
-      const b = el2("button", "twm-settings__cat");
-      b.type = "button";
-      b.dataset.category = cat.id;
-      if (cat.id === active) {
-        b.classList.add("twm-settings__cat--active");
-        b.setAttribute("aria-current", "page");
-      }
-      b.append(icon(cat.icon || "tune"), el2("span", "twm-settings__cat-label", cat.label ?? cat.id));
-      if (cat.description) b.title = String(cat.description);
-      return b;
-    });
-    this._nav.replaceChildren(...buttons);
+    if (!this._nav) return;
+    paintCategories(this._nav, this.store.getCategories(), this.#searching() ? null : this.getCategory());
+  }
+  /** Tell the listeners, after the content is drawn (it settles the category). */
+  #notify() {
+    const state = { category: this.getCategory(), query: this._query };
+    for (const fn of [...this._listeners]) fn(state);
   }
   #paintContent() {
     this.#flushAll();
@@ -4416,6 +4460,54 @@ var SettingsView = class extends ComponentBase {
         };
       }
     }
+  }
+};
+var SettingsCategories = class extends ComponentBase {
+  /**
+   * @param {object}       o
+   * @param {SettingsView} o.view  the view it lists the categories of
+   */
+  constructor({ view, logger } = {}) {
+    if (!(view instanceof SettingsView)) {
+      throw new TypeError("SettingsCategories: `view` must be a SettingsView");
+    }
+    super({ eventBus: view.eventBus, logger });
+    this.view = view;
+    this.root = null;
+    this._search = null;
+    this._nav = null;
+    this._unsubscribe = null;
+  }
+  /** Build the list into `container` (once). */
+  mount(container) {
+    if (this.root) return this.root;
+    const view = this.view;
+    const root = el2("div", "twm-settings-categories");
+    const search = filterBox((text) => view.setQuery(text));
+    this._search = search.input;
+    this._nav = categoryNav((id) => view.selectCategory(id));
+    root.append(search.label, this._nav, resetAllButton(() => view.resetAll()));
+    this.root = root;
+    container.appendChild(root);
+    this._mounted = true;
+    this._unsubscribe = view.subscribe(() => this.#paint());
+    this.#paint();
+    return root;
+  }
+  dispose() {
+    this._unsubscribe?.();
+    this._unsubscribe = null;
+    this.root?.remove();
+    this.root = null;
+    this._search = null;
+    this._nav = null;
+    super.dispose();
+  }
+  #paint() {
+    const view = this.view;
+    const q = view.getQuery();
+    if (this._search.value !== q) this._search.value = q;
+    paintCategories(this._nav, view.store.getCategories(), view.isFiltering() ? null : view.getCategory());
   }
 };
 function settingsViewContent(opts = {}) {
@@ -6648,7 +6740,7 @@ var NotificationCenter = class _NotificationCenter extends ComponentBase {
       this.container = existingContainer;
       this.rootEl = existingContainer.querySelector(".twm-notification-center");
       this.listEl = existingContainer.querySelector(".twm-notification-center__list");
-      this.liveRegionEl = existingContainer.querySelector(".notification-center__live-region");
+      this.liveRegionEl = existingContainer.querySelector(".twm-notification-center__live-region");
       this._mounted = true;
       this.#subscribeEvents();
       this.#claimToastBus();
@@ -6662,7 +6754,7 @@ var NotificationCenter = class _NotificationCenter extends ComponentBase {
     this.listEl = document.createElement("div");
     this.listEl.className = "twm-notification-center__list";
     this.liveRegionEl = document.createElement("div");
-    this.liveRegionEl.className = "notification-center__live-region";
+    this.liveRegionEl.className = "twm-notification-center__live-region";
     this.liveRegionEl.setAttribute("aria-live", "polite");
     this.liveRegionEl.setAttribute("aria-atomic", "true");
     this.liveRegionEl.style.position = "absolute";
@@ -7085,7 +7177,7 @@ var NotificationCenter = class _NotificationCenter extends ComponentBase {
     if (!this.#summaryEl) {
       const more2 = document.createElement("button");
       more2.type = "button";
-      more2.className = "notification twm-notification--summary";
+      more2.className = "twm-notification twm-notification--summary";
       more2.addEventListener("click", () => {
         const held = [...this.held];
         try {
@@ -7212,8 +7304,8 @@ var NotificationCenter = class _NotificationCenter extends ComponentBase {
   #patchItem(entry, notification) {
     const item = entry.el;
     if (entry.severity !== notification.severity) {
-      if (entry.severity) item.classList.remove(`notification--${entry.severity}`);
-      item.classList.add("notification", `notification--${notification.severity}`);
+      if (entry.severity) item.classList.remove(`twm-notification--${entry.severity}`);
+      item.classList.add("twm-notification", `twm-notification--${notification.severity}`);
       entry.severity = notification.severity;
     }
     if (entry.titleEl) _NotificationCenter.#setText(entry.titleEl, notification.title);
@@ -8393,6 +8485,7 @@ export {
   SCALAR_TYPES,
   SETTINGS_TEXT_DEBOUNCE_MS,
   STEP_STATES,
+  SettingsCategories,
   SettingsView,
   SlideOutPanel,
   SliderField,

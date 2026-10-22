@@ -72,6 +72,17 @@
  *   drillLabel the Tab hint ("search rows"); Tab is offered only with it
  *   shortcut   a key binding drawn on the right
  *   verb       the Enter hint ('open' by default, 'run' for a command)
+ *   enabled    `() => boolean` (0.17.2). False: the row is still listed and
+ *              the arrows still reach it, but it is drawn greyed
+ *              (`twm-cmdpal__item--disabled`, aria-disabled="true") and
+ *              picking it — click, Enter, Ctrl/Shift+Enter — does nothing and
+ *              leaves the palette open. Asked on every draw and every pick.
+ *   disabledReason  the disabled row's tooltip (its `title`)
+ *
+ * A catalog source with `scopedOnly: true` (0.17.2) contributes no rows to a
+ * plain typed query, in either layout: its rows are listed only once its
+ * prefix has made the type chip (`help: solver`).
+ *
  * `hint` keeps its old meaning — drawn AND searched — for a row that sets
  * neither `context` nor `keywords`. A group's header is the taxonomy's
  * `plural` for the kind, else its `label`.
@@ -281,8 +292,7 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
         const render = () => {
             if (grouped) { renderGrouped(); return; }
             list.innerHTML = filtered.slice(0, MAX_ROWS).map((e, i) => `
-                <div class="twm-cmdpal__item${i === active ? ' twm-cmdpal__item--active' : ''}"
-                     data-idx="${i}">
+                ${_itemOpen(e, i === active ? ' twm-cmdpal__item--active' : '', `data-idx="${i}"`)}
                     <span class="material-symbols-outlined twm-cmdpal__icon">${e.icon || 'arrow_right'}</span>
                     <span class="twm-cmdpal__label">${_esc(e.label || e.id)}</span>
                     <span class="twm-cmdpal__kind">${e.kind}</span>
@@ -343,7 +353,7 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
             const side = r.shortcut
                 ? `<kbd class="twm-cmdpal__shortcut">${_esc(r.shortcut)}</kbd>`
                 : `<span class="twm-cmdpal__kind">${_esc(kindLabel(r))}</span>`;
-            return `<div class="twm-cmdpal__item${on}" data-idx="${i}" role="option">
+            return `${_itemOpen(r, on, `data-idx="${i}" role="option"`)}
                 <span class="material-symbols-outlined twm-cmdpal__icon">${_esc(r.icon || 'arrow_right')}</span>
                 <span class="twm-cmdpal__main"><span class="twm-cmdpal__label">${_mark(r.label || r.id, r._hits)}</span>${ctx}</span>
                 <span class="twm-cmdpal__side">${side}<span class="twm-cmdpal__acts">${acts.join('')}</span></span>
@@ -453,6 +463,9 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
             const picked = filtered[i];
             if (!picked) return;
             if (picked.more) { showAll(picked.more); return; }
+            // A disabled row is listed so it can say why; picking it runs
+            // nothing and the palette stays open on it.
+            if (_isDisabled(picked)) return;
             // Split and window open a COPY; a single kind refuses both, and the
             // palette stays open on the row whose hints say why.
             if (mode !== 'open' && isSingle(picked)) return;
@@ -585,6 +598,7 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
                 return;
             }
             let pool = entities;
+            if (!filterSet) pool = pool.filter((e) => !e._scopedOnly);
             if (commandsOnly) pool = pool.filter((e) => e.kind === 'command');
             else if (filterSet) pool = pool.filter((e) => filterSet.has(_groupOf(e)) || filterSet.has(e.kind));
             else if (q.length < commandMinChars) pool = pool.filter((e) => e.kind !== 'command');
@@ -649,7 +663,7 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
             const filterSet = typeFilter ? new Set(typeFilter) : null;
             const pool = filterSet
                 ? entities.filter((e) => filterSet.has(e.kind))
-                : entities;
+                : entities.filter((e) => !e._scopedOnly);
             if (!q) {
                 // Scoped + empty query → list every entity of that
                 // kind so the user sees what's available. Unscoped +
@@ -715,10 +729,18 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
             }
             return [...staticCommands, ...extra];
         };
+        // A `scopedOnly` source's rows are marked here, from the catalog's
+        // own source list, so only the rows the catalog produced are held
+        // back — a command or a Recent row of the same kind is not.
+        const scopedKinds = new Set((catalog?.sources || [])
+            .filter((s) => s?.scopedOnly === true).map((s) => s.navKind));
+        const tagScoped = (rows) => (scopedKinds.size
+            ? rows.map((r) => (scopedKinds.has(r.kind) ? { ...r, _scopedOnly: true } : r))
+            : rows);
         // Objects before commands in the grouped layout, so that a tie that
         // survives every rule goes to the object (first seen wins).
         const withCommands = (rows) => (grouped ? [...rows, ...commandRows()] : [...commandRows(), ...rows]);
-        entities = _decorateIcons(withCommands(cache && cached ? cached : []), taxonomy);
+        entities = _decorateIcons(withCommands(tagScoped(cache && cached ? cached : [])), taxonomy);
         if (grouped) {
             refilter();
             if (typeof empty === 'function') {
@@ -735,7 +757,7 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
                 const loaded = await catalog.loadAll(api);
                 if (cache) cached = loaded;
                 if (overlay !== mine) return;
-                entities = _decorateIcons(withCommands(loaded), taxonomy);
+                entities = _decorateIcons(withCommands(tagScoped(loaded)), taxonomy);
                 if (grouped ? (!scope && (input.value || typeFilter)) : input.value) refilter();
             } catch (err) {
                 console.warn('[cmdpal] entity load failed', err);
@@ -859,9 +881,26 @@ function _searched(r) {
 }
 function _groupOf(r) { return r.group || r.kind; }
 
+/** 0.17.2. `enabled` is asked each time; one that throws counts as no. */
+function _isDisabled(r) {
+    if (!r || typeof r.enabled !== 'function') return false;
+    try { return !r.enabled(); }
+    catch (err) { console.warn('[cmdpal] enabled() threw', err); return true; }
+}
+/** A row's opening `<div>` with its classes (`twm-cmdpal__item` plus `extra`)
+ *  and attributes. A disabled row adds its class, `aria-disabled` and, given a
+ *  `disabledReason`, the reason as its `title`. */
+function _itemOpen(r, extra, attrs) {
+    const off = _isDisabled(r);
+    const cls = 'twm-cmdpal__item' + extra + (off ? ' twm-cmdpal__item--disabled' : '');
+    const refused = !off ? ''
+        : ' aria-disabled="true"' + (r.disabledReason ? ` title="${_esc(r.disabledReason)}"` : '');
+    return `<div class="${cls}"${refused} ${attrs}>`;
+}
+
 /** Strip the palette's private fields before a row leaves it. */
 function _public(r) {
-    const { _hits, _score, ...rest } = r;
+    const { _hits, _score, _scopedOnly, ...rest } = r;
     return rest;
 }
 

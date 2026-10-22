@@ -29,6 +29,17 @@
  *       factory mounts and destroys it.
  *   §9  ITS CSS: every class the view sets has a rule, no hex literal.
  *   §10 the barrels export it.
+ *   §11 STORY-0101 (0.17.2) `sidebar: false` leaves the filter, the category
+ *       list and Reset all out of the page; a view made without it draws the
+ *       sidebar as before.
+ *   §12 A SettingsCategories bound to the view, mounted elsewhere, lists the
+ *       same categories in order, filters them, and a click shows that
+ *       category in the view.
+ *   §13 THE FILTER AND THE CATEGORY stay in step both ways: list -> view,
+ *       view -> list, and a category registered later joins the list;
+ *       view.subscribe() reports each change and its unsubscribe stops it.
+ *   §14 RESET ALL in the categories asks the view's confirm; Cancel changes
+ *       nothing, OK resets. dispose() takes the list down and stops it.
  *
  *     node tests/settings_view.test.mjs
  *
@@ -76,7 +87,7 @@ for (const key of ['window', 'document', 'HTMLElement', 'Element', 'Node', 'Even
 globalThis.ResizeObserver ||= class { observe() {} unobserve() {} disconnect() {} };
 globalThis.Event = dom.window.Event;
 
-const { SettingsView, settingsViewContent, SETTINGS_TEXT_DEBOUNCE_MS } =
+const { SettingsView, SettingsCategories, settingsViewContent, SETTINGS_TEXT_DEBOUNCE_MS } =
     await import('../src/ui/components/settings_view.js');
 const {
     createSettingsStore, getSettingsStore, configureSettings, registerSettings,
@@ -680,6 +691,193 @@ section('§10 the barrels export it');
     const readme = readFileSync(resolvePath(HERE, '../README.md'), 'utf8');
     ok('the README documents SettingsView', readme.includes('SettingsView')
        && readme.includes('settingsViewContent') && readme.includes('getSettingsStore'));
+}
+
+// ── §11 ─────────────────────────────────────────────────────────────────
+section('§11 sidebar: false leaves the filter, the categories and Reset all out');
+{
+    const { bus, store } = fixture();
+    const { view, q, qa } = mount({ store, eventBus: bus, sidebar: false });
+    ok('no sidebar', !q('.twm-settings__sidebar'));
+    ok('…no filter box, no category list, no Reset all',
+       !q('.twm-settings__search-input') && !qa('.twm-settings__cat').length && !q('.twm-settings__reset-all'));
+    ok('the content is drawn', !!q('.twm-settings__content .twm-settings__title'));
+    check('…for the first category', q('.twm-settings__title').textContent, 'First');
+    view.selectCategory('mid');
+    check('selectCategory() still shows a category', q('.twm-settings__title').textContent, 'Middle');
+    view.setQuery('kappa');
+    check('setQuery() still filters', qa('.twm-settings__row').map((r) => r.dataset.path), ['b.k']);
+    view.dispose();
+
+    const plain = mount({ store, eventBus: bus });
+    ok('without the option the sidebar is drawn',
+       !!plain.q('.twm-settings__sidebar .twm-settings__search-input')
+       && plain.qa('.twm-settings__sidebar .twm-settings__cat').length === 3
+       && !!plain.q('.twm-settings__sidebar .twm-settings__reset-all'));
+    plain.view.dispose();
+    const factory = settingsViewContent({ store, eventBus: bus, sidebar: false });
+    const host = document.createElement('div');
+    const made = factory(host, {});
+    ok('the content factory passes sidebar: false through', !host.querySelector('.twm-settings__sidebar'));
+    made.destroy();
+    let threw = null;
+    try { new SettingsCategories({ view: {} }); } catch (e) { threw = e; }
+    ok('SettingsCategories refuses something that is not a SettingsView', threw instanceof TypeError);
+}
+
+function mountCategories(view) {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const cats = new SettingsCategories({ view });
+    cats.mount(host);
+    const q = (s) => host.querySelector(s);
+    const qa = (s) => [...host.querySelectorAll(s)];
+    return { cats, host, q, qa };
+}
+
+// ── §12 ─────────────────────────────────────────────────────────────────
+section('§12 SettingsCategories mounted elsewhere lists, filters and selects');
+{
+    const { bus, store } = fixture();
+    const page = mount({ store, eventBus: bus, sidebar: false });
+    const nav = mountCategories(page.view);
+    ok('it is its own element, outside the view', !!nav.q('.twm-settings-categories')
+       && !page.host.contains(nav.host) && !nav.host.contains(page.host));
+    check('it lists the categories in order', nav.qa('.twm-settings__cat').map((b) => b.dataset.category),
+          ['first', 'mid', 'late']);
+    check('…with their labels', nav.qa('.twm-settings__cat-label').map((n) => n.textContent),
+          ['First', 'Middle', 'Late']);
+    ok('the view\'s category is marked', nav.q('.twm-settings__cat--active')?.dataset.category === 'first'
+       && nav.q('.twm-settings__cat--active').getAttribute('aria-current') === 'page');
+    ok('it holds a filter box and Reset all',
+       !!nav.q('.twm-settings__search-input') && !!nav.q('.twm-settings__reset-all'));
+
+    nav.q('.twm-settings__cat[data-category="late"]').click();
+    check('a click shows that category in the view', page.view.getCategory(), 'late');
+    check('…its page drawn', [page.q('.twm-settings__title').textContent,
+                             page.qa('.twm-settings__row').map((r) => r.dataset.path)], ['Late', ['c.z']]);
+    ok('…and marked in the list', nav.q('.twm-settings__cat--active')?.dataset.category === 'late');
+
+    type(nav.q('.twm-settings__search-input'), 'Count');
+    check('typing in its filter filters the view', page.view.getQuery(), 'Count');
+    check('…the matches drawn', page.qa('.twm-settings__row').map((r) => r.dataset.path), ['a.n']);
+    ok('…and no category is marked while filtering', !nav.q('.twm-settings__cat--active'));
+    type(nav.q('.twm-settings__search-input'), '<img src=x onerror=alert(1)>');
+    ok('a query holding markup makes no element', !page.q('img') && !nav.q('img'));
+    nav.cats.dispose();
+    page.view.dispose();
+}
+
+// ── §13 ─────────────────────────────────────────────────────────────────
+section('§13 the filter and the category stay in step, both ways');
+{
+    const { bus, store } = fixture();
+    const page = mount({ store, eventBus: bus, sidebar: false });
+    const nav = mountCategories(page.view);
+    const seen = [];
+    const off = page.view.subscribe((s) => seen.push(s));
+    const input = () => nav.q('.twm-settings__search-input');
+    const active = () => nav.q('.twm-settings__cat--active')?.dataset.category ?? null;
+
+    page.view.selectCategory('mid');
+    check('view.selectCategory() marks it in the list', active(), 'mid');
+    page.view.setQuery('zeta');
+    check('view.setQuery() puts the text in the list\'s filter', input().value, 'zeta');
+    check('…and unmarks the category', active(), null);
+    page.view.setQuery('');
+    check('clearing the filter in the view clears the list\'s', input().value, '');
+    check('…and marks the category again', active(), 'mid');
+
+    type(input(), 'kappa');
+    nav.q('.twm-settings__cat[data-category="first"]').click();
+    check('choosing a category in the list clears the filter in both',
+          [page.view.getQuery(), input().value], ['', '']);
+    check('…and the view shows it', [page.view.getCategory(), page.q('.twm-settings__title').textContent],
+          ['first', 'First']);
+    type(input(), '   ');
+    check('a filter of only spaces keeps the category marked', active(), 'first');
+
+    check('subscribe() reported each change', seen.map((s) => [s.category, s.query]), [
+        ['mid', ''], ['mid', 'zeta'], ['mid', ''], ['mid', 'kappa'], ['first', ''], ['first', '   '],
+    ]);
+
+    store.extend({ defaults: { d: { q: 1 } },
+        categories: [{ id: 'early', label: 'Early', icon: 'tune', order: 1 }],
+        schema: { 'd.q': { type: 'number', category: 'early', group: 'G', label: 'Q', defaultValue: 1 } } });
+    check('a category registered later joins the list in order',
+          nav.qa('.twm-settings__cat').map((b) => b.dataset.category), ['early', 'first', 'mid', 'late']);
+    check('…the selection stays', [active(), page.view.getCategory()], ['first', 'first']);
+
+    const before = seen.length;
+    off();
+    page.view.selectCategory('late');
+    check('the unsubscribe stops the reports', seen.length, before);
+    check('…while the list still follows', active(), 'late');
+
+    // Both the view's own sidebar and a list elsewhere: all three agree.
+    const both = mount({ store, eventBus: bus });
+    const nav2 = mountCategories(both.view);
+    type(both.q('.twm-settings__search-input'), 'Name');
+    check('the view\'s own filter moves the list\'s', nav2.q('.twm-settings__search-input').value, 'Name');
+    nav2.q('.twm-settings__cat[data-category="mid"]').click();
+    check('the list\'s click clears the view\'s own filter and marks there too',
+          [both.q('.twm-settings__search-input').value, both.q('.twm-settings__cat--active')?.dataset.category],
+          ['', 'mid']);
+    nav2.cats.dispose();
+    both.view.dispose();
+    nav.cats.dispose();
+    page.view.dispose();
+}
+
+// ── §14 ─────────────────────────────────────────────────────────────────
+section('§14 Reset all in the categories asks to confirm; dispose() takes it down');
+{
+    const { bus, store } = fixture();
+    const asked = [];
+    let answer = false;
+    const confirm = async (o) => { asked.push(o.title); return answer; };
+    const page = mount({ store, eventBus: bus, sidebar: false, confirm });
+    const nav = mountCategories(page.view);
+    store.set('a.n', 50);
+    nav.q('.twm-settings__reset-all').click();
+    await tick();
+    check('it asks the view\'s confirm', asked, ['Reset all settings']);
+    check('Cancel changes nothing', store.get('a.n'), 50);
+    answer = true;
+    nav.q('.twm-settings__reset-all').click();
+    await tick();
+    check('OK resets every setting', [asked.length, store.get('a.n')], [2, 10]);
+    ok('…and the view\'s row is no longer modified', !isModified(page.row('a.n')));
+
+    const { bus: bus2, store: store2 } = fixture();
+    const page2 = mount({ store: store2, eventBus: bus2, sidebar: false });
+    const nav3 = mountCategories(page2.view);
+    // the default confirm is openConfirm, as in the view's own sidebar
+    nav3.q('.twm-settings__reset-all').click();
+    await tick();
+    const dialog = document.querySelector('.twm-managed-window--modal');
+    ok('with no confirm given it opens the confirm dialog',
+       /Reset every setting to its default\?/.test(dialog?.textContent || ''));
+    [...(dialog?.querySelectorAll('button') || [])].find((b) => /Cancel/.test(b.textContent))?.click();
+    await tick();
+
+    nav.cats.dispose();
+    ok('dispose() removes the list', !nav.host.querySelector('.twm-settings-categories'));
+    page.view.selectCategory('late');
+    ok('…and it no longer follows the view', !nav.host.querySelector('.twm-settings__cat'));
+    nav.cats.dispose();
+    ok('dispose() twice is harmless', true);
+    nav3.cats.dispose();
+    page2.view.dispose();
+    page.view.dispose();
+
+    const css = stripComments(readFileSync(resolvePath(HERE, '../css/flexdesk.css'), 'utf8'));
+    ok('flexdesk.css styles .twm-settings-categories', /\.twm-settings-categories\s*\{/.test(css));
+    const w = await import('../widgets.js');
+    ok('widgets.js exports SettingsCategories', w.SettingsCategories === SettingsCategories);
+    const readme = readFileSync(resolvePath(HERE, '../README.md'), 'utf8');
+    ok('the README documents it under a (0.17.2) heading',
+       /^## .*SettingsCategories.*\(0\.17\.2\)$/m.test(readme) && readme.includes('sidebar: false'));
 }
 
 console.log(failures === 0

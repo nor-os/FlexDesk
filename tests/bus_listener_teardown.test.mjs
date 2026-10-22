@@ -10,7 +10,9 @@
  *       rebuilt shell on the same bus added a second listener
  *   §2  `createPageFactories({ refreshOn })`: a torn-down tab went on getting
  *       `refresh(reason)` for every refresh event
- *   §3  `NotificationHistory.unmount()` left one listener per badge event
+ *   §3  `NotificationHistory.unmount()` left one listener per badge event.
+ *       Since 0.17.3 (BUG-0034) the bell puts no badge listener on the bus
+ *       at all: it subscribes to the centre, and unmount lets that go
  *
  * Each section counts `listenerCount()` before subscribing, after, and after
  * teardown, and the count must come back to where it started.
@@ -182,16 +184,23 @@ console.log('\n§3 NotificationHistory.unmount() removes its badge listeners');
                     'workspace:save:failed', 'workspace:import:failed'];
     const counts = () => events.map((e) => bus.listenerCount(e));
     const before = counts();
+    const listeners = new Set();
+    const center = {
+        history: [],
+        subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+    };
 
     for (let i = 0; i < 3; i++) {
         const bell = new NotificationHistory({
-            notificationCenter: { history: [] }, eventBus: bus,
+            notificationCenter: center, eventBus: bus,
             logger: { warn() {}, info() {}, error() {}, debug() {} },
         });
         bell.mount();
-        check(`bell ${i + 1}: mounted, one listener per event`, counts(), before.map((n) => n + 1));
+        check(`bell ${i + 1}: mounted, no badge listener on the bus`, counts(), before);
+        check(`bell ${i + 1}: mounted, one subscription to the centre`, listeners.size, 1);
         bell.unmount();
         check(`bell ${i + 1}: unmounted, back to the pre-mount counts`, counts(), before);
+        check(`bell ${i + 1}: unmounted, the centre is let go`, listeners.size, 0);
     }
     await tick();
 }

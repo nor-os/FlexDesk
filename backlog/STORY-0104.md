@@ -2,10 +2,10 @@
 id: 104
 type: story
 title: "0.17.3 ships the NotificationHistory fix EcoSim's shell cutover needs"
-status: refined
+status: in-progress
 parent: 68
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 1
@@ -13,7 +13,7 @@ subsystem:
 labels: [release]
 links: [relates-to BUG-0034]
 created: 2026-10-22
-updated: 2026-10-22T16:58Z
+updated: 2026-10-22T19:16Z
 ---
 
 ## Description
@@ -30,6 +30,8 @@ norman decided on 2026-10-22 that the bell-badge defect found by EcoSim STORY-00
 ## History
 
 - 2026-10-22 · norman_agent · status: draft -> refined
+- 2026-10-22 · norman_agent · status: refined -> in-progress
+- 2026-10-22 · norman_agent · assignee: (none) -> norman_agent
 
 ## Comments
 

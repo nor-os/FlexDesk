@@ -2,10 +2,10 @@
 id: 98
 type: story
 title: "An already-open single-instance kind receives new props when navigated to again"
-status: refined
+status: in-progress
 parent: 29
 phase:
-assignee:
+assignee: norman_agent
 reporter: norman
 due:
 points: 3
@@ -13,7 +13,7 @@ subsystem:
 labels: [migration, flexdesk]
 links: []
 created: 2026-10-22
-updated: 2026-10-22T11:04Z
+updated: 2026-10-22T11:05Z
 ---
 
 ## Description
@@ -32,6 +32,8 @@ norman decided on 2026-10-22 (Claude Code session) that the generic capabilities
 ## History
 
 - 2026-10-22 · norman_agent · status: draft -> refined
+- 2026-10-22 · norman_agent · status: refined -> in-progress
+- 2026-10-22 · norman_agent · assignee: (none) -> norman_agent
 
 ## Comments
 

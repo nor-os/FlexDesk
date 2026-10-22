@@ -4106,8 +4106,23 @@ export class WindowManager {
      *
      *  The lower-level primitives (`openFromContext`,
      *  `openInTabFromContext`, `openInTabInPrimary`, `openInPrimary`,
-     *  `openInWindow`) stay internal; callers prefer `wm.navigate(...)`. */
+     *  `openInWindow`) stay internal; callers prefer `wm.navigate(...)`.
+     *
+     *  Returns `true` once the navigation is routed. A kind the shell's
+     *  content registry has no factory for is refused instead: one
+     *  `console.warn` naming it, no tile, tab, window or history touched, and
+     *  `false` — never a placeholder tile, never a throw. */
     navigate(kind, props = {}, opts = {}) {
+        if (!this.content.has(kind)) {
+            console.warn(`[wm] navigate: no content registered for kind "${String(kind)}"`);
+            return false;
+        }
+        this._route(kind, props, opts);
+        return true;
+    }
+
+    /** The routing behind `navigate`, for a kind known to be registered. */
+    _route(kind, props, opts) {
         const { ctx = null, transient = false } = opts;
         // Append the tab but stay where you are. Only meaningful with `newTab`.
         const background = !!opts.background;

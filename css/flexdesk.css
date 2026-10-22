@@ -8322,6 +8322,9 @@ body.twm-dragging * { user-select: none; }
 .twm-cmdpal__item--active .twm-cmdpal__acts { display: flex; }
 /* A copy verb a single kind refuses: drawn, greyed, with the reason as its title. */
 .twm-cmdpal__act--disabled { opacity: 0.45; }
+/* 0.17.2. A row whose `enabled()` says no: listed, reachable by the arrows,
+ * greyed, with its `disabledReason` as the title; picking it does nothing. */
+.twm-cmdpal__item--disabled { opacity: 0.45; cursor: default; }
 .twm-cmdpal__item--active .twm-cmdpal__kind,
 .twm-cmdpal__item--active .twm-cmdpal__shortcut { display: none; }
 .twm-cmdpal__item--more { color: var(--text-muted); font-size: var(--font-size-sm); }

@@ -72,6 +72,12 @@
  *   drillLabel the Tab hint ("search rows"); Tab is offered only with it
  *   shortcut   a key binding drawn on the right
  *   verb       the Enter hint ('open' by default, 'run' for a command)
+ *   enabled    `() => boolean` (0.17.2). False: the row is still listed and
+ *              the arrows still reach it, but it is drawn greyed
+ *              (`twm-cmdpal__item--disabled`, aria-disabled="true") and
+ *              picking it — click, Enter, Ctrl/Shift+Enter — does nothing and
+ *              leaves the palette open. Asked on every draw and every pick.
+ *   disabledReason  the disabled row's tooltip (its `title`)
  * `hint` keeps its old meaning — drawn AND searched — for a row that sets
  * neither `context` nor `keywords`. A group's header is the taxonomy's
  * `plural` for the kind, else its `label`.
@@ -281,8 +287,7 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
         const render = () => {
             if (grouped) { renderGrouped(); return; }
             list.innerHTML = filtered.slice(0, MAX_ROWS).map((e, i) => `
-                <div class="twm-cmdpal__item${i === active ? ' twm-cmdpal__item--active' : ''}"
-                     data-idx="${i}">
+                ${_itemOpen(e, i === active ? ' twm-cmdpal__item--active' : '', `data-idx="${i}"`)}
                     <span class="material-symbols-outlined twm-cmdpal__icon">${e.icon || 'arrow_right'}</span>
                     <span class="twm-cmdpal__label">${_esc(e.label || e.id)}</span>
                     <span class="twm-cmdpal__kind">${e.kind}</span>
@@ -343,7 +348,7 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
             const side = r.shortcut
                 ? `<kbd class="twm-cmdpal__shortcut">${_esc(r.shortcut)}</kbd>`
                 : `<span class="twm-cmdpal__kind">${_esc(kindLabel(r))}</span>`;
-            return `<div class="twm-cmdpal__item${on}" data-idx="${i}" role="option">
+            return `${_itemOpen(r, on, `data-idx="${i}" role="option"`)}
                 <span class="material-symbols-outlined twm-cmdpal__icon">${_esc(r.icon || 'arrow_right')}</span>
                 <span class="twm-cmdpal__main"><span class="twm-cmdpal__label">${_mark(r.label || r.id, r._hits)}</span>${ctx}</span>
                 <span class="twm-cmdpal__side">${side}<span class="twm-cmdpal__acts">${acts.join('')}</span></span>
@@ -453,6 +458,9 @@ export function createCommandPalette({ wm, api, taxonomy, catalog, placeholder =
             const picked = filtered[i];
             if (!picked) return;
             if (picked.more) { showAll(picked.more); return; }
+            // A disabled row is listed so it can say why; picking it runs
+            // nothing and the palette stays open on it.
+            if (_isDisabled(picked)) return;
             // Split and window open a COPY; a single kind refuses both, and the
             // palette stays open on the row whose hints say why.
             if (mode !== 'open' && isSingle(picked)) return;
@@ -858,6 +866,23 @@ function _searched(r) {
     return Array.isArray(k) ? k.join(' ') : String(k || '');
 }
 function _groupOf(r) { return r.group || r.kind; }
+
+/** 0.17.2. `enabled` is asked each time; one that throws counts as no. */
+function _isDisabled(r) {
+    if (!r || typeof r.enabled !== 'function') return false;
+    try { return !r.enabled(); }
+    catch (err) { console.warn('[cmdpal] enabled() threw', err); return true; }
+}
+/** A row's opening `<div>` with its classes (`twm-cmdpal__item` plus `extra`)
+ *  and attributes. A disabled row adds its class, `aria-disabled` and, given a
+ *  `disabledReason`, the reason as its `title`. */
+function _itemOpen(r, extra, attrs) {
+    const off = _isDisabled(r);
+    const cls = 'twm-cmdpal__item' + extra + (off ? ' twm-cmdpal__item--disabled' : '');
+    const refused = !off ? ''
+        : ' aria-disabled="true"' + (r.disabledReason ? ` title="${_esc(r.disabledReason)}"` : '');
+    return `<div class="${cls}"${refused} ${attrs}>`;
+}
 
 /** Strip the palette's private fields before a row leaves it. */
 function _public(r) {

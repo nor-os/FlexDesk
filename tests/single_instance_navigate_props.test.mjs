@@ -297,6 +297,11 @@ console.log('\n§5 an open that names no props only reveals');
     await tick();
     check('navigate(kind) with no props likewise', [callsOf('notebook').length - n, tabsOf('notebook').map((t) => t.props)],
         [0, [{ file: 'e' }]]);
+    wm.openInPrimary('notebook');
+    await tick();
+    check('openInPrimary(kind) with no props likewise',
+        [callsOf('notebook').length - n, live('notebook').length, tabsOf('notebook').map((t) => t.props)],
+        [0, 1, [{ file: 'e' }]]);
 }
 
 // ── §6 ──────────────────────────────────────────────────────────────────

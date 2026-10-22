@@ -237,6 +237,32 @@ with it. The taxonomy answers `isSingle(kind)`, `instanceKey(kind, props)` and
 `singleReason(kind)`; the window manager answers `isSingleKind(kind)`,
 `findInstance(kind, props)` and `revealInstance(kind, props)`.
 
+### A link to a kind nobody registered (0.17.2)
+
+`wm.navigate(kind, props, opts)` returns `true` once it has routed the
+navigation. A `kind` the shell's `content` map has no factory for is refused
+instead, on every destination (`main`, `origin`, a new tab, a window, a split,
+the legacy `target`):
+
+```js
+if (!wm.navigate(link.kind, link.props)) {
+    // nothing opened: tell the user the link is dead
+}
+```
+
+- **One `console.warn` naming the kind**, per call, and `false` back.
+- **Nothing changes**: no tile, tab, window or desktop, no per-tab history, no
+  `onChange` — and no "no factory registered yet" placeholder tile, which is
+  what such a link used to leave behind.
+- **No exception reaches the caller**, whatever `kind` is (`undefined`, `null`
+  and `''` included).
+
+A shell that only navigates to kinds it registered sees no change; the return
+value is new, so code that ignored it is unaffected. A split destination used
+to hand back the new leaf's id; it now returns `true` like the others — call
+`wm.splitLeafWith(...)` for the id. A restored layout that names an
+unregistered kind still draws its placeholder: only `navigate` refuses.
+
 ### A pane that names what it shows: `ctx.setTitle` (0.12.1)
 
 A content factory receives `(hostEl, props, ctx)`, and `ctx` carries, per pane,

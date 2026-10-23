@@ -22,7 +22,7 @@ import {
   ActionDropdown,
   ComponentBase,
   SlideOutPanel
-} from "./chunk-4A7SJC3T.js";
+} from "./chunk-RKNFBX5K.js";
 import {
   hideContextMenu,
   showContextMenu
@@ -7471,8 +7471,9 @@ function thumbGeometry(scrollSize, clientSize, scrollPos, trackLen) {
   return { size, pos };
 }
 function barCovered(el3, stacks) {
+  const passThrough = (h) => h.closest?.(".twm-autoscroll-layer") || h.closest?.(".twm-resize-handle");
   return stacks.some((stack) => {
-    const top = (stack || []).find((h) => !h.closest?.(".twm-autoscroll-layer"));
+    const top = (stack || []).find((h) => !passThrough(h));
     return Boolean(top) && top !== el3 && !el3.contains(top);
   });
 }
@@ -7679,6 +7680,16 @@ function installAutoScrollbars(root = document.body, { exclude = null } = {}) {
       for (const el3 of managed.keys()) place(el3);
     });
   };
+  const sweep = new MutationObserver((mutations) => {
+    if (!managed.size || !mutations.some((m) => m.removedNodes.length)) return;
+    for (const el3 of [...managed.keys()]) {
+      if (!el3.isConnected) {
+        drop(el3);
+        hoverChain.delete(el3);
+      }
+    }
+  });
+  sweep.observe(root, { childList: true, subtree: true });
   doc.addEventListener("mouseover", onOver, true);
   doc.addEventListener("mouseout", onLeaveWindow, true);
   doc.addEventListener("scroll", onScroll, true);
@@ -7691,6 +7702,7 @@ function installAutoScrollbars(root = document.body, { exclude = null } = {}) {
       doc.removeEventListener("scroll", onScroll, true);
       win.removeEventListener("resize", onResize);
       doc.removeEventListener("focusin", onResize, true);
+      sweep.disconnect();
       for (const el3 of [...managed.keys()]) drop(el3);
       root.classList.remove(ROOT_CLASS);
     }

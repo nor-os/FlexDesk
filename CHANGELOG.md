@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.17.4 (2026-10-23)
+
+A patch release: everything below is additive. Every fix is documented in a
+section of the docs headed "(0.17.4)"; each entry links to it.
+
+### Added and changed
+
+- [A slide-out stays inside its host](docs/components/slide-out-panel.md#a-slide-out-stays-inside-its-host-0174): a `SlideOutPanel` is never wider than its host. While open it carries the host's width as `--twm-slide-out-host-w`, which `.twm-slide-out-panel` uses as its `max-width` and as the ceiling of its 400px `min-width`; in a host narrower than the panel's `width` it is the host's width and starts at the host's left edge, at any content zoom and again after every host resize. The header icon and the close button's icon are 18px, by rules that win over `.material-symbols-outlined`'s 24px (BUG-0035).
+- [A pane at the window's edge keeps its bar](docs/components/layout-widgets.md#a-pane-at-the-windows-edge-keeps-its-bar-0174): the window's `.twm-resize-handle` strips and corners are not cover when an overlay scrollbar checks what sits over its track, so a pane flush against the right or bottom edge of a non-maximized window shows its bar again; a popover over the pane still hides it (BUG-0036).
+- `installAutoScrollbars` drops the overlay bars of an element taken out of the page (a managed window closed) at once, instead of leaving them on screen through the hide delay and fade.
+- The reference documentation moved from the README into `docs/` ([docs/README.md](docs/README.md): one page per component and per concept, headings unchanged); the README is a short overview, and `docs/` ships in the package.
+
+### Removed or renamed exports
+
+None. Compared with 0.17.3, across every entry point (`core`, `widgets`, `wm`,
+`host`, `canvas`, `flow`, `charts`, `tiles`, `editor`) and the package
+`exports` map, no export was added, removed or renamed. Not an export but
+worth knowing: `.twm-slide-out-panel` has a `max-width` while open, and the
+slide-out's header and close icons are 18px instead of the page's icon size
+(see above).
+
 ## 0.17.3 (2026-10-22)
 
 A patch release: everything below is additive. Every entry is documented in a

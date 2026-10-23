@@ -361,7 +361,7 @@ var SlideOutPanel = class extends ComponentBase {
     const header = document.createElement("div");
     header.className = "twm-slide-out-panel__header";
     this.#headerIcon = document.createElement("span");
-    this.#headerIcon.className = "material-symbols-outlined";
+    this.#headerIcon.className = "twm-slide-out-panel__icon material-symbols-outlined";
     this.#headerTitle = document.createElement("span");
     this.#headerTitle.className = "twm-slide-out-panel__title";
     const closeBtn = document.createElement("button");
@@ -480,13 +480,24 @@ var SlideOutPanel = class extends ComponentBase {
    *  engine that predates it), and the width subtracted is the panel's
    *  laid-out one, which `min-width` may hold above the requested
    *  width. Rounding happens in screen pixels, so at 100% the output is
-   *  exactly what it always was. */
+   *  exactly what it always was.
+   *
+   *  NEVER WIDER THAN THE HOST (BUG-0035). The right edge is pinned, so a
+   *  panel wider than its host (700px by default, `min-width: 400px`)
+   *  reached past the host's left edge across the neighbouring pane. The
+   *  host's width, in the panel's CSS pixels, goes on the panel as
+   *  `--twm-slide-out-host-w`, which the stylesheet uses as `max-width`
+   *  and as the ceiling of the 400px `min-width`; it is set BEFORE the
+   *  width is read so the read sees the capped layout, and the width is
+   *  capped here too for an engine that lays nothing out. */
   #trackGeometry = () => {
     if (!this.#open || !this.#panel || !this.#container) return;
     const r = this.#container.getBoundingClientRect();
     const zoom = this.#panel.currentCSSZoom || 1;
-    const width = this.#panel.offsetWidth || this.#width;
+    const hostWidth = r.width / zoom;
     const s = this.#panel.style;
+    s.setProperty("--twm-slide-out-host-w", `${hostWidth}px`);
+    const width = Math.min(this.#panel.offsetWidth || this.#width, hostWidth);
     s.position = "fixed";
     s.top = `${Math.round(r.top) / zoom}px`;
     s.left = `${Math.round(r.right - width * zoom) / zoom}px`;
@@ -500,4 +511,4 @@ export {
   ActionDropdown,
   SlideOutPanel
 };
-//# sourceMappingURL=chunk-4A7SJC3T.js.map
+//# sourceMappingURL=chunk-RKNFBX5K.js.map

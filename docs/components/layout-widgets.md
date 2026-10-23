@@ -21,6 +21,21 @@ later. It watches `root` only and returns a disconnect. (It used to take no
 argument and look for a `#twm-fixed-200` that nothing created, so visible
 sections got no bar until a class changed — BUG-0006.)
 
+## A pane at the window's edge keeps its bar (0.17.4)
+
+An overlay bar whose track is covered (a popover, a menu, a dialog over it)
+is not drawn. The window's own resize handles are not cover: the 6px
+`.twm-resize-handle` strips and corners that `WindowChromeController` lays
+along the edges of a non-maximized window are skipped when `barCovered()`
+looks at what sits over the track, as the overlay layer's own bars are. A
+pane flush against the right or bottom edge shows its bar on hover and while
+scrolling, and a popover over that pane still hides it, handle or not.
+
+Until 0.17.4 the right strip (z-index 9999) counted as covering every pane
+at the right edge of a window that was not maximized, so those panes had no
+scrollbar at all (BUG-0036). `tests/autoscroll_resize_handle_not_cover.test.mjs`
+holds it.
+
 ## A stack of collapsible sections: `createSectionStack` (0.17.0)
 
 Inspector-style panel content: titled sections in a column, each opened and

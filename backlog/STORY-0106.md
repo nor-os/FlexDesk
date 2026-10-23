@@ -1,7 +1,7 @@
 ---
 id: 106
 type: story
-title: "0.17.4 ships the fixes EcoSim's post-cutover stories need: SlideOutPanel clamp and icons, scrollbars beside resize handles, MenuBar disabled tooltips"
+title: "0.17.4 ships two defect fixes EcoSim's post-cutover stories found: SlideOutPanel clamp and icons, scrollbars beside resize handles"
 status: refined
 parent: 68
 phase:
@@ -11,19 +11,19 @@ due:
 points: 1
 subsystem:
 labels: [release]
-links: [blocked-by 105, relates-to BUG-0035, relates-to BUG-0036]
+links: [relates-to BUG-0035, relates-to BUG-0036]
 created: 2026-10-23
-updated: 2026-10-23T15:25Z
+updated: 2026-10-23T15:35Z
 ---
 
 ## Description
 
-norman decided on 2026-10-23 that the FlexDesk gaps EcoSim's post-cutover stories found are fixed in FlexDesk first and released as 0.17.4. Contents: BUG-0035, BUG-0036 and STORY-0105. Additive, so a patch release.
+norman decided on 2026-10-23 that the FlexDesk gaps EcoSim's post-cutover stories found are fixed in FlexDesk first and released as 0.17.4. Contents: BUG-0035 and BUG-0036. Additive, so a patch release.
 
 ## Acceptance criteria
 
 - [ ] `npm view flexdesk@0.17.4 version` prints 0.17.4
-- [ ] BUG-0035 and BUG-0036 are fixed and STORY-0105 is done, all on main
+- [ ] BUG-0035 and BUG-0036 are fixed, both on main
 - [ ] `node build.mjs --check` passes and dist/ matches a fresh build
 - [ ] CHANGELOG.md has a 0.17.4 section compiled from the README sections headed "(0.17.4)"
 
@@ -36,3 +36,7 @@ norman decided on 2026-10-23 that the FlexDesk gaps EcoSim's post-cutover storie
 ### 2026-10-23T15:25Z · norman_agent (status: draft -> refined)
 
 Filed and refined on norman's decision (2026-10-23): 4 criteria, 1 point, parented to EPIC-0068.
+
+### 2026-10-23T15:35Z · norman_agent
+
+STORY-0105 dropped (FlexDesk-first decision, 2026-10-23); 0.17.4 now ships BUG-0035 and BUG-0036 only.

@@ -2,7 +2,7 @@
 id: 105
 type: story
 title: "MenuBar items show a tooltip with the reason when disabled"
-status: refined
+status: dropped
 parent: 29
 phase:
 assignee:
@@ -13,7 +13,7 @@ subsystem:
 labels: [migration, flexdesk]
 links: []
 created: 2026-10-23
-updated: 2026-10-23T15:25Z
+updated: 2026-10-23T15:35Z
 ---
 
 ## Description
@@ -30,9 +30,14 @@ EcoSim STORY-0049 (`../EcoSim/backlog/STORY-0049.md`) needs Edit > Undo to say w
 ## History
 
 - 2026-10-23 · norman_agent · status: draft -> refined
+- 2026-10-23 · norman_agent · status: refined -> dropped
 
 ## Comments
 
 ### 2026-10-23T15:25Z · norman_agent (status: draft -> refined)
 
 Filed and refined on norman's decision (2026-10-23): 4 criteria, 1 point, parented to EPIC-0029, in 0.17.4 (STORY-0106).
+
+### 2026-10-23T15:35Z · norman_agent (status: refined -> dropped)
+
+Dropped by norman's FlexDesk-first decision (2026-10-23, EcoSim docs/decisions/flexdesk-migration.md#flexdesk-first): EcoSim takes FlexDesk's behaviour where they differ, so a disabled menu item needs no tooltip; EcoSim STORY-0049's palette already says why Undo is disabled. Nothing was built.

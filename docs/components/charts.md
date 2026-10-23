@@ -4,6 +4,30 @@
 
 Plotly-backed charts: the wrapper, the chart types, subplot layouts, downsampling, the plot grid, the plot-config editor and the two plot windows. Plotly itself is not in the bundle; call `setPlotlySource()` with the path to your copy. The plot window's `streamEvents` option is described with the [other application-neutral options](../concepts/domain-neutrality.md#no-application-globals-the-gallery-picker-and-plot-window-events-0170).
 
+## A data series with no saved plot config opens (0.17.5)
+
+`openDataSeriesPlotWindow` (and `new DataSeriesPlotWindow`, the module's
+default export) asks `getPlotConfig(seriesId)` for the series' plot config.
+When that answers nothing, the window builds a default one with
+`DataSeriesPlotWindow.createDefaultConfig(headers, numericColumns, classifyHeader)`:
+X is the first numeric column the classifier calls `'time'` (else the first
+numeric column), and Y is up to three of the other numeric columns. The window
+passes the `classifyHeader` it was given, so an application whose time column
+is `year` or `date_index` gets that column on X; without one the default
+classifier calls `t`, `time`, `step` and `period` time.
+
+```js
+openDataSeriesPlotWindow({ seriesId, seriesName, headers, dataHub, services,
+    getPlotConfig, savePlotConfig,
+    classifyHeader: (h) => (h === 'year' ? 'time' : 'indicator') });   // X is `year`
+```
+
+The third parameter of `createDefaultConfig` is new and optional: called with
+two arguments it uses the default classifier. Until 0.17.5 the static method
+read `this.classifyHeader`, which a class does not have, so opening any series
+with no saved plot config threw `TypeError: this.classifyHeader is not a
+function` (BUG-0037). `tests/data_series_plot_default_config.test.mjs` holds it.
+
 ## Derived series: `seriesTransforms` (0.17.0)
 
 A plot can draw series worked out from its own: a trend, a moving average, a

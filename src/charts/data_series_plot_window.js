@@ -107,7 +107,8 @@ class DataSeriesPlotWindow {
             this._config = { ...saved };
             this._config.yColumns = (saved.yColumns || []).filter(c => this._numericColumns.has(c.header));
         } else {
-            this._config = DataSeriesPlotWindow.createDefaultConfig(this.headers, this._numericColumns);
+            this._config = DataSeriesPlotWindow.createDefaultConfig(
+                this.headers, this._numericColumns, this.classifyHeader);
         }
 
         this.#createWindow();
@@ -694,13 +695,26 @@ class DataSeriesPlotWindow {
 
     // ── Default config factory ───────────────────────────────────────────
 
-    static createDefaultConfig(headers, numericColumns) {
+    /**
+     * The config a series with no saved one opens with: the first numeric
+     * column `classifyHeader` calls `'time'` is X (else the first numeric
+     * column), and up to MAX_AUTO_COLUMNS other numeric columns are Y.
+     *
+     * Static, so it has no window: the header classifier is a parameter. A
+     * window passes its own (`options.classifyHeader`); a caller that passes
+     * none gets the default, which knows `t`/`time`/`step`/`period`.
+     *
+     * @param {string[]} headers
+     * @param {Set<string>} [numericColumns] - absent => every column is numeric
+     * @param {(header: string) => string} [classifyHeader=defaultClassifyHeader]
+     */
+    static createDefaultConfig(headers, numericColumns, classifyHeader = defaultClassifyHeader) {
         const isNumeric = numericColumns instanceof Set ? (h) => numericColumns.has(h) : () => true;
 
         // Find best X column (time-like, must be numeric)
         let xColumn = '';
         for (const h of headers) {
-            if (isNumeric(h) && this.classifyHeader(h) === 'time') {
+            if (isNumeric(h) && classifyHeader(h) === 'time') {
                 xColumn = h;
                 break;
             }

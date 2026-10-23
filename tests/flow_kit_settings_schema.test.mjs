@@ -15,7 +15,7 @@
  *       malformed hint never hides a field
  *   §5  Python's quoting, for the names a refusal quotes
  *   §6  `UI_HINTS` is every `x-ui-` hint the kit and the editors read, and
- *       every hint the README's hint table documents (BUG-0020)
+ *       every hint the docs' hint table documents (BUG-0020)
  *
  * Pure: no jsdom.   node tests/flow_kit_settings_schema.test.mjs
  */
@@ -106,16 +106,16 @@ t.section('§6 UI_HINTS is the hints read and the hints documented');
     // Every module under src/, so a hint a new widget starts reading cannot be missed.
     const sources = readdirSync(resolvePath(t.root, 'src'), { recursive: true }).filter((p) => p.endsWith('.js'));
     const read = hintsIn(sources.map((p) => t.read(`src/${p}`)).join('\n'));
-    const readme = t.read('README.md');
-    const table = /\| Schema hint \| Meaning \|\n\|[-|]+\|\n((?:\|.*\|\n)+)/.exec(readme);
+    const docs = t.read('docs/components/flow-editors.md');
+    const table = /\| Schema hint \| Meaning \|\n\|[-|]+\|\n((?:\|.*\|\n)+)/.exec(docs);
     const documented = table ? hintsIn(table[1]) : [];
     const exported = [...UI_HINTS].sort();
     for (const hint of ['x-ui-add-label', 'x-ui-enum-descriptions', 'x-ui-formula-references']) {
         t.ok(`UI_HINTS.includes('${hint}')`, UI_HINTS.includes(hint));
     }
-    t.ok('the README has a hint table', documented.length > 0);
+    t.ok('the docs have a hint table', documented.length > 0);
     t.check('UI_HINTS is every hint the source reads', exported, read);
-    t.check('UI_HINTS is every hint the README documents', exported, documented);
+    t.check('UI_HINTS is every hint the docs document', exported, documented);
     t.ok('UI_HINTS is frozen', Object.isFrozen(UI_HINTS));
 }
 

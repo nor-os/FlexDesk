@@ -9,7 +9,7 @@
  * half-way down was thrown to the top and lost their row. The table does it
  * now, and keeps what a reader has: the selection (by key), the open row, the
  * open details and the scroll position — which only a browser can measure,
- * so that half is proved in headless Edge (README).
+ * so that half is proved in headless Edge (docs/components/data-table.md).
  *
  *   §1  `refresh()` reads the CURRENT page again (reason 'refresh')
  *   §2  rows the last answer did not hold are drawn `twm-dt-row--new` — and

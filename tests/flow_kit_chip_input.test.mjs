@@ -4,7 +4,7 @@
  * the `input` event it produces, and everything the control does ITSELF
  * (Backspace over a chip, ← →, paste, copy, Enter, its own undo) is driven
  * through the real events. The real keys, IME included, are spike S-chip in
- * headless Edge (the README's flow-kit section).
+ * headless Edge (docs/components/flow-editors.md).
  *
  *   §1  the value is drawn as text and chips; reading it back is the text,
  *       and building it writes nothing

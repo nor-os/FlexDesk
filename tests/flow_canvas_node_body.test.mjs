@@ -264,7 +264,7 @@ t.section('§5 a type registered after load');
     t.ok('the same types again rebuild no node and render no body again',
          nodeEl(m, 'start') === before[0] && nodeEl(m, 'dial') === before[1] && bodyOf(m, 'dial') === before[2]
          && calls.render === 0);
-    // A NEW catalogue of the same types plus one more: the README's own
+    // A NEW catalogue of the same types plus one more: the docs' own
     // registration call. Nothing is rebuilt, and the input being typed into
     // keeps its focus and its value.
     const input = bodyOf(m, 'dial').querySelector('.dial-value');

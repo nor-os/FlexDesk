@@ -9,7 +9,7 @@
  *
  * jsdom computes no layout: everything these suites assert is the DOM, the
  * classes, the inline styles and the stylesheets' TEXT. What the layout does
- * with them was proved in headless Edge (see the 0.5.0 README section).
+ * with them was proved in headless Edge (see the 0.5.0 section of docs/components/data-table.md).
  */
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';

@@ -512,8 +512,8 @@ section('§5 totals rows and columns and every label come from the consumer (voc
     const setters = css.split('}').filter((rule) => /--twm-dt-row-bg\s*:/.test(rule)).map((rule) => rule.trim().split('{')[0].trim().split('\n').pop());
     check('the sheet sets --twm-dt-row-bg only at no specificity (a consumer\'s .my-sum-row wins)',
           setters, [':where(.twm-preview-table tbody tr:nth-child(even))']);
-    const doc = readFileSync(resolvePath(HERE, '../README.md'), 'utf8');
-    ok('the README tells a consumer to colour a crosstab row through --twm-dt-row-bg', /--twm-dt-row-bg/.test(doc.slice(doc.indexOf('### DataTable: a crosstab'))));
+    const doc = readFileSync(resolvePath(HERE, '../docs/components/data-table-grid.md'), 'utf8');
+    ok('the docs tell a consumer to colour a crosstab row through --twm-dt-row-bg', /--twm-dt-row-bg/.test(doc.slice(doc.indexOf('## DataTable: a crosstab'))));
     const head = runs(bands(host)[0])[2];
     check('a band cell takes the consumer\'s class, label and title',
           [head.classList.contains('my-sum-head'), head.textContent, head.title], [true, 'All', 'All years']);

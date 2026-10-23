@@ -18,7 +18,7 @@
  * jsdom computes no layout and has no editing: a test can assert the DOM, the
  * classes, the selection and the events a module dispatches, never where
  * something is drawn or what a real key does in a `contenteditable`. Those
- * are settled in headless Edge (the README's flow-kit section says which).
+ * are settled in headless Edge (docs/components/flow-editors.md says which).
  *
  *     const t = await flowEnv('flow kit — widgets');
  *     t.section('§1 …'); t.ok('…', cond); t.check('…', got, want); t.done();

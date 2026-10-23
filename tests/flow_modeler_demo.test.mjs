@@ -9,7 +9,7 @@
  *       note and styled lines (an arrow, a dash, a label)
  *   §3  its live badges are repainted by its own timer at least once a second,
  *       and a settings field being typed into keeps the focus
- *   §4  the README's *Building a modeler* section names every modeler option,
+ *   §4  the docs' *Building a modeler* section names every modeler option,
  *       each in a short example
  *
  *     node tests/flow_modeler_demo.test.mjs
@@ -73,11 +73,13 @@ t.section('§3 live badges, and the focus stays');
     demo.stop();
 }
 
-t.section('§4 the README section names every modeler option');
+t.section('§4 the docs section names every modeler option');
 {
-    const readme = t.read('README.md');
-    const at = readme.indexOf('#### Building a modeler');
-    const section = at < 0 ? '' : readme.slice(at, readme.indexOf('\n### ', at + 5));
+    const docs = t.read('docs/components/flow-canvas-editor.md');
+    const at = docs.indexOf('### Building a modeler');
+    // The section runs to the next heading of its own level or above (here, the end of the page).
+    const after = at < 0 ? -1 : docs.slice(at + 5).search(/\n#{1,3} /);
+    const section = at < 0 ? '' : after < 0 ? docs.slice(at) : docs.slice(at, at + 5 + after);
     t.ok('there is a section', section.length > 0);
     const OPTIONS = ['render', 'update', 'size', 'accent', 'setCatalogue', 'connections', 'dataPorts', 'accepts', 'provides',
                      'policy', 'multiSelect', 'clipboard', 'prepareCopy', 'groups', 'notes', 'layout', 'rank', 'edgeStyle',

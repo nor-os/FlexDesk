@@ -1,8 +1,9 @@
 /**
  * BUG-0027 — EVERY STYLESHEET OF THE CSS CONTRACT IS REACHABLE BY SPECIFIER.
  *
- * The README's Styling section names three stylesheets — tokens, reset and the
- * library — as the whole CSS contract, and `files` publishes all three. The
+ * The Styling section of the docs (docs/concepts/styling.md) names three
+ * stylesheets — tokens, reset and the library — as the whole CSS contract, and
+ * `files` publishes all three. The
  * `exports` map had `./css` and `./css/tokens` but no reset, and an exports
  * map closes every path it does not list, so `import 'flexdesk/css/reset'`
  * and the deep `flexdesk/dist/reset.css` both failed with
@@ -13,12 +14,12 @@
  *   §1  `flexdesk/css/reset` resolves, under `import` and under `require`, to
  *       dist/reset.css — the file the contract documents
  *   §2  the other two contract specifiers resolve, under `import` and under
- *       `require`, to exactly the files the README names: `flexdesk/css` to
+ *       `require`, to exactly the files the docs name: `flexdesk/css` to
  *       dist/flexdesk.css, `flexdesk/css/tokens` to the source css/tokens.css
  *       (not dist/ — BUG-0030 tracks that split)
  *   §3  every `./css*` export exists on disk and sits under a path `files`
  *       publishes, so no CSS specifier points at a file the tarball lacks
- *   §4  the README's Styling table names, for every specifier, the file the
+ *   §4  the docs' Styling table names, for every specifier, the file the
  *       exports map really resolves it to, so the docs cannot drift from it
  *
  * The package resolves itself by name (Node's self-reference), so this runs
@@ -92,16 +93,16 @@ for (const [key, value] of cssExports) {
     }
 }
 
-// ── §4 the README documents what the map does ────────────────────────────
-const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
-const styling = readme.slice(readme.indexOf('\n## Styling\n'));
+// ── §4 the docs document what the map does ───────────────────────────────
+const doc = readFileSync(join(ROOT, 'docs/concepts/styling.md'), 'utf8');
+const styling = doc.slice(doc.indexOf('\n## Styling\n'));
 const rows = [...styling.matchAll(/^\| `([^`]+)` \| `([^`]+)` \| `([^`]+)` \|/gm)]
     .map(([, file, spec, target]) => ({ file, spec, target }));
 check('§4 the Styling table lists the three specifiers',
       rows.map((r) => r.spec).sort(), [`${PKG.name}/css`, `${PKG.name}/css/reset`, `${PKG.name}/css/tokens`]);
 for (const { spec, target } of rows) {
-    check(`§4 README: ${spec} resolves to ${target}`, viaImport(spec), target);
-    check(`§4 README: ${spec} target is the one this suite pins`,
+    check(`§4 docs: ${spec} resolves to ${target}`, viaImport(spec), target);
+    check(`§4 docs: ${spec} target is the one this suite pins`,
           target, EXPECTED[spec.slice(PKG.name.length + 1)]);
 }
 

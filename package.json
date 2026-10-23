@@ -28,6 +28,7 @@
         "canvas.js",
         "flow.js",
         "css",
+        "docs",
         "README.md",
         "CHANGELOG.md",
         "LICENSE",

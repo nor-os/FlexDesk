@@ -723,8 +723,8 @@ console.log('\ncharts: renderPlotConfigEditor\n');
     const unstyled = used.filter((c) => !new RegExp(`\\.${c}(?![\\w-])`).test(css));
     check('every editor class the source writes is in flexdesk.css', unstyled, []);
     ok('the root rule is a column of sections', /flex-direction:\s*column/.test(ruleBody(css, '.twm-plot-config') ?? ''));
-    const readme = readFileSync(resolvePath(HERE, '../README.md'), 'utf8');
-    ok('the README documents it in a 0.17.0 section', /## .*renderPlotConfigEditor.*\(0\.17\.0\)/.test(readme));
+    const docs = readFileSync(resolvePath(HERE, '../docs/components/charts.md'), 'utf8');
+    ok('the docs document it in a 0.17.0 section', /## .*renderPlotConfigEditor.*\(0\.17\.0\)/.test(docs));
 }
 
 await ticks();

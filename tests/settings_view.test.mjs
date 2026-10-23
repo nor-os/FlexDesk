@@ -688,9 +688,9 @@ section('§10 the barrels export it');
        && typeof w.settingsViewContent === 'function');
     const c = await import('../core.js');
     ok('core.js exports getSettingsStore', typeof c.getSettingsStore === 'function');
-    const readme = readFileSync(resolvePath(HERE, '../README.md'), 'utf8');
-    ok('the README documents SettingsView', readme.includes('SettingsView')
-       && readme.includes('settingsViewContent') && readme.includes('getSettingsStore'));
+    const docs = readFileSync(resolvePath(HERE, '../docs/components/settings-view.md'), 'utf8');
+    ok('the docs document SettingsView', docs.includes('SettingsView')
+       && docs.includes('settingsViewContent') && docs.includes('getSettingsStore'));
 }
 
 // ── §11 ─────────────────────────────────────────────────────────────────
@@ -875,9 +875,9 @@ section('§14 Reset all in the categories asks to confirm; dispose() takes it do
     ok('flexdesk.css styles .twm-settings-categories', /\.twm-settings-categories\s*\{/.test(css));
     const w = await import('../widgets.js');
     ok('widgets.js exports SettingsCategories', w.SettingsCategories === SettingsCategories);
-    const readme = readFileSync(resolvePath(HERE, '../README.md'), 'utf8');
-    ok('the README documents it under a (0.17.2) heading',
-       /^## .*SettingsCategories.*\(0\.17\.2\)$/m.test(readme) && readme.includes('sidebar: false'));
+    const docs = readFileSync(resolvePath(HERE, '../docs/components/settings-view.md'), 'utf8');
+    ok('the docs document it under a (0.17.2) heading',
+       /^## .*SettingsCategories.*\(0\.17\.2\)$/m.test(docs) && docs.includes('sidebar: false'));
 }
 
 console.log(failures === 0

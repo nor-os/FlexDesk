@@ -241,7 +241,7 @@ section('§7 the landing helper opens by the same rule');
     off();
 }
 {
-    // The README lists these as the helper's changes that need no option.
+    // docs/components/data-table.md lists these as the helper's changes that need no option.
     const { attachLandingTableBehavior } = await import('../src/tiling/landing_table.js');
     const opened = [];
     const { host } = mount({

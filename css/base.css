@@ -4754,7 +4754,11 @@ button.twm-about-dialog__btn--close:focus {
     border-left: 1px solid #333;
     box-shadow: -4px 0 12px rgba(0, 0, 0, 0.35);
 
-    min-width: 400px;
+    /* Never wider than the host (BUG-0035). `#trackGeometry` sets
+     * `--twm-slide-out-host-w` to the host's width while open; the 400px
+     * floor gives way to it too, since `min-width` beats `max-width`. */
+    min-width: min(400px, var(--twm-slide-out-host-w, 400px));
+    max-width: var(--twm-slide-out-host-w, none);
 
     transform: translateX(100%);
     transition: transform 200ms ease-out, visibility 0s linear 200ms;
@@ -4787,6 +4791,19 @@ button.twm-about-dialog__btn--close:focus {
 .twm-slide-out-panel__close {
     flex-shrink: 0;
     margin-left: auto;
+}
+/* Both icons at 18px (BUG-0035). Two classes each, for the Material Symbols
+ * tie — see `.twm-leaf__icon`: a single-class rule loses to Google's
+ * `.material-symbols-outlined { font-size: 24px }`, which loads later. */
+.twm-slide-out-panel__icon.material-symbols-outlined {
+    flex-shrink: 0;
+    font-size: 18px;
+    line-height: 1;
+    color: var(--text-secondary);
+}
+.twm-slide-out-panel__close .material-symbols-outlined {
+    font-size: 18px;
+    line-height: 1;
 }
 /* Scrollable body */
 .twm-slide-out-panel__body {

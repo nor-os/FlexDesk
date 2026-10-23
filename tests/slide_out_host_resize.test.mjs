@@ -181,7 +181,9 @@ section('§4  close / dispose disconnect; re-open observes again');
     panel.open('Again');
     const second = observers.at(-1);
     ok('re-open observes the host with a fresh observer', second !== first && second.live && second.targets.has(tile));
-    check('re-open re-reads the rect', geometry(panel).left, '-200px');
+    // The 100px host is narrower than the 300px panel, which is capped to it
+    // and starts at the host's left edge (BUG-0035), not at -200px.
+    check('re-open re-reads the rect', geometry(panel).left, '0px');
     panel.dispose();
     ok('dispose() disconnects', !second.live);
 }

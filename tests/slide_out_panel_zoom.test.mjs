@@ -134,8 +134,11 @@ for (const zoom of [1.5, 0.5, 2]) {
     const rect = { top: 150, left: 200, right: 1500, height: 600 };
     const { el, panel } = setup({ rect, zoom });
     panel.open('Config', 'tune');
+    // At 200% the 1300px host is 650 CSS px, under the panel's 700: the
+    // panel is capped to the host's width (BUG-0035).
+    const cssWidth = Math.min(700, (rect.right - rect.left) / zoom);
     check('on screen: top, right edge, height = the host\'s',
-          onScreen(el, zoom, 700), { top: rect.top, right: rect.right, height: rect.height });
+          onScreen(el, zoom, cssWidth), { top: rect.top, right: rect.right, height: rect.height });
     panel.dispose();
 }
 

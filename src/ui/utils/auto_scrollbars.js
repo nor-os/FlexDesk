@@ -58,12 +58,15 @@ export function thumbGeometry(scrollSize, clientSize, scrollPos, trackLen) {
  *
  * @param {Element} el
  * @param {Element[][]} stacks  what `elementsFromPoint` gave at each point,
- *   topmost first. The overlay layer's own bars are skipped.
+ *   topmost first. The overlay layer's own bars are skipped, and so are the
+ *   window's `.twm-resize-handle` edge strips (BUG-0036): they lie over every
+ *   pane flush against a window edge and are chrome, not cover.
  * @returns {boolean}
  */
 export function barCovered(el, stacks) {
+    const passThrough = (h) => h.closest?.('.twm-autoscroll-layer') || h.closest?.('.twm-resize-handle');
     return stacks.some((stack) => {
-        const top = (stack || []).find((h) => !h.closest?.('.twm-autoscroll-layer'));
+        const top = (stack || []).find((h) => !passThrough(h));
         return Boolean(top) && top !== el && !el.contains(top);
     });
 }

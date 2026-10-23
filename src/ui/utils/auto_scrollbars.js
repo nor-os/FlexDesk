@@ -277,6 +277,16 @@ export function installAutoScrollbars(root = document.body, { exclude = null } =
         cancelAnimationFrame(raf);
         raf = requestAnimationFrame(() => { for (const el of managed.keys()) place(el); });
     };
+    // An element taken out of the page (a managed window closed) takes its
+    // bars with it at once. They live in the layer, not in the element, so
+    // otherwise they would stay on screen through the hide delay and fade.
+    const sweep = new MutationObserver((mutations) => {
+        if (!managed.size || !mutations.some((m) => m.removedNodes.length)) return;
+        for (const el of [...managed.keys()]) {
+            if (!el.isConnected) { drop(el); hoverChain.delete(el); }
+        }
+    });
+    sweep.observe(root, { childList: true, subtree: true });
 
     doc.addEventListener('mouseover', onOver, true);
     doc.addEventListener('mouseout', onLeaveWindow, true);
@@ -293,6 +303,7 @@ export function installAutoScrollbars(root = document.body, { exclude = null } =
             doc.removeEventListener('scroll', onScroll, true);
             win.removeEventListener('resize', onResize);
             doc.removeEventListener('focusin', onResize, true);
+            sweep.disconnect();
             for (const el of [...managed.keys()]) drop(el);
             root.classList.remove(ROOT_CLASS);
         },

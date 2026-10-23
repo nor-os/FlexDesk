@@ -2,7 +2,7 @@
 id: 106
 type: story
 title: "0.17.4 ships two defect fixes EcoSim's post-cutover stories found: SlideOutPanel clamp and icons, scrollbars beside resize handles"
-status: refined
+status: in-progress
 parent: 68
 phase:
 assignee:
@@ -13,7 +13,7 @@ subsystem:
 labels: [release]
 links: [relates-to BUG-0035, relates-to BUG-0036]
 created: 2026-10-23
-updated: 2026-10-23T15:35Z
+updated: 2026-10-23T16:00Z
 ---
 
 ## Description
@@ -30,6 +30,8 @@ norman decided on 2026-10-23 that the FlexDesk gaps EcoSim's post-cutover storie
 ## History
 
 - 2026-10-23 · norman_agent · status: draft -> refined
+- 2026-10-23 · norman_agent · status: refined -> in-progress
+- 2026-10-23 · norman_agent · assignee: (unset) -> norman_agent
 
 ## Comments
 
@@ -40,3 +42,7 @@ Filed and refined on norman's decision (2026-10-23): 4 criteria, 1 point, parent
 ### 2026-10-23T15:35Z · norman_agent
 
 STORY-0105 dropped (FlexDesk-first decision, 2026-10-23); 0.17.4 now ships BUG-0035 and BUG-0036 only.
+
+### 2026-10-23T16:00Z · norman_agent
+
+Claimed for the 0.17.4 release run.

@@ -13,7 +13,7 @@ subsystem:
 labels: [release]
 links: [relates-to BUG-0035, relates-to BUG-0036]
 created: 2026-10-23
-updated: 2026-10-23T16:00Z
+updated: 2026-10-23T16:45Z
 ---
 
 ## Description
@@ -25,7 +25,7 @@ norman decided on 2026-10-23 that the FlexDesk gaps EcoSim's post-cutover storie
 - [ ] `npm view flexdesk@0.17.4 version` prints 0.17.4
 - [ ] BUG-0035 and BUG-0036 are fixed, both on main
 - [ ] `node build.mjs --check` passes and dist/ matches a fresh build
-- [ ] CHANGELOG.md has a 0.17.4 section compiled from the README sections headed "(0.17.4)"
+- [ ] CHANGELOG.md has a 0.17.4 section compiled from the docs sections headed "(0.17.4)", each entry linking to docs/components/<page>.md#<anchor>
 
 ## History
 
@@ -46,3 +46,7 @@ STORY-0105 dropped (FlexDesk-first decision, 2026-10-23); 0.17.4 now ships BUG-0
 ### 2026-10-23T16:00Z · norman_agent
 
 Claimed for the 0.17.4 release run.
+
+### 2026-10-23T16:45Z · norman_agent
+
+Documentation criterion amended in place. The README is now a short overview; reference sections live in docs/ (5ade240, norman's docs restructure; convention in docs/README.md "Writing these docs"). Old wording: "CHANGELOG.md has a 0.17.4 section compiled from the README sections headed "(0.17.4)""

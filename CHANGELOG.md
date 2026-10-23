@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.17.5 (2026-10-24)
+
+A patch release: everything below is additive. Every fix is documented in a
+section of the docs headed "(0.17.5)"; each entry links to it.
+
+### Added and changed
+
+- [A data series with no saved plot config opens](docs/components/charts.md#a-data-series-with-no-saved-plot-config-opens-0175): `openDataSeriesPlotWindow` (and `new DataSeriesPlotWindow`) no longer throws `TypeError: this.classifyHeader is not a function` when `getPlotConfig(seriesId)` answers nothing. `DataSeriesPlotWindow.createDefaultConfig(headers, numericColumns, classifyHeader)` takes the header classifier as a third, optional parameter (the default classifier calls `t`, `time`, `step` and `period` time); the window passes the `classifyHeader` it was given, so the first numeric column it calls `'time'` is on X (else the first numeric column) and up to three other numeric columns are on Y (BUG-0037).
+
+### Removed or renamed exports
+
+None. Compared with 0.17.4, across every entry point (`core`, `widgets`, `wm`,
+`host`, `canvas`, `flow`, `charts`, `tiles`, `editor`) and the package
+`exports` map, no export was added, removed or renamed. Not an export but
+worth knowing: the static `DataSeriesPlotWindow.createDefaultConfig` gained an
+optional third parameter, `classifyHeader`; called with two arguments it uses
+the default classifier (see above).
+
 ## 0.17.4 (2026-10-23)
 
 A patch release: everything below is additive. Every fix is documented in a

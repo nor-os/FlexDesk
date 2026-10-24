@@ -4,6 +4,65 @@
 
 Plotly-backed charts: the wrapper, the chart types, subplot layouts, downsampling, the plot grid, the plot-config editor and the two plot windows. Plotly itself is not in the bundle; call `setPlotlySource()` with the path to your copy. The plot window's `streamEvents` option is described with the [other application-neutral options](../concepts/domain-neutrality.md#no-application-globals-the-gallery-picker-and-plot-window-events-0170).
 
+## A series transform knows its series, and takes a choice parameter (0.17.8)
+
+Two additions to [`seriesTransforms`](#derived-series-seriestransforms-0170).
+A transform written for `run(y, params)` with number parameters works exactly
+as before.
+
+**The series it runs on.** `run` gets a third argument:
+
+```js
+run(y, params, { series, subplot, results, resolveSeries })
+```
+
+`series` is the subplot's series entry the trace was drawn from (the same
+object, with its `variable` and whatever else you keep on it, such as a
+`scenario`), `subplot` the subplot config, `results` the results the figure was
+drawn from, and `resolveSeries` the `(series, results, subplot) => { y, x? }`
+the figure was drawn with (yours, or `resolveSeriesData`). `y` is still the
+drawn values, after the subplot's NaN handling and whatever your
+`resolveSeries` did to them (a rebase, say). So a transform can draw the same
+series from somewhere else, resolved the same way, instead of guessing which
+series `y` is:
+
+```js
+delta: {
+    label: 'Scenario delta',
+    params: { baseline: { label: 'Compare with', type: 'choice',
+                          options: () => scenarios.map((s) => ({ value: s.id, label: s.name })) } },
+    outputs: { difference: { label: 'Difference', suffix: ' (Δ)', lineStyle: 'dashed' } },
+    run: (y, { baseline }, { series, subplot, resolveSeries }) => {
+        const base = resolveSeries(series, resultsOf(baseline), subplot)?.y;
+        return base ? { difference: y.map((v, i) => v - base[i]) } : {};
+    },
+},
+```
+
+`renderPlotGrid`, and so `PlotPopoutWindow`, now run transforms only on the
+traces drawn from the subplot's own series: never on an overlay (until 0.17.8
+an overlay got derived traces too) or on another derived trace, and each run
+gets its own series. `deriveSeriesTraces(traces, subplot, seriesTransforms,
+{ onError, seriesOf, results, resolveSeries })` takes the same as options:
+`seriesOf(trace)` names the series a trace was drawn from, and only traces it
+names one for are run on. Without `seriesOf` every line or scatter trace is
+run on, as before, with `series`, `results` and `resolveSeries` null.
+
+**A choice parameter.** A parameter declared `{ type: 'choice', options }` is
+a select instead of a number field. `options` is an array of
+`{ value, label }` (a bare value, a `disabled` option and a `{ group, options }`
+entry work as in the other FlexDesk selects), or a function
+`(subplot) => options`, called when the controls are drawn. It is drawn by
+`renderSeriesTransformControls` with the same select the settings view and
+the flow kit use (choice_controls' `selectBox`), so a value comes back as the
+option's own value (a number stays a number) and a saved value the list no
+longer offers stays chosen, shown as `<value> (not found)`. The pick is saved
+under `subplot.transforms.<id>.params` and passed to `run` like a number
+parameter. Without a `default` and with nothing saved, the parameter is its
+first enabled option, in the select and in `run`.
+
+`tests/series_transforms.test.mjs` §7 to §10 pin all of it.
+
 ## A data series with no saved plot config opens (0.17.5)
 
 `openDataSeriesPlotWindow` (and `new DataSeriesPlotWindow`, the module's

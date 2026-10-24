@@ -50,7 +50,8 @@ export class PlotPopoutWindow {
      *        renders the Config tab. What it returns is disposed (`dispose()`) when the
      *        window closes, so an editor drawn there (renderPlotConfigEditor) goes with it.
      * @param {Object} [options.seriesTransforms] - `{ [id]: transform }` (series_transforms.js);
-     *        absent => no derived series are drawn
+     *        absent => no derived series are drawn. Each runs on the subplot's own series as
+     *        `run(y, params, { series, subplot, results, resolveSeries })` (renderPlotGrid).
      * @param {string} [options.refreshEvent='data:changed'] - Bus event after which the
      *        window re-reads `getResults()` and redraws.
      * @param {{delta?: string|null, complete?: string|null}} [options.streamEvents] - Bus

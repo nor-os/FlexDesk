@@ -10808,8 +10808,8 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 /* ══ SERIES TRANSFORMS ═══════════════════════════════════════════════
  *
  * `renderSeriesTransformControls` (src/charts/series_transforms.js): per
- * injected transform, a group with a toggle per output and a number field per
- * parameter, in a subplot's config. */
+ * injected transform, a group with a toggle per output and a number field (or,
+ * for a choice parameter, a select) per parameter, in a subplot's config. */
 .twm-series-transforms {
     display: flex;
     flex-direction: column;
@@ -10848,6 +10848,13 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 }
 .twm-series-transforms__param:disabled {
     opacity: 0.5;
+}
+/* A choice parameter's select (0.17.8): as wide as its option labels. */
+.twm-series-transforms__select {
+    width: auto;
+    min-width: 96px;
+    max-width: 60%;
+    cursor: pointer;
 }
 /* ══ end SERIES TRANSFORMS ══ */
 

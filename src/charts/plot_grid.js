@@ -84,6 +84,8 @@ function resolveSeriesData(series, results) {
  * @param {Object} [options.overlays] - `{ [series.id]: { years, values } }`, drawn for
  *        every series with an `overlay` description.
  * @param {Object} [options.seriesTransforms] - `{ [id]: transform }` (series_transforms.js).
+ *        Each runs on the traces of the subplot's own series (not overlays), as
+ *        `run(y, params, { series, subplot, results, resolveSeries })`.
  * @param {Function} [options.onTransformError] - `({ transformId, traceName, error })`.
  * @param {Function} [options.derivedTraces] - `(traces, subplot, { results, index })
  *        => trace[] | Promise<trace[]>`: extra traces appended to a subplot's figure.
@@ -197,6 +199,8 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
         /** The subplot's own series (overlays and derived traces aside), and how many are hidden. */
         let ownCount = 0;
         let hiddenCount = 0;
+        /** Each trace drawn from one of the subplot's series, to that series: transforms run on these. */
+        const seriesByTrace = new Map();
 
         const useX = sp.xAxis && sp.xAxis.useTime === false && sp.xAxis.variable;
         const xData = useX
@@ -237,7 +241,7 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
                 const y = Array.isArray(resolved.y)
                     ? applyNanHandling(resolved.y, sp.nanHandling ?? 'gap', x)
                     : resolved.y;
-                traces.push(buildTrace({
+                const trace = buildTrace({
                     chartType: sp.chartType || 'line',
                     x,
                     y,
@@ -249,7 +253,9 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
                     yAxisId: yRef,
                     showMarkers: sp.showDataPoints ?? false,
                     stackGroup: s.stackGroup ?? null,
-                }));
+                });
+                traces.push(trace);
+                seriesByTrace.set(trace, s);
 
                 const overlay = s.overlay ? opts.overlays?.[s.id] : null;
                 if (!overlay?.years?.length) continue;
@@ -280,8 +286,12 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
             }
         });
 
-        traces.push(...await deriveSeriesTraces(traces, sp, opts.seriesTransforms,
-                                                { onError: opts.onTransformError ?? undefined }));
+        traces.push(...await deriveSeriesTraces(traces, sp, opts.seriesTransforms, {
+            onError: opts.onTransformError ?? undefined,
+            seriesOf: (trace) => seriesByTrace.get(trace) ?? null,
+            results: data,
+            resolveSeries: opts.resolveSeries,
+        }));
         if (opts.derivedTraces) {
             const extra = await opts.derivedTraces(traces, sp, { results: data, index });
             if (Array.isArray(extra)) traces.push(...extra);

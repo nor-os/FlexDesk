@@ -379,8 +379,12 @@ export class ActionDropdown {
      *
      * @param {HTMLElement} trigger - The element the dropdown opens from
      * @param {HTMLElement} menu - The dropdown menu element to position
+     * @param {Object} [opts]
+     * @param {'start'|'end'} [opts.align='start'] - Which trigger edge the menu
+     *     lines up with first: `'start'` its left edge, `'end'` its right edge.
+     *     Either flips to the other edge when it would leave the window.
      */
-    static position(trigger, menu) {
+    static position(trigger, menu, { align = 'start' } = {}) {
         if (!trigger || !menu) return;
 
         // Reset any prior inline position so natural size can be measured.
@@ -424,12 +428,21 @@ export class ActionDropdown {
             top = EDGE_MARGIN;
         }
 
-        // ── Horizontal: align left-edge with trigger, flip if off-screen ──
-        let left = triggerRect.left;
-
-        if (left + menuRect.width > vw - EDGE_MARGIN) {
-            // Align right edges instead.
+        // ── Horizontal: align with the trigger's start (left) or end (right)
+        //    edge, flip to the other edge if off-screen ──
+        let left;
+        if (align === 'end') {
             left = triggerRect.right - menuRect.width;
+            if (left < EDGE_MARGIN) {
+                // Align left edges instead.
+                left = triggerRect.left;
+            }
+        } else {
+            left = triggerRect.left;
+            if (left + menuRect.width > vw - EDGE_MARGIN) {
+                // Align right edges instead.
+                left = triggerRect.right - menuRect.width;
+            }
         }
 
         // Still off-screen? Clamp to edges.

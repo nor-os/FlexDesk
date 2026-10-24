@@ -13,6 +13,7 @@ Two different things in FlexDesk are called "tiles". `@flexdesk/wm` tiles the *w
 - [Figure tiles: one override, the draw is the base's (0.17.0)](#figure-tiles-one-override-the-draw-is-the-bases-0170)
 - [List and people tiles, and one scope for the board (0.16.1)](#list-and-people-tiles-and-one-scope-for-the-board-0161)
 - [A tile's settings as a form: `mountTileConfigForm` (0.17.0)](#a-tiles-settings-as-a-form-mounttileconfigform-0170)
+- [The ⋯ menu is drawn over the page (0.17.9)](#the--menu-is-drawn-over-the-page-0179)
 
 ## Layouts are keyed by whatever you key them by
 
@@ -208,3 +209,27 @@ modal is open is ignored. It answers a function that unsubscribes and closes the
 slide-out; an open modal is left to the user, keeps its form and still saves on
 Save. A renderer's `commit` on a `readonly` field applies nothing and answers
 `{valid: false, error}`.
+
+## The ⋯ menu is drawn over the page (0.17.9)
+
+A tile's **More actions** menu (`.tile-menu-dropdown`, the entries of
+`menuItems()`) is no longer drawn inside the tile. While it is open it is
+moved to `document.body` (or to the open modal's host, as `showContextMenu`
+does) and placed with `ActionDropdown.position(button, menu, { align: 'end' })`:
+
+- **Nothing clips it.** It is `position: fixed`, on `--z-over-windows`, so it
+  draws over neighbouring tiles, and over the managed window a grid sits in.
+- **It stays in the window.** Its right edge lines up with the ⋯ button's
+  when there is room; otherwise its left edge does, clamped 8px inside the
+  window. It opens under the button, or above it when there is more room
+  there, and scrolls when it is taller than either.
+- **It goes back when it closes.** Choosing an entry, a press outside it, or
+  the ⋯ button again closes it and puts it back in the tile's header, so
+  `tile.element.querySelector('.tile-menu-item')` finds the entries while it
+  is closed. `dispose()` closes an open menu first, so none is left on the
+  page.
+
+Until 0.17.8 the menu was `position: absolute` inside the tile, so in a tile
+narrower than about 220px its left part and its labels were cut off
+(BUG-0043). `tests/tile_menu_unclipped.test.mjs` holds it.
+

@@ -14,11 +14,12 @@ import {
 import {
   ActionDropdown,
   SlideOutPanel
-} from "./chunk-RKNFBX5K.js";
+} from "./chunk-MIW7D6WC.js";
 import {
   showContextMenu
 } from "./chunk-F35XSQWA.js";
 import {
+  modalHost,
   openModal
 } from "./chunk-BE2PU3LL.js";
 import {
@@ -514,6 +515,10 @@ var TileBase = class {
   dispose() {
     if (this._disposed) return;
     this._disposed = true;
+    this._closeTileMenu();
+    this._menuButton = null;
+    this._menuDropdown = null;
+    this._menuHome = null;
     if (this._expandWindow?.isVisible) {
       this._expandWindow.close();
     }
@@ -594,6 +599,10 @@ var TileBase = class {
    * @private
    */
   _buildChrome() {
+    this._closeTileMenu();
+    this._menuButton = null;
+    this._menuDropdown = null;
+    this._menuHome = null;
     const header = document.createElement("div");
     header.className = "tile-header";
     const expandBtnHtml = this.constructor.EXPANDABLE ? `<button class="tile-expand-btn twm-has-tooltip" data-tooltip="Open in window">
@@ -663,26 +672,18 @@ var TileBase = class {
       const menuBtn = header.querySelector(".tile-menu-btn");
       const menuDropdown = header.querySelector(".tile-menu-dropdown");
       if (menuBtn && menuDropdown) {
+        this._menuButton = menuBtn;
+        this._menuDropdown = menuDropdown;
+        this._menuHome = menuDropdown.parentNode;
         menuBtn.addEventListener("click", (e) => {
           e.stopPropagation();
-          const isOpen = !menuDropdown.hidden;
-          menuDropdown.hidden = !menuDropdown.hidden;
-          if (!isOpen) {
-            const closeMenu = (ev) => {
-              if (!menuDropdown.contains(ev.target) && ev.target !== menuBtn) {
-                menuDropdown.hidden = true;
-                document.removeEventListener("pointerdown", closeMenu, true);
-              }
-            };
-            requestAnimationFrame(() => {
-              document.addEventListener("pointerdown", closeMenu, true);
-            });
-          }
+          if (menuDropdown.hidden) this._openTileMenu();
+          else this._closeTileMenu();
         });
         menuDropdown.querySelectorAll(".tile-menu-item").forEach((itemEl) => {
           itemEl.addEventListener("click", (e) => {
             e.stopPropagation();
-            menuDropdown.hidden = true;
+            this._closeTileMenu();
             this._onMenuAction(itemEl.dataset.action);
           });
         });
@@ -715,6 +716,48 @@ var TileBase = class {
         });
       });
     }
+  }
+  /**
+   * Open the ⋯ menu. It is drawn on `document.body` (or the open modal's
+   * host, as `showContextMenu` is), not inside the tile: a tile clips its
+   * content, so a menu wider than a narrow tile lost its left part. It is
+   * placed with `ActionDropdown.position` — fixed, under the button (above
+   * when there is no room), right edges aligned, kept inside the window.
+   * @private
+   */
+  _openTileMenu() {
+    const btn = this._menuButton;
+    const menu = this._menuDropdown;
+    if (!btn || !menu || !menu.hidden) return;
+    (modalHost() || document.body).appendChild(menu);
+    menu.hidden = false;
+    ActionDropdown.position(btn, menu, { align: "end" });
+    this._menuOutsideListener = (ev) => {
+      if (!menu.contains(ev.target) && !btn.contains(ev.target)) this._closeTileMenu();
+    };
+    const listener = this._menuOutsideListener;
+    requestAnimationFrame(() => {
+      if (this._menuOutsideListener === listener) {
+        document.addEventListener("pointerdown", listener, true);
+      }
+    });
+  }
+  /**
+   * Close the ⋯ menu and put it back in the tile's header.
+   * @private
+   */
+  _closeTileMenu() {
+    const menu = this._menuDropdown;
+    if (this._menuOutsideListener) {
+      document.removeEventListener("pointerdown", this._menuOutsideListener, true);
+      this._menuOutsideListener = null;
+    }
+    if (!menu) return;
+    menu.hidden = true;
+    for (const prop of ["position", "top", "bottom", "left", "right", "maxHeight", "overflowY"]) {
+      menu.style[prop] = "";
+    }
+    if (this._menuHome && menu.parentNode !== this._menuHome) this._menuHome.appendChild(menu);
   }
   /**
    * Handle config button click — highlight tile and emit config request.

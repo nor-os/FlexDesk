@@ -8,6 +8,8 @@
 
 import { openRawTracesWindow } from '../charts/plot_popout_window.js';
 import { formatVariableLabel } from './config_schema.js';
+import { ActionDropdown } from '../ui/components/action_dropdown.js';
+import { modalHost } from '../ui/components/modal.js';
 // The host is INJECTED, not fetched from a global.
 //
 // This imported `appHost()` from ui/js/ecoagent/app_host.js — a tile reaching into
@@ -403,6 +405,12 @@ export class TileBase {
         if (this._disposed) return;
         this._disposed = true;
 
+        // An open ⋯ menu lives on document.body; take it back first.
+        this._closeTileMenu();
+        this._menuButton = null;
+        this._menuDropdown = null;
+        this._menuHome = null;
+
         // Close expand window if open
         if (this._expandWindow?.isVisible) {
             this._expandWindow.close();
@@ -485,6 +493,13 @@ export class TileBase {
      * @private
      */
     _buildChrome() {
+        // A rebuilt header gets a new ⋯ menu; an open old one must not stay
+        // behind on document.body.
+        this._closeTileMenu();
+        this._menuButton = null;
+        this._menuDropdown = null;
+        this._menuHome = null;
+
         // Header with drag handle and controls
         const header = document.createElement('div');
         header.className = 'tile-header';
@@ -584,23 +599,13 @@ export class TileBase {
             const menuBtn = header.querySelector('.tile-menu-btn');
             const menuDropdown = header.querySelector('.tile-menu-dropdown');
             if (menuBtn && menuDropdown) {
+                this._menuButton = menuBtn;
+                this._menuDropdown = menuDropdown;
+                this._menuHome = menuDropdown.parentNode;
                 menuBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    const isOpen = !menuDropdown.hidden;
-                    menuDropdown.hidden = !menuDropdown.hidden;
-                    if (!isOpen) {
-                        // Close on outside click
-                        const closeMenu = (ev) => {
-                            if (!menuDropdown.contains(ev.target) && ev.target !== menuBtn) {
-                                menuDropdown.hidden = true;
-                                document.removeEventListener('pointerdown', closeMenu, true);
-                            }
-                        };
-                        // Delay to avoid immediate close from the same click
-                        requestAnimationFrame(() => {
-                            document.addEventListener('pointerdown', closeMenu, true);
-                        });
-                    }
+                    if (menuDropdown.hidden) this._openTileMenu();
+                    else this._closeTileMenu();
                 });
                 // One listener per rendered entry, dispatching by `data-action`
                 // into `_onMenuAction`. Wiring each action by name here is what
@@ -609,7 +614,7 @@ export class TileBase {
                 menuDropdown.querySelectorAll('.tile-menu-item').forEach((itemEl) => {
                     itemEl.addEventListener('click', (e) => {
                         e.stopPropagation();
-                        menuDropdown.hidden = true;
+                        this._closeTileMenu();
                         this._onMenuAction(itemEl.dataset.action);
                     });
                 });
@@ -652,6 +657,52 @@ export class TileBase {
                 });
             });
         }
+    }
+
+    /**
+     * Open the ⋯ menu. It is drawn on `document.body` (or the open modal's
+     * host, as `showContextMenu` is), not inside the tile: a tile clips its
+     * content, so a menu wider than a narrow tile lost its left part. It is
+     * placed with `ActionDropdown.position` — fixed, under the button (above
+     * when there is no room), right edges aligned, kept inside the window.
+     * @private
+     */
+    _openTileMenu() {
+        const btn = this._menuButton;
+        const menu = this._menuDropdown;
+        if (!btn || !menu || !menu.hidden) return;
+        (modalHost() || document.body).appendChild(menu);
+        menu.hidden = false;
+        ActionDropdown.position(btn, menu, { align: 'end' });
+        // Close on a press outside the menu and its button. Added a frame
+        // later so the press that opened it does not close it.
+        this._menuOutsideListener = (ev) => {
+            if (!menu.contains(ev.target) && !btn.contains(ev.target)) this._closeTileMenu();
+        };
+        const listener = this._menuOutsideListener;
+        requestAnimationFrame(() => {
+            if (this._menuOutsideListener === listener) {
+                document.addEventListener('pointerdown', listener, true);
+            }
+        });
+    }
+
+    /**
+     * Close the ⋯ menu and put it back in the tile's header.
+     * @private
+     */
+    _closeTileMenu() {
+        const menu = this._menuDropdown;
+        if (this._menuOutsideListener) {
+            document.removeEventListener('pointerdown', this._menuOutsideListener, true);
+            this._menuOutsideListener = null;
+        }
+        if (!menu) return;
+        menu.hidden = true;
+        for (const prop of ['position', 'top', 'bottom', 'left', 'right', 'maxHeight', 'overflowY']) {
+            menu.style[prop] = '';
+        }
+        if (this._menuHome && menu.parentNode !== this._menuHome) this._menuHome.appendChild(menu);
     }
 
     /**

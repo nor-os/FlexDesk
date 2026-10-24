@@ -264,8 +264,12 @@ var ActionDropdown = class _ActionDropdown {
    *
    * @param {HTMLElement} trigger - The element the dropdown opens from
    * @param {HTMLElement} menu - The dropdown menu element to position
+   * @param {Object} [opts]
+   * @param {'start'|'end'} [opts.align='start'] - Which trigger edge the menu
+   *     lines up with first: `'start'` its left edge, `'end'` its right edge.
+   *     Either flips to the other edge when it would leave the window.
    */
-  static position(trigger, menu) {
+  static position(trigger, menu, { align = "start" } = {}) {
     if (!trigger || !menu) return;
     Object.assign(menu.style, {
       position: "fixed",
@@ -297,9 +301,17 @@ var ActionDropdown = class _ActionDropdown {
       maxHeight = spaceAbove;
       top = EDGE_MARGIN;
     }
-    let left = triggerRect.left;
-    if (left + menuRect.width > vw - EDGE_MARGIN) {
+    let left;
+    if (align === "end") {
       left = triggerRect.right - menuRect.width;
+      if (left < EDGE_MARGIN) {
+        left = triggerRect.left;
+      }
+    } else {
+      left = triggerRect.left;
+      if (left + menuRect.width > vw - EDGE_MARGIN) {
+        left = triggerRect.right - menuRect.width;
+      }
     }
     left = Math.max(EDGE_MARGIN, Math.min(left, vw - menuRect.width - EDGE_MARGIN));
     Object.assign(menu.style, {
@@ -511,4 +523,4 @@ export {
   ActionDropdown,
   SlideOutPanel
 };
-//# sourceMappingURL=chunk-RKNFBX5K.js.map
+//# sourceMappingURL=chunk-MIW7D6WC.js.map

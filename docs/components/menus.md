@@ -113,3 +113,15 @@ doubled rule. `setOptions` follows the same rules, and an option's
 `data-index` stays its index in `options`.
 
 `tests/action_dropdown_separators.test.mjs` drives it in jsdom.
+
+## Action dropdowns: positioning against the end edge (0.17.9)
+
+`ActionDropdown.position(trigger, menu, { align })` places any menu against
+any trigger: `position: fixed`, under the trigger (above it when there is
+more room), scrolling when it is taller than the room it has, and kept 8px
+inside the window. `align` says which trigger edge the menu lines up with
+first: `'start'` (the default, and what it did before) its left edge, `'end'`
+its right edge. Either flips to the other edge when the menu would leave the
+window. A tile's ⋯ menu uses `'end'`
+([Dashboard tiles](tiles.md#the--menu-is-drawn-over-the-page-0179)).
+

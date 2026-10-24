@@ -3959,11 +3959,14 @@ body.twm-window-maximized .twm-resize-handle {
     position: relative;
 }
 
+/* While open the menu is moved to document.body and placed `position: fixed`
+   by `ActionDropdown.position` (inline styles), so a narrow tile cannot clip
+   it; --z-over-windows keeps it over a managed window holding the grid. */
 .tile-menu-dropdown {
     position: absolute;
     top: 100%;
     right: 0;
-    z-index: var(--z-dropdown);
+    z-index: var(--z-over-windows);
     min-width: 180px;
     padding: var(--space-xs) 0;
     background: var(--surface-2);

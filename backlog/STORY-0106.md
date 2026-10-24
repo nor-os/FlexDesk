@@ -5,7 +5,7 @@ title: "0.17.4 ships two defect fixes EcoSim's post-cutover stories found: Slide
 status: done
 parent: 68
 phase:
-assignee:
+assignee: norman
 reporter: norman
 due:
 points: 1

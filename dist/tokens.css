@@ -102,6 +102,14 @@
     --state-active:   rgba(255, 255, 255, 0.08);
     --state-selected: rgba(0, 122, 204, 0.15);
 
+    /* ── Overlay scrollbars (installOverlayScrollbar) ─────────── */
+    --scrollbar-size:         6px;
+    --scrollbar-radius:       3px;
+    --scrollbar-track:        rgba(255, 255, 255, 0.08);
+    --scrollbar-thumb:        rgba(255, 255, 255, 0.28);
+    --scrollbar-thumb-hover:  rgba(255, 255, 255, 0.38);
+    --scrollbar-thumb-active: rgba(255, 255, 255, 0.48);
+
     /* ── Shadows / elevation ──────────────────────────────────── */
     --shadow-sm:   0 1px 3px rgba(0, 0, 0, 0.3);
     --shadow-md:   0 4px 12px rgba(0, 0, 0, 0.4);
@@ -119,6 +127,9 @@
        stack from 6000 to 6999 (managed_window.js), so a popover at
        --z-popover would open behind the window that opened it. */
     --z-over-windows: 7100;
+    /* An overlay scrollbar inside a scroll container: over the container's
+       content and its dropdowns, under managed windows (6000+). */
+    --z-scrollbar: 500;
 
     /* ── Transitions ──────────────────────────────────────────── */
     --transition-fast:   120ms ease;

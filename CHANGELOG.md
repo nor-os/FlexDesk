@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.17.7 (2026-10-24)
+
+A patch release: everything below is additive. Every fix is documented in a
+section of the docs headed "(0.17.7)"; each entry links to it.
+
+### Added and changed
+
+- [`installOverlayScrollbar` is styled by flexdesk.css](docs/components/layout-widgets.md#installoverlayscrollbar-is-styled-by-flexdeskcss-0177): the `.overlay-scrollbar-v` and `.overlay-scrollbar-h` bars that `installOverlayScrollbar` (and `installCollapsibleScrollbars`, `installTabsScrollbars` and `installWorkspaceScrollbars`, which build on it) appends now have rules in flexdesk.css, so they work with only FlexDesk's stylesheets loaded. The bar is `position: absolute` at the container's right or bottom edge, `--scrollbar-size` thick, on `--z-scrollbar`; it starts at `opacity: 0` and shows on hover while the container overflows; it takes no pointer events except on its thumb, which is at least 30px long. Its colours and rounding are the new tokens `--scrollbar-track`, `--scrollbar-thumb`, `--scrollbar-thumb-hover`, `--scrollbar-thumb-active` and `--scrollbar-radius` in tokens.css. Until now no FlexDesk stylesheet styled these classes, so the bar was `position: static`, fed the container's content height and grew it without limit unless the embedder brought its own CSS (BUG-0039).
+
+### Removed or renamed exports
+
+None. Compared with 0.17.6, across every entry point (`core`, `widgets`, `wm`,
+`host`, `canvas`, `flow`, `charts`, `tiles`, `editor`) and the package
+`exports` map, no export was added, removed or renamed. Not an export but
+worth knowing: tokens.css gains the `--scrollbar-*` and `--z-scrollbar`
+custom properties, and flexdesk.css gains rules for `.overlay-scrollbar-v`,
+`.overlay-scrollbar-h` and their `.track` and `.thumb` (see above).
+
 ## 0.17.6 (2026-10-24)
 
 A patch release: everything below is additive. Every fix is documented in a

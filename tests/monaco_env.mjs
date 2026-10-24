@@ -2,7 +2,10 @@
  * A STAND-IN PAGE FOR THE MONACO LOADER SUITES — NOT A SUITE ITSELF.
  *
  * No jsdom: the loader touches exactly `document.head.appendChild`,
- * `document.createElement` and `document.getElementById`, and a suite fires
+ * `document.createElement` and `document.getElementById` (and
+ * `window.addEventListener`, when the page has one: BUG-0038's
+ * 'unhandledrejection' guard; monaco_cancellation_guard.test.mjs gives it one),
+ * and a suite fires
  * each script's `onload` / `onerror` itself, which is what makes a failure
  * deterministic.
  *

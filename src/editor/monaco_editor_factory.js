@@ -22,7 +22,13 @@ export function setDefaultLanguage(id) {
     if (typeof id === 'string' && id) _defaultLanguage = id;
 }
 
-/** Dispose a Monaco editor, swallowing the benign "Canceled" error from pending async ops. */
+/**
+ * Dispose a Monaco editor, swallowing a "Canceled" error that `dispose()` throws
+ * synchronously. It cannot catch the asynchronous kind — a pending Delayer's
+ * promise rejected by the dispose, which surfaces later as an unhandled
+ * rejection; the loader's window listener hides those (see
+ * `installCancellationGuard` in monaco_loader.js, BUG-0038).
+ */
 function safeDispose(editor) {
     try { editor.dispose(); } catch (e) { if (e?.message !== 'Canceled') throw e; }
 }

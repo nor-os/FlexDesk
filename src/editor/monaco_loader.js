@@ -38,6 +38,38 @@ let _attempt = null;
  */
 export const monacoReady = new Promise(resolve => { _resolveMonaco = resolve; });
 
+/**
+ * Monaco's asynchronous CancellationError is benign; keep it off the page.
+ *
+ * Monaco starts timers it never awaits: its WordHighlighter calls
+ * `runDelayer.trigger()` (a 50 ms Delayer) when an editor gets focus and
+ * drops the promise. Dispose the editor inside those 50 ms and
+ * `Delayer.dispose() -> cancel()` rejects that promise with a CancellationError
+ * (name and message both 'Canceled') that nothing handles, so the browser
+ * reports an uncaught 'Canceled' (BUG-0038). VS Code hides these with its own
+ * unhandledrejection handler; standalone Monaco has none, so FlexDesk installs
+ * one here: it calls preventDefault() for exactly that error and leaves every
+ * other rejection to surface as before.
+ *
+ * Installed once per page, by the first initMonaco() that starts a load, and
+ * kept for the life of the page — like Monaco itself, which cannot be unloaded.
+ */
+let _cancellationGuardInstalled = false;
+
+function isMonacoCancellation(reason) {
+    return reason?.name === 'Canceled' && reason?.message === 'Canceled';
+}
+
+function installCancellationGuard() {
+    if (_cancellationGuardInstalled) return;
+    _cancellationGuardInstalled = true;
+    // `?.`: the loader suites' stand-in pages (tests/monaco_env.mjs and the
+    // suites that set `window = globalThis` under Node) have no event target.
+    window.addEventListener?.('unhandledrejection', (event) => {
+        if (isMonacoCancellation(event.reason)) event.preventDefault();
+    });
+}
+
 function injectLoaderScript(src) {
     return new Promise((resolve, reject) => {
         const s = document.createElement('script');
@@ -124,6 +156,10 @@ async function loadMonaco(basePath) {
  * given). An AMD-level failure is final for the page: every later call gets
  * the same rejection, and only a reload recovers (see `_attempt`).
  *
+ * The first call that starts a load also installs one window
+ * 'unhandledrejection' listener that hides Monaco's benign asynchronous
+ * CancellationError, and nothing else (see `installCancellationGuard`).
+ *
  * @param {string} [basePath] Path prefix for the vs/ directory. REQUIRED
  *     unless an attempt is already in flight or has succeeded.
  * @returns {Promise<typeof monaco>}
@@ -136,6 +172,7 @@ export function initMonaco(basePath) {
             + "initMonaco('vendor/monaco'). Monaco is a peer dependency; the library "
             + 'does not guess where you put it.'));
     }
+    installCancellationGuard();
     const attempt = loadMonaco(basePath).then(
         (m) => { _resolveMonaco(m); return m; },
         (err) => {

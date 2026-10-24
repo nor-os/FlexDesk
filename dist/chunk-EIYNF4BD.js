@@ -3,7 +3,9 @@ import {
   createRafResizeObserver
 } from "./chunk-LWV23YVE.js";
 import {
-  ManagedWindow
+  ManagedWindow,
+  flatChoices,
+  selectBox
 } from "./chunk-CVMCZZX2.js";
 
 // src/charts/plotly_wrapper.js
@@ -1177,12 +1179,25 @@ function migrateSingleChart(data) {
 }
 
 // src/charts/series_transforms.js
-function resolveParams(transform, state) {
+var isChoice = (spec) => spec?.type === "choice";
+function choiceOptions(spec, subplot) {
+  const options = typeof spec.options === "function" ? spec.options(subplot) : spec.options;
+  return Array.isArray(options) ? options : [];
+}
+function firstChoice(spec, subplot) {
+  const flat = flatChoices(choiceOptions(spec, subplot));
+  return (flat.find((o) => !o.disabled) ?? flat[0])?.value;
+}
+function resolveParams(transform, state, subplot) {
+  const saved = state?.params ?? {};
   const params = {};
   for (const [name, spec] of Object.entries(transform.params ?? {})) {
     params[name] = spec?.default;
+    if (isChoice(spec) && spec.default === void 0 && saved[name] === void 0) {
+      params[name] = firstChoice(spec, subplot);
+    }
   }
-  return { ...params, ...state?.params ?? {} };
+  return { ...params, ...saved };
 }
 function enabledOutputs(transform, state) {
   return Object.keys(transform.outputs ?? {}).filter((name) => state?.outputs?.[name] === true);
@@ -1191,19 +1206,20 @@ function isEligible(trace) {
   const type = trace.type ?? "scatter";
   return (type === "scatter" || type === "scattergl") && Array.isArray(trace.y);
 }
-async function deriveSeriesTraces(traces, subplot, seriesTransforms, { onError } = {}) {
+async function deriveSeriesTraces(traces, subplot, seriesTransforms, { onError, seriesOf, results, resolveSeries } = {}) {
   const derived = [];
   if (!seriesTransforms) return derived;
-  const sources = traces.filter(isEligible);
+  const sources = traces.filter(isEligible).map((trace) => ({ trace, series: typeof seriesOf === "function" ? seriesOf(trace) ?? null : null }));
   for (const [transformId, transform] of Object.entries(seriesTransforms)) {
     const state = subplot?.transforms?.[transformId];
     const outputs = enabledOutputs(transform, state);
     if (!outputs.length || typeof transform?.run !== "function") continue;
-    const params = resolveParams(transform, state);
-    for (const source of sources) {
+    const params = resolveParams(transform, state, subplot);
+    for (const { trace: source, series } of sources) {
+      const context = { series, subplot, results: results ?? null, resolveSeries: resolveSeries ?? null };
       let result;
       try {
-        result = await transform.run(source.y, params);
+        result = await transform.run(source.y, params, context);
       } catch (error) {
         onError?.({ transformId, traceName: source.name, error });
         continue;
@@ -1284,22 +1300,43 @@ function renderSeriesTransformControls(container, subplot, seriesTransforms, { o
       row.className = "twm-series-transforms__row";
       const text = document.createElement("span");
       text.textContent = spec?.label ?? name;
+      const writeParam = (value) => {
+        const state = stateOf(transformId);
+        const params = { ...state.params ?? {} };
+        if (value === void 0) delete params[name];
+        else params[name] = value;
+        state.params = params;
+        onChange?.();
+      };
+      const saved = subplot.transforms?.[transformId]?.params?.[name];
+      if (isChoice(spec)) {
+        const current2 = saved ?? spec.default ?? firstChoice(spec, subplot);
+        const choice = selectBox(choiceOptions(spec, subplot), current2, {
+          label: spec?.label ?? name,
+          valueAttr: "value",
+          className: "twm-series-transforms__param twm-series-transforms__select"
+        });
+        choice.box.addEventListener("change", () => {
+          const value = choice.valueOf();
+          choice.setOptions(choiceOptions(spec, subplot), value);
+          writeParam(value);
+        });
+        paramInputs.push(choice.box);
+        row.append(text, choice.box);
+        group.appendChild(row);
+        continue;
+      }
       const input = document.createElement("input");
       input.type = "number";
       input.className = "twm-series-transforms__param";
       for (const attr of ["min", "max", "step"]) {
         if (spec?.[attr] != null) input[attr] = String(spec[attr]);
       }
-      const current = subplot.transforms?.[transformId]?.params?.[name] ?? spec?.default;
+      const current = saved ?? spec?.default;
       input.value = current == null ? "" : String(current);
       input.addEventListener("change", () => {
         const value = parseFloat(input.value);
-        const state = stateOf(transformId);
-        const params = { ...state.params ?? {} };
-        if (Number.isFinite(value)) params[name] = value;
-        else delete params[name];
-        state.params = params;
-        onChange?.();
+        writeParam(Number.isFinite(value) ? value : void 0);
       });
       paramInputs.push(input);
       row.append(text, input);
@@ -1427,6 +1464,7 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
     const yRefByAxisId = {};
     let ownCount = 0;
     let hiddenCount = 0;
+    const seriesByTrace = /* @__PURE__ */ new Map();
     const useX = sp.xAxis && sp.xAxis.useTime === false && sp.xAxis.variable;
     const xData = useX ? opts.resolveSeries({ variable: sp.xAxis.variable }, data, sp)?.y ?? time : time;
     const yAxes = sp.yAxes ?? [];
@@ -1461,7 +1499,7 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
         if (!resolved?.y) continue;
         const x = resolved.x ?? xData;
         const y = Array.isArray(resolved.y) ? applyNanHandling(resolved.y, sp.nanHandling ?? "gap", x) : resolved.y;
-        traces.push(buildTrace({
+        const trace = buildTrace({
           chartType: sp.chartType || "line",
           x,
           y,
@@ -1473,7 +1511,9 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
           yAxisId: yRef,
           showMarkers: sp.showDataPoints ?? false,
           stackGroup: s.stackGroup ?? null
-        }));
+        });
+        traces.push(trace);
+        seriesByTrace.set(trace, s);
         const overlay = s.overlay ? opts.overlays?.[s.id] : null;
         if (!overlay?.years?.length) continue;
         const ov = s.overlay;
@@ -1503,12 +1543,12 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
         traces.push(ovTrace);
       }
     });
-    traces.push(...await deriveSeriesTraces(
-      traces,
-      sp,
-      opts.seriesTransforms,
-      { onError: opts.onTransformError ?? void 0 }
-    ));
+    traces.push(...await deriveSeriesTraces(traces, sp, opts.seriesTransforms, {
+      onError: opts.onTransformError ?? void 0,
+      seriesOf: (trace) => seriesByTrace.get(trace) ?? null,
+      results: data,
+      resolveSeries: opts.resolveSeries
+    }));
     if (opts.derivedTraces) {
       const extra = await opts.derivedTraces(traces, sp, { results: data, index });
       if (Array.isArray(extra)) traces.push(...extra);
@@ -1667,7 +1707,8 @@ var PlotPopoutWindow = class {
    *        renders the Config tab. What it returns is disposed (`dispose()`) when the
    *        window closes, so an editor drawn there (renderPlotConfigEditor) goes with it.
    * @param {Object} [options.seriesTransforms] - `{ [id]: transform }` (series_transforms.js);
-   *        absent => no derived series are drawn
+   *        absent => no derived series are drawn. Each runs as
+   *        `run(y, params, { series, subplot, results, resolveSeries })` (renderPlotGrid).
    * @param {string} [options.refreshEvent='data:changed'] - Bus event after which the
    *        window re-reads `getResults()` and redraws.
    * @param {{delta?: string|null, complete?: string|null}} [options.streamEvents] - Bus
@@ -2799,4 +2840,4 @@ export {
   openPlotPopoutWindow,
   openRawTracesWindow
 };
-//# sourceMappingURL=chunk-RMTRWWEO.js.map
+//# sourceMappingURL=chunk-EIYNF4BD.js.map

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.17.8 (2026-10-24)
+
+A patch release: everything below is additive. Every fix is documented in a
+section of the docs headed "(0.17.8)"; each entry links to it.
+
+### Added and changed
+
+- [A series transform knows its series, and takes a choice parameter](docs/components/charts.md#a-series-transform-knows-its-series-and-takes-a-choice-parameter-0178): a `seriesTransforms` entry's `run` gets a third argument, `run(y, params, { series, subplot, results, resolveSeries })`: the subplot's series entry the trace was drawn from (null for any other trace, such as an overlay), the subplot config, the results the figure was drawn from and the `resolveSeries` it was drawn with, so a transform can resolve the same series from other results (a baseline scenario) the same way. `renderPlotGrid`, and so `PlotPopoutWindow`, run transforms on the same traces as in 0.17.7 and draw the same derived traces; `deriveSeriesTraces` takes the new optional `seriesOf`, `results` and `resolveSeries` options, and without them passes `series`, `results` and `resolveSeries` as null. A parameter declared `{ type: 'choice', options }` (an array of `{ value, label }`, or a function `(subplot) => options`) is drawn by `renderSeriesTransformControls` as a select (choice_controls' `selectBox`, styled by the new `.twm-series-transforms__select` rule) instead of a number field; the pick is saved under `subplot.transforms.<id>.params` and passed to `run` like a number, and without a `default` or a saved value it is the first enabled option. A transform written as `run(y, params)` with number parameters works and draws exactly as before (STORY-0111).
+
+### Removed or renamed exports
+
+None. Compared with 0.17.7, across every entry point (`core`, `widgets`, `wm`,
+`host`, `canvas`, `flow`, `charts`, `tiles`, `editor`) and the package
+`exports` map, no export was added, removed or renamed. Not an export but
+worth knowing: a series transform's `run` gets a third argument and
+`deriveSeriesTraces` takes three more options, all optional, and flexdesk.css
+gains a `.twm-series-transforms__select` rule (see above).
+
 ## 0.17.7 (2026-10-24)
 
 A patch release: everything below is additive. Every fix is documented in a

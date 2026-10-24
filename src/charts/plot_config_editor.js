@@ -63,7 +63,10 @@ const LEGEND_POSITIONS = Object.freeze([
     { value: 'hidden', label: 'Hidden' }, { value: 'top', label: 'Top' }, { value: 'bottom', label: 'Bottom' },
     { value: 'left', label: 'Left' }, { value: 'right', label: 'Right' },
 ]);
+// 'auto' is drawn as 'linear' (buildTrace); it is listed so a config saved with it
+// shows it and keeps it.
 const INTERPOLATIONS = Object.freeze([
+    { value: 'auto', label: 'Auto' },
     { value: 'linear', label: 'Linear' }, { value: 'step', label: 'Step' }, { value: 'cubic', label: 'Cubic spline' },
 ]);
 const NAN_STRATEGIES = Object.freeze([

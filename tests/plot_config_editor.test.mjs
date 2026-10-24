@@ -24,6 +24,9 @@
  *   §10 the body holds its sections and nothing else: a 2D subplot writes no
  *       stray "null" text where the Z axis section would be, nor where the
  *       Derived series section would be without seriesTransforms (BUG-0041)
+ *   §11 interpolation 'auto' is a listed choice: a subplot saved with it opens
+ *       with Auto chosen (not "auto (not found)"), keeps it unchanged, can be
+ *       picked again, and is drawn as 'linear' (BUG-0042)
  *
  * ── HOW TO RUN ───────────────────────────────────────────────────────────
  *
@@ -99,6 +102,7 @@ const { makeDefaultSubplot, makeDefaultYAxis, makeDefaultSeries, migrateSingleCh
 const { AutocompleteField } = await import('../src/ui/components/autocomplete_field.js');
 const { PlotPopoutWindow, openPlotPopoutWindow } = await import('../src/charts/plot_popout_window.js');
 const barrel = await import('../charts.js');
+const { buildTrace } = await import('../src/charts/chart_types.js');
 
 // Every AutocompleteField that renders, and every one that is disposed.
 const fields = [];
@@ -766,6 +770,39 @@ console.log('\ncharts: renderPlotConfigEditor\n');
     check('... ending with Derived series', headings(derived.el),
           ['Subplot', 'Display', 'X axis', 'Y axes', 'Reference lines', 'Shaded bands', 'Derived series']);
     derived.editor.dispose();
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// §11 INTERPOLATION 'auto' IS A LISTED CHOICE (BUG-0042)
+// ════════════════════════════════════════════════════════════════════════
+{
+    console.log("\n§11 interpolation 'auto'");
+    const shown = (box) => box.options[box.selectedIndex]?.textContent;
+    const fresh = open(oneByOne());
+    const freshBox = control(sectionOf(fresh.el, 'Display'), 'Interpolation');
+    check('the Interpolation select offers Auto, Linear, Step and Cubic spline',
+          [...freshBox.options].map((o) => o.textContent), ['Auto', 'Linear', 'Step', 'Cubic spline']);
+    check('a default subplot still shows Linear', shown(freshBox), 'Linear');
+    fresh.editor.dispose();
+
+    // A config saved by an embedder (EcoSim) with interpolation 'auto'.
+    const saved = { layout: '1x1', subplots: [{ ...makeDefaultSubplot(0), interpolation: 'auto' }] };
+    const { el, calls, editor, config } = open(saved);
+    const box = control(sectionOf(el, 'Display'), 'Interpolation');
+    check("a subplot saved with 'auto' opens with Auto chosen", shown(box), 'Auto');
+    ok('... and no "(not found)" option', ![...box.options].some((o) => /not found/.test(o.textContent)));
+    check("... and the config still says 'auto'", config.subplots[0].interpolation, 'auto');
+    check('... and opening it is no edit', calls.length, 0);
+
+    pick(box, 'Step');
+    check('picking Step writes step', config.subplots[0].interpolation, 'step');
+    pick(control(sectionOf(el, 'Display'), 'Interpolation'), 'Auto');
+    check("picking Auto writes 'auto'", config.subplots[0].interpolation, 'auto');
+    editor.dispose();
+
+    const shape = (interpolation) => buildTrace({ chartType: 'line', x: [0, 1], y: [1, 2], interpolation }).line?.shape;
+    check("'auto' is drawn as 'linear' (Plotly shape linear)", shape('auto'), shape('linear'));
+    check('... which is the shape linear', shape('auto'), 'linear');
 }
 
 await ticks();

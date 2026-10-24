@@ -4,6 +4,22 @@
 
 Plotly-backed charts: the wrapper, the chart types, subplot layouts, downsampling, the plot grid, the plot-config editor and the two plot windows. Plotly itself is not in the bundle; call `setPlotlySource()` with the path to your copy. The plot window's `streamEvents` option is described with the [other application-neutral options](../concepts/domain-neutrality.md#no-application-globals-the-gallery-picker-and-plot-window-events-0170).
 
+## Interpolation `'auto'` is a listed choice (0.17.9)
+
+A subplot's `interpolation` is `'linear'`, `'step'`, `'cubic'` or `'auto'`.
+`'auto'` draws straight segments between the points, exactly as `'linear'`
+does (`buildTrace` gives both the Plotly line shape `linear`, as it always
+has); it is the value embedders such as EcoSim save for their plots.
+[`renderPlotConfigEditor`](#editing-a-plot-config-renderplotconfigeditor-0170)
+offered only Linear, Step and Cubic spline, so a subplot saved with `'auto'`
+opened with `auto (not found)` in **Interpolation**. The select now offers
+**Auto**, **Linear**, **Step** and **Cubic spline**: a subplot saved with
+`'auto'` opens with Auto chosen and keeps `'auto'` until you pick something
+else, and picking Auto writes `'auto'`. A new subplot is still `'linear'`
+(`makeDefaultSubplot`), and every value draws as before.
+
+`tests/plot_config_editor.test.mjs` §11 pins it.
+
 ## The plot config editor writes no stray "null" (0.17.9)
 
 [`renderPlotConfigEditor`](#editing-a-plot-config-renderplotconfigeditor-0170)

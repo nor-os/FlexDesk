@@ -61,7 +61,8 @@ const LINE_DASH_MAP = {
 };
 
 /**
- * Interpolation mapping (Chart.js to Plotly line shape)
+ * Interpolation mapping (Chart.js to Plotly line shape). 'auto' draws straight
+ * segments between the points, as 'linear' does.
  */
 const INTERPOLATION_MAP = {
     linear: 'linear',
@@ -81,7 +82,7 @@ const INTERPOLATION_MAP = {
  * @param {string} [options.color] - Series color (hex)
  * @param {number} [options.lineWidth] - Line width in pixels
  * @param {string} [options.lineStyle] - Line style: solid, dashed, dotted
- * @param {string} [options.interpolation] - Interpolation: linear, step, cubic
+ * @param {string} [options.interpolation] - Interpolation: linear, step, cubic, or auto (drawn as linear)
  * @param {string} [options.yAxisId] - Y-axis identifier (y, y2, y3, etc.)
  * @param {boolean} [options.showMarkers] - Show data point markers
  * @param {number} [options.seriesIndex] - Index for default color selection

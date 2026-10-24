@@ -364,7 +364,10 @@ function renderPlotConfigEditor(container, config, options = {}) {
         let sources = null;
         const overlaySources = () => (sources ??= Promise.resolve().then(() => opts.overlaySources()));
 
-        body.append(
+        // Element.append() writes a null child as the text "null": a section the
+        // subplot does not have (the z axis of a 2D chart, the transforms when
+        // there are none) is left out, not appended.
+        body.append(...[
             section('Subplot', field('Title', textInput(sp.displayName, (v) => { sp.displayName = v; notify(); },
                                                         { placeholder: 'Untitled' }))),
             section('Display', ...displayFields(sp)),
@@ -374,7 +377,7 @@ function renderPlotConfigEditor(container, config, options = {}) {
             section('Reference lines', referenceLinesEditor(sp)),
             section('Shaded bands', shadedBandsEditor(sp)),
             transformsSection(sp),
-        );
+        ].filter(Boolean));
     }
 
     function displayFields(sp) {

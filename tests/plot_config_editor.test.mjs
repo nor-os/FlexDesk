@@ -21,6 +21,9 @@
  *       is plot_config's makeDefaultSeries
  *   §8  it fits PlotPopoutWindow's configRenderer slot
  *   §9  the barrel, the stylesheet
+ *   §10 the body holds its sections and nothing else: a 2D subplot writes no
+ *       stray "null" text where the Z axis section would be, nor where the
+ *       Derived series section would be without seriesTransforms (BUG-0041)
  *
  * ── HOW TO RUN ───────────────────────────────────────────────────────────
  *
@@ -725,6 +728,44 @@ console.log('\ncharts: renderPlotConfigEditor\n');
     ok('the root rule is a column of sections', /flex-direction:\s*column/.test(ruleBody(css, '.twm-plot-config') ?? ''));
     const docs = readFileSync(resolvePath(HERE, '../docs/components/charts.md'), 'utf8');
     ok('the docs document it in a 0.17.0 section', /## .*renderPlotConfigEditor.*\(0\.17\.0\)/.test(docs));
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// §10 THE BODY HOLDS ITS SECTIONS AND NOTHING ELSE (BUG-0041)
+// ════════════════════════════════════════════════════════════════════════
+{
+    console.log('\n§10 no stray text between the sections');
+    const bodyOf = (root) => root.querySelector('.twm-plot-config__body');
+    /** Every child node of the body that is not a section: text, or anything else. */
+    const strays = (root) => [...bodyOf(root).childNodes]
+        .filter((n) => !(n.nodeType === 1 && n.classList.contains('twm-plot-config__section')))
+        .map((n) => (n.nodeType === 3 ? `text "${n.textContent}"` : n.nodeName));
+    const headings = (root) => [...bodyOf(root).children]
+        .map((s) => s.querySelector(':scope > .twm-plot-config__heading')?.textContent);
+    const transforms = {
+        trend: { label: 'Trend', params: {}, outputs: { mean: { label: 'Mean' } }, run: (y) => ({ mean: y }) },
+    };
+
+    const plain = open(oneByOne());
+    check('2D, no seriesTransforms: the body is sections only', strays(plain.el), []);
+    check('... Reference lines follows Y axes', headings(plain.el),
+          ['Subplot', 'Display', 'X axis', 'Y axes', 'Reference lines', 'Shaded bands']);
+    ok('... and no "null" is written anywhere in the editor',
+       !/null/.test(plain.el.querySelector('.twm-plot-config').textContent));
+
+    pick(control(sectionOf(plain.el, 'Display'), 'Chart type'), '3D Scatter');
+    check('3D, no seriesTransforms: sections only', strays(plain.el), []);
+    check('... with the Z axis after the Y axes', headings(plain.el),
+          ['Subplot', 'Display', 'X axis', 'Y axes', 'Z axis', 'Reference lines', 'Shaded bands']);
+    pick(control(sectionOf(plain.el, 'Display'), 'Chart type'), 'Line');
+    check('back to 2D (a redraw): sections only', strays(plain.el), []);
+    plain.editor.dispose();
+
+    const derived = open(oneByOne(), { seriesTransforms: transforms });
+    check('2D with seriesTransforms: sections only', strays(derived.el), []);
+    check('... ending with Derived series', headings(derived.el),
+          ['Subplot', 'Display', 'X axis', 'Y axes', 'Reference lines', 'Shaded bands', 'Derived series']);
+    derived.editor.dispose();
 }
 
 await ticks();

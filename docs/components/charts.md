@@ -4,6 +4,19 @@
 
 Plotly-backed charts: the wrapper, the chart types, subplot layouts, downsampling, the plot grid, the plot-config editor and the two plot windows. Plotly itself is not in the bundle; call `setPlotlySource()` with the path to your copy. The plot window's `streamEvents` option is described with the [other application-neutral options](../concepts/domain-neutrality.md#no-application-globals-the-gallery-picker-and-plot-window-events-0170).
 
+## The plot config editor writes no stray "null" (0.17.9)
+
+[`renderPlotConfigEditor`](#editing-a-plot-config-renderplotconfigeditor-0170)
+drew a subplot's sections into one body and appended the sections a subplot
+does not have as `null`, which `Element.append()` writes as the text `null`.
+So every 2D subplot showed a `null` line between the Y axes and **Reference
+lines** (where a 3D chart's **Z axis** goes), and an editor without
+`seriesTransforms` showed another after **Shaded bands** (where **Derived
+series** goes). The body now holds its sections and nothing else: a section
+the subplot does not have is left out. Nothing else about the editor changed.
+
+`tests/plot_config_editor.test.mjs` §10 pins it.
+
 ## A series transform knows its series, and takes a choice parameter (0.17.8)
 
 Two additions to [`seriesTransforms`](#derived-series-seriestransforms-0170).

@@ -35,9 +35,10 @@
  *
  * so a transform can look the same series up elsewhere (a baseline scenario)
  * and resolve it the same way. renderPlotGrid (and so PlotPopoutWindow) runs
- * transforms only on the traces of the subplot's own series, never on
- * overlays or derived traces. A transform written as `run(y, params)` ignores
- * the third argument and works as before.
+ * transforms on the same traces as before 0.17.8 (overlays included, derived
+ * traces never); a trace drawn from one of the subplot's series gets that
+ * series, any other (an overlay) gets `series: null`. A transform written as
+ * `run(y, params)` ignores the third argument and works as before.
  *
  * A parameter is a number field by default:
  *
@@ -62,7 +63,7 @@
  */
 
 import { buildTrace } from './chart_types.js';
-import { selectBox } from '../ui/components/choice_controls.js';
+import { flatChoices, selectBox } from '../ui/components/choice_controls.js';
 
 /** Whether a parameter spec is a choice (a select) rather than a number. */
 const isChoice = (spec) => spec?.type === 'choice';
@@ -73,11 +74,14 @@ function choiceOptions(spec, subplot) {
     return Array.isArray(options) ? options : [];
 }
 
-/** A choice parameter's value when none is declared or saved: its first enabled option's. */
+/**
+ * A choice parameter's value when none is declared or saved: the option
+ * selectBox selects for it, its first enabled one, `{ group, options }`
+ * entries flattened in order (the first of all when every one is disabled).
+ */
 function firstChoice(spec, subplot) {
-    const first = choiceOptions(spec, subplot)
-        .find((o) => !(o !== null && typeof o === 'object' && o.disabled));
-    return first !== null && typeof first === 'object' ? first.value : first;
+    const flat = flatChoices(choiceOptions(spec, subplot));
+    return (flat.find((o) => !o.disabled) ?? flat[0])?.value;
 }
 
 /** A transform's parameter values: its declared defaults under the subplot's own. */
@@ -114,9 +118,9 @@ function isEligible(trace) {
  * @param {Function} [options.onError] - `({ transformId, traceName, error })`,
  *        called for each skipped run.
  * @param {Function} [options.seriesOf] - `(trace) => series | null`: the series
- *        config a trace was drawn from. Given, transforms run only on the traces
- *        it names a series for, and `context.series` is that series; without
- *        it every eligible trace is a source and `context.series` is null.
+ *        config a trace was drawn from, passed as `context.series` (null for a
+ *        trace it names none for, and for every trace without it). It does not
+ *        choose the sources: every eligible trace is run on, as before.
  * @param {Object} [options.results] - The results the figure was drawn from
  *        (`context.results`).
  * @param {Function} [options.resolveSeries] - The resolver the figure was drawn
@@ -128,8 +132,7 @@ async function deriveSeriesTraces(traces, subplot, seriesTransforms,
     const derived = [];
     if (!seriesTransforms) return derived;
     const sources = traces.filter(isEligible)
-        .map((trace) => ({ trace, series: typeof seriesOf === 'function' ? (seriesOf(trace) ?? null) : null }))
-        .filter(({ series }) => typeof seriesOf !== 'function' || series !== null);
+        .map((trace) => ({ trace, series: typeof seriesOf === 'function' ? (seriesOf(trace) ?? null) : null }));
 
     for (const [transformId, transform] of Object.entries(seriesTransforms)) {
         const state = subplot?.transforms?.[transformId];

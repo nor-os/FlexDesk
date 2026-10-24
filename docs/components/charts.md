@@ -39,27 +39,34 @@ delta: {
 },
 ```
 
-`renderPlotGrid`, and so `PlotPopoutWindow`, now run transforms only on the
-traces drawn from the subplot's own series: never on an overlay (until 0.17.8
-an overlay got derived traces too) or on another derived trace, and each run
-gets its own series. `deriveSeriesTraces(traces, subplot, seriesTransforms,
+`renderPlotGrid`, and so `PlotPopoutWindow`, run transforms on the same
+traces as in 0.17.7, with the same derived traces: every line or scatter trace
+of the figure, overlays included, never a derived trace. A trace drawn from one
+of the subplot's series gets that series as `context.series`; any other trace,
+such as an overlay, gets `context.series` null (with `subplot`, `results` and
+`resolveSeries` still given), so a transform that needs a series, such as a
+scenario delta, skips it itself (`if (!series) return {};`).
+`deriveSeriesTraces(traces, subplot, seriesTransforms,
 { onError, seriesOf, results, resolveSeries })` takes the same as options:
-`seriesOf(trace)` names the series a trace was drawn from, and only traces it
-names one for are run on. Without `seriesOf` every line or scatter trace is
-run on, as before, with `series`, `results` and `resolveSeries` null.
+`seriesOf(trace)` names the series a trace was drawn from (null for none); it
+only fills `context.series` and does not choose which traces are run on.
+Without these options `series`, `results` and `resolveSeries` are null.
 
 **A choice parameter.** A parameter declared `{ type: 'choice', options }` is
 a select instead of a number field. `options` is an array of
 `{ value, label }` (a bare value, a `disabled` option and a `{ group, options }`
 entry work as in the other FlexDesk selects), or a function
-`(subplot) => options`, called when the controls are drawn. It is drawn by
+`(subplot) => options`, called when the controls are drawn and also whenever
+the parameter needs its default (nothing saved, no `default`), which is on
+each redraw of the figure. It is drawn by
 `renderSeriesTransformControls` with the same select the settings view and
 the flow kit use (choice_controls' `selectBox`), so a value comes back as the
 option's own value (a number stays a number) and a saved value the list no
 longer offers stays chosen, shown as `<value> (not found)`. The pick is saved
 under `subplot.transforms.<id>.params` and passed to `run` like a number
 parameter. Without a `default` and with nothing saved, the parameter is its
-first enabled option, in the select and in `run`.
+first enabled option (`{ group, options }` entries flattened in order, as the
+select draws them), in the select and in `run`.
 
 `tests/series_transforms.test.mjs` §7 to §10 pin all of it.
 

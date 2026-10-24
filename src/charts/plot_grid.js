@@ -84,8 +84,10 @@ function resolveSeriesData(series, results) {
  * @param {Object} [options.overlays] - `{ [series.id]: { years, values } }`, drawn for
  *        every series with an `overlay` description.
  * @param {Object} [options.seriesTransforms] - `{ [id]: transform }` (series_transforms.js).
- *        Each runs on the traces of the subplot's own series (not overlays), as
- *        `run(y, params, { series, subplot, results, resolveSeries })`.
+ *        Each runs on every line/scatter trace (overlays included, derived traces
+ *        not) as `run(y, params, { series, subplot, results, resolveSeries })`,
+ *        `series` being the subplot's series entry the trace was drawn from, or
+ *        null for an overlay.
  * @param {Function} [options.onTransformError] - `({ transformId, traceName, error })`.
  * @param {Function} [options.derivedTraces] - `(traces, subplot, { results, index })
  *        => trace[] | Promise<trace[]>`: extra traces appended to a subplot's figure.
@@ -199,7 +201,7 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
         /** The subplot's own series (overlays and derived traces aside), and how many are hidden. */
         let ownCount = 0;
         let hiddenCount = 0;
-        /** Each trace drawn from one of the subplot's series, to that series: transforms run on these. */
+        /** Each trace drawn from one of the subplot's series, to that series (a transform's context.series). */
         const seriesByTrace = new Map();
 
         const useX = sp.xAxis && sp.xAxis.useTime === false && sp.xAxis.variable;

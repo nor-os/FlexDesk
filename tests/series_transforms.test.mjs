@@ -16,10 +16,12 @@
  *   §6  the barrel exports both functions
  *   §7  (0.17.8) run(y, params, context): renderPlotGrid and PlotPopoutWindow
  *       pass { series, subplot, results, resolveSeries }, per series
- *   §8  (0.17.8) only traces drawn from a configured series are sources: no
- *       overlay, no derived trace; deriveSeriesTraces' `seriesOf` option
+ *   §8  (0.17.8) the same sources as 0.17.7 (overlays get derived traces,
+ *       derived traces are not run on); an overlay's context.series is null;
+ *       deriveSeriesTraces' `seriesOf` option
  *   §9  (0.17.8) a `type: 'choice'` parameter: a FlexDesk select (selectBox),
- *       options an array or a function, saved under params, passed to run
+ *       options an array or a function, saved under params, passed to run;
+ *       with groups, run and the select agree on the first option
  *   §10 (0.17.8) a run(y, params) transform with number params: as before
  *
  * ── HOW TO RUN ───────────────────────────────────────────────────────────
@@ -426,22 +428,32 @@ async function drawGrid(plotConfig, results, options) {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// §8 (0.17.8) ONLY CONFIGURED SERIES ARE SOURCES
+// §8 (0.17.8) THE SAME SOURCES AS 0.17.7; AN OVERLAY GETS series NULL
 // ════════════════════════════════════════════════════════════════════════
 {
-    console.log('\n§8 only traces drawn from a configured series');
+    console.log('\n§8 the same sources as 0.17.7, an overlay with series null');
     const rec = recorder();
     const sp = contextSubplot();
     sp.yAxes[0].series[0].overlay = { label: 'Alpha observed' };
     const figure = await drawGrid({ layout: '1x1', subplots: [sp] }, CONTEXT_RESULTS, {
-        seriesTransforms: { rec, second: recorder() },
+        seriesTransforms: { rec },
         overlays: { s1: { years: [0, 2], values: [1.5, 2.5] } },
     });
-    check('the overlay is drawn', figure?.data.some((t) => t.name === 'Alpha observed'), true);
-    check('no transform runs on the overlay', rec.calls.map((c) => c[2].series.variable), ['a', 'b']);
-    check('no derived trace of an overlay or of a derived trace',
-          figure?.data.map((t) => t.name).filter((n) => n.includes('observed') || n.includes('(R) (R)')),
-          ['Alpha observed']);
+    const names = figure?.data.map((t) => t.name) ?? [];
+    check('the overlay is drawn', names.includes('Alpha observed'), true);
+    check('the transform runs on each series and on the overlay, in trace order',
+          rec.calls.map((c) => c[2].series?.variable ?? null), ['a', null, 'b']);
+    const overlayCall = rec.calls[1]?.[2];
+    ok('  ...the overlay\'s context: series null, subplot, results and resolveSeries still given',
+       overlayCall?.series === null && overlayCall.subplot === sp && overlayCall.results === CONTEXT_RESULTS
+       && overlayCall.resolveSeries === resolveSeriesData);
+    check('the overlay DOES get its derived trace, as in 0.17.7',
+          names, ['Alpha', 'Alpha observed', 'Beta', 'Alpha (R)', 'Alpha observed (R)', 'Beta (R)']);
+    ok('no derived trace of a derived trace', !names.some((n) => n.includes('(R) (R)')));
+
+    // Exactly what 0.17.7 drew: deriveSeriesTraces without the 0.17.8 options on the same traces.
+    const before = await deriveSeriesTraces(figure.data.slice(0, 3), sp, { rec: recorder() });
+    check('the derived traces are exactly those of a 0.17.7 run', figure.data.slice(3), before);
 
     // deriveSeriesTraces on its own
     const own = recorder();
@@ -454,8 +466,10 @@ async function drawGrid(plotConfig, results, options) {
     const results = { time: [0, 1], series: {} };
     const derived = await deriveSeriesTraces(traces, { transforms: { rec: { outputs: { out: true } } } }, { rec: own },
                                              { seriesOf: (t) => series.get(t), results });
-    check('with seriesOf: only the traces it names a series for', derived.map((d) => d.name), ['A (R)', 'B (R)']);
-    check('  ...each with its own series', own.calls.map((c) => c[2].series.variable), ['a', 'b']);
+    check('with seriesOf: every eligible trace still runs', derived.map((d) => d.name),
+          ['A (R)', 'Overlay (R)', 'B (R)']);
+    check('  ...each with its own series, null where seriesOf names none',
+          own.calls.map((c) => c[2].series?.variable ?? null), ['a', null, 'b']);
     ok('  ...and the results given', own.calls.every((c) => c[2].results === results));
     const bare = recorder();
     await deriveSeriesTraces(traces, { transforms: { rec: { outputs: { out: true } } } }, { rec: bare });
@@ -539,7 +553,7 @@ async function drawGrid(plotConfig, results, options) {
        && select.classList.contains('twm-series-transforms__select'));
     const source = readFileSync(resolvePath(HERE, '../src/charts/series_transforms.js'), 'utf8');
     ok('series_transforms.js draws it with choice_controls\' selectBox, not a hand-built select',
-       /import \{ selectBox \} from '\.\.\/ui\/components\/choice_controls\.js'/.test(source)
+       /import \{ flatChoices, selectBox \} from '\.\.\/ui\/components\/choice_controls\.js'/.test(source)
        && !/createElement\('select'\)/.test(source));
 
     // A declared default; a saved value the options no longer offer is kept.
@@ -556,6 +570,30 @@ async function drawGrid(plotConfig, results, options) {
                                   { delta: delta(SCENARIOS) });
     check('a saved value no longer offered stays chosen, marked not found',
           [stale.querySelector('select').selectedOptions[0]?.textContent], ['gone (not found)']);
+
+    // Grouped options: run and the select agree on the first (enabled) option.
+    const GROUPED = [
+        { group: 'Retired', options: [{ value: 'old', label: 'Old', disabled: true }] },
+        { group: 'Scenarios', options: [{ value: 'base', label: 'Baseline' }, { value: 'high', label: 'High' }] },
+        { value: 'flat', label: 'Flat' },
+    ];
+    for (const [what, options] of [['an array', GROUPED], ['a function', () => GROUPED]]) {
+        const g = delta(options);
+        const gSp = { transforms: { delta: { outputs: { diff: true } } } };
+        await deriveSeriesTraces([{ type: 'scatter', name: 'A', x: [0], y: [1] }], gSp, { delta: g });
+        const gBox = document.createElement('div');
+        renderSeriesTransformControls(gBox, gSp, { delta: delta(options) });
+        check(`grouped options as ${what}: run gets the first enabled option, groups flattened`,
+              g.calls[0]?.params.baseline, 'base');
+        check('  ...the select shows the same option', gBox.querySelector('select').value, 'base');
+    }
+    const allOff = delta([{ group: 'G', options: [{ value: 'x', disabled: true }, { value: 'y', disabled: true }] }]);
+    const offSp = { transforms: { delta: { outputs: { diff: true } } } };
+    await deriveSeriesTraces([{ type: 'scatter', name: 'A', x: [0], y: [1] }], offSp, { delta: allOff });
+    const offBox = document.createElement('div');
+    renderSeriesTransformControls(offBox, offSp, { delta: delta(allOff.params.baseline.options) });
+    check('every option disabled: run and the select still agree (the first)',
+          [allOff.calls[0]?.params.baseline, offBox.querySelector('select').value], ['x', 'x']);
 }
 
 // ════════════════════════════════════════════════════════════════════════

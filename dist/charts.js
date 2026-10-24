@@ -55,7 +55,7 @@ import {
   strideIndices,
   uid,
   updateChart
-} from "./chunk-EW4OCYU6.js";
+} from "./chunk-2YTM3GJE.js";
 import {
   AutocompleteField,
   createRafResizeObserver
@@ -720,6 +720,7 @@ var LEGEND_POSITIONS2 = Object.freeze([
   { value: "right", label: "Right" }
 ]);
 var INTERPOLATIONS = Object.freeze([
+  { value: "auto", label: "Auto" },
   { value: "linear", label: "Linear" },
   { value: "step", label: "Step" },
   { value: "cubic", label: "Cubic spline" }
@@ -977,7 +978,7 @@ function renderPlotConfigEditor(container, config, options = {}) {
     const is3D = is3DChart(sp.chartType);
     let sources = null;
     const overlaySources = () => sources ??= Promise.resolve().then(() => opts.overlaySources());
-    body.append(
+    body.append(...[
       section("Subplot", field("Title", textInput(
         sp.displayName,
         (v) => {
@@ -993,7 +994,7 @@ function renderPlotConfigEditor(container, config, options = {}) {
       section("Reference lines", referenceLinesEditor(sp)),
       section("Shaded bands", shadedBandsEditor(sp)),
       transformsSection(sp)
-    );
+    ].filter(Boolean));
   }
   function displayFields(sp) {
     return [

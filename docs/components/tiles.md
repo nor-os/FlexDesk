@@ -221,8 +221,8 @@ does) and placed with `ActionDropdown.position(button, menu, { align: 'end' })`:
   draws over neighbouring tiles, and over the managed window a grid sits in.
 - **It stays in the window.** Its right edge lines up with the ⋯ button's
   when there is room; otherwise its left edge does, clamped 8px inside the
-  window. It opens under the button, or above it when there is more room
-  there, and scrolls when it is taller than either.
+  window. It opens under the button when it fits there, else above it when it
+  fits there, else on the side with more room, scrolling inside.
 - **It goes back when it closes.** Choosing an entry, a press outside it, or
   the ⋯ button again closes it and puts it back in the tile's header, so
   `tile.element.querySelector('.tile-menu-item')` finds the entries while it

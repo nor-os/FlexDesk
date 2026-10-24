@@ -2840,4 +2840,4 @@ export {
   openPlotPopoutWindow,
   openRawTracesWindow
 };
-//# sourceMappingURL=chunk-EW4OCYU6.js.map
+//# sourceMappingURL=chunk-2YTM3GJE.js.map

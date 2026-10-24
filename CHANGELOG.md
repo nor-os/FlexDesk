@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.17.9 (2026-10-25)
+
+A patch release: everything below is additive. Every fix is documented in a
+section of the docs headed "(0.17.9)"; each entry links to it.
+
+### Added and changed
+
+- [Context menus stay inside the window](docs/components/menus.md#context-menus-stay-inside-the-window-0179): `showContextMenu(x, y, items, onAction)`, the DataTable's right-click menu and `NotebookTabBar`'s tab menu are placed the same way, however many items they hold. A menu is capped at the window's height less 8px above and below and scrolls inside when it is longer (flexdesk.css gives `.twm-context-menu` and `.nb-context-menu` `overflow-y: auto` and `box-sizing: border-box`); it opens with its top-left corner at the pointer and moves left or up only as far as it must to fit, never past the window's top or left edge. Before, a menu had no cap: the DataTable's opened above the window's top edge and `showContextMenu`'s ran off the bottom, so the items past the edge could not be reached. All three now take focus on the first enabled item, move it with Up/Down (wrapping), Home and End, scrolling the focused item into view, choose with Enter or Space, close with Escape and give focus back when they close (before, only `showContextMenu` did); scrolling the menu itself does not close it. Nothing changes in how you call them (BUG-0040).
+- [The plot config editor writes no stray "null"](docs/components/charts.md#the-plot-config-editor-writes-no-stray-null-0179): `renderPlotConfigEditor` appended the sections a subplot does not have as `null`, which `Element.append()` writes as the text `null`, so every 2D subplot showed a `null` line where a 3D chart's **Z axis** goes, and an editor without `seriesTransforms` showed another where **Derived series** goes. A section the subplot does not have is now left out; nothing else about the editor changed (BUG-0041).
+- [Interpolation `'auto'` is a listed choice](docs/components/charts.md#interpolation-auto-is-a-listed-choice-0179): a subplot's `interpolation` is `'linear'`, `'step'`, `'cubic'` or `'auto'`, and `'auto'` draws straight segments exactly as `'linear'` does (`buildTrace` gives both the Plotly line shape `linear`, as it always has). `renderPlotConfigEditor`'s **Interpolation** select now offers **Auto**, **Linear**, **Step** and **Cubic spline**, so a subplot saved with `'auto'` opens with Auto chosen instead of `auto (not found)` and keeps `'auto'` until another value is picked. A new subplot is still `'linear'`, and every value draws as before (BUG-0042).
+- [Action dropdowns: positioning against the end edge](docs/components/menus.md#action-dropdowns-positioning-against-the-end-edge-0179): `ActionDropdown.position(trigger, menu, { align })` takes an optional third argument. `align: 'start'` (the default, and what it did before) lines the menu up with the trigger's left edge first, `'end'` with its right edge; either flips to the other edge when the menu would leave the window (BUG-0043).
+- [A tile's ⋯ menu is drawn over the page](docs/components/tiles.md#the--menu-is-drawn-over-the-page-0179): a tile's **More actions** menu (`.tile-menu-dropdown`) is no longer drawn inside the tile. While it is open it is moved to `document.body` (or to the open modal's host, as `showContextMenu` does), placed with `ActionDropdown.position(button, menu, { align: 'end' })` as `position: fixed` on `--z-over-windows`, so neighbouring tiles and the managed window a grid sits in no longer clip it, and it stays 8px inside the window, opening under the button when it fits there, else above it when it fits there, else on the side with more room, scrolling inside. Choosing an entry, a press outside it or the ⋯ button again closes it and puts it back in the tile's header; `dispose()` closes an open menu first. Until 0.17.8 the menu was `position: absolute` inside the tile, so in a tile narrower than about 220px its left part and its labels were cut off (BUG-0043).
+
+### Removed or renamed exports
+
+None. Compared with 0.17.8, across every entry point (`core`, `widgets`, `wm`,
+`host`, `canvas`, `flow`, `charts`, `tiles`, `editor`) and the package
+`exports` map, no export was added, removed or renamed. Not an export but
+worth knowing: `ActionDropdown.position` takes an optional third argument,
+`{ align }`; `renderPlotConfigEditor` lists `'auto'` among the interpolations;
+an open tile ⋯ menu lives outside `tile.element` until it closes; and
+flexdesk.css caps `.twm-context-menu` and `.nb-context-menu` at the window's
+height with `overflow-y: auto`, and draws `.tile-menu-dropdown` on
+`--z-over-windows` (see above).
+
 ## 0.17.8 (2026-10-24)
 
 A patch release: everything below is additive. Every fix is documented in a

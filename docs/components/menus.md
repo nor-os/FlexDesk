@@ -117,8 +117,8 @@ doubled rule. `setOptions` follows the same rules, and an option's
 ## Action dropdowns: positioning against the end edge (0.17.9)
 
 `ActionDropdown.position(trigger, menu, { align })` places any menu against
-any trigger: `position: fixed`, under the trigger (above it when there is
-more room), scrolling when it is taller than the room it has, and kept 8px
+any trigger: `position: fixed`, under the trigger when it fits there (else above it
+when it fits there, else on the side with more room, scrolling inside), and kept 8px
 inside the window. `align` says which trigger edge the menu lines up with
 first: `'start'` (the default, and what it did before) its left edge, `'end'`
 its right edge. Either flips to the other edge when the menu would leave the

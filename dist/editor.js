@@ -233,6 +233,17 @@ var _attempt = null;
 var monacoReady = new Promise((resolve) => {
   _resolveMonaco = resolve;
 });
+var _cancellationGuardInstalled = false;
+function isMonacoCancellation(reason) {
+  return reason?.name === "Canceled" && reason?.message === "Canceled";
+}
+function installCancellationGuard() {
+  if (_cancellationGuardInstalled) return;
+  _cancellationGuardInstalled = true;
+  window.addEventListener?.("unhandledrejection", (event) => {
+    if (isMonacoCancellation(event.reason)) event.preventDefault();
+  });
+}
 function injectLoaderScript(src) {
   return new Promise((resolve, reject) => {
     const s = document.createElement("script");
@@ -297,6 +308,7 @@ function initMonaco(basePath) {
       "[twm/editor] initMonaco() needs the path to your copy of Monaco, e.g. initMonaco('vendor/monaco'). Monaco is a peer dependency; the library does not guess where you put it."
     ));
   }
+  installCancellationGuard();
   const attempt = loadMonaco(basePath).then(
     (m) => {
       _resolveMonaco(m);

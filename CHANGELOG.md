@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.17.6 (2026-10-24)
+
+A patch release: everything below is additive. Every fix is documented in a
+section of the docs headed "(0.17.6)"; each entry links to it.
+
+### Added and changed
+
+- [Monaco's `Canceled` rejections are hidden](docs/components/editor.md#monacos-canceled-rejections-are-hidden-0176): disposing an editor within 50 ms of it getting focus (re-rendering a view right after focus moves back to it, as an Edit > Undo from the menu bar does) no longer logs an uncaught `Canceled: Canceled` from Monaco's `Delayer.cancel`. The first `initMonaco()` that starts a load installs one window `unhandledrejection` listener that calls `preventDefault()` only when the reason has `name === 'Canceled'` and `message === 'Canceled'` (Monaco's CancellationError); every other rejection still reaches the page and its console. It is installed once per page, however often `initMonaco()` is called or retried, and stays for the life of the page (BUG-0038).
+
+### Removed or renamed exports
+
+None. Compared with 0.17.5, across every entry point (`core`, `widgets`, `wm`,
+`host`, `canvas`, `flow`, `charts`, `tiles`, `editor`) and the package
+`exports` map, no export was added, removed or renamed. Not an export but
+worth knowing: the first `initMonaco()` that starts a load now adds a window
+`unhandledrejection` listener, which hides Monaco's `Canceled` rejections and
+nothing else (see above).
+
 ## 0.17.5 (2026-10-24)
 
 A patch release: everything below is additive. Every fix is documented in a

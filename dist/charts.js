@@ -1,6 +1,6 @@
 import {
   createTabs
-} from "./chunk-HYJYYEPK.js";
+} from "./chunk-REJ5HLIM.js";
 import {
   ALL_CHART_TYPES,
   CHART_TYPES_2D,
@@ -55,11 +55,11 @@ import {
   strideIndices,
   uid,
   updateChart
-} from "./chunk-EIYNF4BD.js";
+} from "./chunk-EW4OCYU6.js";
 import {
   AutocompleteField,
   createRafResizeObserver
-} from "./chunk-LWV23YVE.js";
+} from "./chunk-NIJEJAZ7.js";
 import {
   ColorField,
   ManagedWindow,
@@ -68,7 +68,7 @@ import {
 } from "./chunk-CVMCZZX2.js";
 import "./chunk-HNU6MM2B.js";
 import "./chunk-N7HC3ADV.js";
-import "./chunk-WVFGV5FT.js";
+import "./chunk-WUFLGETN.js";
 import "./chunk-JYWURG5T.js";
 
 // src/charts/data_series_plot_window.js

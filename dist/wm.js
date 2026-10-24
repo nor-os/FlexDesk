@@ -5,13 +5,13 @@ import {
 import {
   TAB_LEVELS,
   createTabs
-} from "./chunk-HYJYYEPK.js";
+} from "./chunk-REJ5HLIM.js";
 import {
   showContextMenu
-} from "./chunk-UWO43BZU.js";
+} from "./chunk-F35XSQWA.js";
 import {
   openForm
-} from "./chunk-D3COLZZ2.js";
+} from "./chunk-BE2PU3LL.js";
 import {
   ManagedWindow,
   isRowActivation
@@ -19,9 +19,9 @@ import {
 import "./chunk-HNU6MM2B.js";
 import {
   NotebookTabBar
-} from "./chunk-UURZ37SD.js";
+} from "./chunk-7U4IB65H.js";
 import "./chunk-N7HC3ADV.js";
-import "./chunk-WVFGV5FT.js";
+import "./chunk-WUFLGETN.js";
 import "./chunk-JYWURG5T.js";
 
 // src/tiling/bottom_panel_tabs.js

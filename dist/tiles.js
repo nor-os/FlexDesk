@@ -17,10 +17,10 @@ import {
 } from "./chunk-RKNFBX5K.js";
 import {
   showContextMenu
-} from "./chunk-UWO43BZU.js";
+} from "./chunk-F35XSQWA.js";
 import {
   openModal
-} from "./chunk-D3COLZZ2.js";
+} from "./chunk-BE2PU3LL.js";
 import {
   buildHistogramTrace,
   buildLegendLayout,
@@ -35,13 +35,13 @@ import {
   purge,
   resize,
   strideDownsampleShared
-} from "./chunk-EIYNF4BD.js";
-import "./chunk-LWV23YVE.js";
+} from "./chunk-EW4OCYU6.js";
+import "./chunk-NIJEJAZ7.js";
 import {
   isHexColor
 } from "./chunk-CVMCZZX2.js";
 import "./chunk-HNU6MM2B.js";
-import "./chunk-WVFGV5FT.js";
+import "./chunk-WUFLGETN.js";
 import {
   __toCommonJS
 } from "./chunk-JYWURG5T.js";

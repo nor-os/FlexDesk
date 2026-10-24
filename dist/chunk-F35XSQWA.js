@@ -1,6 +1,11 @@
 import {
   modalHost
-} from "./chunk-D3COLZZ2.js";
+} from "./chunk-BE2PU3LL.js";
+import {
+  focusMenuItem,
+  moveMenuFocus,
+  placeMenuInViewport
+} from "./chunk-WUFLGETN.js";
 
 // src/ui/components/context_menu.js
 var _activeMenu = null;
@@ -47,17 +52,13 @@ function showContextMenu(x, y, items, onAction) {
   (modalHost() || document.body).appendChild(menu);
   menu.style.display = "block";
   _activeMenu = menu;
-  const rect = menu.getBoundingClientRect();
-  const left = Math.min(x, window.innerWidth - rect.width - 8);
-  const top = Math.min(y, window.innerHeight - rect.height - 8);
-  menu.style.left = `${Math.max(0, left)}px`;
-  menu.style.top = `${Math.max(0, top)}px`;
+  placeMenuInViewport(menu, x, y);
   setTimeout(() => {
     document.addEventListener("mousedown", _outsideHandler, { once: true, capture: true });
   }, 0);
   document.addEventListener("keydown", _keyHandler);
-  window.addEventListener("scroll", hideContextMenu, { once: true, capture: true });
-  _enabledItems(menu)[0]?.focus({ preventScroll: true });
+  window.addEventListener("scroll", _scrollHandler, { capture: true });
+  focusMenuItem(_enabledItems(menu)[0]);
 }
 function hideContextMenu() {
   if (!_activeMenu) return;
@@ -67,6 +68,7 @@ function hideContextMenu() {
   _activeMenu = null;
   _returnFocusTo = null;
   document.removeEventListener("keydown", _keyHandler);
+  window.removeEventListener("scroll", _scrollHandler, { capture: true });
   if (held && returnTo?.isConnected) returnTo.focus?.({ preventScroll: true });
 }
 function _enabledItems(menu) {
@@ -79,17 +81,11 @@ function _keyHandler(e) {
     hideContextMenu();
     return;
   }
-  const items = _enabledItems(_activeMenu);
-  if (items.length === 0) return;
-  const at = items.indexOf(document.activeElement);
-  let next = null;
-  if (e.key === "ArrowDown") next = items[(at + 1 + items.length) % items.length];
-  else if (e.key === "ArrowUp") next = items[(at - 1 + items.length) % items.length];
-  else if (e.key === "Home") next = items[0];
-  else if (e.key === "End") next = items[items.length - 1];
-  if (!next) return;
-  e.preventDefault();
-  next.focus({ preventScroll: true });
+  moveMenuFocus(e, _enabledItems(_activeMenu));
+}
+function _scrollHandler(e) {
+  if (_activeMenu && e.target?.nodeType && _activeMenu.contains(e.target)) return;
+  hideContextMenu();
 }
 function _outsideHandler(e) {
   if (_activeMenu && !_activeMenu.contains(e.target)) hideContextMenu();
@@ -108,4 +104,4 @@ export {
   showContextMenu,
   hideContextMenu
 };
-//# sourceMappingURL=chunk-UWO43BZU.js.map
+//# sourceMappingURL=chunk-F35XSQWA.js.map

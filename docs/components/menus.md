@@ -4,6 +4,35 @@
 
 `createMenuBar` draws File / Edit / View menus from one declarative model, with pointer and keyboard behaviour and the WAI-ARIA menubar roles, and plugs into the shell. `ActionDropdown` draws a dropdown of action buttons from a trigger.
 
+## Context menus stay inside the window (0.17.9)
+
+FlexDesk's own context menus: `showContextMenu(x, y, items, onAction)`, the
+DataTable's right-click menu (its copy items and your `contextMenuItems`), and
+`NotebookTabBar`'s tab menu. All three are placed the same way, however many
+items they hold:
+
+- **At most the window's height.** A menu is capped at the window's height
+  less 8px above and below. A longer menu scrolls inside (flexdesk.css gives
+  `.twm-context-menu` and `.nb-context-menu` `overflow-y: auto` and
+  `box-sizing: border-box`). Before, a menu had no cap: the DataTable's
+  opened above the window's top edge (a 101-item menu at y=-2153 in a 761px
+  window), and `showContextMenu`'s ran off the bottom. In both cases the items
+  past the edge could not be reached.
+- **At the pointer, moved only to fit.** A menu opens with its top-left
+  corner at the pointer. When that does not fit, it moves left or up just
+  enough, and never past the window's top or left edge.
+- **Every item can be reached from the keyboard.** The first enabled item has
+  focus when the menu opens. Up/Down (wrapping), Home and End move focus and
+  scroll the focused item into view inside the menu. Enter and Space choose,
+  and Escape closes. When the menu closes, focus goes back to where it was
+  (unless a click elsewhere has already moved it). The DataTable's menu and
+  the tab menu now do this too: before, only `showContextMenu` did.
+- **Scrolling the menu does not close it.** `showContextMenu` still closes
+  when the page scrolls, and the DataTable's menu when anything outside it
+  scrolls.
+
+Nothing changes in how you call them.
+
 ## A menu bar: `createMenuBar` (0.17.0)
 
 File / Edit / View menus from one declarative model, instead of hand-built

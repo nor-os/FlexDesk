@@ -24,6 +24,7 @@
 
 import { DragReorder } from '../ui/components/drag_reorder.js';
 import { revealInStrip, wheelStripSideways } from '../ui/utils/strip_scroll.js';
+import { placeMenuInViewport, moveMenuFocus, focusMenuItem } from '../ui/utils/menu_viewport.js';
 
 /** The MIME type a dragged editor tab carries when the embedder names none. */
 export const DEFAULT_TAB_DRAG_MIME = 'application/x-flexdesk-tab';
@@ -64,6 +65,8 @@ export class NotebookTabBar {
 
     /** @type {HTMLElement|null} */
     #contextMenuEl = null;
+    /** BUG-0040. What had focus when the menu opened. @type {Element|null} */
+    #contextMenuReturnFocus = null;
 
     /** @type {Function|null} */
     #boundHideContextMenu = null;
@@ -417,6 +420,7 @@ export class NotebookTabBar {
 
         const menu = document.createElement('div');
         menu.className = 'nb-context-menu';
+        menu.setAttribute('role', 'menu');
 
         for (const item of cleaned) {
             if (item.separator) {
@@ -427,6 +431,8 @@ export class NotebookTabBar {
             }
 
             const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.setAttribute('role', 'menuitem');
             btn.className = 'nb-context-menu__item';
             if (item.danger) btn.classList.add('nb-context-menu__item--danger');
             if (item.disabled) btn.classList.add('nb-context-menu__item--disabled');
@@ -445,15 +451,14 @@ export class NotebookTabBar {
             menu.appendChild(btn);
         }
 
+        this.#contextMenuReturnFocus = document.activeElement;
         document.body.appendChild(menu);
         this.#contextMenuEl = menu;
 
-        // Position with viewport clamping
-        const rect = menu.getBoundingClientRect();
-        const left = Math.min(x, window.innerWidth - rect.width - 8);
-        const top = Math.min(y, window.innerHeight - rect.height - 8);
-        menu.style.left = `${Math.max(0, left)}px`;
-        menu.style.top = `${Math.max(0, top)}px`;
+        // BUG-0040. Inside the window, at most its height, scrolling when
+        // longer; the keyboard starts on the first item it can use.
+        placeMenuInViewport(menu, x, y);
+        focusMenuItem(this.#contextMenuItems()[0]);
 
         // Animate in
         requestAnimationFrame(() => menu.classList.add('visible'));
@@ -468,15 +473,29 @@ export class NotebookTabBar {
 
     #hideContextMenu() {
         if (!this.#contextMenuEl) return;
+        const returnTo = this.#contextMenuReturnFocus;
+        const held = this.#contextMenuEl.contains(document.activeElement);
         this.#contextMenuEl.remove();
         this.#contextMenuEl = null;
+        this.#contextMenuReturnFocus = null;
         document.removeEventListener('click', this.#boundHideContextMenu, true);
         document.removeEventListener('contextmenu', this.#boundHideContextMenu, true);
         document.removeEventListener('keydown', this.#onKeyDown);
+        if (held && returnTo?.isConnected) returnTo.focus?.({ preventScroll: true });
+    }
+
+    /** BUG-0040. The menu's items the keyboard can land on. */
+    #contextMenuItems() {
+        return this.#contextMenuEl
+            ? [...this.#contextMenuEl.querySelectorAll('.nb-context-menu__item:not(.nb-context-menu__item--disabled)')]
+            : [];
     }
 
     #onKeyDown = (e) => {
-        if (e.key === 'Escape') this.#hideContextMenu();
+        if (e.key === 'Escape') { this.#hideContextMenu(); return; }
+        // BUG-0040. Up/Down/Home/End move between the items and scroll the
+        // focused one into view; Enter and Space are the buttons' own.
+        moveMenuFocus(e, this.#contextMenuItems());
     };
 
     #handleContextMenuAction(action, filePath) {

@@ -2,6 +2,11 @@ import {
   isRowActivation,
   isRowControl
 } from "./chunk-CVMCZZX2.js";
+import {
+  focusMenuItem,
+  moveMenuFocus,
+  placeMenuInViewport
+} from "./chunk-WUFLGETN.js";
 
 // src/ui/components/autocomplete_field.js
 var AutocompleteField = class {
@@ -4924,6 +4929,7 @@ var DataTable = class {
     this._tbodyEl = null;
     this._contextMenuEl = null;
     this._contextMenuCtx = null;
+    this._contextMenuReturnFocus = null;
     this._navCursor = null;
     this._filterDropdownEl = null;
     this._filterDropdownCleanup = null;
@@ -10408,6 +10414,7 @@ var DataTable = class {
     if (this._contextMenuEl) return this._contextMenuEl;
     const menu = document.createElement("div");
     menu.className = "twm-context-menu data-context-menu";
+    menu.setAttribute("role", "menu");
     menu.style.display = "none";
     menu.style.position = "fixed";
     menu.style.zIndex = "10001";
@@ -10462,17 +10469,28 @@ var DataTable = class {
       if (event?.target && menu?.contains(event.target)) return;
       this._hideContextMenu();
     };
-    const hideOnEscape = (event) => {
-      if (event.key === "Escape") this._hideContextMenu();
+    const onMenuKey = (event) => {
+      if (event.key === "Escape") {
+        this._hideContextMenu();
+        return;
+      }
+      if (!menu || menu.style.display === "none") return;
+      const focused = document.activeElement;
+      if ((event.key === "Enter" || event.key === " ") && focused?.classList?.contains("twm-context-menu-item") && menu.contains(focused)) {
+        event.preventDefault();
+        focused.click();
+        return;
+      }
+      moveMenuFocus(event, this._contextMenuEnabledItems());
     };
     const hideOnResize = () => this._hideContextMenu();
     document.addEventListener("click", hideOnGlobal, true);
     document.addEventListener("scroll", hideOnGlobal, true);
     window.addEventListener("resize", hideOnResize);
-    document.addEventListener("keydown", hideOnEscape);
+    document.addEventListener("keydown", onMenuKey);
     this._contextMenuGlobals.push(() => document.removeEventListener("click", hideOnGlobal, true));
     this._contextMenuGlobals.push(() => document.removeEventListener("scroll", hideOnGlobal, true));
-    this._contextMenuGlobals.push(() => document.removeEventListener("keydown", hideOnEscape));
+    this._contextMenuGlobals.push(() => document.removeEventListener("keydown", onMenuKey));
     this._contextMenuGlobals.push(() => window.removeEventListener("resize", hideOnResize));
   }
   _disarmContextMenuGlobals() {
@@ -10485,10 +10503,20 @@ var DataTable = class {
     this._contextMenuGlobals = [];
   }
   _hideContextMenu() {
-    if (this._contextMenuEl) {
-      this._contextMenuEl.style.display = "none";
+    const menu = this._contextMenuEl;
+    const returnTo = this._contextMenuReturnFocus;
+    this._contextMenuReturnFocus = null;
+    const held = !!menu && menu.style.display !== "none" && menu.contains(document.activeElement);
+    if (menu) {
+      menu.style.display = "none";
     }
     this._disarmContextMenuGlobals();
+    if (held && returnTo?.isConnected) returnTo.focus?.({ preventScroll: true });
+  }
+  /** BUG-0040. The items the keyboard can land on. */
+  _contextMenuEnabledItems() {
+    const menu = this._contextMenuEl;
+    return menu ? [...menu.querySelectorAll(".twm-context-menu-item:not(.disabled)")] : [];
   }
   _showContextMenu(clientX, clientY, custom = null) {
     const menu = this._ensureContextMenu();
@@ -10500,18 +10528,14 @@ var DataTable = class {
       item.classList.toggle("disabled", !hasSelection);
       item.style.pointerEvents = hasSelection ? "" : "none";
     });
+    menu.querySelectorAll(".twm-context-menu-item").forEach((item) => {
+      item.tabIndex = -1;
+      if (!item.hasAttribute("role")) item.setAttribute("role", "menuitem");
+    });
+    if (!menu.contains(document.activeElement)) this._contextMenuReturnFocus = document.activeElement;
     menu.style.display = "block";
-    const rect = menu.getBoundingClientRect();
-    let left = clientX;
-    let top = clientY;
-    if (left + rect.width > window.innerWidth) {
-      left = window.innerWidth - rect.width - 8;
-    }
-    if (top + rect.height > window.innerHeight) {
-      top = window.innerHeight - rect.height - 8;
-    }
-    menu.style.left = `${left}px`;
-    menu.style.top = `${top}px`;
+    placeMenuInViewport(menu, clientX, clientY);
+    focusMenuItem(this._contextMenuEnabledItems()[0]);
   }
   /**
    * STORY-0010. The `ctx` handed to `contextMenuItems` and, later, to
@@ -10721,4 +10745,4 @@ export {
   resolvePaging,
   DataTable
 };
-//# sourceMappingURL=chunk-LWV23YVE.js.map
+//# sourceMappingURL=chunk-NIJEJAZ7.js.map

@@ -3,9 +3,9 @@ import {
   NotebookTabBar,
   getTabDragMime,
   setTabDragMime
-} from "./chunk-UURZ37SD.js";
+} from "./chunk-7U4IB65H.js";
 import "./chunk-N7HC3ADV.js";
-import "./chunk-WVFGV5FT.js";
+import "./chunk-WUFLGETN.js";
 import "./chunk-JYWURG5T.js";
 
 // src/editor/editor_pane.js

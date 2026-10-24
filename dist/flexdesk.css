@@ -7629,6 +7629,23 @@ body.twm-dragging * { user-select: none; }
     transition: opacity 90ms ease-out;
 }
 .nb-context-menu.visible { opacity: 1; }
+
+/* ── Context menus stay inside the window (0.17.9, BUG-0040) ─────────
+ * `showContextMenu`, the DataTable's right-click menu and NotebookTabBar's tab
+ * menu are placed by src/ui/utils/menu_viewport.js, which sets an inline
+ * max-height of the window's height less a margin top and bottom. Here: the
+ * same cap for a menu placed before that runs, border-box so the cap includes
+ * padding and border, and scrolling inside when the items are longer — they
+ * had no max-height and no overflow, so a 100-item menu ran off the window and
+ * its far items could not be reached. */
+.twm-context-menu,
+.nb-context-menu {
+    box-sizing: border-box;
+    max-height: calc(100vh - 2 * var(--space-md));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
 .nb-context-menu__item {
     display: flex;
     align-items: center;

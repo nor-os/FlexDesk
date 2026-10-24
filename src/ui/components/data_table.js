@@ -20,6 +20,7 @@
  */
 
 import { createRafResizeObserver } from '../utils/raf_resize_observer.js';
+import { placeMenuInViewport, moveMenuFocus, focusMenuItem } from '../utils/menu_viewport.js';
 import {
     ISO_DATE, ISO_DATETIME, formatDate, formatDuration, matchDateFilter,
     matchDurationFilter, parseDateValue, parseDuration,
@@ -764,6 +765,8 @@ export class DataTable {
         // STORY-0010. The right-click the custom items on show were built for,
         // read again when one is chosen.
         this._contextMenuCtx = null;
+        // BUG-0040. What had focus when the menu opened, given it back on close.
+        this._contextMenuReturnFocus = null;
         // STORY-0010 `keyboardNav`: the row the arrows last moved to.
         this._navCursor = null;
         this._filterDropdownEl = null;
@@ -7281,6 +7284,7 @@ export class DataTable {
 
         const menu = document.createElement('div');
         menu.className = 'twm-context-menu data-context-menu';
+        menu.setAttribute('role', 'menu');
         menu.style.display = 'none';
         menu.style.position = 'fixed';
         menu.style.zIndex = '10001';
@@ -7338,19 +7342,31 @@ export class DataTable {
             if (event?.target && menu?.contains(event.target)) return;
             this._hideContextMenu();
         };
-        const hideOnEscape = (event) => {
-            if (event.key === 'Escape') this._hideContextMenu();
+        // BUG-0040. The keyboard reaches every item: Up/Down/Home/End move
+        // focus (and scroll the item into view in a menu taller than the
+        // window), Enter and Space choose, Escape closes.
+        const onMenuKey = (event) => {
+            if (event.key === 'Escape') { this._hideContextMenu(); return; }
+            if (!menu || menu.style.display === 'none') return;
+            const focused = document.activeElement;
+            if ((event.key === 'Enter' || event.key === ' ')
+                && focused?.classList?.contains('twm-context-menu-item') && menu.contains(focused)) {
+                event.preventDefault();
+                focused.click();
+                return;
+            }
+            moveMenuFocus(event, this._contextMenuEnabledItems());
         };
         const hideOnResize = () => this._hideContextMenu();
 
         document.addEventListener('click', hideOnGlobal, true);
         document.addEventListener('scroll', hideOnGlobal, true);
         window.addEventListener('resize', hideOnResize);
-        document.addEventListener('keydown', hideOnEscape);
+        document.addEventListener('keydown', onMenuKey);
 
         this._contextMenuGlobals.push(() => document.removeEventListener('click', hideOnGlobal, true));
         this._contextMenuGlobals.push(() => document.removeEventListener('scroll', hideOnGlobal, true));
-        this._contextMenuGlobals.push(() => document.removeEventListener('keydown', hideOnEscape));
+        this._contextMenuGlobals.push(() => document.removeEventListener('keydown', onMenuKey));
         this._contextMenuGlobals.push(() => window.removeEventListener('resize', hideOnResize));
     }
 
@@ -7362,10 +7378,23 @@ export class DataTable {
     }
 
     _hideContextMenu() {
-        if (this._contextMenuEl) {
-            this._contextMenuEl.style.display = 'none';
+        const menu = this._contextMenuEl;
+        const returnTo = this._contextMenuReturnFocus;
+        this._contextMenuReturnFocus = null;
+        const held = !!menu && menu.style.display !== 'none' && menu.contains(document.activeElement);
+        if (menu) {
+            menu.style.display = 'none';
         }
         this._disarmContextMenuGlobals();
+        // BUG-0040. Focus goes back where it was, but only if the menu still
+        // had it: a click elsewhere has moved it deliberately.
+        if (held && returnTo?.isConnected) returnTo.focus?.({ preventScroll: true });
+    }
+
+    /** BUG-0040. The items the keyboard can land on. */
+    _contextMenuEnabledItems() {
+        const menu = this._contextMenuEl;
+        return menu ? [...menu.querySelectorAll('.twm-context-menu-item:not(.disabled)')] : [];
     }
 
     _showContextMenu(clientX, clientY, custom = null) {
@@ -7381,20 +7410,17 @@ export class DataTable {
             item.style.pointerEvents = hasSelection ? '' : 'none';
         });
 
+        // BUG-0040. Every item is a menu item the keyboard can focus.
+        menu.querySelectorAll('.twm-context-menu-item').forEach((item) => {
+            item.tabIndex = -1;
+            if (!item.hasAttribute('role')) item.setAttribute('role', 'menuitem');
+        });
+        if (!menu.contains(document.activeElement)) this._contextMenuReturnFocus = document.activeElement;
+
+        // BUG-0040. Inside the window, at most its height, scrolling when longer.
         menu.style.display = 'block';
-        const rect = menu.getBoundingClientRect();
-        let left = clientX;
-        let top = clientY;
-
-        if (left + rect.width > window.innerWidth) {
-            left = window.innerWidth - rect.width - 8;
-        }
-        if (top + rect.height > window.innerHeight) {
-            top = window.innerHeight - rect.height - 8;
-        }
-
-        menu.style.left = `${left}px`;
-        menu.style.top = `${top}px`;
+        placeMenuInViewport(menu, clientX, clientY);
+        focusMenuItem(this._contextMenuEnabledItems()[0]);
     }
 
     /**

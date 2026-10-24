@@ -3,8 +3,11 @@ import {
   wheelStripSideways
 } from "./chunk-N7HC3ADV.js";
 import {
-  DragReorder
-} from "./chunk-WVFGV5FT.js";
+  DragReorder,
+  focusMenuItem,
+  moveMenuFocus,
+  placeMenuInViewport
+} from "./chunk-WUFLGETN.js";
 
 // src/editor/notebook_tab_bar.js
 var DEFAULT_TAB_DRAG_MIME = "application/x-flexdesk-tab";
@@ -27,6 +30,8 @@ var NotebookTabBar = class _NotebookTabBar {
   // ─── Context menu ────────────────────────────────────────────────────────
   /** @type {HTMLElement|null} */
   #contextMenuEl = null;
+  /** BUG-0040. What had focus when the menu opened. @type {Element|null} */
+  #contextMenuReturnFocus = null;
   /** @type {Function|null} */
   #boundHideContextMenu = null;
   // ─── Drag and drop ───────────────────────────────────────────────────────
@@ -305,6 +310,7 @@ var NotebookTabBar = class _NotebookTabBar {
     while (cleaned.length > 0 && cleaned[cleaned.length - 1].separator) cleaned.pop();
     const menu = document.createElement("div");
     menu.className = "nb-context-menu";
+    menu.setAttribute("role", "menu");
     for (const item of cleaned) {
       if (item.separator) {
         const sep = document.createElement("div");
@@ -313,6 +319,8 @@ var NotebookTabBar = class _NotebookTabBar {
         continue;
       }
       const btn = document.createElement("button");
+      btn.type = "button";
+      btn.setAttribute("role", "menuitem");
       btn.className = "nb-context-menu__item";
       if (item.danger) btn.classList.add("nb-context-menu__item--danger");
       if (item.disabled) btn.classList.add("nb-context-menu__item--disabled");
@@ -326,13 +334,11 @@ var NotebookTabBar = class _NotebookTabBar {
       }
       menu.appendChild(btn);
     }
+    this.#contextMenuReturnFocus = document.activeElement;
     document.body.appendChild(menu);
     this.#contextMenuEl = menu;
-    const rect = menu.getBoundingClientRect();
-    const left = Math.min(x, window.innerWidth - rect.width - 8);
-    const top = Math.min(y, window.innerHeight - rect.height - 8);
-    menu.style.left = `${Math.max(0, left)}px`;
-    menu.style.top = `${Math.max(0, top)}px`;
+    placeMenuInViewport(menu, x, y);
+    focusMenuItem(this.#contextMenuItems()[0]);
     requestAnimationFrame(() => menu.classList.add("visible"));
     setTimeout(() => {
       document.addEventListener("click", this.#boundHideContextMenu, true);
@@ -342,14 +348,26 @@ var NotebookTabBar = class _NotebookTabBar {
   }
   #hideContextMenu() {
     if (!this.#contextMenuEl) return;
+    const returnTo = this.#contextMenuReturnFocus;
+    const held = this.#contextMenuEl.contains(document.activeElement);
     this.#contextMenuEl.remove();
     this.#contextMenuEl = null;
+    this.#contextMenuReturnFocus = null;
     document.removeEventListener("click", this.#boundHideContextMenu, true);
     document.removeEventListener("contextmenu", this.#boundHideContextMenu, true);
     document.removeEventListener("keydown", this.#onKeyDown);
+    if (held && returnTo?.isConnected) returnTo.focus?.({ preventScroll: true });
+  }
+  /** BUG-0040. The menu's items the keyboard can land on. */
+  #contextMenuItems() {
+    return this.#contextMenuEl ? [...this.#contextMenuEl.querySelectorAll(".nb-context-menu__item:not(.nb-context-menu__item--disabled)")] : [];
   }
   #onKeyDown = (e) => {
-    if (e.key === "Escape") this.#hideContextMenu();
+    if (e.key === "Escape") {
+      this.#hideContextMenu();
+      return;
+    }
+    moveMenuFocus(e, this.#contextMenuItems());
   };
   #handleContextMenuAction(action, filePath) {
     switch (action) {
@@ -456,4 +474,4 @@ export {
   getTabDragMime,
   NotebookTabBar
 };
-//# sourceMappingURL=chunk-UURZ37SD.js.map
+//# sourceMappingURL=chunk-7U4IB65H.js.map

@@ -5969,6 +5969,74 @@ button.twm-about-dialog__btn--close:focus {
 }
 
 
+/* ══ OVERLAY SCROLLBARS (0.17.7) ═════════════════════════════════════
+ *
+ * `installOverlayScrollbar(container, { orientation })`
+ * (src/ui/utils/overlay_scrollbar.js) appends a `.overlay-scrollbar-v` or
+ * `.overlay-scrollbar-h` holding a `.track` and a `.thumb`, and sets their
+ * top/left/height/width from the container's scroll position. The bar is
+ * absolute, so it takes no layout space: a static bar is content, its height
+ * feeds the container's scrollHeight, and the container grows without limit
+ * (BUG-0039). The script sets `data-scrollable` on the container and drives
+ * the bar's opacity and pointer events itself (shown on hover or focus while
+ * the container overflows, kept while the thumb is dragged); these rules are
+ * the hidden starting state, the geometry and the colours. The bar takes no
+ * pointer events, so content under it stays clickable; the thumb takes them
+ * back to be dragged. */
+.overlay-scrollbar-v,
+.overlay-scrollbar-h {
+    position: absolute;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity var(--transition-fast);
+    z-index: var(--z-scrollbar);
+}
+.overlay-scrollbar-v {
+    top: 0;
+    right: 0;
+    width: var(--scrollbar-size);
+}
+.overlay-scrollbar-h {
+    left: 0;
+    bottom: 0;
+    height: var(--scrollbar-size);
+}
+.overlay-scrollbar-v .track,
+.overlay-scrollbar-h .track {
+    position: absolute;
+    inset: 0;
+    background: var(--scrollbar-track);
+    border-radius: var(--scrollbar-radius);
+}
+.overlay-scrollbar-v .thumb,
+.overlay-scrollbar-h .thumb {
+    position: absolute;
+    background: var(--scrollbar-thumb);
+    border-radius: var(--scrollbar-radius);
+    pointer-events: auto;
+    cursor: pointer;
+    transition: background 80ms ease;
+}
+.overlay-scrollbar-v .thumb {
+    right: 0;
+    width: 100%;
+    min-height: 30px;
+}
+.overlay-scrollbar-h .thumb {
+    bottom: 0;
+    height: 100%;
+    min-width: 30px;
+}
+.overlay-scrollbar-v .thumb:hover,
+.overlay-scrollbar-h .thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+}
+.overlay-scrollbar-v .thumb:active,
+.overlay-scrollbar-h .thumb:active {
+    background: var(--scrollbar-thumb-active);
+}
+
+
 /* ══ RECORD LIST & FACT SHEET (0.7.0) ══════════════════════════════════
  * `createRecordList` (src/ui/components/record_list.js) and
  * `createFactTable` (src/ui/components/fact_table.js). Neither has a height

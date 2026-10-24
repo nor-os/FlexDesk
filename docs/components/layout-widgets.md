@@ -36,6 +36,44 @@ at the right edge of a window that was not maximized, so those panes had no
 scrollbar at all (BUG-0036). `tests/autoscroll_resize_handle_not_cover.test.mjs`
 holds it.
 
+## `installOverlayScrollbar` is styled by flexdesk.css (0.17.7)
+
+`installOverlayScrollbar(container, { orientation })` (from
+`@flexdesk/widgets`) gives one container its own bar: a
+`.overlay-scrollbar-v` or `.overlay-scrollbar-h` element, holding a `.track`
+and a `.thumb`, appended to the container (or to its parent with
+`externalBar: true`, as `installTabsScrollbars` does). flexdesk.css styles
+it, so it works with only FlexDesk's stylesheets loaded:
+
+- **It takes no layout space.** The bar is `position: absolute` at the
+  container's right edge (vertical) or bottom edge (horizontal),
+  `--scrollbar-size` thick, on `--z-scrollbar` (over the container's content,
+  under managed windows). The script keeps it pinned to the visible edge as
+  the container scrolls.
+- **It shows on hover while the container overflows.** The script sets
+  `data-scrollable="1"` or `"0"` on the container, and shows the bar on
+  `mouseenter` and `focusin` when it is `"1"`. It hides the bar on leave,
+  unless the thumb is being dragged. The bar starts at `opacity: 0`.
+- **The thumb drags; the rest lets clicks through.** The bar takes no
+  pointer events, so content under it stays clickable. The thumb takes them
+  back (`pointer-events: auto`) and is at least 30px long.
+- **Colours are tokens** in tokens.css: `--scrollbar-track`,
+  `--scrollbar-thumb`, `--scrollbar-thumb-hover`, `--scrollbar-thumb-active`,
+  and `--scrollbar-radius` for the rounding. Override them to restyle every
+  overlay bar.
+
+The rules key on the orientation classes, so a bar created with another
+`className` (`installWorkspaceScrollbars` uses `panel-scrollbar` and
+`tabs-scrollbar`) is styled the same way. `installCollapsibleScrollbars`,
+`installTabsScrollbars` and `installWorkspaceScrollbars` all build on
+`installOverlayScrollbar`, so none of them needs embedder CSS either.
+
+Until 0.17.7 no FlexDesk stylesheet had a rule for these classes. The bar
+was `position: static`: it sat in the scroll container's flow, its height fed
+the container's content height, and the container grew without limit unless
+the embedder brought its own CSS (BUG-0039).
+`tests/overlay_scrollbar_styles.test.mjs` holds it.
+
 ## A stack of collapsible sections: `createSectionStack` (0.17.0)
 
 Inspector-style panel content: titled sections in a column, each opened and

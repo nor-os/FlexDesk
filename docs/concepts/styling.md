@@ -138,6 +138,10 @@ Three tokens are new in `tokens.css`, each read by more than one rule:
   about `#a3cfed`. The lightest accent text, after `--accent-light` and
   `--accent-lighter`.
 
+They are defined from the accent tokens in `tokens.css`. If you supply your
+own token definitions instead of `tokens.css`, define these three as well:
+the rules that read them have no fallback.
+
 None of the old colours is an exact mix, so each moves to the nearest one,
 by the ΔE (OKLab × 100) below. A tint's ΔE is measured over `--surface-0`
 (`#1e1e1e`), where it is seen, and every colour is rounded to 8 bits per
@@ -153,7 +157,7 @@ channel first.
 | the plot window toolbar's active button, the computing spinner | `#4a90d9` | `color-mix(in srgb, var(--accent-bright) 80%, white)` | `#3395d6` | 2.1 |
 | the active button's tint and hover tint, the plot table's hovered row | `rgba(74, 144, 217, 0.15 \| 0.25 \| 0.1)` | that 80% mix at the same alpha | | 0.6, 0.9, 0.5 |
 | the selected tile's border and title, the tile header buttons' and tile menu's hover icons, the action dropdown's icons | `#78b9ff` | `--accent-lighter` | `#73b6e3` | 4.1 |
-| the selected tile's ring and header tint | `rgba(120, 185, 255, 0.3 \| 0.1)` | `--accent-lighter` at the same alpha | | 1.5, 0.6 |
+| the selected tile's ring and header tint | `rgba(120, 185, 255, 0.3 \| 0.1)` | `--accent-lighter` at the same alpha | | 1.6, 0.6 |
 | the action dropdown's hovered or focused icon | `#9ecfff` | `--accent-lightest` | `#a3cfed` | 2.6 |
 | the notebook autocomplete's focused border | `#79b8f8` | `--accent-lighter` | `#73b6e3` | 3.2 |
 | `.twm-row-cursor`, the focused landing pane's head, `.twm-action-btn:hover` | `rgba(17, 119, 179, 0.12 \| 0.10 \| 0.08)` | `--accent-hover` at the same alpha | | 0.2, 0.2, 0.2 |

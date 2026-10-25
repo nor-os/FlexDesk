@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.17.11 (2026-10-25)
+
+A patch release: everything below is additive. Every fix is documented in a
+section of the docs headed "(0.17.11)"; each entry links to it.
+
+### Added and changed
+
+- [Retheming the accent shades](docs/concepts/styling.md#retheming-the-accent-shades-01711): the accent blues that 0.17.10 left as literals, in shades no mix of an accent token gives exactly, are now derived from the accent tokens too, so setting `--accent`, `--accent-hover` and `--accent-bright` on `:root` rethemes the primary buttons' hover, the selected tile, the row cursor, the window bar, the plot window, the spinner and the flow lanes as well. Three tokens are new in tokens.css: `--accent-bright-hover` (`color-mix(in srgb, var(--accent-bright) 90%, white)`, about `#1987d1`), `--accent-pressed` (`color-mix(in srgb, var(--accent-hover) 90%, black)`, about `#0f6ba8`) and `--accent-lightest` (`color-mix(in srgb, var(--accent-bright) 36%, white)`, about `#a3cfed`). None of the old colours is an exact mix, so each moves to the nearest one (ΔE in OKLab × 100, tints measured over `--surface-0`): `.twm-btn--primary:hover` `#1486cf` → `#1987d1` (0.4); the modal's primary button hover `#1683c4` → `#1987d1` (2.2); `.twm-bar-windows__item:hover` `#268bd2` → `#1987d1` (1.3); `.twm-bar-windows__item:active` `#1a6aa5` → `#0f6ba8` (0.6); the plot series and plot config checkboxes' `accent-color` and the plot config select's focus border `#268bd2` → `#218bd3` (0.3); the plot window toolbar's active button and the computing spinner `#4a90d9` → `#3395d6` (2.1), with the active button's tint and hover tint and the plot table's hovered row (`rgba(74, 144, 217, a)`) following at the same alpha (0.5 to 0.9); the selected tile's border and title, the tile header buttons' and tile menu's hover icons and the action dropdown's icons `#78b9ff` → `#73b6e3` (`--accent-lighter`, 4.1, the largest shift), with the selected tile's ring and header tint (`rgba(120, 185, 255, a)`) following (1.6, 0.6); the action dropdown's hovered or focused icon `#9ecfff` → `#a3cfed` (2.6); the notebook autocomplete's focused border `#79b8f8` → `#73b6e3` (3.2); `.twm-row-cursor`, the focused landing pane's head, `.twm-action-btn:hover` (`rgba(17, 119, 179, a)`) and `.twm-snap-preview` (`rgba(23, 119, 179, 0.18)`) now `--accent-hover` at the same alpha (0.2); `--twm-lanes-wire` `#5b9bd5` → `var(--accent-light)`, about `#4da2db` (2.0); `--twm-lanes-ring` `#1683c4` → `var(--accent-bright-hover)`, about `#1987d1` (2.2); the flow lanes' pressed show button `#0f6fa8` → `#0f6ba8` (1.2); the selected card's glow and a new or changed cell and column (`rgba(22, 131, 196, a)`) now `--twm-lanes-ring` at the same alpha (0.3 to 1.7); a new or changed column's type `#9fd0f0` → `#a3cfed` (0.6). `--accent` and `--accent-bright` stay two tokens. Still literals, because they are not the accent: the colours listed in the (0.17.10) section, the charts' series palette and the Monaco editor theme's selection colours (BUG-0045).
+
+### Removed or renamed exports
+
+None. Compared with 0.17.10, across every entry point (`core`, `widgets`, `wm`,
+`host`, `canvas`, `flow`, `charts`, `tiles`, `editor`) and the package
+`exports` map, no export was added, removed or renamed. Not an export but
+worth knowing: tokens.css defines three new custom properties,
+`--accent-bright-hover`, `--accent-pressed` and `--accent-lightest`;
+`--twm-lanes-wire` and `--twm-lanes-ring` keep their names but default to
+`var(--accent-light)` and `var(--accent-bright-hover)` (were `#5b9bd5` and
+`#1683c4`); and the default colours listed above move by up to 4.1 ΔE, the
+largest being the selected tile's `#78b9ff`, now about `#73b6e3` (see above).
+
 ## 0.17.10 (2026-10-25)
 
 A patch release: everything below is additive. Every fix is documented in a

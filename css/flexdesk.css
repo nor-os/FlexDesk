@@ -2999,11 +2999,11 @@ body.twm-window-maximized .twm-resize-handle {
     color: var(--text-bright);
 }
 .twm-plot-window-toolbar .twm-btn-icon.twm-is-active {
-    color: #4A90D9;
-    background: rgba(74, 144, 217, 0.15);
+    color: color-mix(in srgb, var(--accent-bright) 80%, white);
+    background: color-mix(in srgb, color-mix(in srgb, var(--accent-bright) 80%, white) 15%, transparent);
 }
 .twm-plot-window-toolbar .twm-btn-icon.twm-is-active:hover {
-    background: rgba(74, 144, 217, 0.25);
+    background: color-mix(in srgb, color-mix(in srgb, var(--accent-bright) 80%, white) 25%, transparent);
 }
 .twm-plot-window-content {
     flex: 1;
@@ -3074,7 +3074,7 @@ body.twm-window-maximized .twm-resize-handle {
     background: rgba(255, 255, 255, 0.02);
 }
 .twm-plot-window-container .twm-plot-tab-content .twm-preview-table tbody tr:hover {
-    background: rgba(74, 144, 217, 0.1);
+    background: color-mix(in srgb, color-mix(in srgb, var(--accent-bright) 80%, white) 10%, transparent);
 }
 .twm-plot-window-container .twm-plot-tab-content .twm-preview-table td {
     color: #aaa;
@@ -3147,7 +3147,7 @@ body.twm-window-maximized .twm-resize-handle {
     background: rgba(255, 255, 255, 0.05);
 }
 .twm-plot-series-toggle-panel__item input[type="checkbox"] {
-    accent-color: #268bd2;
+    accent-color: color-mix(in srgb, var(--accent-bright) 87%, white);
     flex-shrink: 0;
 }
 .twm-plot-series-toggle-panel__line-indicator {
@@ -3256,7 +3256,7 @@ body.twm-window-maximized .twm-resize-handle {
     outline: none;
 }
 .twm-data-series-plot-config select:focus {
-    border-color: #268bd2;
+    border-color: color-mix(in srgb, var(--accent-bright) 87%, white);
 }
 .twm-data-series-plot-config__columns {
     max-height: 200px;
@@ -3298,7 +3298,7 @@ body.twm-window-maximized .twm-resize-handle {
     border-radius: 1px;
 }
 .twm-data-series-plot-config input[type="checkbox"] {
-    accent-color: #268bd2;
+    accent-color: color-mix(in srgb, var(--accent-bright) 87%, white);
     flex-shrink: 0;
 }
 /* Computing Status Window */
@@ -3315,7 +3315,7 @@ body.twm-window-maximized .twm-resize-handle {
     width: 32px;
     height: 32px;
     border: 3px solid #333;
-    border-top-color: #4a90d9;
+    border-top-color: color-mix(in srgb, var(--accent-bright) 80%, white);
     border-radius: 50%;
     animation: computing-spin 0.8s linear infinite;
 }
@@ -3808,22 +3808,21 @@ body.twm-window-maximized .twm-resize-handle {
 }
 
 /* Selected — set by `_onConfigClick()` while the config dialog is open, and
-   cleared from every sibling by the same handler. #78b9ff is a literal:
-   `--accent-bright` is #007acc, which is a border colour on this background
-   and not a text one, and the derived light accents (`--accent-light`,
-   `--accent-lighter`) are less blue than this, so using them would change
-   the colour. */
+   cleared from every sibling by the same handler. It reads `--accent-lighter`
+   (BUG-0045): `--accent-bright` is a border colour on this background and not
+   a text one. It was #78b9ff, which no mix of `--accent-bright` with white
+   gives exactly; `--accent-lighter` (about #73b6e3) is the nearest. */
 .tile.tile--selected {
-    border-color: #78b9ff;
-    box-shadow: 0 0 0 2px rgba(120, 185, 255, 0.3), var(--shadow-md);
+    border-color: var(--accent-lighter);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-lighter) 30%, transparent), var(--shadow-md);
 }
 
 .tile.tile--selected .tile-header {
-    background: rgba(120, 185, 255, 0.1);
+    background: color-mix(in srgb, var(--accent-lighter) 10%, transparent);
 }
 
 .tile.tile--selected .tile-title {
-    color: #78b9ff;
+    color: var(--accent-lighter);
 }
 
 /* Read-only. `_buildChrome()`'s read-only branch emits no drag handle, no
@@ -3926,7 +3925,7 @@ body.twm-window-maximized .twm-resize-handle {
 .tile-menu-btn:hover,
 .tile-expand-btn:hover {
     background: var(--state-hover);
-    color: #78b9ff;
+    color: var(--accent-lighter);
 }
 
 .tile-remove-btn:hover {
@@ -4014,7 +4013,7 @@ body.twm-window-maximized .twm-resize-handle {
 }
 
 .tile-menu-item:hover .material-symbols-outlined {
-    color: #78b9ff;
+    color: var(--accent-lighter);
 }
 
 /* ── the content area ────────────────────────────────────────────────── */
@@ -4528,12 +4527,12 @@ body.twm-window-maximized .twm-resize-handle {
 }
 .twm-action-dropdown-option .twm-option-icon {
     font-size: 20px;
-    color: #78b9ff;
+    color: var(--accent-lighter);
     flex-shrink: 0;
 }
 .twm-action-dropdown-option:hover .twm-option-icon,
 .twm-action-dropdown-option:focus .twm-option-icon {
-    color: #9ecfff;
+    color: var(--accent-lightest);
 }
 .twm-action-dropdown-option .twm-option-label {
     font-weight: 500;
@@ -4692,7 +4691,7 @@ body.twm-window-maximized .twm-resize-handle {
     position: absolute;
     z-index: 5999;
     pointer-events: none;
-    background: rgba(23, 119, 179, 0.18);
+    background: color-mix(in srgb, var(--accent-hover) 18%, transparent);
     border: 1px solid var(--accent-bright);
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
     transition: left 0.09s ease, top 0.09s ease, width 0.09s ease, height 0.09s ease;
@@ -4986,12 +4985,11 @@ button.twm-managed-window__btn svg rect {
     transition: background-color 0.1s, color 0.1s;
 }
 .twm-bar-windows__item:hover {
-    /* Solarized blue */
-    background: #268bd2;
+    background: var(--accent-bright-hover);
     color: var(--text-bright);
 }
 .twm-bar-windows__item:active {
-    background: #1a6aa5;
+    background: var(--accent-pressed);
 }
 /* Compounded for the Material Symbols tie — see `.twm-leaf__icon`. */
 .twm-bar-windows__item-icon,
@@ -5597,7 +5595,7 @@ button.twm-about-dialog__btn--close:focus {
     font-size: var(--font-size-sm);
 }
 .twm-autocomplete-field--notebook .twm-autocomplete-field__input-wrapper:focus-within {
-    border-color: #79b8f8;
+    border-color: var(--accent-lighter);
     box-shadow: 0 0 3px color-mix(in srgb, var(--accent-light) 30%, transparent);
 }
 .twm-autocomplete-field--notebook .twm-autocomplete-field__input {
@@ -5915,8 +5913,8 @@ button.twm-about-dialog__btn--close:focus {
     color: var(--text-bright);
 }
 .twm-btn--primary:hover:not(:disabled) {
-    background: #1486cf;
-    border-color: #1486cf;
+    background: var(--accent-bright-hover);
+    border-color: var(--accent-bright-hover);
 }
 /* Context menu separator (matches Ecosim's .twm-context-menu look). */
 .twm-context-menu__separator {
@@ -6438,8 +6436,8 @@ button.twm-about-dialog__btn--close:focus {
     font-weight: 600;
 }
 .twm-managed-window--modal .twm-modal__actions .twm-btn--primary:hover:not(:disabled) {
-    background: #1683c4;
-    border-color: #1683c4;
+    background: var(--accent-bright-hover);
+    border-color: var(--accent-bright-hover);
 }
 .twm-managed-window--modal .twm-modal__actions .twm-btn--danger {
     background: #8b2a2a;
@@ -6705,7 +6703,7 @@ button.twm-about-dialog__btn--close:focus {
     font-size: 10px;
 }
 .twm-landing__pane--focused .twm-landing__pane-head {
-    background: rgba(17, 119, 179, 0.10);
+    background: color-mix(in srgb, var(--accent-hover) 10%, transparent);
 }
 .twm-landing__pane--focused .twm-landing__pane-title {
     color: var(--ea-accent);
@@ -6757,7 +6755,7 @@ button.twm-about-dialog__btn--close:focus {
    so the same arrow-key affordance reads identically across modes. */
 .twm-row-cursor {
     box-shadow: inset 2px 0 0 var(--ea-accent);
-    background: rgba(17, 119, 179, 0.12) !important;
+    background: color-mix(in srgb, var(--accent-hover) 12%, transparent) !important;
 }
 /* Quick-action strip — horizontal bar below the tables. Same chrome
    tone as `.twm-entity-header` so the page reads as a single stack:
@@ -6797,7 +6795,7 @@ button.twm-about-dialog__btn--close:focus {
 }
 .twm-action-btn:hover {
     border-color: var(--ea-accent);
-    background: rgba(17, 119, 179, 0.08);
+    background: color-mix(in srgb, var(--accent-hover) 8%, transparent);
 }
 .twm-action-btn:disabled,
 .twm-action-btn[aria-disabled="true"] {
@@ -13606,9 +13604,9 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     display: none !important;
 }
 .twm-flow-lanes {
-    --twm-lanes-wire: #5b9bd5;
+    --twm-lanes-wire: var(--accent-light);
     --twm-lanes-surface: #1b1b1c;
-    --twm-lanes-ring: #1683c4;
+    --twm-lanes-ring: color-mix(in srgb, var(--accent-bright) 90%, white);
     display: flex;
     flex-direction: column;
     box-sizing: border-box;
@@ -13731,7 +13729,7 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     border-left: 1px solid var(--surface-3);
 }
 .twm-flow-lanes__show-btn[aria-pressed="true"] {
-    background: #0f6fa8;
+    background: var(--accent-pressed);
     color: var(--text-bright);
 }
 .twm-flow-lanes__show-btn:focus-visible,
@@ -13974,7 +13972,7 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 .twm-flow-lanes__node--selected .twm-flow-lanes__card,
 .twm-flow-lanes__card:focus-visible {
     filter: drop-shadow(0 0 1px var(--twm-lanes-ring)) drop-shadow(0 0 1px var(--twm-lanes-ring))
-            drop-shadow(0 0 5px rgba(22, 131, 196, 0.8));
+            drop-shadow(0 0 5px color-mix(in srgb, var(--twm-lanes-ring) 80%, transparent));
 }
 .twm-flow-lanes__card:hover .twm-flow-lanes__body {
     filter: brightness(1.12);
@@ -14297,7 +14295,7 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 }
 .twm-flow-lanes__cell--new,
 .twm-flow-lanes__cell--changed {
-    background: rgba(22, 131, 196, 0.07);
+    background: color-mix(in srgb, var(--twm-lanes-ring) 7%, transparent);
 }
 .twm-flow-lanes__error {
     flex: 0 0 auto;
@@ -14331,7 +14329,7 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 }
 .twm-flow-lanes__column--new,
 .twm-flow-lanes__column--changed {
-    background: rgba(22, 131, 196, 0.14);
+    background: color-mix(in srgb, var(--twm-lanes-ring) 14%, transparent);
 }
 .twm-flow-lanes__column-name {
     font-family: var(--font-family-mono);
@@ -14344,7 +14342,7 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 }
 .twm-flow-lanes__column--new .twm-flow-lanes__column-type,
 .twm-flow-lanes__column--changed .twm-flow-lanes__column-type {
-    color: #9fd0f0;
+    color: var(--accent-lightest);
 }
 .twm-flow-lanes__column-origin {
     margin-left: auto;

@@ -96,6 +96,11 @@
        sortable list's drop line and add button, a focused filter input. */
     --accent-light:     color-mix(in srgb, var(--accent-bright) 70%, white);  /* ≈ #4da2db, was #569cd6 */
     --accent-lighter:   color-mix(in srgb, var(--accent-bright) 55%, white);  /* ≈ #73b6e3, was #6eb3e9 */
+    /* BUG-0045: the other accent shades. A primary button's hover, the window
+       bar's hovered item; a pressed accent control; the lightest accent text. */
+    --accent-bright-hover: color-mix(in srgb, var(--accent-bright) 90%, white);  /* ≈ #1987d1, was #1486cf / #1683c4 */
+    --accent-pressed:      color-mix(in srgb, var(--accent-hover) 90%, black);   /* ≈ #0f6ba8, was #1a6aa5 / #0f6fa8 */
+    --accent-lightest:     color-mix(in srgb, var(--accent-bright) 36%, white);  /* ≈ #a3cfed, was #9ecfff / #9fd0f0 */
 
     /* ── Semantic colors ───────────────────────────────────────── */
     --color-success:        #3fb950;

@@ -9344,7 +9344,7 @@ button.twm-about-dialog__btn--close:focus {
 .twm-flow-lanes {
     --twm-lanes-wire: var(--accent-light);
     --twm-lanes-surface: #1b1b1c;
-    --twm-lanes-ring: color-mix(in srgb, var(--accent-bright) 90%, white);
+    --twm-lanes-ring: var(--accent-bright-hover);
     display: flex;
     flex-direction: column;
     box-sizing: border-box;

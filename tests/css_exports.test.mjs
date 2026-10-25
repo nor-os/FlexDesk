@@ -95,7 +95,9 @@ for (const [key, value] of cssExports) {
 
 // ── §4 the docs document what the map does ───────────────────────────────
 const doc = readFileSync(join(ROOT, 'docs/concepts/styling.md'), 'utf8');
-const styling = doc.slice(doc.indexOf('\n## Styling\n'));
+const stylingStart = doc.indexOf('\n## Styling\n');
+const stylingEnd = doc.indexOf('\n## ', stylingStart + 1);
+const styling = doc.slice(stylingStart, stylingEnd === -1 ? undefined : stylingEnd);
 const rows = [...styling.matchAll(/^\| `([^`]+)` \| `([^`]+)` \| `([^`]+)` \|/gm)]
     .map(([, file, spec, target]) => ({ file, spec, target }));
 check('§4 the Styling table lists the three specifiers',

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.17.10 (2026-10-25)
+
+A patch release: everything below is additive. Every fix is documented in a
+section of the docs headed "(0.17.10)"; each entry links to it.
+
+### Added and changed
+
+- [Retheming the accent](docs/concepts/styling.md#retheming-the-accent-01710): the accent colours in flexdesk.css that were the literal `#007acc` (`rgb(0, 122, 204)`), its tints, and the light accent `#569cd6` / `#6eb3e9` are now derived from `--accent-bright`, so setting `--accent`, `--accent-hover` and `--accent-bright` on `:root` rethemes all of them. In tokens.css, `--state-selected` and `--shadow-glow` are now mixes of `--accent-bright` (the same colours as before), and three tokens are new: `--twm-dt-new-bg` (the colour a DataTable row or cell that has just arrived flashes from, which the stylesheet read before with an `rgba(0, 122, 204, 0.22)` fallback but nothing defined), `--accent-light` (about `#4da2db`, replacing `#569cd6`) and `--accent-lighter` (about `#73b6e3`, replacing `#6eb3e9`). The `rgba(0, 122, 204, a)` tints are now `color-mix(in srgb, var(--accent-bright) a%, transparent)`, with the same colour by default: the DataTable's selected rows and cells, the filter chip when on, the autocomplete's namespace pill and active item, `.add-widget-btn`, `.tile.resizing`, `.tile-ghost`, the focused leaf's inset shadow, the document outline's active link, the canvas marquee and the flow graph's port dots. The SliderField thumb, the SortableList drop line, add button and input focus, the DataTable filter inputs' focus border and the notebook autocomplete's border read `--accent-light`, and the active thumb `--accent-lighter`; since `#569cd6` cannot be mixed exactly from `#007acc`, these move to the nearest mix with white, a difference of about 1.5 to 1.7 ΔE (OKLab × 100). `var(--accent-bright, …)`, `var(--state-selected, …)`, `var(--ea-accent, …)` and `var(--accent, …)` no longer carry fallbacks, so no computed colour changes but flexdesk.css now needs tokens.css (or your own definitions of these tokens). Accent blues in other shades that no mix of an accent token gives exactly stay literals (BUG-0044).
+
+### Removed or renamed exports
+
+None. Compared with 0.17.9, across every entry point (`core`, `widgets`, `wm`,
+`host`, `canvas`, `flow`, `charts`, `tiles`, `editor`) and the package
+`exports` map, no export was added, removed or renamed. Not an export but
+worth knowing: tokens.css defines three new custom properties,
+`--accent-light`, `--accent-lighter` and `--twm-dt-new-bg`, and derives
+`--state-selected` and `--shadow-glow` from `--accent-bright`; flexdesk.css
+reads the accent tokens without fallbacks, so it needs tokens.css; and the
+SliderField thumb is about `#4da2db` (was `#569cd6`) and its active state
+about `#73b6e3` (was `#6eb3e9`) (see above).
+
 ## 0.17.9 (2026-10-25)
 
 A patch release: everything below is additive. Every fix is documented in a

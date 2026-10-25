@@ -781,7 +781,7 @@
 }
 .twm-entity-header__field select:focus {
     outline: none;
-    border-color: var(--ea-accent, #5aa3e8);
+    border-color: var(--ea-accent);
 }
 .twm-entity-header__field select option { background: var(--ea-input-bg, #1e1e1e); color: var(--ea-text, #ddd); }
 .twm-landing__table table {
@@ -1004,7 +1004,7 @@ body.twm-dragging * { user-select: none; }
 }
 .twm-leaf--focused {
     border-color: var(--accent-bright);
-    box-shadow: 0 0 0 1px rgba(0, 122, 204, 0.25) inset;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-bright) 25%, transparent) inset;
 }
 .twm-leaf__chrome {
     display: flex;
@@ -1106,15 +1106,15 @@ body.twm-dragging * { user-select: none; }
  * rather than a border, because a border changes the box and every tile in
  * the row would reflow by a pixel as the pointer crossed between them. */
 .twm-leaf--drop-target {
-    outline: 2px solid var(--accent-bright, #1683c4);
+    outline: 2px solid var(--accent-bright);
     outline-offset: -2px;
 }
 
 /* A STRIP ARMED TO RECEIVE — the drop that adds the tab at the end of this
  * tile's list rather than into a zone of its body. */
 .twm-leaf__tabbar--drop-target {
-    background: color-mix(in srgb, var(--accent-bright, #1683c4) 18%, transparent);
-    box-shadow: inset 0 0 0 1px var(--accent-bright, #1683c4);
+    background: color-mix(in srgb, var(--accent-bright) 18%, transparent);
+    box-shadow: inset 0 0 0 1px var(--accent-bright);
 }
 
 /* THE TAB BEING CARRIED. `DragReorder` has put `.dragging` on the TOP
@@ -1195,7 +1195,7 @@ body.twm-dragging * { user-select: none; }
     position: absolute;
     inset: 0;
     pointer-events: none;
-    border-top: 1px solid var(--accent-bright, #1683c4);
+    border-top: 1px solid var(--accent-bright);
     clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
 }
 .twm-leaf__tab-label {
@@ -1342,7 +1342,7 @@ body.twm-dragging * { user-select: none; }
 .twm-tile-tabmenu__item--cursor {
     /* Keyboard cursor reads slightly heavier than hover so a
      * mouse-cursor-on-a-different-row state is still legible. */
-    outline: 1px solid var(--accent-bright, #1683c4);
+    outline: 1px solid var(--accent-bright);
     outline-offset: -1px;
 }
 .twm-tile-tabmenu__item-hint {
@@ -1421,8 +1421,8 @@ body.twm-dragging * { user-select: none; }
     align-items: center;
     gap: var(--space-xs);
     padding: 2px 4px 2px 8px;
-    background: var(--state-selected, rgba(17, 119, 179, 0.18));
-    border: 1px solid var(--accent-bright, #1683c4);
+    background: var(--state-selected);
+    border: 1px solid var(--accent-bright);
     border-radius: 2px;
     color: var(--text-bright, #fff);
     font-size: var(--font-size-xs);
@@ -2078,7 +2078,7 @@ tr:hover .twm-row-action { opacity: 1; }
 }
 .twm-data-table-component--compact .twm-pagination-controls .twm-pagination-btn:hover:not(:disabled) {
     color: var(--ea-text, #ddd) !important;
-    border-color: var(--ea-accent, #1177b3) !important;
+    border-color: var(--ea-accent) !important;
 }
 /* Text labels inside the pager — the "Rows X–Y of Z" and "Page X of
  * Y" spans don't have classes (just inline style), so target every
@@ -2107,7 +2107,7 @@ tr:hover .twm-row-action { opacity: 1; }
     width: 28px;
     height: 28px;
     border: 2px solid rgba(255, 255, 255, 0.18);
-    border-top-color: var(--ea-accent, #1177b3);
+    border-top-color: var(--ea-accent);
     border-radius: 50%;
     animation: data-table__spin 0.7s linear infinite;
 }
@@ -2284,7 +2284,7 @@ tr:hover .twm-row-action { opacity: 1; }
     width: 18px;
     height: 18px;
     border: 2px solid var(--ea-border, #333);
-    border-top-color: var(--accent, #4a90e2);
+    border-top-color: var(--accent);
     border-radius: 50%;
     animation: twm-tile-loading-spin 0.7s linear infinite;
 }

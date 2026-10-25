@@ -90,6 +90,13 @@
     --accent-hover:     #1177bb;
     --accent-bright:    #007acc;  /* --layout-accent value */
 
+    /* Every other accent colour is DERIVED from the three above, so a
+       consumer that sets them (on :root) rethemes the whole accent (BUG-0044).
+       The light accents mix --accent-bright toward white: a slider thumb, a
+       sortable list's drop line and add button, a focused filter input. */
+    --accent-light:     color-mix(in srgb, var(--accent-bright) 70%, white);  /* ≈ #4da2db, was #569cd6 */
+    --accent-lighter:   color-mix(in srgb, var(--accent-bright) 55%, white);  /* ≈ #73b6e3, was #6eb3e9 */
+
     /* ── Semantic colors ───────────────────────────────────────── */
     --color-success:        #3fb950;
     --color-warning:        #ff9800;
@@ -100,7 +107,9 @@
     /* ── Surface state overlays ────────────────────────────────── */
     --state-hover:    rgba(255, 255, 255, 0.05);
     --state-active:   rgba(255, 255, 255, 0.08);
-    --state-selected: rgba(0, 122, 204, 0.15);
+    --state-selected: color-mix(in srgb, var(--accent-bright) 15%, transparent);  /* rgba(0, 122, 204, 0.15) */
+    /* A DataTable row or cell that has just arrived flashes from this to transparent. */
+    --twm-dt-new-bg:  color-mix(in srgb, var(--accent-bright) 22%, transparent);  /* rgba(0, 122, 204, 0.22) */
 
     /* ── Overlay scrollbars (installOverlayScrollbar) ─────────── */
     --scrollbar-size:         6px;
@@ -114,7 +123,7 @@
     --shadow-sm:   0 1px 3px rgba(0, 0, 0, 0.3);
     --shadow-md:   0 4px 12px rgba(0, 0, 0, 0.4);
     --shadow-lg:   0 8px 24px rgba(0, 0, 0, 0.5);
-    --shadow-glow: 0 0 2px rgba(0, 122, 204, 0.3);
+    --shadow-glow: 0 0 2px color-mix(in srgb, var(--accent-bright) 30%, transparent);  /* rgba(0, 122, 204, 0.3) */
 
     /* ── Z-index layers ───────────────────────────────────────── */
     --z-base:     0;

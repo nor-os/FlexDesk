@@ -731,7 +731,7 @@ body.twm-dt-col-resizing {
 /* `activeRow` — the row that is OPEN. A left edge, not a background: hover
  * and selection keep theirs. */
 .twm-preview-table tbody tr.twm-dt-row--active > td:first-child {
-    box-shadow: inset 2px 0 0 0 var(--accent-bright, #007acc);
+    box-shadow: inset 2px 0 0 0 var(--accent-bright);
 }
 /* `rowIcon` — drawn from `data-twm-icon` so the icon's NAME is not cell
  * text (not in a copy, not in the clipped-cell tooltip). The span carries the
@@ -878,7 +878,7 @@ body.twm-dt-col-resizing {
 }
 .twm-preview-table td .twm-dt-detail-toggle:focus-visible {
     opacity: 1;
-    outline: 1px solid var(--accent-bright, #007acc);
+    outline: 1px solid var(--accent-bright);
 }
 /* The detail's row: one cell across every column. It is often the body's
  * FIRST cell of its row, so the time column's rules reach it (see the note
@@ -911,7 +911,7 @@ body.twm-dt-col-resizing {
 }
 /* `follow` / `refresh()` — a row the last answer did not have, for a moment. */
 @keyframes twm-dt-row-new {
-    from { background: var(--twm-dt-new-bg, rgba(0, 122, 204, 0.22)); }
+    from { background: var(--twm-dt-new-bg); }
     to { background: transparent; }
 }
 .twm-preview-table tbody tr.twm-dt-row--new > td {
@@ -955,11 +955,11 @@ body.twm-dt-col-resizing {
     background: rgba(255, 255, 255, 0.06);
 }
 .twm-dt-filter-chip:focus-visible {
-    outline: 1px solid var(--accent-bright, #007acc);
+    outline: 1px solid var(--accent-bright);
 }
 .twm-dt-filter-chip.twm-dt-filter-chip--on {
-    border-color: var(--accent-bright, #007acc);
-    background: rgba(0, 122, 204, 0.18);
+    border-color: var(--accent-bright);
+    background: color-mix(in srgb, var(--accent-bright) 18%, transparent);
     color: #ddd;
 }
 .twm-dt-filter-chip.twm-dt-filter-chip--empty {
@@ -1029,14 +1029,14 @@ body.twm-dt-col-resizing {
     width: 16px;
     height: 16px;
     border-radius: 50%;
-    background: #569cd6;
+    background: var(--accent-light);
     margin-top: -5px;
     cursor: grab;
     border: 2px solid var(--surface-0);
 }
 .twm-slider-field__input::-webkit-slider-thumb:active {
     cursor: grabbing;
-    background: #6eb3e9;
+    background: var(--accent-lighter);
 }
 .twm-slider-field__input::-moz-range-track {
     height: 6px;
@@ -1048,7 +1048,7 @@ body.twm-dt-col-resizing {
     width: 16px;
     height: 16px;
     border-radius: 50%;
-    background: #569cd6;
+    background: var(--accent-light);
     cursor: grab;
     border: 2px solid var(--surface-0);
 }
@@ -1171,7 +1171,7 @@ body.twm-dt-col-resizing {
 .twm-sortable-list__drop {
     height: 2px;
     margin: 1px 0;
-    background: #569cd6;
+    background: var(--accent-light);
     pointer-events: none;
 }
 .twm-sortable-list__content {
@@ -1218,12 +1218,12 @@ body.twm-dt-col-resizing {
     margin-top: var(--space-md);
 }
 .twm-sortable-list__add:hover {
-    border-color: #569cd6;
-    color: #569cd6;
-    background: rgba(86, 156, 214, 0.12);
+    border-color: var(--accent-light);
+    color: var(--accent-light);
+    background: color-mix(in srgb, var(--accent-light) 12%, transparent);
 }
 .twm-sortable-list__add:active {
-    background: rgba(86, 156, 214, 0.2);
+    background: color-mix(in srgb, var(--accent-light) 20%, transparent);
 }
 .twm-sortable-list__empty {
     padding: var(--space-xl);
@@ -1248,7 +1248,7 @@ body.twm-dt-col-resizing {
 }
 .twm-sortable-list__input:focus {
     outline: none;
-    border-color: #569cd6;
+    border-color: var(--accent-light);
 }
 /* Global Top Bar (fixed at top) */
 .twm-global-top-bar {
@@ -1698,19 +1698,19 @@ body.twm-dt-col-resizing {
     padding: var(--space-xxs) 8px;
     font-size: var(--font-size-xs);
     color: #c7f1ff;
-    background: rgba(0, 122, 204, 0.18);
-    border: 1px solid rgba(0, 122, 204, 0.35);
+    background: color-mix(in srgb, var(--accent-bright) 18%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-bright) 35%, transparent);
     border-radius: var(--radius-pill);
     white-space: nowrap;
     text-transform: none;
     cursor: default;
-    box-shadow: inset 0 0 0 1px rgba(0, 122, 204, 0.15);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-bright) 15%, transparent);
 }
 .twm-autocomplete-field__namespace--toggle {
     cursor: pointer;
-    background: linear-gradient(90deg, rgba(0, 122, 204, 0.24) 0%, rgba(0, 122, 204, 0.12) 100%);
+    background: linear-gradient(90deg, color-mix(in srgb, var(--accent-bright) 24%, transparent) 0%, color-mix(in srgb, var(--accent-bright) 12%, transparent) 100%);
     transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
-    border: 1px solid rgba(0, 122, 204, 0.5);
+    border: 1px solid color-mix(in srgb, var(--accent-bright) 50%, transparent);
     color: #e7f5ff;
     outline: none;
 }
@@ -2063,7 +2063,7 @@ body.twm-window-maximized .twm-resize-handle {
     box-sizing: border-box;
 }
 .twm-data-table__filter-input:focus {
-    border-color: #569cd6;
+    border-color: var(--accent-light);
     background: #252525;
 }
 .twm-data-table__filter-input::placeholder {
@@ -2124,7 +2124,7 @@ body.twm-window-maximized .twm-resize-handle {
 }
 .twm-data-table__filter-dropdown-select:focus,
 .twm-data-table__filter-dropdown-input:focus {
-    border-color: #569cd6;
+    border-color: var(--accent-light);
 }
 .twm-data-table__filter-dropdown-select {
     appearance: auto;
@@ -3223,14 +3223,14 @@ body.twm-window-maximized .twm-resize-handle {
 /* Add Widget is the toolbar's one primary verb, so it is the one that carries
    the accent. */
 .add-widget-btn {
-    background: rgba(0, 122, 204, 0.15);
-    border-color: rgba(0, 122, 204, 0.3);
+    background: color-mix(in srgb, var(--accent-bright) 15%, transparent);
+    border-color: color-mix(in srgb, var(--accent-bright) 30%, transparent);
     color: var(--text-bright);
 }
 
 .add-widget-btn:hover {
-    background: rgba(0, 122, 204, 0.25);
-    border-color: rgba(0, 122, 204, 0.5);
+    background: color-mix(in srgb, var(--accent-bright) 25%, transparent);
+    border-color: color-mix(in srgb, var(--accent-bright) 50%, transparent);
 }
 
 /* The other two are secondary — Export is an aside and Reset Layout throws the
@@ -3279,13 +3279,15 @@ body.twm-window-maximized .twm-resize-handle {
 .tile.resizing {
     z-index: var(--z-dropdown);
     border-color: var(--accent-bright);
-    box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.3);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-bright) 30%, transparent);
 }
 
 /* Selected — set by `_onConfigClick()` while the config dialog is open, and
-   cleared from every sibling by the same handler. #78b9ff is a literal
-   because there is no light-accent token: `--accent-bright` is #007acc, which
-   is a border colour on this background and not a text one. */
+   cleared from every sibling by the same handler. #78b9ff is a literal:
+   `--accent-bright` is #007acc, which is a border colour on this background
+   and not a text one, and the derived light accents (`--accent-light`,
+   `--accent-lighter`) are less blue than this, so using them would change
+   the colour. */
 .tile.tile--selected {
     border-color: #78b9ff;
     box-shadow: 0 0 0 2px rgba(120, 185, 255, 0.3), var(--shadow-md);
@@ -3556,8 +3558,8 @@ body.twm-window-maximized .twm-resize-handle {
 /* The drop preview, positioned by `_updateGhost()` in grid coordinates. */
 .tile-ghost {
     position: absolute;
-    background: rgba(0, 122, 204, 0.15);
-    border: 2px dashed rgba(0, 122, 204, 0.5);
+    background: color-mix(in srgb, var(--accent-bright) 15%, transparent);
+    border: 2px dashed color-mix(in srgb, var(--accent-bright) 50%, transparent);
     border-radius: var(--radius-sm);
     pointer-events: none;
     z-index: 50;
@@ -4677,12 +4679,12 @@ button.twm-about-dialog__btn--close:focus {
 /* ─── Autocomplete field — notebook variant ──────────────── */
 
 .twm-autocomplete-field--notebook .twm-autocomplete-field__input-wrapper {
-    border: 1px solid #569cd6;
+    border: 1px solid var(--accent-light);
     font-size: var(--font-size-sm);
 }
 .twm-autocomplete-field--notebook .twm-autocomplete-field__input-wrapper:focus-within {
     border-color: #79b8f8;
-    box-shadow: 0 0 3px rgba(86, 156, 214, 0.3);
+    box-shadow: 0 0 3px color-mix(in srgb, var(--accent-light) 30%, transparent);
 }
 .twm-autocomplete-field--notebook .twm-autocomplete-field__input {
     font-family: 'Courier New', Courier, monospace;
@@ -4867,7 +4869,7 @@ button.twm-about-dialog__btn--close:focus {
    second keeps the readonly tables, which hover never claimed, working. */
 .twm-preview-table:not(.twm-preview-table--readonly) tbody tr.selected td,
 .twm-preview-table tbody tr.selected td {
-    background: var(--state-selected, rgba(0, 122, 204, 0.15));
+    background: var(--state-selected);
 }
 
     padding: 0;
@@ -4915,8 +4917,8 @@ button.twm-about-dialog__btn--close:focus {
    is the keyboard's, and it is deliberately the stronger of the two so that
    moving the pointer across the list does not hide where the cursor is. */
 .twm-autocomplete-field__item.active {
-    background-color: var(--state-selected, rgba(0, 122, 204, 0.15));
-    box-shadow: inset 2px 0 0 var(--accent-bright, #007acc);
+    background-color: var(--state-selected);
+    box-shadow: inset 2px 0 0 var(--accent-bright);
 }
 
 /* A `<button role="menuitem">`, not a div — that is what makes the menu
@@ -5449,7 +5451,7 @@ button.twm-about-dialog__btn--close:focus {
     inset: 0 0 auto 0;
     height: 2px;
     pointer-events: none;
-    background: var(--accent-bright, #1683c4);
+    background: var(--accent-bright);
 }
 
 /* A PREVIEW tab — opened by a single click and replaced by the next one.
@@ -5506,7 +5508,7 @@ button.twm-about-dialog__btn--close:focus {
     flex: 0 0 auto;
     font-size: 9px;
     line-height: 1;
-    color: var(--accent-bright, #1683c4);
+    color: var(--accent-bright);
 }
 
 .notebook-tabs .twm-tab-close {
@@ -5548,7 +5550,7 @@ button.twm-about-dialog__btn--close:focus {
     flex: 0 0 auto;
     align-self: stretch;
     width: 2px;
-    background: var(--accent-bright, #1683c4);
+    background: var(--accent-bright);
     pointer-events: none;
 }
 
@@ -5576,8 +5578,8 @@ button.twm-about-dialog__btn--close:focus {
  * stylesheet, so nothing here is in its scope at all. */
 .notebook-tabs--drop-target,
 .notebook-editor-container--drop-target {
-    background: color-mix(in srgb, var(--accent-bright, #1683c4) 18%, transparent);
-    box-shadow: inset 0 0 0 1px var(--accent-bright, #1683c4);
+    background: color-mix(in srgb, var(--accent-bright) 18%, transparent);
+    box-shadow: inset 0 0 0 1px var(--accent-bright);
 }
 
 /* ── The tab bar's own context menu ──────────────────────────────────
@@ -5725,7 +5727,7 @@ button.twm-about-dialog__btn--close:focus {
 }
 .split-pane-divider:hover,
 .split-pane-divider--active {
-    background: var(--accent-bright, #1683c4);
+    background: var(--accent-bright);
 }
 /* A pane is its tab bar over its body. The tab bar's own rule says
  * `height: 100%` (it fills a tile's strip); here it is a fixed 26px row, the
@@ -5748,7 +5750,7 @@ button.twm-about-dialog__btn--close:focus {
  * `setPanes()`, which is why `SplitPaneContainer` ADDS `.split-pane` to a
  * pane instead of replacing its classes with it. */
 .split-pane-container--split .editor-pane--focused > .tabs.notebook-tabs {
-    box-shadow: inset 0 -1px 0 var(--accent-bright, #1683c4);
+    box-shadow: inset 0 -1px 0 var(--accent-bright);
 }
 /* The body is the positioning anchor; the editor container fills it
  * absolutely, so its height is the body's whatever its content is and the
@@ -5811,7 +5813,7 @@ button.twm-about-dialog__btn--close:focus {
     font: inherit;
     outline: none;
 }
-.nb-search-bar__input:focus { border-color: var(--accent-bright, #1683c4); }
+.nb-search-bar__input:focus { border-color: var(--accent-bright); }
 .nb-search-bar__match-info {
     min-width: 64px;
     color: var(--text-muted);
@@ -5844,7 +5846,7 @@ button.twm-about-dialog__btn--close:focus {
 .nb-search-bar__btn--active,
 .nb-search-bar__btn--active:hover {
     background: var(--state-selected);
-    border-color: var(--accent-bright, #1683c4);
+    border-color: var(--accent-bright);
     color: var(--text-bright);
 }
 /* Two classes, for the Material Symbols tie — see `.twm-leaf__icon`. */
@@ -6158,12 +6160,12 @@ button.twm-about-dialog__btn--close:focus {
 .twm-record--state-error { box-shadow: inset 2px 0 0 0 var(--color-danger, #c74e4e); }
 /* `activeKey` — the record that is OPEN: the accent on the left edge, as
  * DataTable's `twm-dt-row--active`. It wins over a state's edge. */
-.twm-record.twm-record--active { box-shadow: inset 2px 0 0 0 var(--accent-bright, #007acc); }
+.twm-record.twm-record--active { box-shadow: inset 2px 0 0 0 var(--accent-bright); }
 .twm-record-list--clickable .twm-record { cursor: pointer; }
 .twm-record-list--clickable .twm-record:hover { background: var(--state-hover, rgba(255, 255, 255, 0.05)); }
 .twm-record:focus { outline: none; }
 .twm-record:focus-visible {
-    outline: 1px solid var(--accent-bright, #007acc);
+    outline: 1px solid var(--accent-bright);
     outline-offset: -1px;
 }
 .twm-record-list__empty {
@@ -6861,7 +6863,7 @@ button.twm-about-dialog__btn--close:focus {
     cursor: pointer;
 }
 .twm-doc-outline__link:hover { background: var(--state-hover, rgba(255, 255, 255, 0.05)); color: var(--text-primary, #e0e0e0); }
-.twm-doc-outline__link:focus-visible { outline: 1px solid var(--accent-bright, #007acc); outline-offset: -1px; }
+.twm-doc-outline__link:focus-visible { outline: 1px solid var(--accent-bright); outline-offset: -1px; }
 .twm-doc-outline__item--level-1 > .twm-doc-outline__link { color: var(--text-primary, #e0e0e0); }
 .twm-doc-outline__number {
     flex: 0 0 auto;
@@ -6876,8 +6878,8 @@ button.twm-about-dialog__btn--close:focus {
     white-space: nowrap;
 }
 .twm-doc-outline__item.twm-doc-outline__item--active > .twm-doc-outline__link {
-    border-left-color: var(--accent-bright, #007acc);
-    background: rgba(0, 122, 204, 0.15);
+    border-left-color: var(--accent-bright);
+    background: color-mix(in srgb, var(--accent-bright) 15%, transparent);
     color: var(--text-primary, #e0e0e0);
 }
 /* Listed, but nothing in the document answers to it. */
@@ -6905,7 +6907,7 @@ button.twm-about-dialog__btn--close:focus {
     border-radius: var(--radius-sm, 4px);
     cursor: text;
 }
-.twm-tag-input:focus-within { border-color: var(--accent-bright, #007acc); }
+.twm-tag-input:focus-within { border-color: var(--accent-bright); }
 .twm-tag-input--readonly {
     background: transparent;
     border-color: transparent;
@@ -8020,7 +8022,7 @@ button.twm-about-dialog__btn--close:focus {
     position: absolute;
     pointer-events: none;
     border: 1px solid var(--accent-bright);
-    background: rgba(0, 122, 204, 0.12);
+    background: color-mix(in srgb, var(--accent-bright) 12%, transparent);
 }
 .twm-canvas__marquee[hidden] { display: none; }
 
@@ -8513,7 +8515,7 @@ button.twm-about-dialog__btn--close:focus {
 .twm-flow-graph__port--data .twm-flow-graph__port-dot { border-color: #8a8f98; border-radius: 2px; }
 .twm-flow-graph--connecting .twm-flow-graph__port--in:not(:disabled) .twm-flow-graph__port-dot {
     background: var(--twm-flow-focus);
-    box-shadow: 0 0 0 3px rgba(0, 122, 204, 0.35);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-bright) 35%, transparent);
 }
 .twm-flow-graph__port--taken .twm-flow-graph__port-dot { border-color: var(--twm-flow-ok); background: var(--twm-flow-ok); }
 .twm-flow-graph__port--taken .twm-flow-graph__port-count { color: var(--twm-flow-ok); }
@@ -8525,7 +8527,7 @@ button.twm-about-dialog__btn--close:focus {
 }
 .twm-flow-graph__port--can-drop .twm-flow-graph__port-dot {
     background: var(--twm-flow-focus);
-    box-shadow: 0 0 0 3px rgba(0, 122, 204, 0.35);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-bright) 35%, transparent);
 }
 
 /* ── a line ─────────────────────────────────────────────────────────── */

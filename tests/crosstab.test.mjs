@@ -348,13 +348,13 @@ section('§3 row-label columns stay pinned while the body scrolls sideways; the 
         ['.twm-preview-table:not(.twm-preview-table--readonly) tr:hover td',
          '.twm-preview-table.twm-dt-crosstab:not(.twm-preview-table--readonly) tr:hover td.twm-dt-pin', '--twm-dt-pin-state', 'rgba(255, 255, 255, 0.04)'],
         ['.twm-preview-table:not(.twm-preview-table--readonly) tbody tr.selected td, .twm-preview-table tbody tr.selected td',
-         '.twm-preview-table.twm-dt-crosstab:not(.twm-preview-table--readonly) tbody tr.selected td.twm-dt-pin, .twm-preview-table.twm-dt-crosstab tbody tr.selected td.twm-dt-pin', '--twm-dt-pin-state', 'var(--state-selected, rgba(0, 122, 204, 0.15))'],
+         '.twm-preview-table.twm-dt-crosstab:not(.twm-preview-table--readonly) tbody tr.selected td.twm-dt-pin, .twm-preview-table.twm-dt-crosstab tbody tr.selected td.twm-dt-pin', '--twm-dt-pin-state', 'var(--state-selected)'],
         ['.twm-preview-table.twm-dt--clickable tbody tr:not(.twm-dt-spacer):not(.data-table__empty-row):not(.selected):hover td',
          '.twm-preview-table.twm-dt-crosstab.twm-dt--clickable tbody tr:not(.twm-dt-spacer):not(.data-table__empty-row):not(.selected):hover td.twm-dt-pin', '--twm-dt-pin-state', 'var(--state-hover, rgba(255, 255, 255, 0.05))'],
         ['.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--selected',
-         '.twm-preview-table.twm-dt-crosstab.twm-dt--cells tbody td.twm-dt-pin.twm-dt-cell--selected', '--twm-dt-pin-state', 'var(--state-selected, rgba(0, 122, 204, 0.15))'],
+         '.twm-preview-table.twm-dt-crosstab.twm-dt--cells tbody td.twm-dt-pin.twm-dt-cell--selected', '--twm-dt-pin-state', 'var(--state-selected)'],
         ['.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--staged',
-         '.twm-preview-table.twm-dt-crosstab.twm-dt--cells tbody td.twm-dt-pin.twm-dt-cell--staged', '--twm-dt-pin-state', 'color-mix(in srgb, var(--accent-bright, #007acc) 16%, transparent)'],
+         '.twm-preview-table.twm-dt-crosstab.twm-dt--cells tbody td.twm-dt-pin.twm-dt-cell--staged', '--twm-dt-pin-state', 'color-mix(in srgb, var(--accent-bright) 16%, transparent)'],
         ['.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--fill-skipped',
          '.twm-preview-table.twm-dt-crosstab.twm-dt--cells tbody td.twm-dt-pin.twm-dt-cell--fill-skipped', '--twm-dt-pin-mark', 'color-mix(in srgb, var(--color-danger, #f14c4c) 22%, transparent) 0 4px, transparent 4px 8px'],
         ['.twm-preview-table.twm-dt--cells tbody td.twm-dt-cell--paste-skipped',
@@ -408,8 +408,8 @@ section('§3 row-label columns stay pinned while the body scrolls sideways; the 
     ok('the flash layer is a registered colour, transparent at rest',
        /@property --twm-dt-pin-new \{\s*syntax: '<color>';\s*inherits: false;\s*initial-value: transparent;/.test(sheet));
     ok('…animated from the same --twm-dt-new-bg the unpinned cells flash in, to transparent',
-       /@keyframes twm-dt-pin-new \{\s*from \{ --twm-dt-pin-new: var\(--twm-dt-new-bg, rgba\(0, 122, 204, 0\.22\)\); \}\s*to \{ --twm-dt-pin-new: transparent; \}/.test(sheet)
-       && /@keyframes twm-dt-row-new \{\s*from \{ background: var\(--twm-dt-new-bg, rgba\(0, 122, 204, 0\.22\)\); \}/.test(sheet));
+       /@keyframes twm-dt-pin-new \{\s*from \{ --twm-dt-pin-new: var\(--twm-dt-new-bg\); \}\s*to \{ --twm-dt-pin-new: transparent; \}/.test(sheet)
+       && /@keyframes twm-dt-row-new \{\s*from \{ background: var\(--twm-dt-new-bg\); \}/.test(sheet));
     const flash = ruleOf('.twm-preview-table.twm-dt-crosstab tbody tr.twm-dt-row--new > td.twm-dt-pin');
     ok('…on a new row\'s pinned cells, for as long, replacing the background animation the important stack would void',
        flash.includes('animation: twm-dt-pin-new 1.6s ease-out;')

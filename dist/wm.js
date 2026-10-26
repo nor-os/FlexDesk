@@ -8,10 +8,10 @@ import {
 } from "./chunk-REJ5HLIM.js";
 import {
   showContextMenu
-} from "./chunk-EPW22BNP.js";
+} from "./chunk-AD7FIA3Z.js";
 import {
   openForm
-} from "./chunk-R4L73H3R.js";
+} from "./chunk-OEG6NPAN.js";
 import {
   ManagedWindow,
   isRowActivation
@@ -3471,7 +3471,11 @@ function mountTileBreadcrumb(kind, props, ctx) {
   const rootCrumb = ctx?.rootCrumb || null;
   if (!taxonomy) {
     console.error("[breadcrumb] no taxonomy in ctx \u2014 cannot render");
-    return { el: document.createElement("nav"), destroy: () => {
+    const el = document.createElement("nav");
+    el.className = "twm-topbar-breadcrumb twm-tile-breadcrumb";
+    el.hidden = true;
+    return { el, refresh: () => {
+    }, destroy: () => {
     } };
   }
   const root = document.createElement("nav");

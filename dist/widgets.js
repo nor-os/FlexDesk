@@ -3454,6 +3454,866 @@ async function mountGalleryPicker(hostEl, opts = {}) {
   };
 }
 
+// src/ui/components/toast.js
+var toastBus = null;
+function setToastBus(bus) {
+  const prev = toastBus;
+  toastBus = bus && typeof bus.emit === "function" ? bus : null;
+  return prev;
+}
+function getToastBus() {
+  return toastBus;
+}
+function _emit(severity, persistent, titleOrMsg, msg) {
+  const bus = toastBus;
+  const title = msg !== void 0 ? titleOrMsg : null;
+  const message = msg !== void 0 ? msg : titleOrMsg;
+  if (!bus) {
+    (severity === "error" || severity === "warn" ? console.warn : console.info)(
+      `[toast/${severity}]`,
+      title ? `${title}:` : "",
+      message
+    );
+    return;
+  }
+  bus.emit("toast:show", {
+    title,
+    message,
+    severity,
+    persistent,
+    durationMs: persistent ? 0 : 5e3
+  });
+}
+function toastError(titleOrMsg, msg) {
+  _emit("error", true, titleOrMsg, msg);
+}
+function toastWarn(titleOrMsg, msg) {
+  _emit("warn", false, titleOrMsg, msg);
+}
+function toastInfo(titleOrMsg, msg) {
+  _emit("info", false, titleOrMsg, msg);
+}
+function toastSuccess(titleOrMsg, msg) {
+  _emit("success", false, titleOrMsg, msg);
+}
+function reportBridgeError(opName, resOrErr) {
+  if (!resOrErr) return true;
+  if (resOrErr instanceof Error) {
+    toastError(opName, resOrErr.message || String(resOrErr));
+    return false;
+  }
+  if (resOrErr && resOrErr.ok === false) {
+    toastError(opName, resOrErr.error || "operation refused");
+    return false;
+  }
+  return true;
+}
+
+// src/ui/notification_center.js
+var SEVERITIES = ["info", "success", "warn", "error", "fatal"];
+var OUTCOME_BAR_STATE = Object.freeze({ success: "done", error: "error", fatal: "error" });
+var LOG_SEVERITY_MAP = {
+  trace: "info",
+  debug: "info",
+  info: "info",
+  warn: "warn",
+  error: "error",
+  fatal: "fatal"
+};
+var DEFAULT_LOG_LEVELS = /* @__PURE__ */ new Set(["warn", "error", "fatal"]);
+var SUPPRESSED_NAMESPACE_TITLES = /* @__PURE__ */ new Set(["bootstrap", "app"]);
+function notificationText(notification) {
+  return [notification.title, notification.message, notification.description].filter((part) => part != null && String(part) !== "").join("\n");
+}
+function showNotificationMenu(event, notification, logger) {
+  event.preventDefault();
+  event.stopPropagation();
+  showContextMenu(
+    event.clientX,
+    event.clientY,
+    [{ label: "Copy message", icon: "content_copy", action: "copy" }],
+    () => {
+      Promise.resolve().then(() => navigator.clipboard.writeText(notificationText(notification))).catch((err) => logger?.warn?.("twm-notification-center", "Copy message failed", { err }));
+    }
+  );
+}
+var TOAST_TEXT = ".twm-notification__title, .twm-notification__body, .twm-notification__description, .twm-notification__status";
+function selectsTextIn(el3) {
+  const sel = el3.ownerDocument.getSelection?.();
+  return Boolean(sel && !sel.isCollapsed && sel.rangeCount && el3.contains(sel.getRangeAt(0).commonAncestorContainer));
+}
+var NotificationCenter = class _NotificationCenter extends ComponentBase {
+  #items;
+  #summaryEl;
+  #historyListeners;
+  constructor({
+    eventBus,
+    logger,
+    maxVisible = 3,
+    historyLimit = 50,
+    defaultDurationMs = 6e3,
+    logLevels = DEFAULT_LOG_LEVELS,
+    // What happens past `maxVisible`. 'drop' (the default, as before 0.11):
+    // the oldest toast leaves. 'collapse': the toasts on screen stay, the
+    // rest wait behind one "+N more" toast, and each comes in as one closes
+    // — a sticky alert nobody has read is never pushed off unseen.
+    overflow = "drop",
+    // Called with the held-back toasts when the "+N more" toast is clicked.
+    summaryAction = null
+  } = {}) {
+    super({ eventBus, logger });
+    this.maxVisible = maxVisible;
+    this.overflow = overflow === "collapse" ? "collapse" : "drop";
+    this.summaryAction = typeof summaryAction === "function" ? summaryAction : null;
+    this.held = [];
+    this.historyLimit = historyLimit;
+    this.defaultDurationMs = defaultDurationMs;
+    this.logLevels = new Set(logLevels ?? DEFAULT_LOG_LEVELS);
+    this.notifications = [];
+    this.history = [];
+    this.sequence = 0;
+    this.activeTimers = /* @__PURE__ */ new Map();
+    this.eventDisposers = [];
+    this.#items = /* @__PURE__ */ new Map();
+    this.#summaryEl = null;
+    this.#historyListeners = /* @__PURE__ */ new Set();
+    this.container = null;
+    this.rootEl = null;
+    this.listEl = null;
+    this.liveRegionEl = null;
+  }
+  mount(container, props = {}) {
+    const existingContainer = document.getElementById("notification-center-root");
+    if (existingContainer) {
+      this.container = existingContainer;
+      this.rootEl = existingContainer.querySelector(".twm-notification-center");
+      this.listEl = existingContainer.querySelector(".twm-notification-center__list");
+      this.liveRegionEl = existingContainer.querySelector(".twm-notification-center__live-region");
+      this._mounted = true;
+      this.#subscribeEvents();
+      this.#claimToastBus();
+      return this;
+    }
+    this.container = document.createElement("div");
+    this.container.id = "notification-center-root";
+    this.container.style.cssText = "position: fixed; right: 16px; bottom: 24px; z-index: 10000; pointer-events: none;";
+    this.rootEl = document.createElement("div");
+    this.rootEl.className = "twm-notification-center";
+    this.listEl = document.createElement("div");
+    this.listEl.className = "twm-notification-center__list";
+    this.liveRegionEl = document.createElement("div");
+    this.liveRegionEl.className = "twm-notification-center__live-region";
+    this.liveRegionEl.setAttribute("aria-live", "polite");
+    this.liveRegionEl.setAttribute("aria-atomic", "true");
+    this.liveRegionEl.style.position = "absolute";
+    this.liveRegionEl.style.width = "1px";
+    this.liveRegionEl.style.height = "1px";
+    this.liveRegionEl.style.overflow = "hidden";
+    this.liveRegionEl.style.clip = "rect(1px, 1px, 1px, 1px)";
+    this.rootEl.appendChild(this.listEl);
+    this.rootEl.appendChild(this.liveRegionEl);
+    this.container.appendChild(this.rootEl);
+    document.body.appendChild(this.container);
+    this._mounted = true;
+    this.#subscribeEvents();
+    this.#claimToastBus();
+    if (Array.isArray(props.initialNotifications)) {
+      props.initialNotifications.forEach((notification) => this.show(notification));
+    }
+    return this;
+  }
+  dispose() {
+    this.#clearTimers();
+    this.#unsubscribeEvents();
+    this.#historyListeners.clear();
+    if (this.eventBus && getToastBus() === this.eventBus) setToastBus(null);
+    this.#items.forEach((entry) => entry.bar?.dispose());
+    this.#items.clear();
+    this.#summaryEl = null;
+    if (this.rootEl?.parentNode) {
+      this.rootEl.parentNode.removeChild(this.rootEl);
+    }
+    this.container = null;
+    this.rootEl = null;
+    this.listEl = null;
+    this.liveRegionEl = null;
+    super.dispose();
+  }
+  show(notification) {
+    const normalized = this.#normalizeNotification(notification);
+    this.#consoleLog(normalized);
+    const running = _NotificationCenter.#isRunning(normalized);
+    if (this.overflow === "collapse" && !running && this.notifications.length >= this.maxVisible) {
+      this.held.push(normalized);
+      this.#recordHistory(normalized);
+      this.#render();
+      this.#announce(normalized);
+      return normalized.id;
+    }
+    this.notifications.push(normalized);
+    if (this.overflow === "collapse") {
+      this.#rebalance();
+    } else if (this.notifications.length > this.maxVisible) {
+      const idx = this.notifications.findIndex((item) => !_NotificationCenter.#isRunning(item));
+      if (idx !== -1) {
+        const [removed] = this.notifications.splice(idx, 1);
+        this.#stopTimer(removed.id);
+        this.#recordDismissal(removed, "overflow");
+      }
+    }
+    this.#recordHistory(normalized);
+    this.#scheduleAutoDismiss(normalized);
+    this.#render();
+    this.#announce(normalized);
+    return normalized.id;
+  }
+  dismiss(notificationId, reason = "dismissed") {
+    const idx = this.notifications.findIndex((item) => item.id === notificationId);
+    if (idx === -1) {
+      const h = this.held.findIndex((item) => item.id === notificationId);
+      if (h === -1) return false;
+      const [gone] = this.held.splice(h, 1);
+      this.#recordDismissal(gone, reason);
+      this.#render();
+      return true;
+    }
+    const [removed] = this.notifications.splice(idx, 1);
+    this.#stopTimer(notificationId);
+    this.#recordDismissal(removed, reason);
+    this.#rebalance();
+    this.#render();
+    return true;
+  }
+  /**
+   * Change a notification in place: only its own nodes are touched, and no
+   * other toast is redrawn. A held-back toast is changed too and shows the
+   * change when it comes on screen.
+   *
+   * Fields: `message`, `title`, `description`, `severity`, `meta`, and for
+   * progress toasts `progress` (fraction, `{ value, total }`, or `null` for
+   * indeterminate), `status`, `counts` and `collapsed`; `progress` on a
+   * plain toast turns it into a running progress toast (on screen, as with
+   * show()). Giving a running progress toast an outcome severity (success,
+   * error, fatal) finishes it, and its bar keeps the state it ended in: a
+   * later severity only restyles the toast. A `durationMs` on a toast that
+   * is not running (re)starts its auto-dismiss (0 keeps it until closed).
+   *
+   * @param {string} notificationId - The ID of the notification to update
+   * @param {Object} updates - The fields to change
+   * @returns {boolean} True if the notification was found and updated
+   */
+  update(notificationId, updates = {}) {
+    const notification = this.notifications.find((item) => item.id === notificationId) ?? this.held.find((item) => item.id === notificationId);
+    if (!notification) {
+      return false;
+    }
+    const hadTitle = Boolean(notification.title);
+    const hadDescription = Boolean(notification.description);
+    const wasProgress = notification.progress !== void 0;
+    const wasRunning = _NotificationCenter.#isRunning(notification);
+    if (updates.message !== void 0) notification.message = updates.message;
+    if (updates.title !== void 0) notification.title = updates.title;
+    if (updates.description !== void 0) notification.description = updates.description;
+    if (updates.meta !== void 0) notification.meta = updates.meta;
+    if (updates.status !== void 0) notification.status = updates.status ?? "";
+    if (updates.counts !== void 0) notification.counts = updates.counts ?? "";
+    if (updates.collapsed !== void 0) notification.collapsed = Boolean(updates.collapsed);
+    if (updates.progress !== void 0) {
+      if (wasProgress) {
+        notification.progress = _NotificationCenter.#normalizeProgress(updates.progress);
+      } else {
+        Object.assign(notification, _NotificationCenter.#progressFields({ ...notification, ...updates }));
+        notification.persistent = true;
+        this.#stopTimer(notification.id);
+      }
+    }
+    if (updates.severity !== void 0) {
+      notification.severity = this.#normalizeSeverity(updates.severity);
+      const outcome = OUTCOME_BAR_STATE[notification.severity];
+      if (_NotificationCenter.#isRunning(notification) && outcome) notification.outcome = outcome;
+    }
+    const running = _NotificationCenter.#isRunning(notification);
+    const finished = wasRunning && !running;
+    if (updates.durationMs !== void 0 && !_NotificationCenter.#isRunning(notification)) {
+      notification.durationMs = this.#coerceDuration(updates.durationMs);
+      notification.persistent = notification.durationMs === 0;
+      if (this.notifications.includes(notification)) {
+        this.#stopTimer(notification.id);
+        this.#scheduleAutoDismiss(notification);
+      }
+    }
+    const entry = this.#items.get(notification.id);
+    if (entry) {
+      const structural = hadTitle !== Boolean(notification.title) || hadDescription !== Boolean(notification.description) || wasProgress !== (notification.progress !== void 0);
+      if (structural) {
+        const next = this.#buildItem(notification);
+        entry.el.replaceWith(next.el);
+        entry.bar?.dispose();
+        this.#items.set(notification.id, next);
+      } else {
+        this.#patchItem(entry, notification);
+      }
+    }
+    if (finished) this.#announce(notification);
+    if (running !== wasRunning) this.#rebalance();
+    this.#render();
+    return true;
+  }
+  clearAll(reason = "cleared") {
+    [...this.notifications].forEach((notification) => this.dismiss(notification.id, reason));
+  }
+  ingestLogEntry(entry) {
+    if (!entry || !this.logLevels.has(entry.level)) {
+      return;
+    }
+    if (entry.namespace === "state-guard") {
+      return;
+    }
+    const severity = LOG_SEVERITY_MAP[entry.level] ?? "info";
+    const suppressTitle = SUPPRESSED_NAMESPACE_TITLES.has(entry.namespace);
+    const title = suppressTitle ? null : _NotificationCenter.#formatNamespaceTitle(entry.namespace);
+    const skipHistory = severity === "info" && suppressTitle;
+    this.show({
+      title,
+      message: entry.message,
+      severity,
+      namespace: entry.namespace,
+      meta: entry.data,
+      skipHistory
+    });
+  }
+  #consoleLog(notification) {
+    if (notification.severity !== "warn" && notification.severity !== "error" && notification.severity !== "fatal") {
+      return;
+    }
+    const method = notification.severity === "warn" ? console.warn : console.error;
+    const prefix = notification.title ? `[${notification.title}]` : "[Notification]";
+    const details = notification.meta ?? notification.description ?? "";
+    method(`${prefix} ${notification.message}`, details);
+  }
+  #normalizeNotification(notification) {
+    if (!notification) {
+      throw new TypeError("Notification payload is required");
+    }
+    const id = notification.id ?? `notification-${++this.sequence}`;
+    const severity = this.#normalizeSeverity(notification.severity ?? "info");
+    const isProgress = notification.progress !== void 0;
+    return {
+      ...isProgress ? _NotificationCenter.#progressFields(notification) : {},
+      id,
+      title: notification.title ?? null,
+      message: notification.message ?? "",
+      description: notification.description ?? null,
+      timestamp: notification.timestamp ?? Date.now(),
+      severity,
+      namespace: notification.namespace ?? null,
+      durationMs: this.#coerceDuration(notification.durationMs),
+      // A progress toast stays until it finishes (and then until its
+      // finishing durationMs, or its ×).
+      persistent: isProgress || Boolean(notification.persistent),
+      skipHistory: Boolean(notification.skipHistory),
+      actions: this.#normalizeActions(notification.actions),
+      meta: notification.meta ?? null
+    };
+  }
+  #normalizeSeverity(severity) {
+    const value = typeof severity === "string" ? severity.toLowerCase() : "info";
+    if (!SEVERITIES.includes(value)) {
+      return "info";
+    }
+    return value;
+  }
+  #coerceDuration(duration) {
+    if (duration === null || duration === void 0) {
+      return this.defaultDurationMs;
+    }
+    const value = Number(duration);
+    if (!Number.isFinite(value) || value < 0) {
+      return this.defaultDurationMs;
+    }
+    return value;
+  }
+  toast(title, message, type = "info") {
+    this.show({
+      title,
+      message,
+      severity: type,
+      persistent: type === "error" || type === "fatal"
+    });
+  }
+  error(titleOrMessage, message) {
+    const hasTitle = message !== void 0;
+    return this.show({
+      title: hasTitle ? titleOrMessage : null,
+      message: hasTitle ? message : titleOrMessage,
+      severity: "error",
+      persistent: true
+    });
+  }
+  warn(titleOrMessage, message) {
+    const hasTitle = message !== void 0;
+    return this.show({
+      title: hasTitle ? titleOrMessage : null,
+      message: hasTitle ? message : titleOrMessage,
+      severity: "warn"
+    });
+  }
+  info(titleOrMessage, message) {
+    const hasTitle = message !== void 0;
+    return this.show({
+      title: hasTitle ? titleOrMessage : null,
+      message: hasTitle ? message : titleOrMessage,
+      severity: "info"
+    });
+  }
+  success(titleOrMessage, message) {
+    const hasTitle = message !== void 0;
+    return this.show({
+      title: hasTitle ? titleOrMessage : null,
+      message: hasTitle ? message : titleOrMessage,
+      severity: "success"
+    });
+  }
+  #normalizeActions(actions) {
+    if (!Array.isArray(actions) || actions.length === 0) {
+      return [];
+    }
+    return actions.map((action, idx) => ({
+      id: action.id ?? `action-${idx}`,
+      label: action.label ?? "Action",
+      handler: typeof action.handler === "function" ? action.handler : null,
+      eventName: action.eventName ?? null,
+      payload: action.payload ?? null
+    }));
+  }
+  #scheduleAutoDismiss(notification) {
+    if (notification.persistent || notification.durationMs === 0) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      this.dismiss(notification.id, "timeout");
+    }, notification.durationMs);
+    this.activeTimers.set(notification.id, timer);
+  }
+  #stopTimer(notificationId) {
+    const timer = this.activeTimers.get(notificationId);
+    if (timer) {
+      clearTimeout(timer);
+      this.activeTimers.delete(notificationId);
+    }
+  }
+  #clearTimers() {
+    this.activeTimers.forEach((timer) => clearTimeout(timer));
+    this.activeTimers.clear();
+  }
+  /**
+   * Hear of every entry added to `history`, by `show()`, `warn()`/`error()`/
+   * `info()`/`success()` and the bus alike: `listener(entry, center)`, once
+   * per toast, after the entry is in `history`. A dismissal changes the
+   * toast's own entry and is not an entry of its own. Answers the unsubscribe.
+   */
+  subscribe(listener) {
+    if (typeof listener !== "function") return () => {
+    };
+    this.#historyListeners.add(listener);
+    return () => {
+      this.#historyListeners.delete(listener);
+    };
+  }
+  #recordHistory(entry) {
+    if (entry.skipHistory) return;
+    this.history.push(entry);
+    if (this.history.length > this.historyLimit) {
+      this.history.shift();
+    }
+    [...this.#historyListeners].forEach((listener) => {
+      try {
+        listener(entry, this);
+      } catch (err) {
+        this.logger?.warn?.("twm-notification-center", "History listener failed", { err });
+      }
+    });
+  }
+  /** A toast that left marks its own entry: one toast, one entry. */
+  #recordDismissal(notification, reason) {
+    if (notification.skipHistory) return;
+    const at = this.history.findLastIndex((entry) => entry.id === notification.id);
+    if (at === -1) return;
+    this.history[at] = { ...notification, dismissed: true, reason };
+  }
+  /** A progress toast that has not been given an outcome yet. */
+  static #isRunning(notification) {
+    return notification.progress !== void 0 && !notification.outcome;
+  }
+  /**
+   * The fields a progress toast carries, from a show() payload or an
+   * update() that turns a plain toast into one. `outcome` is null while it
+   * runs, then the state its bar ended in (done or error).
+   */
+  static #progressFields(source) {
+    return {
+      progress: _NotificationCenter.#normalizeProgress(source.progress),
+      status: source.status ?? "",
+      counts: source.counts ?? "",
+      collapsed: Boolean(source.collapsed),
+      outcome: null
+    };
+  }
+  /** `null` (indeterminate), a 0..1 fraction, or `{ value, total }` -> ProgressBar input. */
+  static #normalizeProgress(progress) {
+    if (progress === null) return { indeterminate: true };
+    if (typeof progress === "number") {
+      return { value: Number.isFinite(progress) ? progress : 0, max: null, indeterminate: false };
+    }
+    if (typeof progress === "object") {
+      const value = Number(progress.value);
+      const total = Number(progress.total);
+      return {
+        value: Number.isFinite(value) ? value : 0,
+        max: Number.isFinite(total) && total > 0 ? total : null,
+        indeterminate: false
+      };
+    }
+    return { indeterminate: true };
+  }
+  /**
+   * 'collapse' only: keep at most `maxVisible` on screen, counting running
+   * progress toasts, which never leave and are never held (one that started
+   * running while held comes on screen first). Past the limit the newest
+   * other toast steps back to the front of the held queue (its timer
+   * restarts when it returns); under it the oldest held toast comes in.
+   */
+  #rebalance() {
+    if (this.overflow !== "collapse") return;
+    for (let i = 0; i < this.held.length; ) {
+      if (_NotificationCenter.#isRunning(this.held[i])) this.notifications.push(...this.held.splice(i, 1));
+      else i++;
+    }
+    while (this.notifications.length > this.maxVisible) {
+      let idx = -1;
+      for (let i = this.notifications.length - 1; i >= 0; i--) {
+        if (!_NotificationCenter.#isRunning(this.notifications[i])) {
+          idx = i;
+          break;
+        }
+      }
+      if (idx === -1) break;
+      const [back] = this.notifications.splice(idx, 1);
+      this.#stopTimer(back.id);
+      this.held.unshift(back);
+    }
+    while (this.held.length && this.notifications.length < this.maxVisible) {
+      const next = this.held.shift();
+      this.notifications.push(next);
+      this.#scheduleAutoDismiss(next);
+    }
+  }
+  /**
+   * Draw the toasts on screen. Each toast's element is built once and kept:
+   * a toast arriving or leaving only inserts or removes its own element, so
+   * every other toast keeps its nodes (and its bar, collapsed state, hover).
+   */
+  #render() {
+    if (!this._mounted || !this.listEl) {
+      return;
+    }
+    const visible = new Set(this.notifications.map((n) => n.id));
+    for (const [id, entry] of this.#items) {
+      if (visible.has(id)) continue;
+      entry.bar?.dispose();
+      entry.el.remove();
+      this.#items.delete(id);
+    }
+    const wanted = this.notifications.map((notification) => {
+      let entry = this.#items.get(notification.id);
+      if (!entry) {
+        entry = this.#buildItem(notification);
+        this.#items.set(notification.id, entry);
+      }
+      return entry.el;
+    });
+    const summary = this.#syncSummary();
+    if (summary) wanted.push(summary);
+    wanted.forEach((el3, i) => {
+      const at = this.listEl.children[i];
+      if (at !== el3) this.listEl.insertBefore(el3, at ?? null);
+    });
+    while (this.listEl.children.length > wanted.length) {
+      this.listEl.lastElementChild.remove();
+    }
+  }
+  // The held-back toasts, as one: "+N more". It is a button so the count is
+  // reachable by keyboard; what it opens is the consumer's (summaryAction),
+  // and it is also announced on the bus for a history panel to answer.
+  #syncSummary() {
+    if (!this.held.length) {
+      this.#summaryEl?.remove();
+      this.#summaryEl = null;
+      return null;
+    }
+    if (!this.#summaryEl) {
+      const more2 = document.createElement("button");
+      more2.type = "button";
+      more2.className = "twm-notification twm-notification--summary";
+      more2.addEventListener("click", () => {
+        const held = [...this.held];
+        try {
+          this.summaryAction?.(held);
+        } catch (err) {
+          this.logger?.warn?.("summaryAction failed", err);
+        }
+        this.eventBus?.emit?.("notification:summary", { held });
+      });
+      this.#summaryEl = more2;
+    }
+    const more = this.#summaryEl;
+    const count = String(this.held.length);
+    if (more.getAttribute("data-notification-summary") !== count) more.setAttribute("data-notification-summary", count);
+    _NotificationCenter.#setText(more, `+${count} more`);
+    const tip = this.held.map((h) => h.title || h.message).join("\n");
+    if (more.title !== tip) more.title = tip;
+    return more;
+  }
+  static #setText(node, text) {
+    const t = text == null ? "" : String(text);
+    if (node.textContent !== t) node.textContent = t;
+  }
+  /** Build one toast's element; `#patchItem` then fills what can change. */
+  #buildItem(notification) {
+    const isProgress = notification.progress !== void 0;
+    const item = document.createElement("div");
+    item.setAttribute("data-notification-id", notification.id);
+    const entry = {
+      el: item,
+      severity: null,
+      titleEl: null,
+      bodyEl: null,
+      descriptionEl: null,
+      statusEl: null,
+      bar: null,
+      collapseBtn: null
+    };
+    const header = document.createElement("div");
+    header.className = "twm-notification__header";
+    if (notification.title) {
+      entry.titleEl = document.createElement("span");
+      entry.titleEl.className = "twm-notification__title";
+      header.appendChild(entry.titleEl);
+    }
+    const timeEl = document.createElement("span");
+    timeEl.className = "twm-notification__timestamp";
+    timeEl.textContent = this.#formatTimestamp(notification.timestamp);
+    header.appendChild(timeEl);
+    if (isProgress) {
+      const toggle = document.createElement("button");
+      toggle.className = "twm-notification__collapse";
+      toggle.type = "button";
+      toggle.innerHTML = '<span class="material-symbols-outlined">expand_more</span>';
+      toggle.addEventListener("click", () => {
+        this.update(notification.id, { collapsed: !notification.collapsed });
+      });
+      entry.collapseBtn = toggle;
+      header.appendChild(toggle);
+    }
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "twm-notification__close";
+    closeBtn.type = "button";
+    closeBtn.setAttribute("aria-label", "Dismiss notification");
+    closeBtn.innerHTML = '<span class="material-symbols-outlined">close</span>';
+    closeBtn.addEventListener("click", () => this.dismiss(notification.id, "manual"));
+    header.appendChild(closeBtn);
+    item.appendChild(header);
+    entry.bodyEl = document.createElement("div");
+    entry.bodyEl.className = "twm-notification__body";
+    item.appendChild(entry.bodyEl);
+    if (isProgress) {
+      entry.bar = new ProgressBar(item, {
+        ...notification.progress,
+        showCount: false,
+        className: "twm-notification__progress"
+      });
+      entry.statusEl = document.createElement("div");
+      entry.statusEl.className = "twm-notification__status";
+      item.appendChild(entry.statusEl);
+    }
+    if (notification.description) {
+      entry.descriptionEl = document.createElement("div");
+      entry.descriptionEl.className = "twm-notification__description";
+      item.appendChild(entry.descriptionEl);
+    }
+    if (notification.actions.length > 0) {
+      const actionsEl = document.createElement("div");
+      actionsEl.className = "twm-notification__actions";
+      notification.actions.forEach((action) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "twm-notification__action-btn";
+        button.textContent = action.label;
+        button.addEventListener("click", () => {
+          try {
+            if (action.handler) {
+              action.handler(notification, action);
+            } else if (action.eventName && this.eventBus) {
+              this.eventBus.emit(action.eventName, action.payload ?? { notificationId: notification.id });
+            }
+          } catch (err) {
+            this.logger?.error?.("twm-notification-center", "Notification action failed", { err });
+          } finally {
+            if (notification.severity !== "error" && notification.severity !== "fatal" && !_NotificationCenter.#isRunning(notification)) {
+              this.dismiss(notification.id, "action");
+            }
+          }
+        });
+        actionsEl.appendChild(button);
+      });
+      item.appendChild(actionsEl);
+    }
+    item.addEventListener("click", (event) => {
+      if (event.target.closest(`button, ${TOAST_TEXT}`) || _NotificationCenter.#isRunning(notification) || selectsTextIn(item)) {
+        return;
+      }
+      this.dismiss(notification.id, "click");
+    });
+    item.addEventListener("contextmenu", (event) => showNotificationMenu(event, notification, this.logger));
+    this.#patchItem(entry, notification);
+    return entry;
+  }
+  /** Bring a drawn toast's nodes in line with its data, touching only what changed. */
+  #patchItem(entry, notification) {
+    const item = entry.el;
+    if (entry.severity !== notification.severity) {
+      if (entry.severity) item.classList.remove(`twm-notification--${entry.severity}`);
+      item.classList.add("twm-notification", `twm-notification--${notification.severity}`);
+      entry.severity = notification.severity;
+    }
+    if (entry.titleEl) _NotificationCenter.#setText(entry.titleEl, notification.title);
+    _NotificationCenter.#setText(entry.bodyEl, notification.message);
+    if (entry.descriptionEl) _NotificationCenter.#setText(entry.descriptionEl, notification.description);
+    if (!entry.bar) return;
+    item.classList.add("twm-notification--progress");
+    item.classList.toggle("twm-notification--collapsed", Boolean(notification.collapsed));
+    const expanded = String(!notification.collapsed);
+    if (entry.collapseBtn.getAttribute("aria-expanded") !== expanded) {
+      entry.collapseBtn.setAttribute("aria-expanded", expanded);
+      entry.collapseBtn.setAttribute("aria-label", notification.collapsed ? "Expand notification" : "Collapse notification");
+    }
+    _NotificationCenter.#setText(entry.statusEl, notification.status);
+    entry.statusEl.hidden = !notification.status;
+    entry.bar.update({ ...notification.progress, label: notification.counts });
+    const end = notification.outcome ?? "running";
+    if (entry.bar.state !== end) entry.bar.setState(end);
+  }
+  #formatTimestamp(timestamp) {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+  #announce(notification) {
+    if (!this.liveRegionEl) {
+      return;
+    }
+    const parts = [notification.title, notification.message].filter(Boolean);
+    this.liveRegionEl.textContent = parts.join(": ");
+  }
+  #handleToast(payload = {}) {
+    const message = payload.text ?? payload.message ?? (typeof payload === "string" ? payload : "");
+    if (!message) {
+      return;
+    }
+    const persistent = payload.persistent === true || payload.autoHide === false;
+    const durationMs = persistent ? 0 : payload.durationMs ?? payload.duration ?? payload.timeout;
+    this.show({
+      title: payload.title ?? null,
+      message,
+      severity: payload.type ?? payload.severity ?? "info",
+      durationMs,
+      persistent,
+      namespace: payload.namespace ?? null,
+      actions: payload.actions,
+      meta: payload.meta ?? null
+    });
+  }
+  #subscribeEvents() {
+    if (!this.eventBus) {
+      return;
+    }
+    this.eventDisposers.push(
+      this.eventBus.on("toast:show", (payload) => this.#handleToast(payload)),
+      this.eventBus.on("notification:show", (payload) => this.show(payload)),
+      this.eventBus.on("notification:update", (payload) => {
+        if (payload?.id) {
+          this.update(payload.id, payload);
+        }
+      }),
+      this.eventBus.on("log:entry", (entry) => this.ingestLogEntry(entry)),
+      this.eventBus.on("workspace:save:failed", (payload) => {
+        if (getSetting("workspace.save.showErrorToast", true)) {
+          this.show({
+            title: "Workspace Save Failed",
+            message: payload?.reason ? `Save failed: ${payload.reason}` : "Workspace save failed",
+            severity: "error",
+            meta: payload,
+            persistent: true
+          });
+        }
+      }),
+      this.eventBus.on("workspace:save:completed", (payload) => {
+        if (getSetting("workspace.save.showToast", false)) {
+          this.show({
+            title: "Workspace Saved",
+            message: "Changes saved successfully",
+            severity: "success",
+            durationMs: 3e3,
+            meta: payload,
+            skipHistory: true
+          });
+        }
+      }),
+      this.eventBus.on("workspace:import:failed", (payload) => {
+        if (getSetting("workspace.import.showErrorToast", true)) {
+          this.show({
+            title: "Workspace Import Failed",
+            message: payload?.error?.message || "Import failed",
+            severity: "error",
+            meta: payload,
+            persistent: true
+          });
+        }
+      }),
+      this.eventBus.on("workspace:import:completed", (payload) => {
+        if (getSetting("workspace.import.showToast", true)) {
+          this.show({
+            title: "Workspace Ready",
+            message: "Workspace import completed",
+            severity: "success",
+            durationMs: 3e3,
+            meta: payload,
+            skipHistory: true
+          });
+        }
+      })
+    );
+  }
+  /** The toast helpers (toast.js) emit on the bus of the centre mounted last. */
+  #claimToastBus() {
+    if (this.eventBus) setToastBus(this.eventBus);
+  }
+  #unsubscribeEvents() {
+    this.eventDisposers.forEach((disposer) => {
+      try {
+        disposer?.dispose?.();
+      } catch (err) {
+        this.logger?.warn?.("twm-notification-center", "Failed to remove event listener", { err });
+      }
+    });
+    this.eventDisposers = [];
+  }
+  static #formatNamespaceTitle(namespace) {
+    if (!namespace) return null;
+    return namespace.split(/[-_]/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  }
+};
+NotificationCenter.SEVERITIES = SEVERITIES;
+
 // src/ui/components/notification_history.js
 var NotificationHistory = class {
   constructor({
@@ -3604,10 +4464,11 @@ var NotificationHistory = class {
     };
     this._popoverCleanup = cleanup;
     const onDocDown = (ev) => {
+      if (ev.target.closest?.(".twm-context-menu")) return;
       if (!panel.contains(ev.target) && !this.triggerEl.contains(ev.target)) cleanup();
     };
     const onKey = (ev) => {
-      if (ev.key === "Escape") cleanup();
+      if (ev.key === "Escape" && !document.querySelector(".twm-context-menu")) cleanup();
     };
     const onResize = () => cleanup();
     document.addEventListener("mousedown", onDocDown, true);
@@ -3647,6 +4508,7 @@ var NotificationHistory = class {
       body.className = "twm-notification-history__item-body";
       body.textContent = entry.message || "";
       item.appendChild(body);
+      item.addEventListener("contextmenu", (event) => showNotificationMenu(event, entry, this.logger));
       fragment.appendChild(item);
     }
     listEl.appendChild(fragment);
@@ -5487,61 +6349,6 @@ function createTagInput(host, options = {}) {
   };
 }
 
-// src/ui/components/toast.js
-var toastBus = null;
-function setToastBus(bus) {
-  const prev = toastBus;
-  toastBus = bus && typeof bus.emit === "function" ? bus : null;
-  return prev;
-}
-function getToastBus() {
-  return toastBus;
-}
-function _emit(severity, persistent, titleOrMsg, msg) {
-  const bus = toastBus;
-  const title = msg !== void 0 ? titleOrMsg : null;
-  const message = msg !== void 0 ? msg : titleOrMsg;
-  if (!bus) {
-    (severity === "error" || severity === "warn" ? console.warn : console.info)(
-      `[toast/${severity}]`,
-      title ? `${title}:` : "",
-      message
-    );
-    return;
-  }
-  bus.emit("toast:show", {
-    title,
-    message,
-    severity,
-    persistent,
-    durationMs: persistent ? 0 : 5e3
-  });
-}
-function toastError(titleOrMsg, msg) {
-  _emit("error", true, titleOrMsg, msg);
-}
-function toastWarn(titleOrMsg, msg) {
-  _emit("warn", false, titleOrMsg, msg);
-}
-function toastInfo(titleOrMsg, msg) {
-  _emit("info", false, titleOrMsg, msg);
-}
-function toastSuccess(titleOrMsg, msg) {
-  _emit("success", false, titleOrMsg, msg);
-}
-function reportBridgeError(opName, resOrErr) {
-  if (!resOrErr) return true;
-  if (resOrErr instanceof Error) {
-    toastError(opName, resOrErr.message || String(resOrErr));
-    return false;
-  }
-  if (resOrErr && resOrErr.ok === false) {
-    toastError(opName, resOrErr.error || "operation refused");
-    return false;
-  }
-  return true;
-}
-
 // src/ui/components/tree_view.js
 function setText2(root, selector, value) {
   const el3 = root.querySelector(selector);
@@ -7123,790 +7930,6 @@ var WindowChromeController = class {
   }
 };
 
-// src/ui/notification_center.js
-var SEVERITIES = ["info", "success", "warn", "error", "fatal"];
-var OUTCOME_BAR_STATE = Object.freeze({ success: "done", error: "error", fatal: "error" });
-var LOG_SEVERITY_MAP = {
-  trace: "info",
-  debug: "info",
-  info: "info",
-  warn: "warn",
-  error: "error",
-  fatal: "fatal"
-};
-var DEFAULT_LOG_LEVELS = /* @__PURE__ */ new Set(["warn", "error", "fatal"]);
-var SUPPRESSED_NAMESPACE_TITLES = /* @__PURE__ */ new Set(["bootstrap", "app"]);
-var NotificationCenter = class _NotificationCenter extends ComponentBase {
-  #items;
-  #summaryEl;
-  #historyListeners;
-  constructor({
-    eventBus,
-    logger,
-    maxVisible = 3,
-    historyLimit = 50,
-    defaultDurationMs = 6e3,
-    logLevels = DEFAULT_LOG_LEVELS,
-    // What happens past `maxVisible`. 'drop' (the default, as before 0.11):
-    // the oldest toast leaves. 'collapse': the toasts on screen stay, the
-    // rest wait behind one "+N more" toast, and each comes in as one closes
-    // — a sticky alert nobody has read is never pushed off unseen.
-    overflow = "drop",
-    // Called with the held-back toasts when the "+N more" toast is clicked.
-    summaryAction = null
-  } = {}) {
-    super({ eventBus, logger });
-    this.maxVisible = maxVisible;
-    this.overflow = overflow === "collapse" ? "collapse" : "drop";
-    this.summaryAction = typeof summaryAction === "function" ? summaryAction : null;
-    this.held = [];
-    this.historyLimit = historyLimit;
-    this.defaultDurationMs = defaultDurationMs;
-    this.logLevels = new Set(logLevels ?? DEFAULT_LOG_LEVELS);
-    this.notifications = [];
-    this.history = [];
-    this.sequence = 0;
-    this.activeTimers = /* @__PURE__ */ new Map();
-    this.eventDisposers = [];
-    this.#items = /* @__PURE__ */ new Map();
-    this.#summaryEl = null;
-    this.#historyListeners = /* @__PURE__ */ new Set();
-    this.container = null;
-    this.rootEl = null;
-    this.listEl = null;
-    this.liveRegionEl = null;
-  }
-  mount(container, props = {}) {
-    const existingContainer = document.getElementById("notification-center-root");
-    if (existingContainer) {
-      this.container = existingContainer;
-      this.rootEl = existingContainer.querySelector(".twm-notification-center");
-      this.listEl = existingContainer.querySelector(".twm-notification-center__list");
-      this.liveRegionEl = existingContainer.querySelector(".twm-notification-center__live-region");
-      this._mounted = true;
-      this.#subscribeEvents();
-      this.#claimToastBus();
-      return this;
-    }
-    this.container = document.createElement("div");
-    this.container.id = "notification-center-root";
-    this.container.style.cssText = "position: fixed; right: 16px; bottom: 24px; z-index: 10000; pointer-events: none;";
-    this.rootEl = document.createElement("div");
-    this.rootEl.className = "twm-notification-center";
-    this.listEl = document.createElement("div");
-    this.listEl.className = "twm-notification-center__list";
-    this.liveRegionEl = document.createElement("div");
-    this.liveRegionEl.className = "twm-notification-center__live-region";
-    this.liveRegionEl.setAttribute("aria-live", "polite");
-    this.liveRegionEl.setAttribute("aria-atomic", "true");
-    this.liveRegionEl.style.position = "absolute";
-    this.liveRegionEl.style.width = "1px";
-    this.liveRegionEl.style.height = "1px";
-    this.liveRegionEl.style.overflow = "hidden";
-    this.liveRegionEl.style.clip = "rect(1px, 1px, 1px, 1px)";
-    this.rootEl.appendChild(this.listEl);
-    this.rootEl.appendChild(this.liveRegionEl);
-    this.container.appendChild(this.rootEl);
-    document.body.appendChild(this.container);
-    this._mounted = true;
-    this.#subscribeEvents();
-    this.#claimToastBus();
-    if (Array.isArray(props.initialNotifications)) {
-      props.initialNotifications.forEach((notification) => this.show(notification));
-    }
-    return this;
-  }
-  dispose() {
-    this.#clearTimers();
-    this.#unsubscribeEvents();
-    this.#historyListeners.clear();
-    if (this.eventBus && getToastBus() === this.eventBus) setToastBus(null);
-    this.#items.forEach((entry) => entry.bar?.dispose());
-    this.#items.clear();
-    this.#summaryEl = null;
-    if (this.rootEl?.parentNode) {
-      this.rootEl.parentNode.removeChild(this.rootEl);
-    }
-    this.container = null;
-    this.rootEl = null;
-    this.listEl = null;
-    this.liveRegionEl = null;
-    super.dispose();
-  }
-  show(notification) {
-    const normalized = this.#normalizeNotification(notification);
-    this.#consoleLog(normalized);
-    const running = _NotificationCenter.#isRunning(normalized);
-    if (this.overflow === "collapse" && !running && this.notifications.length >= this.maxVisible) {
-      this.held.push(normalized);
-      this.#recordHistory(normalized);
-      this.#render();
-      this.#announce(normalized);
-      return normalized.id;
-    }
-    this.notifications.push(normalized);
-    if (this.overflow === "collapse") {
-      this.#rebalance();
-    } else if (this.notifications.length > this.maxVisible) {
-      const idx = this.notifications.findIndex((item) => !_NotificationCenter.#isRunning(item));
-      if (idx !== -1) {
-        const [removed] = this.notifications.splice(idx, 1);
-        this.#stopTimer(removed.id);
-        this.#recordDismissal(removed, "overflow");
-      }
-    }
-    this.#recordHistory(normalized);
-    this.#scheduleAutoDismiss(normalized);
-    this.#render();
-    this.#announce(normalized);
-    return normalized.id;
-  }
-  dismiss(notificationId, reason = "dismissed") {
-    const idx = this.notifications.findIndex((item) => item.id === notificationId);
-    if (idx === -1) {
-      const h = this.held.findIndex((item) => item.id === notificationId);
-      if (h === -1) return false;
-      const [gone] = this.held.splice(h, 1);
-      this.#recordDismissal(gone, reason);
-      this.#render();
-      return true;
-    }
-    const [removed] = this.notifications.splice(idx, 1);
-    this.#stopTimer(notificationId);
-    this.#recordDismissal(removed, reason);
-    this.#rebalance();
-    this.#render();
-    return true;
-  }
-  /**
-   * Change a notification in place: only its own nodes are touched, and no
-   * other toast is redrawn. A held-back toast is changed too and shows the
-   * change when it comes on screen.
-   *
-   * Fields: `message`, `title`, `description`, `severity`, `meta`, and for
-   * progress toasts `progress` (fraction, `{ value, total }`, or `null` for
-   * indeterminate), `status`, `counts` and `collapsed`; `progress` on a
-   * plain toast turns it into a running progress toast (on screen, as with
-   * show()). Giving a running progress toast an outcome severity (success,
-   * error, fatal) finishes it, and its bar keeps the state it ended in: a
-   * later severity only restyles the toast. A `durationMs` on a toast that
-   * is not running (re)starts its auto-dismiss (0 keeps it until closed).
-   *
-   * @param {string} notificationId - The ID of the notification to update
-   * @param {Object} updates - The fields to change
-   * @returns {boolean} True if the notification was found and updated
-   */
-  update(notificationId, updates = {}) {
-    const notification = this.notifications.find((item) => item.id === notificationId) ?? this.held.find((item) => item.id === notificationId);
-    if (!notification) {
-      return false;
-    }
-    const hadTitle = Boolean(notification.title);
-    const hadDescription = Boolean(notification.description);
-    const wasProgress = notification.progress !== void 0;
-    const wasRunning = _NotificationCenter.#isRunning(notification);
-    if (updates.message !== void 0) notification.message = updates.message;
-    if (updates.title !== void 0) notification.title = updates.title;
-    if (updates.description !== void 0) notification.description = updates.description;
-    if (updates.meta !== void 0) notification.meta = updates.meta;
-    if (updates.status !== void 0) notification.status = updates.status ?? "";
-    if (updates.counts !== void 0) notification.counts = updates.counts ?? "";
-    if (updates.collapsed !== void 0) notification.collapsed = Boolean(updates.collapsed);
-    if (updates.progress !== void 0) {
-      if (wasProgress) {
-        notification.progress = _NotificationCenter.#normalizeProgress(updates.progress);
-      } else {
-        Object.assign(notification, _NotificationCenter.#progressFields({ ...notification, ...updates }));
-        notification.persistent = true;
-        this.#stopTimer(notification.id);
-      }
-    }
-    if (updates.severity !== void 0) {
-      notification.severity = this.#normalizeSeverity(updates.severity);
-      const outcome = OUTCOME_BAR_STATE[notification.severity];
-      if (_NotificationCenter.#isRunning(notification) && outcome) notification.outcome = outcome;
-    }
-    const running = _NotificationCenter.#isRunning(notification);
-    const finished = wasRunning && !running;
-    if (updates.durationMs !== void 0 && !_NotificationCenter.#isRunning(notification)) {
-      notification.durationMs = this.#coerceDuration(updates.durationMs);
-      notification.persistent = notification.durationMs === 0;
-      if (this.notifications.includes(notification)) {
-        this.#stopTimer(notification.id);
-        this.#scheduleAutoDismiss(notification);
-      }
-    }
-    const entry = this.#items.get(notification.id);
-    if (entry) {
-      const structural = hadTitle !== Boolean(notification.title) || hadDescription !== Boolean(notification.description) || wasProgress !== (notification.progress !== void 0);
-      if (structural) {
-        const next = this.#buildItem(notification);
-        entry.el.replaceWith(next.el);
-        entry.bar?.dispose();
-        this.#items.set(notification.id, next);
-      } else {
-        this.#patchItem(entry, notification);
-      }
-    }
-    if (finished) this.#announce(notification);
-    if (running !== wasRunning) this.#rebalance();
-    this.#render();
-    return true;
-  }
-  clearAll(reason = "cleared") {
-    [...this.notifications].forEach((notification) => this.dismiss(notification.id, reason));
-  }
-  ingestLogEntry(entry) {
-    if (!entry || !this.logLevels.has(entry.level)) {
-      return;
-    }
-    if (entry.namespace === "state-guard") {
-      return;
-    }
-    const severity = LOG_SEVERITY_MAP[entry.level] ?? "info";
-    const suppressTitle = SUPPRESSED_NAMESPACE_TITLES.has(entry.namespace);
-    const title = suppressTitle ? null : _NotificationCenter.#formatNamespaceTitle(entry.namespace);
-    const skipHistory = severity === "info" && suppressTitle;
-    this.show({
-      title,
-      message: entry.message,
-      severity,
-      namespace: entry.namespace,
-      meta: entry.data,
-      skipHistory
-    });
-  }
-  #consoleLog(notification) {
-    if (notification.severity !== "warn" && notification.severity !== "error" && notification.severity !== "fatal") {
-      return;
-    }
-    const method = notification.severity === "warn" ? console.warn : console.error;
-    const prefix = notification.title ? `[${notification.title}]` : "[Notification]";
-    const details = notification.meta ?? notification.description ?? "";
-    method(`${prefix} ${notification.message}`, details);
-  }
-  #normalizeNotification(notification) {
-    if (!notification) {
-      throw new TypeError("Notification payload is required");
-    }
-    const id = notification.id ?? `notification-${++this.sequence}`;
-    const severity = this.#normalizeSeverity(notification.severity ?? "info");
-    const isProgress = notification.progress !== void 0;
-    return {
-      ...isProgress ? _NotificationCenter.#progressFields(notification) : {},
-      id,
-      title: notification.title ?? null,
-      message: notification.message ?? "",
-      description: notification.description ?? null,
-      timestamp: notification.timestamp ?? Date.now(),
-      severity,
-      namespace: notification.namespace ?? null,
-      durationMs: this.#coerceDuration(notification.durationMs),
-      // A progress toast stays until it finishes (and then until its
-      // finishing durationMs, or its ×).
-      persistent: isProgress || Boolean(notification.persistent),
-      skipHistory: Boolean(notification.skipHistory),
-      actions: this.#normalizeActions(notification.actions),
-      meta: notification.meta ?? null
-    };
-  }
-  #normalizeSeverity(severity) {
-    const value = typeof severity === "string" ? severity.toLowerCase() : "info";
-    if (!SEVERITIES.includes(value)) {
-      return "info";
-    }
-    return value;
-  }
-  #coerceDuration(duration) {
-    if (duration === null || duration === void 0) {
-      return this.defaultDurationMs;
-    }
-    const value = Number(duration);
-    if (!Number.isFinite(value) || value < 0) {
-      return this.defaultDurationMs;
-    }
-    return value;
-  }
-  toast(title, message, type = "info") {
-    this.show({
-      title,
-      message,
-      severity: type,
-      persistent: type === "error" || type === "fatal"
-    });
-  }
-  error(titleOrMessage, message) {
-    const hasTitle = message !== void 0;
-    return this.show({
-      title: hasTitle ? titleOrMessage : null,
-      message: hasTitle ? message : titleOrMessage,
-      severity: "error",
-      persistent: true
-    });
-  }
-  warn(titleOrMessage, message) {
-    const hasTitle = message !== void 0;
-    return this.show({
-      title: hasTitle ? titleOrMessage : null,
-      message: hasTitle ? message : titleOrMessage,
-      severity: "warn"
-    });
-  }
-  info(titleOrMessage, message) {
-    const hasTitle = message !== void 0;
-    return this.show({
-      title: hasTitle ? titleOrMessage : null,
-      message: hasTitle ? message : titleOrMessage,
-      severity: "info"
-    });
-  }
-  success(titleOrMessage, message) {
-    const hasTitle = message !== void 0;
-    return this.show({
-      title: hasTitle ? titleOrMessage : null,
-      message: hasTitle ? message : titleOrMessage,
-      severity: "success"
-    });
-  }
-  #normalizeActions(actions) {
-    if (!Array.isArray(actions) || actions.length === 0) {
-      return [];
-    }
-    return actions.map((action, idx) => ({
-      id: action.id ?? `action-${idx}`,
-      label: action.label ?? "Action",
-      handler: typeof action.handler === "function" ? action.handler : null,
-      eventName: action.eventName ?? null,
-      payload: action.payload ?? null
-    }));
-  }
-  #scheduleAutoDismiss(notification) {
-    if (notification.persistent || notification.durationMs === 0) {
-      return;
-    }
-    const timer = setTimeout(() => {
-      this.dismiss(notification.id, "timeout");
-    }, notification.durationMs);
-    this.activeTimers.set(notification.id, timer);
-  }
-  #stopTimer(notificationId) {
-    const timer = this.activeTimers.get(notificationId);
-    if (timer) {
-      clearTimeout(timer);
-      this.activeTimers.delete(notificationId);
-    }
-  }
-  #clearTimers() {
-    this.activeTimers.forEach((timer) => clearTimeout(timer));
-    this.activeTimers.clear();
-  }
-  /**
-   * Hear of every entry added to `history`, by `show()`, `warn()`/`error()`/
-   * `info()`/`success()` and the bus alike: `listener(entry, center)`, once
-   * per toast, after the entry is in `history`. A dismissal changes the
-   * toast's own entry and is not an entry of its own. Answers the unsubscribe.
-   */
-  subscribe(listener) {
-    if (typeof listener !== "function") return () => {
-    };
-    this.#historyListeners.add(listener);
-    return () => {
-      this.#historyListeners.delete(listener);
-    };
-  }
-  #recordHistory(entry) {
-    if (entry.skipHistory) return;
-    this.history.push(entry);
-    if (this.history.length > this.historyLimit) {
-      this.history.shift();
-    }
-    [...this.#historyListeners].forEach((listener) => {
-      try {
-        listener(entry, this);
-      } catch (err) {
-        this.logger?.warn?.("twm-notification-center", "History listener failed", { err });
-      }
-    });
-  }
-  /** A toast that left marks its own entry: one toast, one entry. */
-  #recordDismissal(notification, reason) {
-    if (notification.skipHistory) return;
-    const at = this.history.findLastIndex((entry) => entry.id === notification.id);
-    if (at === -1) return;
-    this.history[at] = { ...notification, dismissed: true, reason };
-  }
-  /** A progress toast that has not been given an outcome yet. */
-  static #isRunning(notification) {
-    return notification.progress !== void 0 && !notification.outcome;
-  }
-  /**
-   * The fields a progress toast carries, from a show() payload or an
-   * update() that turns a plain toast into one. `outcome` is null while it
-   * runs, then the state its bar ended in (done or error).
-   */
-  static #progressFields(source) {
-    return {
-      progress: _NotificationCenter.#normalizeProgress(source.progress),
-      status: source.status ?? "",
-      counts: source.counts ?? "",
-      collapsed: Boolean(source.collapsed),
-      outcome: null
-    };
-  }
-  /** `null` (indeterminate), a 0..1 fraction, or `{ value, total }` -> ProgressBar input. */
-  static #normalizeProgress(progress) {
-    if (progress === null) return { indeterminate: true };
-    if (typeof progress === "number") {
-      return { value: Number.isFinite(progress) ? progress : 0, max: null, indeterminate: false };
-    }
-    if (typeof progress === "object") {
-      const value = Number(progress.value);
-      const total = Number(progress.total);
-      return {
-        value: Number.isFinite(value) ? value : 0,
-        max: Number.isFinite(total) && total > 0 ? total : null,
-        indeterminate: false
-      };
-    }
-    return { indeterminate: true };
-  }
-  /**
-   * 'collapse' only: keep at most `maxVisible` on screen, counting running
-   * progress toasts, which never leave and are never held (one that started
-   * running while held comes on screen first). Past the limit the newest
-   * other toast steps back to the front of the held queue (its timer
-   * restarts when it returns); under it the oldest held toast comes in.
-   */
-  #rebalance() {
-    if (this.overflow !== "collapse") return;
-    for (let i = 0; i < this.held.length; ) {
-      if (_NotificationCenter.#isRunning(this.held[i])) this.notifications.push(...this.held.splice(i, 1));
-      else i++;
-    }
-    while (this.notifications.length > this.maxVisible) {
-      let idx = -1;
-      for (let i = this.notifications.length - 1; i >= 0; i--) {
-        if (!_NotificationCenter.#isRunning(this.notifications[i])) {
-          idx = i;
-          break;
-        }
-      }
-      if (idx === -1) break;
-      const [back] = this.notifications.splice(idx, 1);
-      this.#stopTimer(back.id);
-      this.held.unshift(back);
-    }
-    while (this.held.length && this.notifications.length < this.maxVisible) {
-      const next = this.held.shift();
-      this.notifications.push(next);
-      this.#scheduleAutoDismiss(next);
-    }
-  }
-  /**
-   * Draw the toasts on screen. Each toast's element is built once and kept:
-   * a toast arriving or leaving only inserts or removes its own element, so
-   * every other toast keeps its nodes (and its bar, collapsed state, hover).
-   */
-  #render() {
-    if (!this._mounted || !this.listEl) {
-      return;
-    }
-    const visible = new Set(this.notifications.map((n) => n.id));
-    for (const [id, entry] of this.#items) {
-      if (visible.has(id)) continue;
-      entry.bar?.dispose();
-      entry.el.remove();
-      this.#items.delete(id);
-    }
-    const wanted = this.notifications.map((notification) => {
-      let entry = this.#items.get(notification.id);
-      if (!entry) {
-        entry = this.#buildItem(notification);
-        this.#items.set(notification.id, entry);
-      }
-      return entry.el;
-    });
-    const summary = this.#syncSummary();
-    if (summary) wanted.push(summary);
-    wanted.forEach((el3, i) => {
-      const at = this.listEl.children[i];
-      if (at !== el3) this.listEl.insertBefore(el3, at ?? null);
-    });
-    while (this.listEl.children.length > wanted.length) {
-      this.listEl.lastElementChild.remove();
-    }
-  }
-  // The held-back toasts, as one: "+N more". It is a button so the count is
-  // reachable by keyboard; what it opens is the consumer's (summaryAction),
-  // and it is also announced on the bus for a history panel to answer.
-  #syncSummary() {
-    if (!this.held.length) {
-      this.#summaryEl?.remove();
-      this.#summaryEl = null;
-      return null;
-    }
-    if (!this.#summaryEl) {
-      const more2 = document.createElement("button");
-      more2.type = "button";
-      more2.className = "twm-notification twm-notification--summary";
-      more2.addEventListener("click", () => {
-        const held = [...this.held];
-        try {
-          this.summaryAction?.(held);
-        } catch (err) {
-          this.logger?.warn?.("summaryAction failed", err);
-        }
-        this.eventBus?.emit?.("notification:summary", { held });
-      });
-      this.#summaryEl = more2;
-    }
-    const more = this.#summaryEl;
-    const count = String(this.held.length);
-    if (more.getAttribute("data-notification-summary") !== count) more.setAttribute("data-notification-summary", count);
-    _NotificationCenter.#setText(more, `+${count} more`);
-    const tip = this.held.map((h) => h.title || h.message).join("\n");
-    if (more.title !== tip) more.title = tip;
-    return more;
-  }
-  static #setText(node, text) {
-    const t = text == null ? "" : String(text);
-    if (node.textContent !== t) node.textContent = t;
-  }
-  /** Build one toast's element; `#patchItem` then fills what can change. */
-  #buildItem(notification) {
-    const isProgress = notification.progress !== void 0;
-    const item = document.createElement("div");
-    item.setAttribute("data-notification-id", notification.id);
-    const entry = {
-      el: item,
-      severity: null,
-      titleEl: null,
-      bodyEl: null,
-      descriptionEl: null,
-      statusEl: null,
-      bar: null,
-      collapseBtn: null
-    };
-    const header = document.createElement("div");
-    header.className = "twm-notification__header";
-    if (notification.title) {
-      entry.titleEl = document.createElement("span");
-      entry.titleEl.className = "twm-notification__title";
-      header.appendChild(entry.titleEl);
-    }
-    const timeEl = document.createElement("span");
-    timeEl.className = "twm-notification__timestamp";
-    timeEl.textContent = this.#formatTimestamp(notification.timestamp);
-    header.appendChild(timeEl);
-    if (isProgress) {
-      const toggle = document.createElement("button");
-      toggle.className = "twm-notification__collapse";
-      toggle.type = "button";
-      toggle.innerHTML = '<span class="material-symbols-outlined">expand_more</span>';
-      toggle.addEventListener("click", () => {
-        this.update(notification.id, { collapsed: !notification.collapsed });
-      });
-      entry.collapseBtn = toggle;
-      header.appendChild(toggle);
-    }
-    const closeBtn = document.createElement("button");
-    closeBtn.className = "twm-notification__close";
-    closeBtn.type = "button";
-    closeBtn.setAttribute("aria-label", "Dismiss notification");
-    closeBtn.innerHTML = '<span class="material-symbols-outlined">close</span>';
-    closeBtn.addEventListener("click", () => this.dismiss(notification.id, "manual"));
-    header.appendChild(closeBtn);
-    item.appendChild(header);
-    entry.bodyEl = document.createElement("div");
-    entry.bodyEl.className = "twm-notification__body";
-    item.appendChild(entry.bodyEl);
-    if (isProgress) {
-      entry.bar = new ProgressBar(item, {
-        ...notification.progress,
-        showCount: false,
-        className: "twm-notification__progress"
-      });
-      entry.statusEl = document.createElement("div");
-      entry.statusEl.className = "twm-notification__status";
-      item.appendChild(entry.statusEl);
-    }
-    if (notification.description) {
-      entry.descriptionEl = document.createElement("div");
-      entry.descriptionEl.className = "twm-notification__description";
-      item.appendChild(entry.descriptionEl);
-    }
-    if (notification.actions.length > 0) {
-      const actionsEl = document.createElement("div");
-      actionsEl.className = "twm-notification__actions";
-      notification.actions.forEach((action) => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "twm-notification__action-btn";
-        button.textContent = action.label;
-        button.addEventListener("click", () => {
-          try {
-            if (action.handler) {
-              action.handler(notification, action);
-            } else if (action.eventName && this.eventBus) {
-              this.eventBus.emit(action.eventName, action.payload ?? { notificationId: notification.id });
-            }
-          } catch (err) {
-            this.logger?.error?.("twm-notification-center", "Notification action failed", { err });
-          } finally {
-            if (notification.severity !== "error" && notification.severity !== "fatal" && !_NotificationCenter.#isRunning(notification)) {
-              this.dismiss(notification.id, "action");
-            }
-          }
-        });
-        actionsEl.appendChild(button);
-      });
-      item.appendChild(actionsEl);
-    }
-    item.addEventListener("click", (event) => {
-      if (event.target.closest("button") || _NotificationCenter.#isRunning(notification)) {
-        return;
-      }
-      this.dismiss(notification.id, "click");
-    });
-    this.#patchItem(entry, notification);
-    return entry;
-  }
-  /** Bring a drawn toast's nodes in line with its data, touching only what changed. */
-  #patchItem(entry, notification) {
-    const item = entry.el;
-    if (entry.severity !== notification.severity) {
-      if (entry.severity) item.classList.remove(`twm-notification--${entry.severity}`);
-      item.classList.add("twm-notification", `twm-notification--${notification.severity}`);
-      entry.severity = notification.severity;
-    }
-    if (entry.titleEl) _NotificationCenter.#setText(entry.titleEl, notification.title);
-    _NotificationCenter.#setText(entry.bodyEl, notification.message);
-    if (entry.descriptionEl) _NotificationCenter.#setText(entry.descriptionEl, notification.description);
-    if (!entry.bar) return;
-    item.classList.add("twm-notification--progress");
-    item.classList.toggle("twm-notification--collapsed", Boolean(notification.collapsed));
-    const expanded = String(!notification.collapsed);
-    if (entry.collapseBtn.getAttribute("aria-expanded") !== expanded) {
-      entry.collapseBtn.setAttribute("aria-expanded", expanded);
-      entry.collapseBtn.setAttribute("aria-label", notification.collapsed ? "Expand notification" : "Collapse notification");
-    }
-    _NotificationCenter.#setText(entry.statusEl, notification.status);
-    entry.statusEl.hidden = !notification.status;
-    entry.bar.update({ ...notification.progress, label: notification.counts });
-    const end = notification.outcome ?? "running";
-    if (entry.bar.state !== end) entry.bar.setState(end);
-  }
-  #formatTimestamp(timestamp) {
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  }
-  #announce(notification) {
-    if (!this.liveRegionEl) {
-      return;
-    }
-    const parts = [notification.title, notification.message].filter(Boolean);
-    this.liveRegionEl.textContent = parts.join(": ");
-  }
-  #handleToast(payload = {}) {
-    const message = payload.text ?? payload.message ?? (typeof payload === "string" ? payload : "");
-    if (!message) {
-      return;
-    }
-    const persistent = payload.persistent === true || payload.autoHide === false;
-    const durationMs = persistent ? 0 : payload.durationMs ?? payload.duration ?? payload.timeout;
-    this.show({
-      title: payload.title ?? null,
-      message,
-      severity: payload.type ?? payload.severity ?? "info",
-      durationMs,
-      persistent,
-      namespace: payload.namespace ?? null,
-      actions: payload.actions,
-      meta: payload.meta ?? null
-    });
-  }
-  #subscribeEvents() {
-    if (!this.eventBus) {
-      return;
-    }
-    this.eventDisposers.push(
-      this.eventBus.on("toast:show", (payload) => this.#handleToast(payload)),
-      this.eventBus.on("notification:show", (payload) => this.show(payload)),
-      this.eventBus.on("notification:update", (payload) => {
-        if (payload?.id) {
-          this.update(payload.id, payload);
-        }
-      }),
-      this.eventBus.on("log:entry", (entry) => this.ingestLogEntry(entry)),
-      this.eventBus.on("workspace:save:failed", (payload) => {
-        if (getSetting("workspace.save.showErrorToast", true)) {
-          this.show({
-            title: "Workspace Save Failed",
-            message: payload?.reason ? `Save failed: ${payload.reason}` : "Workspace save failed",
-            severity: "error",
-            meta: payload,
-            persistent: true
-          });
-        }
-      }),
-      this.eventBus.on("workspace:save:completed", (payload) => {
-        if (getSetting("workspace.save.showToast", false)) {
-          this.show({
-            title: "Workspace Saved",
-            message: "Changes saved successfully",
-            severity: "success",
-            durationMs: 3e3,
-            meta: payload,
-            skipHistory: true
-          });
-        }
-      }),
-      this.eventBus.on("workspace:import:failed", (payload) => {
-        if (getSetting("workspace.import.showErrorToast", true)) {
-          this.show({
-            title: "Workspace Import Failed",
-            message: payload?.error?.message || "Import failed",
-            severity: "error",
-            meta: payload,
-            persistent: true
-          });
-        }
-      }),
-      this.eventBus.on("workspace:import:completed", (payload) => {
-        if (getSetting("workspace.import.showToast", true)) {
-          this.show({
-            title: "Workspace Ready",
-            message: "Workspace import completed",
-            severity: "success",
-            durationMs: 3e3,
-            meta: payload,
-            skipHistory: true
-          });
-        }
-      })
-    );
-  }
-  /** The toast helpers (toast.js) emit on the bus of the centre mounted last. */
-  #claimToastBus() {
-    if (this.eventBus) setToastBus(this.eventBus);
-  }
-  #unsubscribeEvents() {
-    this.eventDisposers.forEach((disposer) => {
-      try {
-        disposer?.dispose?.();
-      } catch (err) {
-        this.logger?.warn?.("twm-notification-center", "Failed to remove event listener", { err });
-      }
-    });
-    this.eventDisposers = [];
-  }
-  static #formatNamespaceTitle(namespace) {
-    if (!namespace) return null;
-    return namespace.split(/[-_]/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-  }
-};
-NotificationCenter.SEVERITIES = SEVERITIES;
-
 // src/ui/utils/auto_scrollbars.js
 var LAYER_ID = "twm-autoscroll-layer";
 var ROOT_CLASS = "twm-autoscroll";
@@ -9047,6 +9070,7 @@ export {
   normalizeHex,
   normalizeLevel,
   normalizeOptions,
+  notificationText,
   numberSeparators,
   openConfirm,
   openForm,
@@ -9076,6 +9100,7 @@ export {
   showConfirmDialog,
   showContextMenu,
   showDeleteConfirmDialog,
+  showNotificationMenu,
   showRunProgressDialog,
   showSelectDialog,
   suppressNativeContextMenu,

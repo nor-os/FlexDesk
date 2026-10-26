@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.17.17 (2026-10-27)
+
+A patch release. One additive taxonomy option and notification copying; one
+entry changes what embedders see (listed under "Changed behaviour").
+
+### Added
+
+- [A kind that exists once per desktop: `single: 'desktop'`](docs/components/shell.md#a-kind-that-exists-once-per-desktop-single-desktop-01717): at most one instance per virtual desktop. The top nav, `navigate`, `openInPrimary` and the other open paths reveal the active desktop's instance or open one there, and never switch desktop; navigating inside a window looks on the window's own desktop; the move verbs refuse to carry the kind onto a desktop that holds it (`wm.desktopMoveRefusal`, greyed menu rows); a restored layout and page restores dedupe per desktop. `single: true` is unchanged. New: `taxonomy.isSinglePerDesktop(kind)` (STORY-0130).
+- [Copy message](docs/components/notifications.md#copy-message): right-clicking a toast or a `NotificationHistory` entry opens the context menu with **Copy message** (title, message and description as plain text); notification text is selectable, and a click on a toast's text selects it instead of closing the toast (STORY-0131).
+
+### Changed behaviour
+
+- Every `showContextMenu` menu draws on the new `--z-context-menu` layer (10100, tokens.css), over toasts and managed windows; it was `z-index: 5000` (STORY-0131).
+- A click on a toast's text (title, message, description, status) no longer closes it; a click on the card outside its text, or ×, does (STORY-0131).
+
+### Removed or renamed exports
+
+None. New: `isSinglePerDesktop` on the taxonomy, `wm.desktopMoveRefusal`, `notificationText` (notification_center.js), the `--z-context-menu` custom property.
+
 ## 0.17.16 (2026-10-27)
 
 A patch release. Two new widgets and options; the other entries change what

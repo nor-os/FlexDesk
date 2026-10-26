@@ -551,6 +551,17 @@
     color: #bcbcbc;
     line-height: 1.4;
 }
+/* The text of a toast and of a history entry can be selected and copied (STORY-0131);
+ * the body's `user-select: none` (reset.css) would otherwise hold it. */
+.twm-notification__title,
+.twm-notification__body,
+.twm-notification__description,
+.twm-notification__status,
+.twm-notification-history__item-title,
+.twm-notification-history__item-body {
+    user-select: text;
+    cursor: text;
+}
 .twm-notification-history__empty {
     text-align: center;
     color: #6c6c6c;

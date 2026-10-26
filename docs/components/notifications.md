@@ -156,6 +156,22 @@ Until 0.17.3 the bell counted only on bus events, so a toast raised through
 was pushed as a second entry: a toast that timed out was in `history` twice
 and counted twice. `tests/notification_history_follows_center.test.mjs` holds it.
 
+### Copy message
+
+Right-clicking a toast, or its entry in the `NotificationHistory` popover, opens
+the context menu (`showContextMenu`) with **Copy message**. It copies the
+notification's title, message and description, one per line and skipping any
+that is empty, as plain text through `navigator.clipboard.writeText`. The menu
+replaces the browser's native one there. The history popover stays open while
+its menu is used.
+
+The text of a toast and of a history entry (title, message, description,
+status) is selectable: the sheets give it `user-select: text` over the body's
+`none`. A click that ends a selection inside a toast does not close it, and a
+plain click still does. `notificationText(notification)` returns the copied
+text, and `showNotificationMenu(event, notification, logger)` opens the menu.
+Both are exported from `widgets`. `tests/notification_copy.test.mjs` covers it.
+
 ### Alerts with history: a log, a pane, a tab host and a bell (0.14.0)
 
 A toast is the moment. The **alert log** keeps what came in until it is

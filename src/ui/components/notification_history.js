@@ -21,7 +21,11 @@
  *   alertsTab   the tab a click asks for, `bottompanel:show { tab }`; 'alerts'.
  *   onOpen      a click, instead of the bus event — for an embedder with no bus,
  *               or whose panel must be opened before a tab can be chosen.
+ *
+ * A right-click on an entry opens the context menu with "Copy message"
+ * (STORY-0131), the same as on its toast; the popover stays open meanwhile.
  */
+import { showNotificationMenu } from '../notification_center.js';
 
 export class NotificationHistory {
     constructor({ notificationCenter, eventBus, logger, mountPoint = null, alertLog = null,
@@ -209,7 +213,9 @@ export class NotificationHistory {
         };
         this._popoverCleanup = cleanup;
 
+        // The entries' context menu is outside the panel, and using it is not leaving it.
         const onDocDown = (ev) => {
+            if (ev.target.closest?.('.twm-context-menu')) return;
             if (!panel.contains(ev.target) && !this.triggerEl.contains(ev.target)) cleanup();
         };
         const onKey = (ev) => { if (ev.key === 'Escape') cleanup(); };
@@ -261,6 +267,7 @@ export class NotificationHistory {
             body.className = 'twm-notification-history__item-body';
             body.textContent = entry.message || '';
             item.appendChild(body);
+            item.addEventListener('contextmenu', (event) => showNotificationMenu(event, entry, this.logger));
 
             fragment.appendChild(item);
         }

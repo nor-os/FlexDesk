@@ -35,11 +35,19 @@
  * `log:entry`). A toast that leaves marks its own entry `dismissed` with a
  * `reason`; it adds none. `subscribe(fn)` calls `fn(entry, center)` for each
  * entry added, so a history view follows the centre rather than the bus.
+ *
+ * Copy message (STORY-0131)
+ * -------------------------
+ * A right-click on a toast, or on its entry in the history, opens the context
+ * menu with "Copy message": the title, the message and the description, one
+ * per line, go to the clipboard as plain text. The text is also selectable,
+ * and a click that ends a selection does not close the toast.
  */
 import { ComponentBase } from './base/component_base.js';
 import { getSetting } from '../core/settings.js';
 import { setToastBus, getToastBus } from './components/toast.js';
 import { ProgressBar } from './components/progress.js';
+import { showContextMenu } from './components/context_menu.js';
 
 const SEVERITIES = ['info', 'success', 'warn', 'error', 'fatal'];
 
@@ -59,6 +67,35 @@ const DEFAULT_LOG_LEVELS = new Set(['warn', 'error', 'fatal']);
 // Internal namespace identifiers that should not be shown as toast titles.
 // Messages from these namespaces are self-descriptive and need no category header.
 const SUPPRESSED_NAMESPACE_TITLES = new Set(['bootstrap', 'app']);
+
+/** A notification as plain text: its title, message and description, one per line. */
+export function notificationText(notification) {
+    return [notification.title, notification.message, notification.description]
+        .filter((part) => part != null && String(part) !== '')
+        .join('\n');
+}
+
+/**
+ * The right-click menu of a toast or a history entry: "Copy message". It takes
+ * the right-click, so the browser's own menu does not open.
+ */
+export function showNotificationMenu(event, notification, logger) {
+    event.preventDefault();
+    event.stopPropagation();
+    showContextMenu(event.clientX, event.clientY,
+        [{ label: 'Copy message', icon: 'content_copy', action: 'copy' }],
+        () => {
+            Promise.resolve()
+                .then(() => navigator.clipboard.writeText(notificationText(notification)))
+                .catch((err) => logger?.warn?.('twm-notification-center', 'Copy message failed', { err }));
+        });
+}
+
+/** A non-empty text selection inside `el`: a click that ends one is not a click on it. */
+function selectsTextIn(el) {
+    const sel = el.ownerDocument.getSelection?.();
+    return Boolean(sel && !sel.isCollapsed && sel.rangeCount && el.contains(sel.getRangeAt(0).commonAncestorContainer));
+}
 
 export class NotificationCenter extends ComponentBase {
     #items;
@@ -753,11 +790,13 @@ export class NotificationCenter extends ComponentBase {
         }
 
         item.addEventListener('click', (event) => {
-            if (event.target.closest('button') || NotificationCenter.#isRunning(notification)) {
+            if (event.target.closest('button') || NotificationCenter.#isRunning(notification)
+                || selectsTextIn(item)) {
                 return;
             }
             this.dismiss(notification.id, 'click');
         });
+        item.addEventListener('contextmenu', (event) => showNotificationMenu(event, notification, this.logger));
 
         this.#patchItem(entry, notification);
         return entry;

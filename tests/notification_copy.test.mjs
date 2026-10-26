@@ -178,9 +178,16 @@ console.log('§4 the text is selectable');
         const rule = css.match(/([^{}]*)\{\s*user-select: text;\s*cursor: text;\s*\}/g)
             ?.find((r) => r.includes('.twm-notification__body')) ?? '';
         const selectors = ['.twm-notification__title', '.twm-notification__body', '.twm-notification__description',
-            '.twm-notification-history__item-title', '.twm-notification-history__item-body'];
+            '.twm-notification__status', '.twm-notification-history__item-title', '.twm-notification-history__item-body'];
         ok(`${sheet}: the toast and history text is user-select: text`, selectors.every((s) => rule.includes(s)), rule);
+        // The menu opens over the toast that was right-clicked, not beneath it.
+        ok(`${sheet}: a context menu draws on the context-menu layer`,
+            /\.twm-context-menu \{[^}]*z-index: var\(--z-context-menu\);/.test(css));
     }
+    const tokens = readFileSync(resolvePath(HERE, '../css/tokens.css'), 'utf8');
+    const layer = (name) => Number(tokens.match(new RegExp(`--${name}:\\s*(\\d+);`))?.[1]);
+    ok('the context-menu layer is over toasts and managed windows',
+        layer('z-context-menu') > layer('z-toast') && layer('z-context-menu') > 6999);
 }
 
 console.log(failures ? `\n${failures} FAILED` : '\nnotification copy: all assertions passed');

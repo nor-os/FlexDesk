@@ -164,7 +164,9 @@ the context menu (`showContextMenu`) with **Copy message**. It copies the
 notification's title, message and description, one per line and skipping any
 that is empty, as plain text through `navigator.clipboard.writeText`. The menu
 replaces the browser's native one there. The history popover stays open while
-its menu is used.
+its menu is used. Every context menu draws on `--z-context-menu` (tokens.css),
+over toasts (`--z-toast`) and managed windows, so the menu opens over the toast
+that was right-clicked.
 
 The text of a toast and of a history entry (title, message, description,
 status) is selectable: the sheets give it `user-select: text` over the body's

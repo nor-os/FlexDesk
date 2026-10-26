@@ -2325,7 +2325,7 @@ body.twm-dt-col-resizing {
     border: 1px solid var(--surface-3);
     border-radius: var(--radius-md);
     box-shadow: 0 6px 24px rgba(0,0,0,0.45);
-    z-index: 5000; /* Higher than nodes and selection rectangle */
+    z-index: var(--z-context-menu);
     display: none;
     pointer-events: auto;
     min-width: 180px;

@@ -8,10 +8,10 @@ import {
 } from "./chunk-REJ5HLIM.js";
 import {
   showContextMenu
-} from "./chunk-IG74S3ZH.js";
+} from "./chunk-EPW22BNP.js";
 import {
   openForm
-} from "./chunk-ZMH3OC7H.js";
+} from "./chunk-R4L73H3R.js";
 import {
   ManagedWindow,
   isRowActivation
@@ -3505,10 +3505,9 @@ function mountTileBreadcrumb(kind, props, ctx) {
     }
   };
   const render = () => {
-    _renderInto(
-      root,
-      _segments(kind, props, taxonomy, rootCrumb, rootLabel, navigate, trailOf())
-    );
+    const segments = _segments(kind, props, taxonomy, rootCrumb, rootLabel, navigate, trailOf());
+    _renderInto(root, segments);
+    root.hidden = segments.length < 2;
   };
   render();
   let unsubscribe = null;

@@ -17,11 +17,11 @@ import {
 } from "./chunk-MIW7D6WC.js";
 import {
   showContextMenu
-} from "./chunk-IG74S3ZH.js";
+} from "./chunk-EPW22BNP.js";
 import {
   modalHost,
   openModal
-} from "./chunk-ZMH3OC7H.js";
+} from "./chunk-R4L73H3R.js";
 import {
   buildHistogramTrace,
   buildLegendLayout,

@@ -1001,6 +1001,8 @@ function _estimateHeight(fields) {
   return Math.max(200, Math.min(base, max));
 }
 function _estimateWidth(fields) {
+  const widest = Math.max(0, ...fields.filter((f) => Array.isArray(f?.row)).map((f) => _formFields(f.row).length));
+  if (widest >= 3) return Math.max(640, Math.min(170 + widest * 230, Math.floor(window.innerWidth * 0.9)));
   const wide = fields.some((f) => f && (f.type === "textarea" || f.type === "colorList" || f.section || Array.isArray(f.row)));
   return wide ? 640 : 480;
 }
@@ -1308,4 +1310,4 @@ export {
   openConfirm,
   openModal
 };
-//# sourceMappingURL=chunk-ZMH3OC7H.js.map
+//# sourceMappingURL=chunk-R4L73H3R.js.map

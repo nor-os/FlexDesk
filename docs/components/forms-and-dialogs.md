@@ -309,3 +309,45 @@ the caller's own DOM.
 
 `tests/confirm_escaping.test.mjs` opens each of them in jsdom with hostile
 names and labels.
+
+## Windows: closing, focus and Esc (0.17.16)
+
+Every dialog above is a `ManagedWindow`, and so is any window you build
+yourself with `new ManagedWindow({ id, title, content, ... })`. Three things
+changed for all of them (BUG-0053):
+
+- **A closed window is gone.** `close()` (once `beforeClose` allows it) runs
+  `onClose`, removes the window from the registry and releases its content,
+  its DOM and every callback it was given. `ManagedWindow.get(id)` then answers
+  `null`, `ManagedWindow.all()` no longer lists it and `win.isClosed` is
+  `true`. A closed window cannot be shown again: `show()` on it warns and does
+  nothing. To reopen, build a new `ManagedWindow` with the same id; it restores
+  the geometry the last one saved under that id. Until 0.17.15 a closed window
+  stayed registered, holding its content and whatever its `onClose` captured,
+  until the same id opened again.
+- **Saved geometry is bounded.** Position and size are still saved per id
+  under `flexdesk.managedWindows.v1` (or your `storageKey`), but only for the
+  50 most recently saved ids; older entries are dropped.
+  `ManagedWindow.configure({ maxSavedWindows })` changes the cap
+  (`DEFAULT_MAX_SAVED_WINDOWS` is 50). A window whose id is minted per opening
+  passes `persistGeometry: false` and neither saves nor restores geometry.
+  Modal windows never saved geometry and still do not.
+- **Focus moves in and back.** With `focusOnOpen` (default `true`), opening a
+  window focuses the first element of its content that takes focus (a link,
+  button, input, select, textarea, `contenteditable` or `tabindex` element
+  that is not disabled or hidden), or the window itself when there is none.
+  Closing it gives focus back to the element that had it before the window
+  opened, if that element is still in the document and focus is still in the
+  window (a window closed while the user works elsewhere does not pull focus
+  back). Restoring a minimised window is not an open and moves nothing. A
+  dialog that focuses a field of its own a frame later, as `openForm` and
+  `openConfirm` do, still wins. Pass `focusOnOpen: false` for a window that
+  must not take focus when it appears.
+- **Esc closes a non-modal window only from inside it.** A non-modal window
+  closes on Esc only when focus is inside it, so an Esc meant for an editor
+  beside it is left alone; with focus in one of several non-modal windows,
+  that window closes, not the top one. A modal window on top closes on Esc
+  wherever focus is, as before. One Esc closes one window, even when the
+  close hands focus to another window.
+
+`tests/managed_window_lifecycle.test.mjs` holds all four.

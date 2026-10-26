@@ -1661,6 +1661,9 @@ export class WindowManager {
             canMaximize: true,
             canResize: true,
             modal: false,
+            // BUG-0053. The id is minted per window and never opens again, so
+            // geometry saved under it could never be restored.
+            persistGeometry: false,
             // C15. Dropping a promoted window on a tile PUTS IT BACK — as that
             // tile's content, as a split of it, or as one of its tabs. Off
             // unless the embedder asked, because it changes what a drag to an
@@ -4313,6 +4316,9 @@ export class WindowManager {
             canMaximize: true,
             canResize: true,
             modal: false,
+            // BUG-0053. The id is minted per window and never opens again, so
+            // geometry saved under it could never be restored.
+            persistGeometry: false,
             // C15, and this is the SECOND of the two places the WM builds a
             // window. Alt+N and "Open in new window" produce a window that is
             // every bit as dockable as a promoted one, and a window that can be

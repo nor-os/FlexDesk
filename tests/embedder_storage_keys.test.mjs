@@ -173,7 +173,9 @@ globalThis.innerHeight = 1000;
     win.x = 200;
     win.close({ force: true });
     check('closing saves under app.windows',
-        JSON.parse(store.get('app.windows')).editor, { x: 200, y: 140, width: 640, height: 480, maximized: false });
+        JSON.parse(store.get('app.windows')).editor,
+        // `u` is the use stamp that bounds the entry (BUG-0053, 0.17.16).
+        { x: 200, y: 140, width: 640, height: 480, maximized: false, u: 1 });
     check('the default key is left as it was',
         JSON.parse(store.get(DEFAULT_WINDOW_STORAGE_KEY)).editor.x, 5);
     check('every key the windows touched is app.windows', keysTouched(), ['app.windows']);

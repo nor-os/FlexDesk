@@ -342,6 +342,17 @@ function _compose(mods, key) {
   const used = MODIFIER_ORDER.filter((m) => mods.has(m) && (m !== "Shift" || _shiftCounts(key)));
   return [...used, k].join("+");
 }
+var TEXT_FIELDS = 'input, textarea, select, [contenteditable="true"]';
+function _altTypes() {
+  const nav = globalThis.navigator;
+  return /^(mac|iphone|ipad|ipod)/i.test(nav?.userAgentData?.platform || nav?.platform || "");
+}
+function _digitOfEvent(e) {
+  const typesCharacter = e.getModifierState?.("AltGraph") || e.ctrlKey && e.altKey || _altTypes() && !!e.target?.closest?.(TEXT_FIELDS);
+  const byPosition = typesCharacter ? null : /^Digit([1-9])$/.exec(e.code ?? "");
+  if (byPosition) return byPosition[1];
+  return /^[1-9]$/.test(e.key) ? e.key : null;
+}
 function _chordOfEvent(e) {
   const key = e.key;
   if (!key || key === "Control" || key === "Shift" || key === "Alt" || key === "Meta") return null;
@@ -363,7 +374,8 @@ function _chordOfEvent(e) {
     return null;
   }
   const sh = shift ? "Shift+" : "";
-  if (/^[1-9]$/.test(key)) return `Alt+${sh}${key}`;
+  const digit = _digitOfEvent(e);
+  if (digit) return `Alt+${sh}${digit}`;
   if (lower === "h" || lower === "v") return `Alt+${sh}${lower.toUpperCase()}`;
   if (lower === "t" || lower === "n" || lower === "w" || lower === "f") return `Alt+${lower.toUpperCase()}`;
   if (ARROWS.includes(key)) return `Alt+${sh}${key}`;
@@ -450,7 +462,7 @@ function installKeymap({ wm, palette, navSelector = null, bindings = null, logge
     if (!chord) return;
     const b = table.get(chord);
     if (!b || b.disabled) return;
-    if (!b.inField && e.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+    if (!b.inField && e.target?.closest?.(TEXT_FIELDS)) return;
     if (b.run(ctx, e) !== false) e.preventDefault();
   };
   document.addEventListener("keydown", onKeyDown);
@@ -1301,6 +1313,23 @@ var _idCounter = 1;
 function _newId(prefix) {
   return `${prefix}-${_idCounter++}`;
 }
+function _isRecord(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+function _expect(ok, path, want, got) {
+  if (ok) return;
+  let shown;
+  if (got === void 0) shown = "nothing";
+  else {
+    try {
+      shown = JSON.stringify(got);
+    } catch {
+      shown = String(got);
+    }
+    if (shown.length > 40) shown = `${shown.slice(0, 37)}...`;
+  }
+  throw new TypeError(`${path}: expected ${want}, found ${shown}`);
+}
 function _isPanel(leaf) {
   return String(leaf?.content?.kind || "").startsWith("panel:");
 }
@@ -2075,11 +2104,44 @@ var TileTree = class _TileTree {
       focusedTitle: this.focused()?.title || null
     };
   }
-  static deserialize(blob) {
+  /** Rebuild a tree from what `serialize()` wrote. A blob with no root is an
+   *  empty tree, as it always was. Anything else is read STRICTLY: a node that
+   *  `serialize()` could not have written throws a `TypeError` naming where
+   *  (`at` is the path of the blob, for the message only) and what it wanted,
+   *  rather than building half a tree or failing later, inside the renderer,
+   *  with `node.sizes.reduce is not a function`. The caller decides what a
+   *  tree that cannot be read means; see `WindowManager.load`. */
+  static deserialize(blob, at = "tree") {
     const t = new _TileTree();
     if (!blob || !blob.root) return t;
-    const build = (raw) => {
+    const checkTab = (tab, path) => {
+      _expect(_isRecord(tab) && typeof tab.kind === "string", path, "a tab, { kind, props, title }", tab);
+    };
+    const build = (raw, path) => {
+      _expect(_isRecord(raw), path, "a node, an object", raw);
+      _expect(raw.kind === "leaf" || raw.kind === "split", `${path}.kind`, '"leaf" or "split"', raw.kind);
       if (raw.kind === "leaf") {
+        if (raw.content != null) checkTab(raw.content, `${path}.content`);
+        _expect(raw.tabs == null || Array.isArray(raw.tabs), `${path}.tabs`, "an array of tabs", raw.tabs);
+        (raw.tabs || []).forEach((tab, i) => checkTab(tab, `${path}.tabs[${i}]`));
+        _expect(
+          raw.activeTabIdx == null || Number.isFinite(raw.activeTabIdx),
+          `${path}.activeTabIdx`,
+          "a number",
+          raw.activeTabIdx
+        );
+        _expect(raw.pageTabs == null || _isRecord(raw.pageTabs), `${path}.pageTabs`, "an object", raw.pageTabs);
+        for (const [page, arc] of Object.entries(raw.pageTabs || {})) {
+          const where = `${path}.pageTabs[${JSON.stringify(page)}]`;
+          _expect(_isRecord(arc) && Array.isArray(arc.tabs), where, "{ tabs, activeTabIdx }", arc);
+          arc.tabs.forEach((tab, i) => checkTab(tab, `${where}.tabs[${i}]`));
+          _expect(
+            arc.activeTabIdx == null || Number.isFinite(arc.activeTabIdx),
+            `${where}.activeTabIdx`,
+            "a number",
+            arc.activeTabIdx
+          );
+        }
         const leaf = makeLeaf({ content: raw.content, title: raw.title });
         if (Array.isArray(raw.tabs) && raw.tabs.length > 0) {
           leaf.tabs = raw.tabs.map((tab) => ({
@@ -2096,7 +2158,6 @@ var TileTree = class _TileTree {
         if (raw.pageTabs && typeof raw.pageTabs === "object") {
           leaf.pageTabs = {};
           for (const [k, v] of Object.entries(raw.pageTabs)) {
-            if (!v || !Array.isArray(v.tabs)) continue;
             leaf.pageTabs[k] = {
               tabs: v.tabs.map((t2) => ({
                 kind: t2.kind,
@@ -2109,7 +2170,20 @@ var TileTree = class _TileTree {
         }
         return leaf;
       }
-      const children = raw.children.map(build);
+      _expect(raw.dir === "h" || raw.dir === "v", `${path}.dir`, '"h" or "v"', raw.dir);
+      _expect(
+        Array.isArray(raw.children) && raw.children.length > 0,
+        `${path}.children`,
+        "a non-empty array of nodes",
+        raw.children
+      );
+      _expect(
+        Array.isArray(raw.sizes) && raw.sizes.length === raw.children.length && raw.sizes.every((n) => Number.isFinite(n) && n >= 0),
+        `${path}.sizes`,
+        `${raw.children.length} non-negative numbers, one per child`,
+        raw.sizes
+      );
+      const children = raw.children.map((c, i) => build(c, `${path}.children[${i}]`));
       const split = makeSplit({
         dir: raw.dir,
         children: children.map((c) => c.id),
@@ -2118,7 +2192,7 @@ var TileTree = class _TileTree {
       children.forEach((c) => t._register(c));
       return split;
     };
-    const root = build(blob.root);
+    const root = build(blob.root, `${at}.root`);
     t.setRoot(root);
     return t;
   }
@@ -2130,6 +2204,23 @@ var DEFAULT_PANEL_STATE = {
   right: true,
   bottom: true
 };
+function _isRecord2(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+function _expect2(ok, path, want, got) {
+  if (ok) return;
+  let shown;
+  if (got === void 0) shown = "nothing";
+  else {
+    try {
+      shown = JSON.stringify(got);
+    } catch {
+      shown = String(got);
+    }
+    if (shown.length > 40) shown = `${shown.slice(0, 37)}...`;
+  }
+  throw new TypeError(`${path}: expected ${want}, found ${shown}`);
+}
 function _makeDesktop(label, seed, panelDefaults = DEFAULT_PANEL_STATE) {
   const tree = new TileTree();
   tree.setRoot(makeLeaf(seed()));
@@ -2282,23 +2373,72 @@ var DesktopManager = class _DesktopManager {
       }))
     };
   }
+  /**
+   * Rebuild the manager from what `serialize()` wrote. `null`/`undefined` is
+   * nothing saved and gives the fresh manager.
+   *
+   * The blob is whatever the host's `state` held under `DESKTOPS_KEY`: a file
+   * anyone can truncate or edit, which is valid JSON of any shape. So it is
+   * read STRICTLY, and a blob that `serialize()` could not have written throws
+   * a `TypeError` naming the path and what was expected there. It builds only
+   * objects of its own and touches nothing its caller holds, which is what lets
+   * `WindowManager.load` treat a throw as "nothing saved" with nothing to undo.
+   *
+   * Strict about SHAPE, not about every value. What the loader, the tree
+   * operations and the renderer index, iterate or branch on has to be what they
+   * need (containers, node and tab kinds, `dir`, `children`, `sizes`,
+   * `activeTabIdx`). What is only drawn or coerced is taken as it is: a desktop's
+   * `id`, `label`, `group` and `fixed`, a panel's flag, a tab's title and props,
+   * `activeIdx`. A layout that fails on one of those would be thrown away for
+   * nothing, and an app can put almost anything in a title.
+   *
+   * And strict is not hostile to an old blob. A key the loader has always given
+   * a default may be absent: a desktop's `id`, `label` and `panels`, the keys
+   * later releases added (`panelShares`, `group`, `fixed`), and a leaf's `tabs`
+   * and `pageTabs`. What `serialize()` has always written and the loader cannot
+   * do without (`desktops`, a desktop's `tree`, a split's `dir`, `children` and
+   * `sizes`) may not.
+   */
   static deserialize(blob, { seed, panelDefaults = null } = {}) {
     const m = new _DesktopManager({ seed, panelDefaults });
-    if (!blob || !Array.isArray(blob.desktops) || blob.desktops.length === 0) return m;
-    m.desktops = blob.desktops.map((raw) => ({
-      id: raw.id || `desk-${Math.random().toString(36).slice(2, 8)}`,
-      label: raw.label || "?",
-      tree: raw.tree ? TileTree.deserialize(raw.tree) : new TileTree(),
-      windows: [],
-      // A RESTORED desktop's own answer wins over the default: the user
-      // closed that panel, and re-opening it on every reload is the bug
-      // this merge order avoids. The default only fills a key the stored
-      // blob predates.
-      panels: { ...m.panelDefaults, ...raw.panels || {} },
-      panelShares: { ...raw.panelShares || {} },
-      group: raw.group || null,
-      fixed: !!raw.fixed
-    }));
+    if (blob == null) return m;
+    _expect2(
+      Array.isArray(blob.desktops) && blob.desktops.length > 0,
+      "desktops",
+      "a non-empty array of desktops",
+      blob.desktops
+    );
+    m.desktops = blob.desktops.map((raw, i) => {
+      const at = `desktops[${i}]`;
+      _expect2(_isRecord2(raw), at, "a desktop, an object", raw);
+      _expect2(
+        raw.tree === null || _isRecord2(raw.tree) && _isRecord2(raw.tree.root),
+        `${at}.tree`,
+        "{ root }, or null for an empty desktop",
+        raw.tree
+      );
+      _expect2(raw.panels == null || _isRecord2(raw.panels), `${at}.panels`, "an object", raw.panels);
+      _expect2(
+        raw.panelShares == null || _isRecord2(raw.panelShares),
+        `${at}.panelShares`,
+        "an object",
+        raw.panelShares
+      );
+      return {
+        id: raw.id || `desk-${Math.random().toString(36).slice(2, 8)}`,
+        label: raw.label || "?",
+        tree: raw.tree ? TileTree.deserialize(raw.tree, `${at}.tree`) : new TileTree(),
+        windows: [],
+        // A RESTORED desktop's own answer wins over the default: the user
+        // closed that panel, and re-opening it on every reload is the bug
+        // this merge order avoids. The default only fills a key the stored
+        // blob predates.
+        panels: { ...m.panelDefaults, ...raw.panels || {} },
+        panelShares: { ...raw.panelShares || {} },
+        group: raw.group || null,
+        fixed: !!raw.fixed
+      };
+    });
     for (const d of m.desktops) {
       if (!d.tree.rootId) d.tree.setRoot(makeLeaf(seed()));
     }
@@ -5131,6 +5271,7 @@ var WindowManager = class _WindowManager {
     taxonomy,
     events,
     content,
+    logger = null,
     panelDefaults = null,
     snapPromotion = false,
     promoteInPlace = false,
@@ -5151,6 +5292,7 @@ var WindowManager = class _WindowManager {
     this.events = events || {};
     this.ctx = ctx || {};
     this.eventBus = eventBus || null;
+    this.logger = logger || null;
     this.onChange = onChange || (() => {
     });
     this._panelOverrides = {};
@@ -5287,12 +5429,20 @@ var WindowManager = class _WindowManager {
   // ── Persistence ─────────────────────────────────────────────────
   async load() {
     const blob = await loadDesktops(this.host?.state);
-    if (blob) {
-      this.desktops = DesktopManager.deserialize(blob, {
-        seed: this._rootLeaf,
-        panelDefaults: this.panelDefaults
-      });
-      this.renderer.tree = this.desktops.active().tree;
+    if (blob != null) {
+      let restored = null;
+      try {
+        restored = DesktopManager.deserialize(blob, {
+          seed: this._rootLeaf,
+          panelDefaults: this.panelDefaults
+        });
+      } catch (err) {
+        (this.logger ?? console).warn?.(`[wm] bad layout for state key ${DESKTOPS_KEY} (opening the default layout): ${err?.message ?? err}`);
+      }
+      if (restored) {
+        this.desktops = restored;
+        this.renderer.tree = this.desktops.active().tree;
+      }
     }
     for (const d of this.desktops.desktops) {
       for (const leaf of d.tree.leaves()) {
@@ -8299,13 +8449,28 @@ var WindowManager = class _WindowManager {
     this._notifyChange();
     return true;
   }
+  /**
+   * Move the focused tile, with every tab it holds, to desktop `idx` (from 0).
+   * A refused move returns `undefined` and changes nothing; the callers (the
+   * keymap's `toDesktop:N`, the tile menu's *Move to desktop*) read no result.
+   *
+   * The tile menu (`shell.js`, `_tileContextMenu`) never offers a panel, a
+   * fixed desktop or the desktop you are on, and this method refuses all
+   * three itself, because the menu is one door and Alt+Shift+N is another.
+   * A fixed desktop it always refused; a panel and the desktop you are on it
+   * did not, and the move to the desktop you are on destroys the tile: source
+   * and target are one tree, so the tabs are appended to its primary tile and
+   * then the focused tile is closed. A stray Shift on Alt+N reaches that.
+   */
   moveFocusedToDesktop(idx) {
     const tree = this._tree();
     const focused = tree.focused();
     if (!focused || !focused.content) return;
+    if (String(focused.content.kind || "").startsWith("panel:")) return;
     const closeChrome = this.renderer?.leafChrome?.(focused.id)?.close;
     if (closeChrome === false || closeChrome?.disabled === true) return;
     if (this.desktops.desktops[idx]?.fixed) return;
+    if (idx === this.desktops.activeIdx) return;
     this.desktops.ensureCount(idx + 1);
     const target = this.desktops.desktops[idx];
     const tabs = Array.isArray(focused.tabs) && focused.tabs.length ? focused.tabs : [{ kind: focused.content.kind, props: focused.content.props, title: focused.title }];
@@ -9396,6 +9561,7 @@ async function createShell({
     host,
     taxonomy,
     events,
+    logger,
     panelDefaults: panels,
     snapPromotion,
     promoteInPlace,
@@ -9837,6 +10003,7 @@ function _tileContextMenu(wm, leafId, x, y) {
 }
 export {
   BADGE_LEVELS,
+  DESKTOPS_KEY,
   DesktopManager,
   KEYBOARD_SHORTCUTS_TOPIC_ID,
   KEYMAP_SHORTCUTS,

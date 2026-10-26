@@ -519,11 +519,8 @@ var DEFAULT_ALLOWED_DATASET_KEYS = Object.freeze([
   "node-name",
   "lang",
   "playback-control",
-  // Simulation/scenario state keys
+  // Generic state words
   "status",
-  "scenario-id",
-  "run-id",
-  "run-state",
   "selected",
   "active",
   "disabled",
@@ -539,13 +536,10 @@ var DEFAULT_ALLOWED_DATASET_KEYS = Object.freeze([
   "input-index",
   "output-index",
   "port-index",
-  // Scenario editor keys
+  // Identifier and binding keys
   "source",
   "series-id",
   "dataset-id",
-  "mirror-input-bound",
-  "mirror-change-bound",
-  "mirror-input",
   "bound",
   "field",
   "key",
@@ -554,14 +548,11 @@ var DEFAULT_ALLOWED_DATASET_KEYS = Object.freeze([
   "tab-id",
   "param-id",
   "target-id",
-  "override-type",
   // Tree view component keys
   "item-id",
   "category-id",
-  // Calibration page keys
-  "info-for",
-  "column",
   // Data page keys
+  "column",
   "readonly",
   "id",
   "action",
@@ -580,12 +571,6 @@ var DEFAULT_ALLOWED_DATASET_KEYS = Object.freeze([
   "label",
   "title",
   "description",
-  // DSL generator keys
-  "dsl-state",
-  "dsl-section-registered",
-  "dsl-scrollbars-installed",
-  "dsl-tabs-bound",
-  "dsl-controls-bound",
   // Inline highlighter keys
   "inline-hl",
   // Overlay scrollbar keys (UI-only, not state storage)

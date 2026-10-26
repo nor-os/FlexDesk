@@ -233,3 +233,37 @@ Until 0.17.8 the menu was `position: absolute` inside the tile, so in a tile
 narrower than about 220px its left part and its labels were cut off
 (BUG-0043). `tests/tile_menu_unclipped.test.mjs` holds it.
 
+
+## A double-click on the title strip configures the tile (0.17.16)
+
+A double-click on a tile's header (`.tile-header`: its title, its drag grip or
+the strip between them) does what the cogwheel (`.tile-config-btn`) does: it
+calls the same `_onConfigClick`, so the tile is selected and
+`tile:config-request` goes out on the event bus and as a DOM event exactly as
+for a click on the cogwheel. A double-click on one of the strip's buttons
+(cogwheel, ⋯, info, expand, remove) or in an editable field you put in the
+strip (`input`, `textarea`, `select`, `contenteditable`) does not. A read-only
+tile has no cogwheel and opens nothing.
+
+`new TileGrid({ configOnDoubleClick: false })` turns it off for every tile of
+the grid; a tile takes the same option (`tile.configOnDoubleClick`, read at the
+double-click). `tests/tile_title_dblclick_config.test.mjs` holds it.
+
+## Several tiles marked as being configured: `setConfiguring` (0.17.16)
+
+A config request (cogwheel or double-click) highlights the requesting tile with
+`tile--selected` and takes that highlight off every other tile of the grid:
+one selection per grid, which suits one config panel. An embedder that keeps a
+config window open per tile marks each of those tiles itself:
+
+```js
+grid.tiles.get(tileId).setConfiguring(true);   // when its window opens
+grid.tiles.get(tileId).setConfiguring(false);  // when its window closes
+tile.isConfiguring;                            // true while marked
+```
+
+The mark is the class `tile--configuring`, drawn exactly like `tile--selected`
+(same rules in `flexdesk.css`). It is the embedder's alone: no config request,
+on that tile or another, clears it, and it is drawn again when the tile is
+re-mounted. Do not add or remove `tile--selected` from outside; it belongs to
+the config request.

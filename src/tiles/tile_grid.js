@@ -27,6 +27,8 @@ export class TileGrid {
      * @param {*} [options.scope=null] - The board's scope, a filter every tile
      *        follows (0.16.1); see `setScope`.
      * @param {Function} [options.onScopeChange] - `(scope)` after `setScope` changed it.
+     * @param {boolean} [options.configOnDoubleClick=true] - Whether a double-click
+     *        on a tile's title strip opens its config, as its cogwheel does (0.17.16).
      */
     constructor({ container, columns = 12, rowHeight = 80, gap = 16, eventBus = null,
                   showToolbar = true, readonly = false, onLayoutChange, onBeforeLayoutChange,
@@ -38,12 +40,16 @@ export class TileGrid {
                   host = null, stateGuard = null,
                   // Injected, never constructed here: the grid does not know what
                   // a binding is, only that a tile may have somewhere to ask.
-                  dataSource = null, scope = null, onScopeChange = null }) {
+                  dataSource = null, scope = null, onScopeChange = null,
+                  // STORY-0128. Handed to every tile: false turns off the
+                  // title strip's double-click to configure.
+                  configOnDoubleClick = true }) {
         this.host = host;
         this.scope = scope;
         this._onScopeChangeCallback = onScopeChange;
         this.stateGuard = stateGuard;
         this.dataSource = dataSource;
+        this.configOnDoubleClick = configOnDoubleClick;
         this.container = container;
         this.columns = columns;
         this.rowHeight = rowHeight;
@@ -194,6 +200,7 @@ export class TileGrid {
             host: this.host,
             stateGuard: this.stateGuard,
             dataSource: this.dataSource,
+            configOnDoubleClick: this.configOnDoubleClick,
         });
 
         if (!tile) return null;

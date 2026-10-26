@@ -3344,20 +3344,25 @@ body.twm-window-maximized .twm-resize-handle {
 }
 
 /* Selected — set by `_onConfigClick()` while the config dialog is open, and
-   cleared from every sibling by the same handler. It reads `--accent-lighter`
+   cleared from every sibling by the same handler. `--configuring` is the same
+   look set by the embedder through `setConfiguring()` (0.17.16), one per open
+   config window, and no handler clears it. It reads `--accent-lighter`
    (BUG-0045): `--accent-bright` is a border colour on this background and not
    a text one. It was #78b9ff, which no mix of `--accent-bright` with white
    gives exactly; `--accent-lighter` (about #73b6e3) is the nearest. */
-.tile.tile--selected {
+.tile.tile--selected,
+.tile.tile--configuring {
     border-color: var(--accent-lighter);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-lighter) 30%, transparent), var(--shadow-md);
 }
 
-.tile.tile--selected .tile-header {
+.tile.tile--selected .tile-header,
+.tile.tile--configuring .tile-header {
     background: color-mix(in srgb, var(--accent-lighter) 10%, transparent);
 }
 
-.tile.tile--selected .tile-title {
+.tile.tile--selected .tile-title,
+.tile.tile--configuring .tile-title {
     color: var(--accent-lighter);
 }
 

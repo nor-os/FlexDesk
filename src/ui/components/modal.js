@@ -56,9 +56,10 @@
  * Rows — an entry of the form `{ row: [field, field, ...] }` puts its fields
  * side by side (a min and a max, say). Each is an ordinary field: its own
  * label, hint, error, `setVisible`, value and submitted key — the row is
- * layout only and has no name. Its inputs are equally wide: the space left
- * after the labels is shared equally. A form whose widest row has three or
- * more fields opens wider (about 230px per field, up to 90% of the window).
+ * layout only and has no name. Its inputs are equally wide (up to each
+ * control's own padding): the space left after the labels is shared equally.
+ * A form whose widest row has three or more fields opens wider (about 230px
+ * per field; at least 640px, otherwise at most 90% of the window).
  * The row stacks its fields when the form is narrower than 360px (a
  * container query on `.twm-modal__form`).
  *

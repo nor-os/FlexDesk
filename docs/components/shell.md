@@ -160,8 +160,9 @@ alone — and a call from content whose pane has since been rebuilt does nothing
 `mountTileBreadcrumb` (and the page shell around a content, which mounts one)
 draws the path to where a tile is: an optional root crumb, the top-nav page,
 the trail, the entity's ancestors and the entity. When that path is a single
-segment, a top-nav page with no root crumb, no trail and no entity, the strip
-says only what the tile's own title bar already says. It is then `hidden`, and
+segment (or none), for instance a top-nav page with no root crumb, no trail and
+no entity, or an `appGlobal` kind, the strip says nothing the tile's own title
+bar does not already say. It is then `hidden`, and
 `.twm-page-shell__breadcrumb` around it takes no room, so the tile's content
 starts right under its title. `refresh()` shows the strip again as soon as the
 path has two segments; a path of two or more is drawn as before. Until 0.17.14

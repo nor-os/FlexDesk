@@ -33,7 +33,10 @@ export function mountTileBreadcrumb(kind, props, ctx) {
     const rootCrumb = ctx?.rootCrumb || null;
     if (!taxonomy) {
         console.error('[breadcrumb] no taxonomy in ctx — cannot render');
-        return { el: document.createElement('nav'), destroy: () => {} };
+        const el = document.createElement('nav');
+        el.className = 'twm-topbar-breadcrumb twm-tile-breadcrumb';
+        el.hidden = true;   // nothing to draw: no strip, as for a one-segment path
+        return { el, refresh: () => {}, destroy: () => {} };
     }
     const root = document.createElement('nav');
     root.className = 'twm-topbar-breadcrumb twm-tile-breadcrumb';

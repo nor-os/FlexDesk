@@ -230,29 +230,34 @@ openForm({
   row hidden by `setVisible` drops its bounds until it is shown again, as it
   drops `required`. As with any `<input type="number">`, a `min` is also where
   `step` counts from.
-- **`{ row: [field, ...] }`** puts its fields on one line, sharing the width.
+- **`{ row: [field, ...] }`** puts its fields on one line; their inputs share
+  what the labels leave equally (see below).
   The row is layout only and has no name: each field in it is an ordinary
   field with its own label, hint, error, `setVisible`, value and submitted
   key, so hiding one hides only that one. The first keeps the form's label
   column; the others size their label to its text. A form narrower than
   360px stacks them (a container query, `twm-form`, on a form that has a row;
   a form without one is not made a container). A form with a row opens at the
-  wide (640px) layout. The row is `.twm-modal__field-group`.
+  wide (640px) layout, or wider for a row of three or more fields (below).
+  The row is `.twm-modal__field-group`.
+
+A form with neither renders exactly as before.
+`tests/open_form_rows_bounds.test.mjs` covers both in jsdom.
 
 ### The inputs of a row are equally wide (0.17.15)
 
 Every input in a `{ row }` gets the same width: each field takes its label's
 width (the first one the form's 130px label column), and what is left of the
-row is shared equally between the inputs. A form whose widest row has three or
-more fields opens wider, about 230px per field past the label column
-(`170 + 230 × fields`, so 860px for three and 1090px for four), up to 90% of the
+row is shared equally between the inputs. The share is equal up to each
+control's own padding and border: a native `<input>` or `<textarea>` keeps its
+~18px, a select, toggle or picker (which sit in a padding-less slot) does not,
+so in a row that mixes the two the native input is that much wider. A form
+whose widest row has three or more fields opens wider: `170 + 230 × fields` px
+(860px for three, 1090px for four), at least 640px, otherwise at most 90% of the
 window; forms without such a row open as before. Until 0.17.14 every field was
 an equal share of the row, including the first one's label column, so its input
 was a sliver beside the others: about 15px for the first of four number fields
 in a 640px form (BUG-0050).
-
-A form with neither renders exactly as before.
-`tests/open_form_rows_bounds.test.mjs` covers both in jsdom.
 
 ### A switch: `ToggleField` and `type: 'toggle'` (0.17.0)
 

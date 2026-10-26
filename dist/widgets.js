@@ -5169,24 +5169,25 @@ function createTreeNode(options) {
         <div class="twm-tree-node__children" style="display: ${expanded ? "block" : "none"};"></div>
     `;
   setText2(node, ".twm-tree-node__label", label);
-  if (actions) {
-    const actionsEl = node.querySelector(".twm-tree-node__actions");
-    Object.entries(actions).forEach(([actionId, actionConfig]) => {
-      const btn = document.createElement("button");
-      btn.className = "twm-tree-node__action-btn";
-      btn.dataset.action = actionId;
-      btn.title = actionConfig.title || actionId;
-      btn.innerHTML = `<span class="material-symbols-outlined">${actionConfig.icon}</span>`;
-      if (actionConfig.onClick) {
-        btn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          actionConfig.onClick(id, e);
-        });
-      }
-      actionsEl.appendChild(btn);
-    });
-  }
+  if (actions) appendActionButtons(node.querySelector(".twm-tree-node__actions"), id, actions);
   return node;
+}
+function appendActionButtons(actionsEl, id, actions) {
+  Object.entries(actions).forEach(([actionId, actionConfig]) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "twm-tree-node__action-btn";
+    btn.dataset.action = actionId;
+    btn.title = actionConfig.title || actionId;
+    btn.innerHTML = `<span class="material-symbols-outlined">${actionConfig.icon}</span>`;
+    if (actionConfig.onClick) {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        actionConfig.onClick(id, e);
+      });
+    }
+    actionsEl.appendChild(btn);
+  });
 }
 function createTreeItem(options) {
   const {
@@ -5198,7 +5199,8 @@ function createTreeItem(options) {
     selected = false,
     subtitle = null,
     data = null,
-    badge = null
+    badge = null,
+    actions = null
   } = options;
   const item = document.createElement("div");
   item.className = `twm-tree-item${readonly ? " readonly" : ""}${selected ? " selected" : ""}`;
@@ -5228,6 +5230,12 @@ function createTreeItem(options) {
   setText2(item, ".twm-tree-item__label", label);
   if (subtitle) setText2(item, ".twm-tree-item__subtitle", subtitle);
   if (badge?.text) setText2(item, ".twm-tree-item__badge", badge.text);
+  if (actions) {
+    const actionsEl = document.createElement("span");
+    actionsEl.className = "twm-tree-item__actions";
+    appendActionButtons(actionsEl, id, actions);
+    item.appendChild(actionsEl);
+  }
   return item;
 }
 function toggleCategory(categoryEl, force) {

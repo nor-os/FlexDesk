@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.17.14 (2026-10-26)
+
+A patch release. Everything below is additive except one changed default (see
+"Changed default"). Each entry links to its section of the docs.
+
+### Added and changed
+
+- [Tree items with row actions](docs/components/layout-widgets.md#tree-items-with-row-actions-01714): `createTreeItem` takes `actions` in the shape `createTreeNode` takes them (`{ id: { icon, title, onClick(id, event) } }`). The buttons (`.twm-tree-node__action-btn`) sit in one line in a `.twm-tree-item__actions` slot at the row's end, shown on hover, on focus within and on the selected item; the slot takes no height, so a row is as tall with actions as without, and a click on an action does not select the item. Without `actions` the markup is unchanged (STORY-0121).
+- [The digit chords follow the key's position](docs/components/keymap.md#the-digit-chords-follow-the-keys-position-not-its-character-01714): Alt+1..9 and Alt+Shift+1..9 match `event.code` (`Digit1`..`Digit9`), so Alt+Shift+N moves the focused tile to desktop N from a real key press on any layout (BUG-0046).
+- [Spinners turn without keyframes of your own](docs/concepts/styling.md#spinners-turn-without-keyframes-of-your-own-01714): flexdesk.css defines the `@keyframes` its tile-loading, data-table, computing-status and run-progress spinners name (BUG-0047).
+- [A saved layout that cannot be read](docs/components/panels-and-desktops.md#a-saved-layout-that-cannot-be-read-01714): a saved `desktops` layout that is JSON but not a layout is ignored with one warning, and the shell opens its default layout instead of throwing (BUG-0048).
+- `flexdesk/css/tokens` resolves to `dist/tokens.css`, the file the docs name, like `flexdesk/css` and `flexdesk/css/reset` (BUG-0030).
+- [The menu-bar row is a band of its own](docs/components/menus.md#the-menu-bar-in-its-own-row-under-the-top-bar-01713): `.twm-global-menu-bar` has background `var(--surface-0)`, darker than the top bar, and a `1px solid var(--border-strong)` border above and below (was `var(--surface-1)` with a `var(--surface-0)` bottom border), so it is set off from the top bar and the tiles. The row is 1px taller (STORY-0122).
+
+### Changed default
+
+- `DEFAULT_STATE_GUARD_CONFIG.allowedDatasetKeys` no longer lists thirteen keys that one embedding application had left in it and no FlexDesk widget writes: `scenario-id`, `run-id`, `run-state`, `mirror-input`, `mirror-input-bound`, `mirror-change-bound`, `override-type`, `info-for`, `dsl-state`, `dsl-section-registered`, `dsl-scrollbars-installed`, `dsl-tabs-bound` and `dsl-controls-bound`. An app that writes one of them under a guard built on the defaults lists it on top of them; a strict guard otherwise throws on the write (BUG-0029).
+
+### Removed or renamed exports
+
+None. Compared with 0.17.13, across every entry point (`core`, `widgets`, `wm`,
+`host`, `canvas`, `flow`, `charts`, `tiles`, `editor`) and the package
+`exports` map, no export was added, removed or renamed, and no option was
+removed or renamed; `createTreeItem` has one new option, `actions`. Not an
+export but worth knowing: flexdesk.css has one new class,
+`.twm-tree-item__actions`, and defines no new custom property.
+
 ## 0.17.13 (2026-10-26)
 
 A patch release: everything below is additive. Every fix is documented in a

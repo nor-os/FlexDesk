@@ -2,12 +2,14 @@
 
 ## 0.17.15 (2026-10-26)
 
-A patch release with no API change. Both entries change what embedders see: a top-level tile loses its one-segment breadcrumb strip, and every `openForm` row lays its inputs out anew. Each entry links to its section of the docs.
+A patch release with no API change. Its entries change what embedders see: a top-level tile loses its one-segment breadcrumb strip, every `openForm` row lays its inputs out anew, and a slide-out panel no longer crosses what lies right of its host. Each entry links to its section of the docs.
 
 ### Added and changed
 
 - [A tile breadcrumb of one segment is not drawn](docs/components/shell.md#a-tile-breadcrumb-of-one-segment-is-not-drawn-01715): while `mountTileBreadcrumb`'s path is a single segment or none (a top-nav page with no root crumb, trail or entity; an `appGlobal` kind), the strip is `hidden` and the page shell's `.twm-page-shell__breadcrumb` slot takes no room, so a top-level page no longer shows its name twice. `refresh()` shows it again at two segments; longer paths and `renderBreadcrumb` are unchanged (STORY-0124).
 - [The inputs of a row are equally wide](docs/components/forms-and-dialogs.md#the-inputs-of-a-row-are-equally-wide-01715): in an `openForm` `{ row }` each field's basis is its label (the first one's, the 130px label column) and the free space is shared equally, so every input of a row has the same width (up to each control's own padding); until 0.17.14 the first input was squeezed by the label column. A form whose widest row has three or more fields opens at `170 + 230 × fields` px: at least 640px, otherwise at most 90% of the window (BUG-0050).
+
+- [A slide-out panel is never drawn outside its host](docs/components/slide-out-panel.md#never-drawn-outside-its-host-01715): opening or closing, `SlideOutPanel` slides behind a clip that runs with it (`clip-path` with the same 200ms ease-out as the slide), so it no longer crosses the dock panel right of its host (BUG-0051).
 
 ### Removed or renamed exports
 

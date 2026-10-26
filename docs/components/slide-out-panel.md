@@ -66,3 +66,18 @@ Until 0.17.4 a panel in a narrow tile reached past the tile's left edge across
 the neighbouring pane, and neither icon had a size of its own: both took
 whatever the page's global icon size was. `tests/slide_out_panel_clamp.test.mjs`
 holds it.
+
+## Never drawn outside its host (0.17.15)
+
+While it is open the panel is `position: fixed`, pinned to its host's right
+edge, so the host's `overflow: hidden` no longer clips it. Until 0.17.14 it
+slid in (and out) by `translateX(100%)` alone and, on the way, was drawn
+across whatever lies right of the host: a dock panel, an inspector. It now
+slides behind a clip that runs with it: closed it is shifted by its own width
+and clipped by its own width from the right (`clip-path: inset(0 100% 0
+-16px)`), open neither, both over the same 200ms ease-out. At every frame the
+clip's right inset equals the shift, so only the part already inside the
+panel's final box shows, and that box lies inside the host. The left inset of
+-16px keeps the panel's shadow, which falls on the host. Nothing changes for
+callers (BUG-0051).
+

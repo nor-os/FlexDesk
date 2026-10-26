@@ -182,3 +182,18 @@ Still literals, because they are not the accent: the colours listed in the
 `COLOR_PALETTE`, `#1f77b4` as the colour pickers' default), and the Monaco
 editor theme's selection colours, which Monaco takes as hex values and not
 as CSS.
+
+## Spinners turn without keyframes of your own (0.17.14)
+
+The tile's loading overlay, the DataTable's loading overlay, the computing
+status window and the run-progress dialog each draw a ring with one coloured
+arc and turn it. They turn with `flexdesk.css` alone: it defines their
+`@keyframes` (`twm-tile-loading-spin`, `data-table__spin`, `computing-spin` and
+`etl-spin`), each a full turn.
+
+Up to and including 0.17.13 the stylesheet named those four animations and
+defined none of them. CSS treats an animation with no `@keyframes` as no
+animation, so the rings were drawn and stood still, and an embedder had to
+define the same four names itself to make them move. You can delete those definitions. If you keep
+one, `@keyframes` names are global and the later definition wins, which
+changes nothing unless yours is not a full turn.

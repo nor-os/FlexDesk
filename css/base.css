@@ -2813,6 +2813,18 @@ body.twm-window-maximized .twm-resize-handle {
     border-radius: 50%;
     animation: computing-spin 0.8s linear infinite;
 }
+/* The keyframes the rule above names. A spinner rule shipped with the animation
+   name and without the `@keyframes` block, which CSS does not report: an
+   undefined name is simply no animation, so the ring was drawn and never
+   turned, and nothing threw, logged or failed a build. `@keyframes` names are
+   global, so this one is not scoped (see `spin`): an embedder that defines
+   its own `computing-spin` wins or loses on source order, and either way the
+   ring turns. A full turn at the rule's own duration, linear and infinite, so
+   the loop has no seam: the arc is back where it started. */
+@keyframes computing-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
 .twm-computing-status__message {
     font-size: var(--font-size-md);
     color: #b0b0b0;
@@ -2857,6 +2869,11 @@ body.twm-window-maximized .twm-resize-handle {
     border-radius: 50%;
     flex-shrink: 0;
     animation: etl-spin 0.8s linear infinite;
+}
+/* The keyframes the rule above names; see `computing-spin`. */
+@keyframes etl-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
 }
 .twm-run-progress__message {
     font-size: var(--font-size-md);

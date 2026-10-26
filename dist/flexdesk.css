@@ -2966,20 +2966,25 @@ body.twm-window-maximized .twm-resize-handle {
 }
 /* Row actions (createTreeItem's `actions`, STORY-0121): one line at the row's
  * end, after label, subtitle and badge, shown on hover, on focus within and on
- * the selected item. The slot is no taller than the label line, so a row is
- * as high with actions as without. */
+ * the selected item. Hidden by opacity, not display, so the buttons stay in
+ * the tab order (Tab reaches them and :focus-within shows them) and the label
+ * keeps its width on hover. The slot is no taller than the label line, so a
+ * row is as high with actions as without. */
 .twm-tree-item__actions {
-    display: none;
+    display: flex;
     align-items: center;
     gap: var(--space-xxs);
     flex-shrink: 0;
     height: 0;
     overflow: visible;
+    opacity: 0;
+    pointer-events: none;
 }
 .twm-tree-item:hover > .twm-tree-item__actions,
 .twm-tree-item:focus-within > .twm-tree-item__actions,
 .twm-tree-item.selected > .twm-tree-item__actions {
-    display: flex;
+    opacity: 1;
+    pointer-events: auto;
 }
 /* ═══════════════════════════════════════════════════════════════════════════
    Plot Popout Window

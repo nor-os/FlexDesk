@@ -5185,6 +5185,7 @@ function appendActionButtons(actionsEl, id, actions) {
         e.stopPropagation();
         actionConfig.onClick(id, e);
       });
+      btn.addEventListener("dblclick", (e) => e.stopPropagation());
     }
     actionsEl.appendChild(btn);
   });

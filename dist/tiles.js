@@ -17,11 +17,11 @@ import {
 } from "./chunk-MIW7D6WC.js";
 import {
   showContextMenu
-} from "./chunk-AD7FIA3Z.js";
+} from "./chunk-7JI7HHSY.js";
 import {
   modalHost,
   openModal
-} from "./chunk-OEG6NPAN.js";
+} from "./chunk-XJNADRGR.js";
 import {
   buildHistogramTrace,
   buildLegendLayout,
@@ -36,11 +36,11 @@ import {
   purge,
   resize,
   strideDownsampleShared
-} from "./chunk-TLIV6QSU.js";
-import "./chunk-2PM6ZMNS.js";
+} from "./chunk-7OL6F2AM.js";
+import "./chunk-2Z2ENHR3.js";
 import {
   isHexColor
-} from "./chunk-MADMGRX2.js";
+} from "./chunk-PGZ4EHSE.js";
 import "./chunk-HNU6MM2B.js";
 import "./chunk-WUFLGETN.js";
 import {
@@ -220,6 +220,9 @@ var TileBase = class {
    * @param {{resolve: Function}} [options.dataSource] - Where this tile asks for its
    *        own rows. Handed down by `TileGrid`; absent for a grid whose data is
    *        broadcast with `setData()`, and then nothing ever calls `loadData()`.
+   * @param {boolean} [options.configOnDoubleClick=true] - A double-click on the
+   *        title strip (not on its buttons or an editable field in it) does what
+   *        the cogwheel does. False leaves the cogwheel as the only way in.
    */
   constructor({
     id,
@@ -230,7 +233,8 @@ var TileBase = class {
     headless = false,
     host = null,
     stateGuard = null,
-    dataSource = null
+    dataSource = null,
+    configOnDoubleClick = true
   }) {
     this.host = host;
     this.dataSource = dataSource;
@@ -241,6 +245,8 @@ var TileBase = class {
     this.config = { ...this.getDefaultConfig(), ...config };
     this.readonly = readonly;
     this.headless = headless;
+    this.configOnDoubleClick = configOnDoubleClick;
+    this._configuring = false;
     this.element = null;
     this.contentElement = null;
     this.chartInstance = null;
@@ -413,7 +419,7 @@ var TileBase = class {
   mount(container) {
     if (this._disposed) return;
     this.element = document.createElement("div");
-    this.element.className = `tile${this.readonly ? " tile--readonly" : ""}`;
+    this.element.className = `tile${this.readonly ? " tile--readonly" : ""}${this._configuring ? " tile--configuring" : ""}`;
     const stateGuard = this.stateGuard;
     const setDataset = () => {
       this.element.dataset.tileId = this.id;
@@ -669,6 +675,12 @@ var TileBase = class {
         e.stopPropagation();
         this._onConfigClick();
       });
+      header.addEventListener("dblclick", (e) => {
+        if (!this.configOnDoubleClick || !configBtn) return;
+        if (e.target.closest?.('button, input, textarea, select, [contenteditable=""], [contenteditable="true"], .tile-menu-dropdown')) return;
+        e.stopPropagation();
+        this._onConfigClick();
+      });
       const menuBtn = header.querySelector(".tile-menu-btn");
       const menuDropdown = header.querySelector(".tile-menu-dropdown");
       if (menuBtn && menuDropdown) {
@@ -758,6 +770,33 @@ var TileBase = class {
       menu.style[prop] = "";
     }
     if (this._menuHome && menu.parentNode !== this._menuHome) this._menuHome.appendChild(menu);
+  }
+  /**
+   * Mark this tile as being configured, or clear the mark (STORY-0128).
+   * A convenience for `grid.setConfiguring(tile.id, on)`, which is the API:
+   * the grid holds the mark by tile id, so it outlives this tile instance
+   * (`setLayout` disposes and rebuilds every tile). A tile with no grid
+   * holds the mark itself.
+   *
+   * @param {boolean} [on=true]
+   */
+  setConfiguring(on = true) {
+    if (typeof this.grid?.setConfiguring === "function") {
+      this.grid.setConfiguring(this.id, on);
+      return;
+    }
+    this._applyConfiguring(on);
+  }
+  /** Draw (or clear) the configuring mark. Called by the grid.
+   *  @param {boolean} on
+   *  @private */
+  _applyConfiguring(on) {
+    this._configuring = !!on;
+    this.element?.classList.toggle("tile--configuring", this._configuring);
+  }
+  /** True while this tile is marked as being configured. */
+  get isConfiguring() {
+    return this._configuring;
   }
   /**
    * Handle config button click — highlight tile and emit config request.
@@ -3028,6 +3067,8 @@ var TileGrid = class {
    * @param {*} [options.scope=null] - The board's scope, a filter every tile
    *        follows (0.16.1); see `setScope`.
    * @param {Function} [options.onScopeChange] - `(scope)` after `setScope` changed it.
+   * @param {boolean} [options.configOnDoubleClick=true] - Whether a double-click
+   *        on a tile's title strip opens its config, as its cogwheel does (0.17.16).
    */
   constructor({
     container,
@@ -3052,13 +3093,18 @@ var TileGrid = class {
     // a binding is, only that a tile may have somewhere to ask.
     dataSource = null,
     scope = null,
-    onScopeChange = null
+    onScopeChange = null,
+    // STORY-0128. Handed to every tile: false turns off the
+    // title strip's double-click to configure.
+    configOnDoubleClick = true
   }) {
     this.host = host;
     this.scope = scope;
     this._onScopeChangeCallback = onScopeChange;
     this.stateGuard = stateGuard;
     this.dataSource = dataSource;
+    this.configOnDoubleClick = configOnDoubleClick;
+    this._configuringIds = /* @__PURE__ */ new Set();
     this.container = container;
     this.columns = columns;
     this.rowHeight = rowHeight;
@@ -3176,10 +3222,12 @@ var TileGrid = class {
       readonly: this.readonly,
       host: this.host,
       stateGuard: this.stateGuard,
-      dataSource: this.dataSource
+      dataSource: this.dataSource,
+      configOnDoubleClick: this.configOnDoubleClick
     });
     if (!tile) return null;
     tile.scope = this.scope;
+    if (this._configuringIds.has(tileId)) tile._applyConfiguring(true);
     const layoutEntry = {
       id: tileId,
       type,
@@ -3297,6 +3345,33 @@ var TileGrid = class {
       h: l.h,
       config: this.tiles.get(l.id)?.config || l.config
     }));
+  }
+  /**
+   * Mark a tile as being configured, or clear the mark (STORY-0128).
+   *
+   * A config request (cogwheel or title double-click) highlights the
+   * requesting tile with `tile--selected` and takes that highlight off every
+   * other tile: one selection per grid. An embedder that keeps a config
+   * window open per tile marks each such tile here instead. The mark
+   * (`tile--configuring`, drawn like the selection) is the embedder's alone:
+   * no config request clears it, and it is held by id, so a tile that
+   * `setLayout` rebuilds (or an id added later) is marked again. Clear it
+   * when that tile's config window closes.
+   *
+   * @param {string} tileId
+   * @param {boolean} [on=true]
+   */
+  setConfiguring(tileId, on = true) {
+    if (on) this._configuringIds.add(tileId);
+    else this._configuringIds.delete(tileId);
+    this.tiles.get(tileId)?._applyConfiguring(!!on);
+  }
+  /**
+   * @param {string} tileId
+   * @returns {boolean} Whether the tile is marked as being configured.
+   */
+  isConfiguring(tileId) {
+    return this._configuringIds.has(tileId);
   }
   /**
    * Set layout and rebuild tiles.

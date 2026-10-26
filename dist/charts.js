@@ -55,17 +55,17 @@ import {
   strideIndices,
   uid,
   updateChart
-} from "./chunk-TLIV6QSU.js";
+} from "./chunk-7OL6F2AM.js";
 import {
   AutocompleteField,
   createRafResizeObserver
-} from "./chunk-2PM6ZMNS.js";
+} from "./chunk-2Z2ENHR3.js";
 import {
   ColorField,
   ManagedWindow,
   ToggleField,
   selectBox
-} from "./chunk-MADMGRX2.js";
+} from "./chunk-PGZ4EHSE.js";
 import "./chunk-HNU6MM2B.js";
 import "./chunk-N7HC3ADV.js";
 import "./chunk-WUFLGETN.js";
@@ -758,10 +758,27 @@ function removeButton(title, onClick) {
   b.appendChild(el("span", "material-symbols-outlined", "close"));
   return b;
 }
-function field(label, control) {
+var hintCount = 0;
+function field(label, control, { hint = null } = {}) {
   const single = control.matches("input, select, textarea");
-  const row = el(single ? "label" : "div", "twm-plot-config__field");
-  row.append(el("span", "twm-plot-config__label", label), control);
+  const hinted = hint != null && hint !== "";
+  if (!hinted) {
+    const row2 = el(single ? "label" : "div", "twm-plot-config__field");
+    row2.append(el("span", "twm-plot-config__label", label), control);
+    return row2;
+  }
+  const row = el("div", "twm-plot-config__field twm-plot-config__field--hinted");
+  const text = el(single ? "label" : "span", "twm-plot-config__label", label);
+  const note = el("span", "twm-plot-config__hint", hint);
+  note.id = `twm-plot-config-hint-${++hintCount}`;
+  if (single) {
+    if (!control.id) control.id = `${note.id}-control`;
+    text.htmlFor = control.id;
+  }
+  const target = single ? control : control.querySelector("input, select, textarea") ?? control;
+  const describedBy = target.getAttribute("aria-describedby");
+  target.setAttribute("aria-describedby", describedBy ? `${describedBy} ${note.id}` : note.id);
+  row.append(text, control, note);
   return row;
 }
 function textInput(value, onSet, { placeholder = "", label = null } = {}) {
@@ -920,7 +937,7 @@ function renderPlotConfigEditor(container, config, options = {}) {
     node.classList.add("twm-plot-config__picker");
     return node;
   }
-  function colorField(value, onSet, label) {
+  function colorField(value, onSet, label, keep = track) {
     const f = new ColorField({
       value: value ?? "",
       label,
@@ -931,7 +948,7 @@ function renderPlotConfigEditor(container, config, options = {}) {
         }
       }
     });
-    track(() => f.dispose());
+    keep(() => f.dispose());
     return f.render();
   }
   function toggle(label, checked, onSet) {
@@ -1154,37 +1171,13 @@ function renderPlotConfigEditor(container, config, options = {}) {
   }
   function seriesRow(sp, axis, s, overlaySources) {
     const row = el("div", "twm-plot-config__series");
-    const main = el("div", "twm-plot-config__series-main");
-    main.append(
+    const head = el("div", "twm-plot-config__series-head");
+    head.append(
       seriesPicker(s, "variable", "series", sp, "Series"),
       textInput(s.label, (v) => {
         s.label = v;
         notify();
       }, { placeholder: "Legend label", label: "Legend label" }),
-      colorField(s.color, (v) => {
-        if (v) s.color = v;
-        else delete s.color;
-      }, "Colour"),
-      numberInput(
-        s.lineWidth ?? 2,
-        (v) => {
-          s.lineWidth = v ?? 2;
-          notify();
-        },
-        { placeholder: "2", label: "Line width", min: 1, max: 10, step: 1 }
-      ),
-      select(DASHES, s.lineStyle ?? "solid", (v) => {
-        s.lineStyle = v;
-        notify();
-      }, { label: "Dash" }),
-      textInput(
-        s.stackGroup,
-        (v) => {
-          s.stackGroup = v || null;
-          notify();
-        },
-        { placeholder: "Stack group", label: "Stack group" }
-      ),
       removeButton("Remove series", () => {
         const i = axis.series.indexOf(s);
         if (i >= 0) axis.series.splice(i, 1);
@@ -1192,22 +1185,99 @@ function renderPlotConfigEditor(container, config, options = {}) {
         notify();
       })
     );
-    row.appendChild(main);
-    if (opts.extraSeriesFields) {
-      const extra = el("div", "twm-plot-config__series-extra");
-      row.appendChild(extra);
-      const handle = opts.extraSeriesFields(extra, s, { subplot: sp, axis, onChange: notify });
-      if (typeof handle?.dispose === "function") track(() => handle.dispose());
-    }
-    if (opts.overlaySources) row.appendChild(overlayEditor(s, overlaySources));
+    const fields = el("div", "twm-plot-config__series-fields");
+    fields.append(
+      field("Colour", colorField(s.color, (v) => {
+        if (v) s.color = v;
+        else delete s.color;
+      }, "Colour")),
+      field("Width", numberInput(
+        s.lineWidth ?? 2,
+        (v) => {
+          s.lineWidth = v ?? 2;
+          notify();
+        },
+        { placeholder: "2", label: "Line width", min: 1, max: 10, step: 1 }
+      )),
+      field("Dash", select(DASHES, s.lineStyle ?? "solid", (v) => {
+        s.lineStyle = v;
+        notify();
+      }, { label: "Dash" })),
+      field("Stack group", textInput(
+        s.stackGroup,
+        (v) => {
+          s.stackGroup = v || null;
+          notify();
+        },
+        { placeholder: "None", label: "Stack group" }
+      ))
+    );
+    if (opts.extraSeriesFields) fields.appendChild(extraFields(sp, axis, s));
+    if (opts.overlaySources) fields.appendChild(overlayEditor(s, overlaySources));
+    row.append(head, fields);
     return row;
+  }
+  const warn = (...args) => opts.logger?.warn ? opts.logger.warn(...args) : console.warn(...args);
+  function extraFields(sp, axis, s) {
+    const extra = el("div", "twm-plot-config__series-extra");
+    const result = opts.extraSeriesFields(extra, s, { subplot: sp, axis, onChange: notify, field });
+    if (!Array.isArray(result)) {
+      if (typeof result?.dispose === "function") track(() => result.dispose());
+      return extra;
+    }
+    for (const spec of result) {
+      const label = spec?.label;
+      let control = null;
+      if (typeof label !== "string") {
+        warn("[plot config editor] an extraSeriesFields spec has no label; skipped", spec);
+        continue;
+      }
+      if (spec.control != null) {
+        if (!(spec.control instanceof Element)) {
+          warn("[plot config editor] an extraSeriesFields spec control is not an Element; skipped", spec);
+          continue;
+        }
+        control = spec.control;
+      } else if (typeof spec.render === "function") {
+        control = el("div", "twm-plot-config__slot");
+        try {
+          const handle = spec.render(control);
+          if (typeof handle?.dispose === "function") track(() => handle.dispose());
+        } catch (error) {
+          warn("[plot config editor] an extraSeriesFields spec failed to render; skipped", error);
+          continue;
+        }
+      } else {
+        warn("[plot config editor] an extraSeriesFields spec has neither control nor render; skipped", spec);
+        continue;
+      }
+      extra.appendChild(field(label, control, { hint: spec.hint }));
+    }
+    return extra;
   }
   function overlayEditor(s, overlaySources) {
     const wrap = el("div", "twm-plot-config__overlay");
     const head = el("div", "twm-plot-config__overlay-source", "Loading overlay sources\u2026");
     const details = el("div", "twm-plot-config__overlay-fields");
     wrap.append(head, details);
+    let detailDisposers = [];
+    const disposeDetails = () => {
+      const fns = detailDisposers;
+      detailDisposers = [];
+      for (const fn of fns) {
+        try {
+          fn();
+        } catch (error) {
+          opts.logger?.warn?.("[plot config editor] a field failed to dispose", error);
+        }
+      }
+    };
+    track(disposeDetails);
+    const keep = (fn) => {
+      detailDisposers.push(fn);
+    };
     const drawDetails = () => {
+      disposeDetails();
       details.replaceChildren();
       const ov = s.overlay;
       if (!ov) return;
@@ -1223,7 +1293,7 @@ function renderPlotConfigEditor(container, config, options = {}) {
         field("Colour", colorField(ov.color, (v) => {
           if (v) ov.color = v;
           else delete ov.color;
-        }, "Overlay colour")),
+        }, "Overlay colour", keep)),
         field("Dash", select(DASHES, ov.lineStyle ?? "dashed", (v) => {
           ov.lineStyle = v;
           notify();

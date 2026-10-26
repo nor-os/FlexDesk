@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.17.16 (2026-10-27)
+
+A patch release. Two new widgets and options; the other entries change what
+embedders see (listed under "Changed behaviour"). Each entry links to its
+section of the docs.
+
+### Added
+
+- [A categorised picker: `CategoryPicker`](docs/components/menus.md#a-categorised-picker-categorypicker-01716): a popover anchored to a trigger, like ActionDropdown, with a search field over categories (colour dot, count), the active category's items (icon or short badge) and a detail pane (description, optional monospace preview, an Add button). Typing filters across categories; arrows, Enter, Tab (cycling field and Add), double-click and Esc work as documented; IME composition is respected; ARIA combobox/listbox with `aria-activedescendant`. Exported from `@flexdesk/widgets` (STORY-0126).
+- [A kind that lives in a window: `windowOnly` and `window`](docs/components/shell.md#a-kind-that-lives-in-a-window-windowonly-and-window-01716): a taxonomy kind can declare `window: { width, height }` and `windowOnly: true`. A window-only kind opens in a managed window from every open path, its window never docks into a tile, and a restored layout drops its tile tabs with one warning; `taxonomy.isWindowOnly` and `windowSize` answer (STORY-0127).
+- [Tile title double-click and configuring marks](docs/components/tiles.md#a-double-click-on-the-title-strip-configures-the-tile-01716): a double-click on a tile's title strip does what its cogwheel does (`configOnDoubleClick`, default on); `grid.setConfiguring(tileId, on)` / `grid.isConfiguring(tileId)` keep any number of tiles marked as being configured (`tile--configuring`), across `setLayout` (STORY-0128).
+- `ManagedWindow` options `persistGeometry` (default true) and `focusOnOpen` (default true; `'window'` focuses the frame), `ManagedWindow.configure({ storageKey, maxSavedWindows })`, `DEFAULT_MAX_SAVED_WINDOWS` (50) and `win.isClosed` (BUG-0053).
+- The plot config editor's `extraSeriesFields` may return an array of field specs `{ label, control | render, hint? }` that the editor lays out on its own label column, and receives `ctx.field(label, control, { hint })` (BUG-0052).
+
+### Changed behaviour
+
+- [Windows: closing, focus and Esc](docs/components/forms-and-dialogs.md#windows-closing-focus-and-esc-01716): a closed `ManagedWindow` leaves the registry and releases its content and callbacks (`get(id)` answers null; build a new window to reopen). Saved geometry keeps the 50 most recently used ids (window-manager-minted `twm-mw-*` entries are purged). A new window takes focus (its first field) and gives it back on close; the computing status window does not take focus, and the run-progress dialog focuses its frame, not Stop. Esc closes a modal on top wherever focus is, otherwise the window holding focus, otherwise the topmost modal, and never when the key was already handled (`defaultPrevented`) or composing (BUG-0053).
+- [A plot config series is one block](docs/components/charts.md#a-plot-config-series-is-one-block-and-an-embedders-fields-share-it-01716): each series is a header line (variable, label, remove) and fields on the editor's label column (colour as ColorField, width, dash, stack group, extra fields, overlay). `.twm-plot-config__series-main` is gone; new classes `__series-head`, `__series-fields`, `__slot`, `__hint`, `__field--hinted`. The config objects read and written are unchanged (BUG-0052).
+
+### Removed or renamed exports
+
+None. New exports: `CategoryPicker`, `DEFAULT_MAX_SAVED_WINDOWS`. flexdesk.css gains the category picker's classes, `.tile--configuring` and the plot config classes above, and drops `.twm-plot-config__series-main`; it defines no new custom property besides the picker's `--twm-category-picker-color`.
+
 ## 0.17.15 (2026-10-26)
 
 A patch release with no API change. Its entries change what embedders see: a top-level tile loses its one-segment breadcrumb strip, every `openForm` row lays its inputs out anew, and a slide-out panel no longer crosses what lies right of its host. Each entry links to its section of the docs.

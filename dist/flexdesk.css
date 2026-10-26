@@ -3869,20 +3869,25 @@ body.twm-window-maximized .twm-resize-handle {
 }
 
 /* Selected — set by `_onConfigClick()` while the config dialog is open, and
-   cleared from every sibling by the same handler. It reads `--accent-lighter`
+   cleared from every sibling by the same handler. `--configuring` is the same
+   look set by the embedder through `setConfiguring()` (0.17.16), one per open
+   config window, and no handler clears it. It reads `--accent-lighter`
    (BUG-0045): `--accent-bright` is a border colour on this background and not
    a text one. It was #78b9ff, which no mix of `--accent-bright` with white
    gives exactly; `--accent-lighter` (about #73b6e3) is the nearest. */
-.tile.tile--selected {
+.tile.tile--selected,
+.tile.tile--configuring {
     border-color: var(--accent-lighter);
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-lighter) 30%, transparent), var(--shadow-md);
 }
 
-.tile.tile--selected .tile-header {
+.tile.tile--selected .tile-header,
+.tile.tile--configuring .tile-header {
     background: color-mix(in srgb, var(--accent-lighter) 10%, transparent);
 }
 
-.tile.tile--selected .tile-title {
+.tile.tile--selected .tile-title,
+.tile.tile--configuring .tile-title {
     color: var(--accent-lighter);
 }
 
@@ -4609,6 +4614,215 @@ body.twm-window-maximized .twm-resize-handle {
     text-overflow: ellipsis;
 }
 
+/* ══ CATEGORY PICKER (STORY-0126) ══════════════════════════════════════
+   `CategoryPicker` (category_picker.js): a search field over three columns —
+   categories, the active category's items, the highlighted item's detail.
+   Placed by `ActionDropdown.position` (inline top/left/max-height), so it is
+   `position: fixed` on --z-over-windows: over the managed window it opened
+   from. It shrinks to the inline max-height and its columns scroll inside.
+   A category's colour arrives as `--twm-category-picker-color` on its rows. */
+.twm-category-picker {
+    position: fixed;
+    z-index: var(--z-over-windows);
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    width: 640px;
+    max-width: calc(100vw - 2 * var(--space-md));
+    height: 440px;
+    background: var(--surface-1);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: var(--font-size-md);
+    overflow: hidden;
+}
+.twm-category-picker[hidden] {
+    display: none;
+}
+.twm-category-picker__search {
+    flex: none;
+    padding: var(--space-md);
+    border-bottom: 1px solid var(--border-default);
+}
+.twm-category-picker__input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: var(--space-sm) var(--space-md);
+    background: var(--surface-0);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: var(--font-size-md);
+}
+.twm-category-picker__input:focus {
+    outline: none;
+    border-color: var(--accent-bright);
+}
+.twm-category-picker__body {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+}
+.twm-category-picker__column {
+    flex: none;
+    box-sizing: border-box;
+    padding: var(--space-sm) 0;
+    border-right: 1px solid var(--border-default);
+    overflow-y: auto;
+}
+.twm-category-picker__categories {
+    width: 170px;
+}
+.twm-category-picker__items {
+    width: 220px;
+}
+.twm-category-picker__category,
+.twm-category-picker__item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    width: 100%;
+    box-sizing: border-box;
+    padding: var(--space-sm) var(--space-lg);
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: var(--font-size-md);
+    text-align: left;
+    cursor: pointer;
+}
+.twm-category-picker__category:hover,
+.twm-category-picker__item:hover {
+    background: var(--state-hover);
+}
+.twm-category-picker__category--active,
+.twm-category-picker__item--highlighted,
+.twm-category-picker__category--active:hover,
+.twm-category-picker__item--highlighted:hover {
+    background: var(--state-selected);
+}
+/* The column the arrow keys move in marks its row with an accent edge. */
+.twm-category-picker__column--current .twm-category-picker__category--active,
+.twm-category-picker__column--current .twm-category-picker__item--highlighted {
+    box-shadow: inset 2px 0 0 var(--accent-bright);
+}
+.twm-category-picker__category--empty {
+    color: var(--text-dim);
+}
+.twm-category-picker__dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-circle);
+    /* background-color, not the shorthand: the colour is the caller's, and a
+       url() in the shorthand would be fetched */
+    background-color: var(--twm-category-picker-color, var(--text-muted));
+}
+.twm-category-picker__category-label,
+.twm-category-picker__item-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.twm-category-picker__count {
+    flex: none;
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    font-variant-numeric: tabular-nums;
+}
+.twm-category-picker__badge,
+.twm-category-picker__item .twm-category-picker__icon {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    box-sizing: border-box;
+    color: var(--twm-category-picker-color, var(--text-muted));
+}
+.twm-category-picker__badge {
+    border: 1px solid var(--twm-category-picker-color, var(--text-muted));
+    border-radius: var(--radius-sm);
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    overflow: hidden;
+    white-space: nowrap;
+}
+.twm-category-picker__item .twm-category-picker__icon {
+    font-size: 18px;
+}
+/* One category's hits while a query is set: role="group", named by its header. */
+.twm-category-picker__hits {
+    display: flex;
+    flex-direction: column;
+}
+.twm-category-picker__group {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-md) var(--space-lg) var(--space-xs);
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+.twm-category-picker__empty,
+.twm-category-picker__detail-empty {
+    padding: var(--space-md) var(--space-lg);
+    color: var(--text-muted);
+}
+.twm-category-picker__detail {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    padding: var(--space-xl);
+    overflow-y: auto;
+}
+.twm-category-picker__title {
+    color: var(--text-bright);
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-semibold);
+}
+.twm-category-picker__description {
+    color: var(--text-secondary);
+    line-height: var(--line-height-normal);
+}
+.twm-category-picker__preview-label {
+    margin-top: var(--space-sm);
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+.twm-category-picker__preview {
+    margin: 0;
+    padding: var(--space-md);
+    background: var(--surface-0);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    color: var(--text-body);
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-sm);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+.twm-category-picker__add {
+    margin-top: auto;
+    align-self: flex-end;
+}
+/* ══ end CATEGORY PICKER ══ */
+
 /* ── from code.css ───────────────────────── */
 /* Code language tabs */
 .twm-code-tabs-header {
@@ -4824,6 +5038,12 @@ body.twm-window-maximized .twm-resize-handle {
 }
 .twm-managed-window:focus-within {
     border-color: #505050;
+}
+/* BUG-0053. The frame is focusable (tabindex -1) so a press on it keeps focus
+   in the window; the focus-within border above already shows that, so the
+   frame draws no outline of its own. */
+.twm-managed-window:focus {
+    outline: none;
 }
 /* Minimize animation class — targets taskbar item via CSS custom properties */
 .twm-managed-window--minimizing {
@@ -11084,6 +11304,11 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     flex: 1 1 140px;
     min-width: 0;
 }
+/* A picker has no helper text: its empty helper takes no room (it held a
+ * 28px gap under every picker, and the series header line off its centre). */
+.twm-plot-config__picker > .twm-autocomplete-field__helper:empty {
+    display: none;
+}
 .twm-plot-config__axes,
 .twm-plot-config__list,
 .twm-plot-config__series-list {
@@ -11117,37 +11342,114 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     gap: var(--space-xs) var(--space-md);
 }
+/* A series is one block (BUG-0052): a header line (picker, legend label,
+ * remove) over its fields, one per line on the editor's 96px label column —
+ * colour, width, dash, stack group, the embedder's `extraSeriesFields` (their
+ * box is `display: contents`, so its rows are rows of the column) and the
+ * overlay. Until 0.17.15 all of it was one wrapped line. */
 .twm-plot-config__series {
     display: flex;
     flex-direction: column;
-    gap: var(--space-xxs);
-    padding: var(--space-xs) 0;
+    gap: var(--space-xs);
+    padding: var(--space-sm) 0;
     border-top: 1px solid var(--border-subtle);
+    min-width: 0;
 }
-.twm-plot-config__series-main,
+.twm-plot-config__series-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+.twm-plot-config__series-head > .twm-plot-config__picker {
+    flex: 2 1 140px;
+}
+.twm-plot-config__series-head > .twm-plot-config__input {
+    flex: 1 1 100px;
+}
+.twm-plot-config__series-fields {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xxs);
+    min-width: 0;
+}
+.twm-plot-config__series-extra {
+    display: contents;
+}
 .twm-plot-config__row {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: var(--space-xs);
 }
-.twm-plot-config__series-main > .twm-plot-config__input:not(.twm-plot-config__input--number):not(.twm-plot-config__input--select),
 .twm-plot-config__row > .twm-plot-config__input:not(.twm-plot-config__input--number):not(.twm-plot-config__input--select) {
     flex: 1 1 100px;
 }
-.twm-plot-config__series-main > .twm-plot-config__input--select,
 .twm-plot-config__row > .twm-plot-config__input--select {
     flex: 0 1 auto;
 }
-.twm-plot-config__series-extra:empty {
-    display: none;
+/* On a field line a colour is the swatch and a hex box sized to `#rrggbb`. */
+.twm-plot-config__field > .twm-color-field {
+    flex: 0 1 auto;
+    flex-wrap: nowrap;
 }
+.twm-plot-config__field > .twm-color-field > .twm-color-field__hex {
+    flex: 0 1 auto;
+    width: 10ch;
+}
+/* A colour's hex box is a well like the editor's other inputs. */
+.twm-plot-config .twm-color-field__hex {
+    box-sizing: border-box;
+    padding: var(--space-xxs) var(--space-xs);
+    background: var(--surface-3);
+    color: var(--text-primary);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+}
+/* ... and still shows a hex that is not a colour (the well's border above
+ * would otherwise hide ColorField's invalid border). */
+.twm-plot-config .twm-color-field--invalid .twm-color-field__hex {
+    border-color: var(--color-danger);
+}
+/* A field line's select keeps to its options, as the number boxes do. */
+.twm-plot-config__series-fields .twm-plot-config__field > .twm-plot-config__input--select {
+    flex: 0 1 auto;
+    max-width: 100%;
+}
+/* An embedder's control drawn by a field spec's `render(slot)`. */
+.twm-plot-config__slot {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+/* A field's hint, under its control: past the label column. Only a field
+ * with a hint wraps, so a number box never drops under its label. */
+.twm-plot-config__field--hinted {
+    flex-wrap: wrap;
+}
+.twm-plot-config__hint {
+    box-sizing: border-box;
+    flex: 1 0 100%;
+    padding-left: calc(96px + var(--space-sm));
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+}
+/* The overlay's own fields, under its source: set in by a rule, their label
+ * column shortened by as much, so their controls stay on the series' column. */
 .twm-plot-config__overlay,
 .twm-plot-config__overlay-fields {
     display: flex;
     flex-direction: column;
     gap: var(--space-xxs);
-    padding-left: var(--space-md);
+    min-width: 0;
+}
+.twm-plot-config__overlay-fields:not(:empty) {
+    margin-left: var(--space-sm);
+    padding-left: calc(var(--space-sm) - 1px);
+    border-left: 1px solid var(--border-subtle);
+}
+.twm-plot-config__overlay-fields > .twm-plot-config__field > .twm-plot-config__label {
+    flex-basis: calc(96px - 2 * var(--space-sm));
 }
 .twm-plot-config__overlay-source {
     color: var(--text-muted);

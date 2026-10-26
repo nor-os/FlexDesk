@@ -8,14 +8,14 @@ import {
 } from "./chunk-REJ5HLIM.js";
 import {
   showContextMenu
-} from "./chunk-AD7FIA3Z.js";
+} from "./chunk-7JI7HHSY.js";
 import {
   openForm
-} from "./chunk-OEG6NPAN.js";
+} from "./chunk-XJNADRGR.js";
 import {
   ManagedWindow,
   isRowActivation
-} from "./chunk-MADMGRX2.js";
+} from "./chunk-PGZ4EHSE.js";
 import "./chunk-HNU6MM2B.js";
 import {
   NotebookTabBar
@@ -2642,6 +2642,28 @@ function createTaxonomy({ kinds, root } = {}) {
         `createTaxonomy: '${kind}'.single must be true or a prop name`
       );
     }
+    if (def.window != null) {
+      const w = def.window;
+      const bad = (v) => v != null && !(typeof v === "number" && Number.isFinite(v) && v > 0);
+      if (typeof w !== "object" || Array.isArray(w) || bad(w.width) || bad(w.height)) {
+        throw new TypeError(
+          `createTaxonomy: '${kind}'.window must be { width?, height? } in positive px`
+        );
+      }
+    }
+    if (def.windowOnly != null && typeof def.windowOnly !== "boolean") {
+      throw new TypeError(`createTaxonomy: '${kind}'.windowOnly must be true or false`);
+    }
+    if (def.windowOnly && def.isTopNav) {
+      throw new Error(
+        `createTaxonomy: '${kind}' is a top-nav page and cannot be windowOnly \u2014 a page lives in tiles`
+      );
+    }
+  }
+  if (kinds[root].windowOnly) {
+    throw new Error(
+      `createTaxonomy: the root kind '${root}' cannot be windowOnly \u2014 every new pane, tab and desktop is seeded with it`
+    );
   }
   if (kinds[root].single) {
     throw new Error(
@@ -2720,6 +2742,11 @@ function createTaxonomy({ kinds, root } = {}) {
     const v = props?.[by];
     return `${kind}\0${v == null ? "" : String(v)}`;
   };
+  const isWindowOnly = (kind) => _kinds[kind]?.windowOnly === true;
+  const windowSize = (kind) => {
+    const w = _kinds[kind]?.window;
+    return w ? { width: w.width ?? null, height: w.height ?? null } : null;
+  };
   const singleReason = (kind) => `${_kinds[kind]?.label || kind} is open once: use the one that is open`;
   return Object.freeze({
     root,
@@ -2735,7 +2762,9 @@ function createTaxonomy({ kinds, root } = {}) {
     topNavEntries,
     isSingle,
     instanceKey,
-    singleReason
+    singleReason,
+    isWindowOnly,
+    windowSize
   });
 }
 
@@ -5461,7 +5490,11 @@ var WindowManager = class _WindowManager {
         }
       }
     }
-    const deduped = this._dropDuplicateSingles();
+    const windowOnlyDropped = this._dropWindowOnlyTabs();
+    if (windowOnlyDropped.length) {
+      (this.logger ?? console).warn?.(`[wm] the saved layout held ${windowOnlyDropped.length} tile tab(s) of window-only kind(s) ${[...new Set(windowOnlyDropped)].join(", ")}; they open in a window when asked for`);
+    }
+    const deduped = this._dropDuplicateSingles() || windowOnlyDropped.length > 0;
     for (const d of this.desktops.desktops) this._canonicalize(d.tree, d);
     this.renderer.tree = this.desktops.active().tree;
     this.renderer.render();
@@ -5728,20 +5761,52 @@ var WindowManager = class _WindowManager {
     }
     return keys;
   }
+  /** Open a window-only kind (KindDef `windowOnly`) in its window — the one
+   *  that is open, or a new one — and say so; any other kind: false, and the
+   *  caller opens it where it asked (STORY-0127). */
+  _openWindowOnly(kind, props) {
+    if (!this.taxonomy.isWindowOnly?.(kind)) return false;
+    this._navigateWindow(kind, props);
+    return true;
+  }
+  /** Whether a window record holds a window-only kind: such a window never
+   *  docks into a tile (Back to tile, maximize, drag-to-dock). */
+  _holdsWindowOnly(rec) {
+    return !!this.taxonomy.isWindowOnly && _windowTabSpecs(rec).some((t) => this.taxonomy.isWindowOnly(t?.kind));
+  }
+  /** A restored layout never holds a window-only kind in a tile: its tabs,
+   *  and its tabs archived under a page, go. Windows are not restored, so
+   *  the content simply opens in a window the next time it is asked for.
+   *  Returns the kinds of the tabs that went, one entry per tab. */
+  _dropWindowOnlyTabs() {
+    if (!this.taxonomy.isWindowOnly) return [];
+    const dropped = [];
+    this._pruneRestoredTabs((t) => {
+      if (!t || !this.taxonomy.isWindowOnly(t.kind)) return true;
+      dropped.push(t.kind);
+      return false;
+    });
+    return dropped;
+  }
   /** A restored layout keeps the FIRST instance of each single kind: later
    *  live tabs are dropped (the tile shows the tab that took the dropped
    *  one's place, or closes when it held nothing else), and so are later
    *  archived ones. Answers whether anything was dropped. */
   _dropDuplicateSingles() {
     const seen = /* @__PURE__ */ new Set();
-    let dropped = false;
-    const keep = (t) => {
+    return this._pruneRestoredTabs((t) => {
       const k = t ? this._instanceKey(t.kind, t.props) : null;
       if (k == null) return true;
       if (seen.has(k)) return false;
       seen.add(k);
       return true;
-    };
+    });
+  }
+  /** Drop every tab of the restored layout `keep(tab)` refuses, in the
+   *  tiles and in their archived pages; a tile left empty closes (seeding a
+   *  content tile if none is left). Returns whether anything went. */
+  _pruneRestoredTabs(keep) {
+    let dropped = false;
     for (const d of this.desktops.desktops) {
       const tree = d.tree;
       for (const leaf of tree.leaves()) {
@@ -5981,6 +6046,7 @@ var WindowManager = class _WindowManager {
     const tree = this._tree();
     const prior = tree.popActiveTabHistory?.(id);
     if (!prior || !prior.kind) return false;
+    if (this._openWindowOnly(prior.kind, prior.props || {})) return true;
     if (this.revealInstance(prior.kind, prior.props || {})) return true;
     const curKind = tree.get(id)?.content?.kind;
     const curTopNav = curKind ? this.taxonomy.topNavFor(curKind) : null;
@@ -6097,6 +6163,7 @@ var WindowManager = class _WindowManager {
    *  the leaf. Used by Backspace + breadcrumb segments + anything
    *  else that should walk WITHIN the tile rather than reset it. */
   navigateActiveTab(leafId, kind, props = {}) {
+    if (this._openWindowOnly(kind, props)) return;
     if (this.revealInstance(kind, props)) return;
     const tree = this._tree();
     const leaf = tree.get(leafId);
@@ -6151,6 +6218,7 @@ var WindowManager = class _WindowManager {
    *  tab feature shipped), the behavior is identical to the old
    *  setLeafContent: one tab in, one tab out. */
   openInLeaf(leafId, kind, props = {}) {
+    if (this._openWindowOnly(kind, props)) return;
     if (this.revealInstance(kind, props)) return;
     const tree = this._tree();
     const leaf = tree.get(leafId);
@@ -6168,6 +6236,7 @@ var WindowManager = class _WindowManager {
    *  previous mount, mounts the new kind into the same body element,
    *  and updates the window's title. */
   openInWindow(winId, kind, props = {}) {
+    if (this._openWindowOnly(kind, props)) return;
     if (this.revealInstance(kind, props)) return;
     const rec = this._windowToLeaf.get(winId);
     if (!rec) {
@@ -6207,6 +6276,7 @@ var WindowManager = class _WindowManager {
    *  If only panel tiles exist (or the tree is empty), spawn a new
    *  content leaf and canonicalize so the panels wrap it. */
   openInPrimary(kind, props = {}) {
+    if (this._openWindowOnly(kind, props)) return;
     if (this.revealInstance(kind, props)) return;
     const tree = this._tree();
     let leafId = tree.primaryLeafId();
@@ -6267,6 +6337,7 @@ var WindowManager = class _WindowManager {
    *  pane in a split never dismounts the original). Returns the new
    *  leaf id, or null if the leaf can't be split. */
   splitLeafWith(leafId, dir, kind, props = {}, title = "") {
+    if (this._openWindowOnly(kind, props)) return null;
     if (this.revealInstance(kind, props)) return null;
     const tree = this._tree();
     leafId = this._contentLeafId(leafId);
@@ -6676,6 +6747,9 @@ var WindowManager = class _WindowManager {
       canMaximize: true,
       canResize: true,
       modal: false,
+      // BUG-0053. The id is minted per window and never opens again, so
+      // geometry saved under it could never be restored.
+      persistGeometry: false,
       // C15. Dropping a promoted window on a tile PUTS IT BACK — as that
       // tile's content, as a split of it, or as one of its tabs. Off
       // unless the embedder asked, because it changes what a drag to an
@@ -7130,6 +7204,7 @@ var WindowManager = class _WindowManager {
   bringBackWindow(windowId) {
     const rec = this._windowToLeaf.get(windowId);
     if (!rec) return false;
+    if (this._holdsWindowOnly(rec)) return false;
     const tree = this.desktops.desktops[rec.desktopIdx]?.tree;
     const home = rec.homeLeafId ? tree?.get(rec.homeLeafId) : null;
     if (home && home.kind === "leaf") {
@@ -7748,6 +7823,7 @@ var WindowManager = class _WindowManager {
   dockWindowInto(windowId, target) {
     const rec = this._windowToLeaf.get(windowId);
     if (!rec || !target?.leafId) return false;
+    if (this._holdsWindowOnly(rec)) return false;
     rec._dock = { ...target };
     rec._demoting = true;
     try {
@@ -7917,7 +7993,7 @@ var WindowManager = class _WindowManager {
       e.preventDefault();
       const rec = this._windowToLeaf.get(winId);
       if (!rec) return;
-      const items = [
+      const items = this._holdsWindowOnly(rec) ? [] : [
         { label: "Back to tile", icon: "close_fullscreen", action: "back" }
       ];
       const targets = [...this.desktops.desktops.entries()].filter(([i, d]) => i !== rec.desktopIdx && !d.fixed);
@@ -8657,6 +8733,7 @@ var WindowManager = class _WindowManager {
   }
   /** The routing behind `navigate`, for a kind known to be registered. */
   _route(kind, props, opts) {
+    if (this._openWindowOnly(kind, props)) return;
     const { ctx = null, transient = false } = opts;
     const background = !!opts.background;
     let { dest = "main", newTab = false } = opts;
@@ -8725,6 +8802,8 @@ var WindowManager = class _WindowManager {
    *  source leaf — closing the window just disposes the content. */
   _navigateWindow(kind, props) {
     if (this.revealInstance(kind, props)) return;
+    const size = this.taxonomy.windowSize?.(kind);
+    const dockable = !this.taxonomy.isWindowOnly?.(kind);
     const winId = `twm-mw-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`;
     const contentEl = document.createElement("div");
     contentEl.className = "twm-window-content";
@@ -8741,17 +8820,22 @@ var WindowManager = class _WindowManager {
       title: mountInfo?.title || title,
       icon: "web_asset",
       content: contentEl,
+      ...size?.width ? { defaultWidth: size.width } : {},
+      ...size?.height ? { defaultHeight: size.height } : {},
       canMinimize: true,
       canMaximize: true,
       canResize: true,
       modal: false,
+      // BUG-0053. The id is minted per window and never opens again, so
+      // geometry saved under it could never be restored.
+      persistGeometry: false,
       // C15, and this is the SECOND of the two places the WM builds a
       // window. Alt+N and "Open in new window" produce a window that is
       // every bit as dockable as a promoted one, and a window that can be
       // dragged onto a tile in one case and not the other is a rule
       // nobody can learn.
-      snap: this.snapPromotion,
-      snapController: this.snapPromotion ? this._snapController() : null,
+      snap: dockable && this.snapPromotion,
+      snapController: dockable && this.snapPromotion ? this._snapController() : null,
       // R1. THE PANE IS A BOX WITH `overflow: hidden`. A window contained
       // to one (C21) cannot be dragged a single pixel outside it, so
       // "drag a window from one tile to another" — the gesture all three
@@ -8769,9 +8853,11 @@ var WindowManager = class _WindowManager {
       // harder. So the maximize button docks — and the separate demote
       // button the WM used to inject beside it is gone, because two
       // buttons for one verb is how you get a chrome nobody reads.
-      onMaximize: () => this.bringBackWindow(winId),
-      maximizeIcon: "close_fullscreen",
-      maximizeTitle: "Back to tile",
+      ...dockable ? {
+        onMaximize: () => this.bringBackWindow(winId),
+        maximizeIcon: "close_fullscreen",
+        maximizeTitle: "Back to tile"
+      } : {},
       onClose: () => this._onManagedWindowClosed(winId, mountInfo)
     });
     this._windowToLeaf.set(winId, {
@@ -8842,6 +8928,7 @@ var WindowManager = class _WindowManager {
    *  routing) but uses `appendLeafTab` so the existing content
    *  stays in place as a tab. */
   openInTabFromContext(ctx, kind, props = {}, transient = false, background = false) {
+    if (this._openWindowOnly(kind, props)) return;
     if (this.revealInstance(kind, props)) return;
     if (ctx?.windowId && this._windowToLeaf.has(ctx.windowId)) {
       this.openInWindow(ctx.windowId, kind, props);
@@ -8875,6 +8962,7 @@ var WindowManager = class _WindowManager {
    *  "Add row" button, which passes no ctx) reliably lands as a sibling
    *  tab in the main tile rather than swapping its content. */
   openInTabInPrimary(kind, props = {}, transient = false, background = false) {
+    if (this._openWindowOnly(kind, props)) return;
     if (this.revealInstance(kind, props)) return;
     const tree = this._tree();
     const leafId = tree.primaryLeafId();

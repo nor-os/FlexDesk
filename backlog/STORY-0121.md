@@ -2,10 +2,10 @@
 id: 121
 type: story
 title: "A tree item can carry inline row actions, like a tree node"
-status: in-progress
+status: done
 parent: 68
 phase:
-assignee: norman_agent
+assignee: norman
 reporter: norman
 due:
 points: 2
@@ -13,7 +13,7 @@ subsystem: widgets
 labels: [tree]
 links: []
 created: 2026-10-26
-updated: 2026-10-26T18:30Z
+updated: 2026-10-26T20:30Z
 ---
 
 ## Description
@@ -24,13 +24,15 @@ createTreeNode takes `actions` ({ id: { icon, title, onClick } }) and draws them
 
 ## Acceptance criteria
 
-- [ ] createTreeItem takes `actions` with the same shape as createTreeNode's: each entry draws a `.twm-tree-node__action-btn` (data-action, title, Material Symbols icon) inside `.twm-tree-item__actions`; a click calls `onClick(id, event)` and does not select the item.
-- [ ] The actions sit in one line at the row's end (after label, subtitle and badge), take no height of their own and are shown on hover, focus-within and on the selected item; the row's height does not change with or without actions.
-- [ ] Without `actions` the markup is unchanged.
-- [ ] Tests in FlexDesk's suite: markup, click isolation, unchanged markup without actions. Docs (docs/components) mention the option.
+- [x] createTreeItem takes `actions` with the same shape as createTreeNode's: each entry draws a `.twm-tree-node__action-btn` (data-action, title, Material Symbols icon) inside `.twm-tree-item__actions`; a click calls `onClick(id, event)` and does not select the item.
+- [x] The actions sit in one line at the row's end (after label, subtitle and badge), take no height of their own and are shown on hover, focus-within and on the selected item; the row's height does not change with or without actions.
+- [x] Without `actions` the markup is unchanged.
+- [x] Tests in FlexDesk's suite: markup, click isolation, unchanged markup without actions. Docs (docs/components) mention the option.
 
 ## History
 
 - 2026-10-26 · norman_agent · created (draft -> in-progress)
+- 2026-10-26 · norman_agent · status: in-progress -> done (released in 0.17.14, 4b8f140; independent review, one fix round 031da93)
+- 2026-10-26 · norman_agent · assignee: norman_agent -> norman
 
 ## Comments

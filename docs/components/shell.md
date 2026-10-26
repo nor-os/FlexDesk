@@ -98,16 +98,23 @@ createTaxonomy({
   in a window on it) it is revealed there, as for `single: true`; when it has
   none, one is opened there. The open never switches desktop, and the
   instances on other desktops are left as they are.
-- **A window is on a desktop** when it is contained to one of that desktop's
-  panes (`promoteInPlace`). A window that floats over every desktop is on each
-  of them, so opening the kind reveals it rather than mounting a copy under it.
+- **A window is on the desktop it was opened on** or moved to. A window
+  contained to a pane (`promoteInPlace`) is shown on that desktop only; a
+  free-floating one (`navigate(kind, props, { dest: 'window' })`) is drawn over
+  every desktop but is still the instance of the one it was opened on, never
+  of another: on desktop 1, *Model* reveals desktop 1's own model even while
+  desktop 2's floats in front of it.
 - **The copy verbs refuse** within the desktop, as for `single: true`.
+- **The move verbs refuse** to carry the kind onto a desktop that already holds
+  it: *Move to desktop N* (Alt+Shift+N and the tile and window menus, whose row
+  is greyed with the reason), and dropping a floating window onto another
+  desktop's tile. `wm.desktopMoveRefusal({ leafId } | { windowId }, idx)`
+  answers that reason, or null. Removing a desktop closes a window of it that
+  holds the kind when the desktop it lands on has its own.
 - **A page restore and a restored layout dedupe per desktop**: a tile's archived
   page brings its instance back unless that desktop has it live elsewhere, and
-  a reload keeps the first instance on each desktop.
-- **The move verbs still work** and are not checked: moving a pane or a window
-  to a desktop that already holds the kind leaves two there, as moving one
-  there by hand would.
+  a reload keeps the first instance on each desktop. Each desktop's instance
+  survives, live or archived.
 
 `single: true` keeps its meaning: one instance in the app, and opening it
 switches to the desktop it is on. Because `'desktop'` names this mode, it is

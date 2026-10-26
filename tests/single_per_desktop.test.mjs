@@ -19,6 +19,11 @@
  *   §2  the copy verbs stay refused; a window contained to a pane on the
  *       desktop is its instance; `single: true` still switches desktop
  *   §3  a reload keeps one per desktop, and drops a second on one desktop
+ *   §4  a free-floating window opened on desktop 2 is desktop 2's instance
+ *       only: it neither shadows desktop 1's archived one nor gets it dropped
+ *   §5  the move verbs refuse to carry the kind onto a desktop that holds it;
+ *       removing a desktop closes its window that would land beside one
+ *   §6  a reload keeps one desktop's live instance and another's archived one
  *
  *     node tests/single_per_desktop.test.mjs
  */
@@ -263,6 +268,121 @@ console.log('\n§3 a reload keeps one per desktop');
     await tick();
     check('after the reload, the top-nav button on desktop 2 reveals desktop 2\'s',
         [wm.desktops.activeIdx, perDesktop('model')[1], live('model').length], [1, 1, 1]);
+}
+
+/** How many archived tabs of `kind` (in a page a tile switched away from)
+ *  each desktop holds. */
+const archived = (kind) => wm.desktops.desktops.map((d) => d.tree.leaves()
+    .reduce((n, l) => n + wm._archivedPages(l)
+        .reduce((m, [, arc]) => m + arc.tabs.filter((t) => t.kind === kind).length, 0), 0));
+
+// ── §4 ──────────────────────────────────────────────────────────────────
+console.log('\n§4 a floating window belongs to the desktop it was opened on');
+let floatId = null;
+let floatDesk = -1;
+{
+    wm.switchDesktop(0);
+    wm.openInPrimary('home');
+    await tick();
+    check('desktop 1 left the model page: its model is archived',
+        [activeKind(0), archived('model')[0], wm.findInstance('model')?.where], ['home', 1, 'archive']);
+
+    wm.addDesktop();
+    floatDesk = wm.desktops.desktops.length - 1;
+    wm.switchDesktop(floatDesk);
+    await tick();
+    wm.navigate('model', {}, { dest: 'window' });
+    await tick();
+    floatId = [...wm._windowToLeaf.keys()].find((id) => !wm._windowToLeaf.get(id).homeLeafId);
+    check('a desktop with no model opens it in a free-floating window there',
+        [!!floatId, wm.findInstance('model')?.where, wm.findInstance('model')?.windowId === floatId],
+        [true, 'window', true]);
+    wm.navigate('model', {}, { dest: 'window' });
+    await tick();
+    check('asking again there reveals that window', wm._windowToLeaf.size, 1);
+
+    wm.switchDesktop(0);
+    await tick();
+    check('on desktop 1 the floating window does not stand for desktop 1\'s model',
+        wm.findInstance('model')?.where, 'archive');
+    const before = live('model').length;
+    navBtn('model').click();
+    await tick();
+    check('the top-nav button restores desktop 1\'s archived model, not the window',
+        [wm.desktops.activeIdx, activeKind(0), perDesktop('model')[0], live('model').length - before],
+        [0, 'model', 1, 1]);
+    wm.openInPrimary('home');
+    await tick();
+    const mounted = mounts.length;
+    navBtn('model').click();
+    await tick();
+    check('…and a page swap back keeps it: the window never dropped it',
+        [activeKind(0), perDesktop('model')[0], mounts.length - mounted], ['model', 1, 1]);
+}
+
+// ── §5 ──────────────────────────────────────────────────────────────────
+console.log('\n§5 the move verbs keep one per desktop');
+{
+    check('moving the floating window onto desktop 1 is refused, with a reason',
+        [wm.desktopMoveRefusal({ windowId: floatId }, 0), (wm.moveWindowToDesktop(floatId, 0), wm._windowToLeaf.get(floatId).desktopIdx)],
+        ['Model is open on desktop 1 already', floatDesk]);
+
+    wm.switchDesktop(1);
+    await tick();
+    const tree = wm.desktops.active().tree;
+    const leafId = tree.leaves().find((l) => (l.tabs || []).some((t) => t.kind === 'model')).id;
+    tree.focus(leafId);
+    const counts = perDesktop('model');
+    wm.moveFocusedToDesktop(0);
+    await tick();
+    check('Alt+Shift+1 with desktop 2\'s model tile is refused: each keeps its own',
+        [wm.desktopMoveRefusal({ leafId }, 0) != null, perDesktop('model')], [true, counts]);
+
+    wm.addDesktop();
+    const empty = wm.desktops.desktops.length - 1;
+    check('a desktop without a model accepts it', wm.desktopMoveRefusal({ leafId }, empty), null);
+    wm.moveFocusedToDesktop(empty);
+    await tick();
+    check('…and the move carries it there', [perDesktop('model')[1], perDesktop('model')[empty]], [0, 1]);
+
+    wm.switchDesktop(0);
+    await tick();
+    const liveBefore = live('model').length;
+    wm.removeDesktop(floatDesk);
+    await tick();
+    check('removing the floating window\'s desktop closes it: desktop 1 has its own',
+        [wm.desktops.activeIdx, wm._windowToLeaf.size, live('model').length - liveBefore, perDesktop('model')[0]],
+        [0, 0, -1, 1]);
+}
+
+// ── §6 ──────────────────────────────────────────────────────────────────
+console.log('\n§6 a reload keeps a live instance and another desktop\'s archived one');
+{
+    wm.switchDesktop(0);
+    wm.openInPrimary('home');
+    await tick();
+    wm.switchDesktop(1);
+    navBtn('model').click();
+    await tick();
+    check('before: desktop 1\'s model archived, desktop 2\'s live',
+        [archived('model')[0] > 0, perDesktop('model')[0], perDesktop('model')[1]], [true, 0, 1]);
+    const blob = wm.desktops.serialize();
+    shell.dispose();
+    await tick();
+    await saveDesktops(host.state, blob);
+
+    shell = await build();
+    wm = shell.wm;
+    await tick();
+    // Desktop 1's tile archived its model in more than one page; the reload
+    // keeps one of them, and desktop 2's live one does not displace it.
+    check('restored: both survive', [archived('model')[0], perDesktop('model')[1]], [1, 1]);
+    wm.switchDesktop(0);
+    await tick();
+    navBtn('model').click();
+    await tick();
+    check('desktop 1\'s top-nav button brings its archived model back there',
+        [wm.desktops.activeIdx, activeKind(0), perDesktop('model')[1]], [0, 'model', 1]);
 }
 
 shell.dispose();

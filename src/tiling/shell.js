@@ -712,8 +712,11 @@ function _tileContextMenu(wm, leafId, x, y) {
             // `isPanel` above) never a panel: `moveFocusedToDesktop` refuses all
             // three too, because the keyboard reaches it without this menu.
             if (i === wm.desktops.activeIdx || d.fixed) continue;
+            // A desktop holds a `single: 'desktop'` kind once: greyed, saying so.
+            const refusal = wm.desktopMoveRefusal({ leafId }, i);
             items.push({ label: `Move to desktop ${d.label}`, icon: 'sweep',
-                         action: `move:${i}` });
+                         action: `move:${i}`, disabled: !!refusal,
+                         title: refusal || undefined });
         }
     }
     items.push({ separator: true });

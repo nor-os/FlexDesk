@@ -349,13 +349,12 @@ export class WindowManager {
     // desktop is the tiles and panels the user arranged on it, so opening the
     // kind looks only at the ACTIVE desktop — its tiles, their archived pages
     // and the windows on it — and opens it there when that desktop has none.
-    // A window is on a desktop when it is contained to one of its panes; an
-    // uncontained window floats over every desktop and so is on each of them.
-
-    /** Whether a window record is on desktop `idx` (see above). */
-    _windowOnDesktop(rec, idx) {
-        return (!rec.homeLeafId && !rec.homeContainer) || rec.desktopIdx === idx;
-    }
+    // A window is on the desktop it was opened on or moved to (`desktopIdx`):
+    // a free-floating one is drawn over every desktop, but it is that one
+    // desktop's instance, so it never stands in for another desktop's. The
+    // move verbs refuse to carry the kind onto a desktop that already holds
+    // it (`desktopMoveRefusal`), and removing a desktop closes a window of it
+    // that would land beside the active desktop's own instance.
 
     /** The key a tab's instance is unique under on desktop `desktopIdx`: its
      *  instance key, scoped to that desktop for a `single: 'desktop'` kind;
@@ -384,15 +383,21 @@ export class WindowManager {
      *    `{ where: 'archive', desktopIdx, leafId, page, idx }` — a tab of a
      *      top-nav page the tile has switched away from (`pageTabs`). */
     findInstance(kind, props = {}) {
+        const on = this.taxonomy.isSinglePerDesktop(kind) ? this.desktops.activeIdx : null;
+        return this._findInstance(kind, props, on);
+    }
+
+    /** `findInstance`, looking only at desktop `on` when it is a number, and
+     *  past the window `exceptWindowId`. */
+    _findInstance(kind, props, on, exceptWindowId = null) {
         const key = this._instanceKey(kind, props);
         if (key == null) return null;
         const same = (t) => !!t && this._instanceKey(t.kind, t.props) === key;
-        const active = this.desktops.activeIdx;
-        const perDesktop = this.taxonomy.isSinglePerDesktop(kind);
         const desktops = [...this.desktops.desktops.entries()]
-            .filter(([desktopIdx]) => !perDesktop || desktopIdx === active);
+            .filter(([desktopIdx]) => on == null || desktopIdx === on);
         for (const [windowId, rec] of this._windowToLeaf) {
-            if (perDesktop && !this._windowOnDesktop(rec, active)) continue;
+            if (windowId === exceptWindowId) continue;
+            if (on != null && rec.desktopIdx !== on) continue;
             const idx = _windowTabSpecs(rec).findIndex(same);
             if (idx >= 0) return { where: 'window', windowId, idx, desktopIdx: rec.desktopIdx };
         }
@@ -409,6 +414,31 @@ export class WindowManager {
                     if (idx >= 0) return { where: 'archive', desktopIdx, leafId: leaf.id, page, idx };
                 }
             }
+        }
+        return null;
+    }
+
+    /** Why moving a pane's or a window's tabs onto desktop `idx` is refused,
+     *  or null: that desktop already holds one of their `single: 'desktop'`
+     *  kinds (in a tile, an archived page or a window), and a desktop holds
+     *  such a kind once. `source` is `{ leafId }` (a tile of the active
+     *  desktop) or `{ windowId }`. The move verbs ask it, and their menu rows
+     *  are greyed with its sentence. */
+    desktopMoveRefusal(source, idx) {
+        let specs = [];
+        if (source?.windowId) {
+            const rec = this._windowToLeaf.get(source.windowId);
+            specs = rec ? _windowTabSpecs(rec) : [];
+        } else {
+            const leaf = this._tree().get(source?.leafId);
+            specs = leaf?.tabs?.length ? leaf.tabs : (leaf?.content ? [leaf.content] : []);
+        }
+        const d = this.desktops.desktops[idx];
+        if (!d) return null;
+        for (const t of specs) {
+            if (!t || !this.taxonomy.isSinglePerDesktop(t.kind)) continue;
+            if (!this._findInstance(t.kind, t.props, idx, source.windowId ?? null)) continue;
+            return `${this.taxonomy.kinds[t.kind]?.label || t.kind} is open on desktop ${d.label} already`;
         }
         return null;
     }
@@ -610,7 +640,7 @@ export class WindowManager {
             if (k != null) keys.add(k);
         };
         for (const [, rec] of this._windowToLeaf) {
-            _windowTabSpecs(rec).forEach(adder(this._windowOnDesktop(rec, here)));
+            _windowTabSpecs(rec).forEach(adder(rec.desktopIdx === here));
         }
         for (const d of this.desktops.desktops) {
             const add = adder(d.tree === tree);
@@ -3186,6 +3216,11 @@ export class WindowManager {
         // The window's home follows the drop. Without this the dock is applied
         // to the tree of the desktop the window was PROMOTED from, and the tile
         // the user aimed at is on the one they are looking at.
+        // A free-floating window is drawn over every desktop, so a drop can
+        // carry it to another one: refused, as the move verbs are, when that
+        // desktop holds its `single: 'desktop'` kind already.
+        if (typeof desktopIdx === 'number' && desktopIdx !== record.desktopIdx
+            && this.desktopMoveRefusal({ windowId: winId }, desktopIdx)) return false;
         if (typeof desktopIdx === 'number') record.desktopIdx = desktopIdx;
 
         // THE DRAG ALREADY ANSWERED, so there is nothing to ask — the probe
@@ -3273,6 +3308,8 @@ export class WindowManager {
         if (rec.desktopIdx === targetIdx) return;
         // C40. A fixed desktop is the embedder's, and nothing is moved onto it.
         if (this.desktops.desktops[targetIdx]?.fixed) return;
+        // A desktop holds a `single: 'desktop'` kind once.
+        if (this.desktopMoveRefusal({ windowId }, targetIdx)) return;
         this.desktops.ensureCount(targetIdx + 1);
         rec.desktopIdx = targetIdx;
         if (!rec.homeContainer && rec.homeLeafId) {
@@ -3448,9 +3485,11 @@ export class WindowManager {
             if (targets.length) {
                 items.push({ separator: true });
                 for (const [i, d] of targets) {
+                    const refusal = this.desktopMoveRefusal({ windowId: winId }, i);
                     items.push({
                         label: `Move to desktop ${d.label}`, icon: 'sweep',
-                        action: `move:${i}`,
+                        action: `move:${i}`, disabled: !!refusal,
+                        title: refusal || undefined,
                     });
                 }
             }
@@ -4025,7 +4064,10 @@ export class WindowManager {
      * ruling is that a tile operation may move a window and never destroy it,
      * and removing a desktop is the largest tile operation there is: they come
      * across to the desktop that ends up active, re-homed onto its ground by
-     * `_rehomeContainedWindows` on the render below.
+     * `_rehomeContainedWindows` on the render below. The one exception is a
+     * window holding a `single: 'desktop'` kind the active desktop already
+     * has: a desktop holds that kind once, so the removed desktop's instance
+     * closes with the rest of that desktop's tiles.
      */
     removeDesktop(idx) {
         const m = this.desktops;
@@ -4046,8 +4088,10 @@ export class WindowManager {
         if (m.activeIdx >= m.desktops.length) m.activeIdx = m.desktops.length - 1;
         // AFTER the splice and AFTER `activeIdx` is repaired, so the survivors
         // resolve against the array the rest of this method uses.
-        for (const [, rec] of this._windowToLeaf) {
+        const incoming = [];
+        for (const [windowId, rec] of this._windowToLeaf) {
             if (rec.desktopIdx === idx) {
+                incoming.push(windowId);
                 rec.desktopIdx = m.activeIdx;
                 // ONLY A WINDOW THAT WAS ALREADY CONTAINED, which is what
                 // `rec.homeLeafId` says and what `moveWindowToDesktop`'s guard
@@ -4065,6 +4109,10 @@ export class WindowManager {
             }
         }
         this.renderer.tree = m.active().tree;
+        for (const windowId of incoming) {
+            if (!this.desktopMoveRefusal({ windowId }, m.activeIdx)) continue;
+            try { this._windowToLeaf.get(windowId).window.close({ force: true }); } catch { /* gone */ }
+        }
         this.renderer.render();
         this._persist();
         this._notifyChange();
@@ -4103,6 +4151,9 @@ export class WindowManager {
         // Already there. Without this, `tree.close` below removes the tile from
         // the same tree its tabs were just appended to, and it is gone.
         if (idx === this.desktops.activeIdx) return;
+        // A desktop holds a `single: 'desktop'` kind once: a pane carrying one
+        // the target already has stays where it is.
+        if (this.desktopMoveRefusal({ leafId: focused.id }, idx)) return;
         this.desktops.ensureCount(idx + 1);
         const target = this.desktops.desktops[idx];
         // C40. THE PANE'S TABS JOIN THE TARGET'S PRIMARY LEAF, ALL OF THEM. It

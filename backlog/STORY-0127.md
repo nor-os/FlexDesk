@@ -2,10 +2,10 @@
 id: 127
 type: story
 title: "A content kind can live in a window only, with its own window size"
-status: in-progress
+status: done
 parent: 68
 phase:
-assignee: norman_agent
+assignee: norman
 reporter: norman
 due:
 points: 2
@@ -13,7 +13,7 @@ subsystem: wm
 labels: [windows]
 links: []
 created: 2026-10-27
-updated: 2026-10-27T01:00Z
+updated: 2026-10-27T05:00Z
 ---
 
 ## Description
@@ -22,12 +22,15 @@ EcoSim STORY-0120 (norman, 2026-10-26: Parameter Estimation "in a window - like 
 
 ## Acceptance criteria
 
-- [ ] A taxonomy kind can declare `window: { width, height }` (initial size of a window it opens in, clamped to the screen as ManagedWindow does) and `windowOnly: true`.
-- [ ] A `windowOnly` kind always opens in a window (navigate with any dest), is never mounted in a tile: a restored layout drops a tile/tab of that kind (the rest of the layout stays), with one warning.
-- [ ] Additive: kinds without these keys behave as before. Tests; docs.
+- [x] A taxonomy kind can declare `window: { width, height }` (initial size of a window it opens in, clamped to the screen as ManagedWindow does) and `windowOnly: true`.
+- [x] A `windowOnly` kind always opens in a window (navigate with any dest), is never mounted in a tile: a restored layout drops a tile/tab of that kind (the rest of the layout stays), with one warning.
+- [x] Additive: kinds without these keys behave as before. Tests; docs.
 
 ## History
 
 - 2026-10-27 · norman_agent · created (draft -> in-progress)
+
+- 2026-10-27 · norman_agent · status: in-progress -> done (released in 0.17.16 (e7f52bf, review fixes 50b658b); independent review, one fix round)
+- 2026-10-27 · norman_agent · assignee: norman_agent -> norman
 
 ## Comments

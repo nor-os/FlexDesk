@@ -53,15 +53,17 @@
  *               not inserted and their toggles are disabled, showing
  *               `reason`.
  *
- *   single?     `true`, or the name of a prop. The kind exists ONCE: content
- *               that holds heavy app-wide state and must not be mounted
- *               twice. With `true` there is one instance of the kind; with a
- *               prop name there is one per value of that prop (`'id'`: one
- *               tile per record). The window manager makes every open path
- *               reveal the instance that exists, refuses the copy verbs with
- *               a reason, and keeps the first of any duplicates a restored
- *               layout holds. The root kind cannot be single: every new
- *               pane, tab and desktop is seeded with it.
+ *   single?     `true`, `'desktop'`, or the name of a prop. The kind exists
+ *               ONCE: content that holds heavy app-wide state and must not be
+ *               mounted twice. With `true` there is one instance of the kind;
+ *               with `'desktop'` there is one per virtual desktop, found and
+ *               opened on the active one (so `'desktop'` is not a prop name
+ *               here); with a prop name there is one per value of that prop
+ *               (`'id'`: one tile per record). The window manager makes every
+ *               open path reveal the instance that exists, refuses the copy
+ *               verbs with a reason, and keeps the first of any duplicates a
+ *               restored layout holds. The root kind cannot be single: every
+ *               new pane, tab and desktop is seeded with it.
  *
  *   window?     `{ width?, height? }` — the initial size, in px, of a managed
  *               window this kind opens in (`navigate(…, { dest: 'window' })`,
@@ -249,14 +251,19 @@ export function createTaxonomy({ kinds, root } = {}) {
         return s === true || (typeof s === 'string' && s !== '');
     };
 
+    /** Whether `kind` exists once per virtual desktop (`single: 'desktop'`)
+     *  rather than once in the app. */
+    const isSinglePerDesktop = (kind) => _kinds[kind]?.single === 'desktop';
+
     /** The identity of one instance of a single kind: two tab specs with the
-     *  same key are the same instance. `null` for a kind that is not single,
-     *  which is how callers ask both questions at once. Keyed by the kind and,
-     *  for `single: '<prop>'`, that prop's value as a string. */
+     *  same key are the same instance (on one desktop, for
+     *  `single: 'desktop'`). `null` for a kind that is not single, which is
+     *  how callers ask both questions at once. Keyed by the kind and, for
+     *  `single: '<prop>'`, that prop's value as a string. */
     const instanceKey = (kind, props) => {
         if (!isSingle(kind)) return null;
         const by = _kinds[kind].single;
-        if (by === true) return String(kind);
+        if (by === true || by === 'desktop') return String(kind);
         const v = props?.[by];
         return `${kind}\u0000${v == null ? '' : String(v)}`;
     };
@@ -287,6 +294,7 @@ export function createTaxonomy({ kinds, root } = {}) {
         panelOffer,
         topNavEntries,
         isSingle,
+        isSinglePerDesktop,
         instanceKey,
         singleReason,
         isWindowOnly,

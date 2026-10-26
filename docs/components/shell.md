@@ -10,6 +10,7 @@ A complete first boot is in the [quickstart](../quickstart.md#hello-shell). This
 
 - [Opt-in shell features](#opt-in-shell-features)
 - [A kind that exists once: `single` (0.17.0)](#a-kind-that-exists-once-single-0170)
+- [A kind that exists once per desktop: `single: 'desktop'` (0.17.17)](#a-kind-that-exists-once-per-desktop-single-desktop-01717)
 - [An open single instance takes new props: `navigate(props)` (0.17.2)](#an-open-single-instance-takes-new-props-navigateprops-0172)
 - [A link to a kind nobody registered (0.17.2)](#a-link-to-a-kind-nobody-registered-0172)
 - [A pane that names what it shows: `ctx.setTitle` (0.12.1)](#a-pane-that-names-what-it-shows-ctxsettitle-0121)
@@ -73,6 +74,46 @@ The root kind cannot be `single` — every new pane, tab and desktop is seeded
 with it. The taxonomy answers `isSingle(kind)`, `instanceKey(kind, props)` and
 `singleReason(kind)`; the window manager answers `isSingleKind(kind)`,
 `findInstance(kind, props)` and `revealInstance(kind, props)`.
+
+## A kind that exists once per desktop: `single: 'desktop'` (0.17.17)
+
+A virtual desktop is the tiles and panels the user arranged on it, so a page
+the user opens from the top nav belongs on the desktop they are looking at,
+not on another desktop that already shows it. Mark such a kind
+`single: 'desktop'`: at most one instance per desktop.
+
+```js
+createTaxonomy({
+    root: 'cosmos',
+    kinds: {
+        cosmos:  { label: 'Cosmos', isTopNav: true },
+        chart:   { label: 'Star chart', isTopNav: true, single: 'desktop' },  // one per desktop
+    },
+});
+```
+
+- **Every open path looks only at the active desktop** — `navigate`, the top
+  nav, `openInPrimary`, `openInTab*`, `splitLeafWith`, Back. When the desktop
+  has the instance (in a tile, in a top-nav page a tile switched away from, or
+  in a window on it) it is revealed there, as for `single: true`; when it has
+  none, one is opened there. The open never switches desktop, and the
+  instances on other desktops are left as they are.
+- **A window is on a desktop** when it is contained to one of that desktop's
+  panes (`promoteInPlace`). A window that floats over every desktop is on each
+  of them, so opening the kind reveals it rather than mounting a copy under it.
+- **The copy verbs refuse** within the desktop, as for `single: true`.
+- **A page restore and a restored layout dedupe per desktop**: a tile's archived
+  page brings its instance back unless that desktop has it live elsewhere, and
+  a reload keeps the first instance on each desktop.
+- **The move verbs still work** and are not checked: moving a pane or a window
+  to a desktop that already holds the kind leaves two there, as moving one
+  there by hand would.
+
+`single: true` keeps its meaning: one instance in the app, and opening it
+switches to the desktop it is on. Because `'desktop'` names this mode, it is
+not read as a prop name. `findInstance(kind)` answers the active desktop's
+instance; the taxonomy answers `isSinglePerDesktop(kind)`, and
+`instanceKey(kind, props)` is the same for every props.
 
 ## An open single instance takes new props: `navigate(props)` (0.17.2)
 

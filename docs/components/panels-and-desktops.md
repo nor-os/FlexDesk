@@ -10,6 +10,7 @@ The shell's left, right and bottom panels, and its virtual desktops. A kind says
 - [Panels keep the size you dragged them to (0.17.0)](#panels-keep-the-size-you-dragged-them-to-0170)
 - [A navigation panel you drive yourself: `mountNavPanel` (0.17.0)](#a-navigation-panel-you-drive-yourself-mountnavpanel-0170)
 - [Your desktops beside the app's (0.10.0)](#your-desktops-beside-the-apps-0100)
+- [A page that opens on the desktop you are on (0.17.17)](#a-page-that-opens-on-the-desktop-you-are-on-01717)
 - [A saved layout that cannot be read (0.17.14)](#a-saved-layout-that-cannot-be-read-01714)
 
 ## Panels a page does not offer (0.17.0)
@@ -126,6 +127,27 @@ screen. With neither set anywhere, the bar is what it always was.
 main pane; it used to replace that pane with the active tab alone. A target still
 holding only its seed is replaced, as before. `dispose()` removes the bar, so a
 rebuilt shell paints a fresh one.
+
+## A page that opens on the desktop you are on (0.17.17)
+
+A desktop is the tiles and panels arranged on it. A kind marked `single: true`
+exists once in the app, so opening it from another desktop switches to the
+desktop that has it. A kind marked `single: 'desktop'` exists once per desktop
+instead: the top-nav button, `navigate` and `openInPrimary` reveal the
+instance on the active desktop, or open one there when that desktop has none,
+and never switch desktop.
+
+```js
+kinds: {
+    model: { label: 'Model', isTopNav: true, single: 'desktop' },
+}
+```
+
+On desktop 2, clicking *Model* opens the model on desktop 2 even while
+desktop 1 shows its own; clicking it again reveals desktop 2's. Each desktop's
+instance is saved with its layout and restored there. The details, and what
+counts as a window on a desktop, are in
+[Shell and navigation](shell.md#a-kind-that-exists-once-per-desktop-single-desktop-01717).
 
 ## A saved layout that cannot be read (0.17.14)
 

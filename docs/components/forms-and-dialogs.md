@@ -329,25 +329,44 @@ changed for all of them (BUG-0053):
   under `flexdesk.managedWindows.v1` (or your `storageKey`), but only for the
   50 most recently saved ids; older entries are dropped.
   `ManagedWindow.configure({ maxSavedWindows })` changes the cap
-  (`DEFAULT_MAX_SAVED_WINDOWS` is 50). A window whose id is minted per opening
-  passes `persistGeometry: false` and neither saves nor restores geometry.
-  Modal windows never saved geometry and still do not.
+  (`DEFAULT_MAX_SAVED_WINDOWS` is 50). Entries saved by an earlier version
+  carry no use stamp: those under the window manager's minted ids
+  (`twm-mw-…`, which never open again) are purged when the entry is read, and
+  the others are stamped in the order they were stored, as older than anything
+  saved since, so your stable ids keep their geometry. A window whose id is
+  minted per opening passes `persistGeometry: false` and neither saves nor
+  restores geometry; the window manager's own windows do. Modal windows never
+  saved geometry and still do not.
 - **Focus moves in and back.** With `focusOnOpen` (default `true`), opening a
   window focuses the first element of its content that takes focus (a link,
   button, input, select, textarea, `contenteditable` or `tabindex` element
   that is not disabled or hidden), or the window itself when there is none.
-  Closing it gives focus back to the element that had it before the window
-  opened, if that element is still in the document and focus is still in the
-  window (a window closed while the user works elsewhere does not pull focus
-  back). Restoring a minimised window is not an open and moves nothing. A
-  dialog that focuses a field of its own a frame later, as `openForm` and
-  `openConfirm` do, still wins. Pass `focusOnOpen: false` for a window that
-  must not take focus when it appears.
-- **Esc closes a non-modal window only from inside it.** A non-modal window
-  closes on Esc only when focus is inside it, so an Esc meant for an editor
-  beside it is left alone; with focus in one of several non-modal windows,
-  that window closes, not the top one. A modal window on top closes on Esc
-  wherever focus is, as before. One Esc closes one window, even when the
-  close hands focus to another window.
+  `focusOnOpen: 'window'` always focuses the window itself, for a dialog whose
+  first button must not catch a stray Enter (`showRunProgressDialog` uses it,
+  so Stop is never focused). Closing gives focus back to the element that had
+  it before the window opened, if that element is still in the document and
+  focus is still in the window or nowhere (on `body`); a window closed while
+  the user works elsewhere does not pull focus back. Restoring a minimised
+  window is not an open and moves nothing. A dialog that focuses a field of
+  its own a frame later, as `openForm` and `openConfirm` do, still wins, and
+  `Wizard.openInWindow` renders its first step before it shows the window, so
+  focus lands on the step's first field. Pass `focusOnOpen: false` for a
+  window that must not take focus when it appears; `showComputingWindow`
+  does.
+- **The window itself holds focus.** Every window element has
+  `tabindex="-1"`: never a Tab stop, but a press on its title bar or on empty
+  content moves focus into the window (when it was not there already), so the
+  window's Esc still works after the user clicked it.
+- **Esc closes a non-modal window only from inside it.** Which window an Esc
+  closes:
+  1. a modal window on top, wherever focus is (as before);
+  2. otherwise the window holding focus, modal or not — so a modal under a
+     non-modal window still closes on an Esc from inside it;
+  3. otherwise (focus in no window) the topmost modal.
+  A non-modal window that does not hold focus never closes on Esc, so an Esc
+  meant for an editor beside it is left alone. An Esc something inside the
+  window already handled with `preventDefault()` (an autocomplete closing its
+  list) or one ending an IME composition (`isComposing`) closes nothing. One
+  Esc closes one window, even when the close hands focus to another window.
 
-`tests/managed_window_lifecycle.test.mjs` holds all four.
+`tests/managed_window_lifecycle.test.mjs` holds all of these.

@@ -249,21 +249,24 @@ tile has no cogwheel and opens nothing.
 the grid; a tile takes the same option (`tile.configOnDoubleClick`, read at the
 double-click). `tests/tile_title_dblclick_config.test.mjs` holds it.
 
-## Several tiles marked as being configured: `setConfiguring` (0.17.16)
+## Several tiles marked as being configured: `grid.setConfiguring` (0.17.16)
 
 A config request (cogwheel or double-click) highlights the requesting tile with
 `tile--selected` and takes that highlight off every other tile of the grid:
 one selection per grid, which suits one config panel. An embedder that keeps a
-config window open per tile marks each of those tiles itself:
+config window open per tile marks each of those tiles on the grid:
 
 ```js
-grid.tiles.get(tileId).setConfiguring(true);   // when its window opens
-grid.tiles.get(tileId).setConfiguring(false);  // when its window closes
-tile.isConfiguring;                            // true while marked
+grid.setConfiguring(tileId, true);    // when its config window opens
+grid.setConfiguring(tileId, false);   // when its config window closes
+grid.isConfiguring(tileId);           // true while marked
 ```
 
 The mark is the class `tile--configuring`, drawn exactly like `tile--selected`
 (same rules in `flexdesk.css`). It is the embedder's alone: no config request,
-on that tile or another, clears it, and it is drawn again when the tile is
-re-mounted. Do not add or remove `tile--selected` from outside; it belongs to
-the config request.
+on that tile or another, clears it. The grid holds it **by tile id**, so a tile
+that `setLayout` disposes and rebuilds (or an id added later) is marked again,
+and clearing it after a rebuild reaches the live tile. `tile.setConfiguring(on)`
+and `tile.isConfiguring` remain as conveniences: on a tile in a grid they go
+through the grid. Do not add or remove `tile--selected` from outside; it
+belongs to the config request.

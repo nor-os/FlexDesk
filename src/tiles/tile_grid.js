@@ -50,6 +50,9 @@ export class TileGrid {
         this.stateGuard = stateGuard;
         this.dataSource = dataSource;
         this.configOnDoubleClick = configOnDoubleClick;
+        /** STORY-0128. Ids of the tiles marked as being configured; see
+         *  `setConfiguring`. Kept by id so a rebuilt tile is marked again. */
+        this._configuringIds = new Set();
         this.container = container;
         this.columns = columns;
         this.rowHeight = rowHeight;
@@ -206,6 +209,8 @@ export class TileGrid {
         if (!tile) return null;
         // Before mount, so a tile's first render and first load already follow it.
         tile.scope = this.scope;
+        // STORY-0128. A tile rebuilt under a marked id (setLayout) is marked.
+        if (this._configuringIds.has(tileId)) tile._applyConfiguring(true);
 
         // Add to layout
         const layoutEntry = {
@@ -345,6 +350,35 @@ export class TileGrid {
             h: l.h,
             config: this.tiles.get(l.id)?.config || l.config
         }));
+    }
+
+    /**
+     * Mark a tile as being configured, or clear the mark (STORY-0128).
+     *
+     * A config request (cogwheel or title double-click) highlights the
+     * requesting tile with `tile--selected` and takes that highlight off every
+     * other tile: one selection per grid. An embedder that keeps a config
+     * window open per tile marks each such tile here instead. The mark
+     * (`tile--configuring`, drawn like the selection) is the embedder's alone:
+     * no config request clears it, and it is held by id, so a tile that
+     * `setLayout` rebuilds (or an id added later) is marked again. Clear it
+     * when that tile's config window closes.
+     *
+     * @param {string} tileId
+     * @param {boolean} [on=true]
+     */
+    setConfiguring(tileId, on = true) {
+        if (on) this._configuringIds.add(tileId);
+        else this._configuringIds.delete(tileId);
+        this.tiles.get(tileId)?._applyConfiguring(!!on);
+    }
+
+    /**
+     * @param {string} tileId
+     * @returns {boolean} Whether the tile is marked as being configured.
+     */
+    isConfiguring(tileId) {
+        return this._configuringIds.has(tileId);
     }
 
     /**

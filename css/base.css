@@ -3939,6 +3939,12 @@ body.twm-window-maximized .twm-resize-handle {
 .twm-managed-window:focus-within {
     border-color: #505050;
 }
+/* BUG-0053. The frame is focusable (tabindex -1) so a press on it keeps focus
+   in the window; the focus-within border above already shows that, so the
+   frame draws no outline of its own. */
+.twm-managed-window:focus {
+    outline: none;
+}
 /* Minimize animation class — targets taskbar item via CSS custom properties */
 .twm-managed-window--minimizing {
     transform: translate(var(--mw-target-x, 0px), var(--mw-target-y, 100vh)) scale(var(--mw-target-scale, 0.1));

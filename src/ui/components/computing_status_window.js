@@ -110,6 +110,9 @@ export function showComputingWindow({
         canResize: false,
         canDrag: true,
         modal: false,
+        // BUG-0053. A status window opened by the program, not by the user:
+        // it must not take focus from what the user is doing.
+        focusOnOpen: false,
         onClose: () => {
             if (_activeWindow === win) _activeWindow = null;
             if (finished) return;

@@ -196,6 +196,36 @@ console.log('\nSTORY-0128: several tiles can be marked as being configured\n');
     grid.dispose();
 }
 
+console.log('\nSTORY-0128 review 7: the grid holds the mark, so setLayout keeps it\n');
+{
+    const { grid, tile: a } = mount();
+    const b = grid.addTile('dbl-conf', { x: 4, y: 0, w: 4, h: 3 }, {}, 'tile-b');
+    grid.setConfiguring(a.id, true);
+    grid.setConfiguring('tile-b', true);
+    ok('grid.setConfiguring marks the tiles', a.isConfiguring && b.element.classList.contains('tile--configuring'));
+    ok('grid.isConfiguring answers by id', grid.isConfiguring(a.id) && grid.isConfiguring('tile-b')
+       && !grid.isConfiguring('nope'));
+    const layout = grid.getLayout();
+    grid.setLayout(layout);
+    const a2 = grid.tiles.get(a.id);
+    const b2 = grid.tiles.get('tile-b');
+    ok('setLayout rebuilt the tiles', a2 && a2 !== a && b2 && b2 !== b);
+    ok('…and the rebuilt tiles are still marked',
+       a2.isConfiguring && a2.element.classList.contains('tile--configuring')
+       && b2.element.classList.contains('tile--configuring'));
+    grid.setConfiguring(a.id, false);
+    ok('clearing by id after the rebuild reaches the live tile',
+       !a2.element.classList.contains('tile--configuring') && !grid.isConfiguring(a.id));
+    b2.setConfiguring(false);
+    ok('tile.setConfiguring delegates to the grid', !grid.isConfiguring('tile-b')
+       && !b2.element.classList.contains('tile--configuring'));
+    b2.setConfiguring(true);
+    grid.setLayout(grid.getLayout());
+    ok('…so a mark set through the tile survives setLayout too',
+       grid.tiles.get('tile-b').element.classList.contains('tile--configuring'));
+    grid.dispose();
+}
+
 {
     const { readFileSync } = await import('node:fs');
     const { ruleBody } = await import('./css_rules.mjs');

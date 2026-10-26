@@ -725,22 +725,30 @@ export class TileBase {
 
     /**
      * Mark this tile as being configured, or clear the mark (STORY-0128).
-     *
-     * The cogwheel's highlight (`tile--selected`) is ONE per grid: a config
-     * request moves it to the requesting tile. An embedder that keeps a config
-     * window open per tile marks each such tile with this instead; the mark
-     * (`tile--configuring`, drawn like the selection) is the embedder's alone,
-     * so no config request, on this tile or another, clears it. Clear it when
-     * that tile's config window closes. Survives a re-mount.
+     * A convenience for `grid.setConfiguring(tile.id, on)`, which is the API:
+     * the grid holds the mark by tile id, so it outlives this tile instance
+     * (`setLayout` disposes and rebuilds every tile). A tile with no grid
+     * holds the mark itself.
      *
      * @param {boolean} [on=true]
      */
     setConfiguring(on = true) {
+        if (typeof this.grid?.setConfiguring === 'function') {
+            this.grid.setConfiguring(this.id, on);
+            return;
+        }
+        this._applyConfiguring(on);
+    }
+
+    /** Draw (or clear) the configuring mark. Called by the grid.
+     *  @param {boolean} on
+     *  @private */
+    _applyConfiguring(on) {
         this._configuring = !!on;
         this.element?.classList.toggle('tile--configuring', this._configuring);
     }
 
-    /** True while `setConfiguring(true)` is in force. */
+    /** True while this tile is marked as being configured. */
     get isConfiguring() { return this._configuring; }
 
     /**

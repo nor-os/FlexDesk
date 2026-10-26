@@ -29,6 +29,10 @@ let _storageKey = DEFAULT_WINDOW_STORAGE_KEY;
  *  dropped, so ids minted per window (the window manager's `twm-mw-<time>-…`)
  *  no longer grow the entry for ever. */
 export const DEFAULT_MAX_SAVED_WINDOWS = 50;
+/** The prefix of the ids the window manager mints per window
+ *  (`twm-mw-<time>-<rand>`). Such an id never opens again, so geometry saved
+ *  under it can never be restored: entries under it are purged on load. */
+const MINTED_ID_PREFIX = 'twm-mw-';
 let _maxSavedWindows = DEFAULT_MAX_SAVED_WINDOWS;
 const BASE_Z_INDEX = 6000;
 const MAX_Z_INDEX = 6999;
@@ -96,7 +100,14 @@ function _loadState() {
     if (_stateCache) return _stateCache;
     try {
         const raw = localStorage.getItem(_storageKey);
-        _stateCache = raw ? JSON.parse(raw) : {};
+        const parsed = raw ? JSON.parse(raw) : {};
+        _stateCache = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+        // BUG-0053. Before 0.17.16 every window-manager window saved an entry
+        // under its minted id; they are junk, and leaving them in would let
+        // them crowd stable ids out of the cap.
+        for (const k of Object.keys(_stateCache)) {
+            if (k.startsWith(MINTED_ID_PREFIX)) delete _stateCache[k];
+        }
     } catch {
         _stateCache = {};
     }
@@ -120,10 +131,18 @@ function _getWindowState(id) {
 function _setWindowState(id, windowState) {
     const state = _loadState();
     // `u` orders the entries by last save. A plain object's key order cannot
-    // carry that (integer-like ids sort first), and an entry written before
-    // the stamp existed reads as 0, the oldest, so it is the first to go.
+    // carry that (integer-like ids sort first). An entry written before the
+    // stamp existed is a stable id the user has used (minted ids are purged
+    // on load), so it is stamped here, in the order it was stored, AHEAD of
+    // nothing newer: it ranks as older than any entry saved since, and the
+    // cap reaches it only after the minted junk is gone and real ids crowd it.
     let latest = 0;
     for (const k of Object.keys(state)) latest = Math.max(latest, Number(state[k]?.u) || 0);
+    for (const k of Object.keys(state)) {
+        if (!(Number(state[k]?.u) > 0) && state[k] && typeof state[k] === 'object') {
+            state[k] = { ...state[k], u: ++latest };
+        }
+    }
     state[id] = { ...windowState, u: latest + 1 };
     const ids = Object.keys(state);
     if (ids.length > _maxSavedWindows) {
@@ -154,6 +173,23 @@ function _focusFirstIn(root) {
         if (el.ownerDocument.activeElement === el) return true;
     }
     return false;
+}
+
+/** BUG-0053. Which window an Esc closes, or null.
+ *
+ *  - A modal on top answers wherever focus is, as it always has.
+ *  - Otherwise the window holding focus answers, modal or not.
+ *  - Otherwise (focus in no window) the topmost modal answers.
+ *  A non-modal window that does not hold focus never answers: an Esc meant
+ *  for an editor beside it is not its. */
+function _escAnswerer() {
+    const visible = Array.from(_activeWindows.values())
+        .filter((w) => w.isVisible && !w.isMinimized && w.element)
+        .sort((a, b) => b.zIndex - a.zIndex);
+    if (visible[0]?.modal) return visible[0];
+    const active = document.activeElement;
+    const holder = active ? visible.find((w) => w.element.contains(active)) : null;
+    return holder || visible.find((w) => w.modal) || null;
 }
 
 export class ManagedWindow {
@@ -196,11 +232,12 @@ export class ManagedWindow {
      * @param {boolean} [options.persistGeometry=true] - Save and restore this
      *   window's position and size under its id. Pass false for a window whose
      *   id is minted per opening, so it never writes an entry.
-     * @param {boolean} [options.focusOnOpen=true] - When the window opens,
-     *   move focus to the first focusable element of its content (the window
-     *   itself when it has none), and on close give focus back to the element
-     *   that had it before, if that element is still in the document and focus
-     *   is still in this window.
+     * @param {boolean|'window'} [options.focusOnOpen=true] - When the window
+     *   opens, move focus to the first focusable element of its content (the
+     *   window itself when it has none; always the window itself with
+     *   `'window'`), and on close give focus back to the element that had it
+     *   before, if that element is still in the document and focus is still in
+     *   this window or nowhere.
      */
     constructor(options) {
         this.id = options.id;
@@ -430,11 +467,10 @@ export class ManagedWindow {
         const active = document.activeElement;
         this._returnFocusTo = active && active !== document.body
             && !this.element.contains(active) ? active : null;
-        if (_focusFirstIn(this.contentContainer)) return;
-        // Nothing focusable in the content: the window takes focus itself, so
-        // Esc (which a non-modal window answers only with focus inside) and
-        // Tab both start from here.
-        this.element.tabIndex = -1;
+        if (this.focusOnOpen !== 'window' && _focusFirstIn(this.contentContainer)) return;
+        // Nothing focusable in the content (or the caller asked for the
+        // window): the window takes focus itself, so Esc (which a non-modal
+        // window answers only with focus inside) and Tab both start from here.
         try { this.element.focus({ preventScroll: true }); } catch { /* detached */ }
     }
 
@@ -928,6 +964,11 @@ export class ManagedWindow {
             this.element.classList.add('twm-managed-window--modal');
         }
         this.element.setAttribute('data-window-id', this.id);
+        // BUG-0053. Focusable by script and by a press, never by Tab (the
+        // modal trap's `_collectFocusable` skips tabindex -1): a press on the
+        // title bar or on empty content keeps focus in the window, where a
+        // non-modal window's Esc looks for it.
+        this.element.tabIndex = -1;
 
         // Top bar
         const topbar = document.createElement('div');
@@ -1067,7 +1108,16 @@ export class ManagedWindow {
             // something, which is the whole complaint it was reported under.
             topbar.addEventListener('dblclick', () => this.toggleMaximize());
         }
-        this.element.addEventListener('pointerdown', () => this.bringToFront());
+        this.element.addEventListener('pointerdown', () => {
+            this.bringToFront();
+            // The title bar's pointerdown is default-prevented (it starts a
+            // drag), which also stops the browser moving focus. A press inside
+            // a window that does not hold focus gives it focus; a press on a
+            // field then moves it on to the field as usual.
+            if (this.element && !this.element.contains(document.activeElement)) {
+                try { this.element.focus({ preventScroll: true }); } catch { /* detached */ }
+            }
+        });
     }
 
     _addResizeHandles() {
@@ -1782,16 +1832,11 @@ export class ManagedWindow {
             .filter(w => w.isVisible && !w.isMinimized)
             .sort((a, b) => b.zIndex - a.zIndex)[0];
         if (e.key === 'Escape') {
-            if (_escAnswered.has(e)) return;
-            // BUG-0053. A modal on top answers Esc wherever focus is, as it
-            // always has. A non-modal window answers only an Esc pressed
-            // inside it — one meant for an editor beside it is not its.
-            if (topWindow?.modal) {
-                if (topWindow === this) { _escAnswered.add(e); this.close(); }
-                return;
-            }
-            if (this.modal) return;
-            if (this.element && this.element.contains(document.activeElement)) {
+            // BUG-0053. An Esc something inside already answered (an
+            // autocomplete closing its list) or one that ends an IME
+            // composition is not the window's.
+            if (e.defaultPrevented || e.isComposing || _escAnswered.has(e)) return;
+            if (_escAnswerer() === this) {
                 _escAnswered.add(e);
                 this.close();
             }

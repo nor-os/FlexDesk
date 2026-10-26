@@ -70,7 +70,7 @@ Object.defineProperty(dom.window, 'innerHeight', { value: 900, configurable: tru
 const KEY = ManagedWindow.storageKey;
 const saved = () => JSON.parse(localStorage.getItem(KEY) || '{}');
 const esc = (target = doc) => target.dispatchEvent(
-    new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
 
 function form() {
     const el = doc.createElement('div');
@@ -284,13 +284,167 @@ console.log('\n§4 Esc\n');
     const modal = openWin({ id: 'e7', modal: true, focusOnOpen: false });
     outside.focus();
     esc(outside);
-    ok('a modal closes on Esc with focus outside it', !modal.isVisible);
+    ok('a modal on top closes on Esc with focus outside it', !modal.isVisible);
     ok('…and only the modal closes', under.isVisible);
-    // A modal under a non-modal is not the top window: the top one decides.
-    under.contentContainer.querySelector('.name').focus();
-    esc(doc.activeElement);
-    ok('the non-modal then closes on an Esc from inside it', !under.isVisible);
+    under.close();
     outside.remove();
+}
+
+console.log('\n§5 a modal UNDER a non-modal window still answers Esc (review 5)\n');
+{
+    const outside = doc.createElement('textarea'); doc.body.appendChild(outside);
+    const modal = openWin({ id: 'm1', modal: true });
+    const floating = openWin({ id: 'm2' });
+    ok('the non-modal window is on top of the modal', floating.zIndex > modal.zIndex && modal.isVisible);
+    const inModal = modal.contentContainer.querySelector('.name');
+    inModal.focus();
+    esc(inModal);
+    ok('Esc with focus inside the modal under it closes the modal', !modal.isVisible);
+    ok('…and not the non-modal on top', floating.isVisible);
+
+    const modal2 = openWin({ id: 'm3', modal: true });
+    const floating2 = openWin({ id: 'm4' });
+    outside.focus();
+    esc(outside);
+    ok('with focus in no window, the topmost modal answers', !modal2.isVisible);
+    ok('…and a non-modal that does not hold focus does not', floating2.isVisible && floating.isVisible);
+
+    const modal3 = openWin({ id: 'm5', modal: true });
+    const floating3 = openWin({ id: 'm6' });
+    floating3.contentContainer.querySelector('.name').focus();
+    esc(doc.activeElement);
+    ok('with focus in the non-modal on top, that window answers', !floating3.isVisible);
+    ok('…and the modal under it stays', modal3.isVisible);
+    modal3.close(); floating2.close(); floating.close();
+    outside.remove();
+}
+
+console.log('\n§6 an Esc answered inside the window is not the window\'s (review 4)\n');
+{
+    const { AutocompleteField } = await import('../src/ui/components/autocomplete_field.js');
+    // jsdom has no scrollIntoView; the list scrolls its active row with it.
+    dom.window.Element.prototype.scrollIntoView ??= function () {};
+    const ac = new AutocompleteField({ fieldId: 'ac-in-window',
+                                       provider: () => [{ label: 'alpha', value: 'alpha' }, { label: 'beta', value: 'beta' }] });
+    const host = doc.createElement('div');
+    host.appendChild(ac.render());
+    const w = new ManagedWindow({ id: 'ac', title: 'AC', content: host });
+    w.show();
+    ok('the autocomplete input has focus', doc.activeElement === ac.input);
+    ac.input.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    ok('ArrowDown opens its list', ac._isOpen === true);
+    esc(ac.input);
+    ok('the first Esc closes the list', ac._isOpen === false);
+    ok('…and leaves the window open', w.isVisible);
+    esc(ac.input);
+    ok('the next Esc closes the window', !w.isVisible);
+
+    const w2 = openWin({ id: 'ime' });
+    w2.contentContainer.querySelector('.name').dispatchEvent(new dom.window.KeyboardEvent(
+        'keydown', { key: 'Escape', bubbles: true, isComposing: true }));
+    ok('an Esc that ends an IME composition does not close the window', w2.isVisible);
+    w2.close();
+}
+
+console.log('\n§7 legacy geometry: minted ids are purged, stable ids kept (review 1)\n');
+{
+    localStorage.clear();
+    const legacy = { 'settings-window': { x: 11, y: 40, width: 500, height: 300 },
+                     'about': { x: 22, y: 40, width: 500, height: 300 } };
+    for (let i = 0; i < 60; i++) legacy[`twm-mw-k${i}-abc`] = { x: i, y: 40, width: 500, height: 300 };
+    localStorage.setItem(KEY, JSON.stringify(legacy));
+    ManagedWindow.configure();      // drops the cache, so the next read is from storage
+    const w = new ManagedWindow({ id: 'fresh', content: form() }); w.show(); w.close();
+    const keys = Object.keys(saved());
+    ok('no twm-mw-* entry survives', !keys.some((k) => k.startsWith('twm-mw-')), JSON.stringify(keys));
+    ok('both stable legacy ids keep their geometry',
+       saved()['settings-window']?.x === 11 && saved()['about']?.x === 22);
+    ok('…and are stamped in the order they were stored, older than the new save',
+       saved()['settings-window'].u < saved()['about'].u && saved()['about'].u < saved().fresh.u);
+    const back = new ManagedWindow({ id: 'settings-window', content: form() }); back.show();
+    ok('a stable legacy id still restores its geometry', back.x === 11, `x = ${back.x}`);
+    back.close();
+
+    // Under a cap the legacy ids rank as the oldest real ones, LRU from there.
+    localStorage.setItem(KEY, JSON.stringify(legacy));
+    ManagedWindow.configure({ maxSavedWindows: 3 });
+    for (const id of ['n1', 'n2']) { const x = new ManagedWindow({ id, content: form() }); x.show(); x.close(); }
+    ok('with a cap of 3, the oldest-stored legacy id goes first, not the minted junk',
+       JSON.stringify(Object.keys(saved()).sort()) === JSON.stringify(['about', 'n1', 'n2']),
+       JSON.stringify(Object.keys(saved())));
+    ManagedWindow.configure();
+    localStorage.clear();
+}
+
+console.log('\n§8 a press inside a window keeps focus in it (review 2)\n');
+{
+    const outside = doc.createElement('textarea'); doc.body.appendChild(outside);
+    const w = openWin({ id: 'press', focusOnOpen: false });
+    ok('the window element is focusable by script, never by Tab', w.element.tabIndex === -1);
+    outside.focus();
+    const topbar = w.element.querySelector('.twm-managed-window__topbar');
+    topbar.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true, cancelable: true, clientX: 50, clientY: 50 }));
+    doc.dispatchEvent(new dom.window.MouseEvent('pointerup', { bubbles: true }));
+    ok('a press on the title bar moves focus into the window', doc.activeElement === w.element);
+    esc(doc.activeElement);
+    ok('…so Esc then closes it', !w.isVisible);
+
+    const w2 = openWin({ id: 'press2' });
+    const name = w2.contentContainer.querySelector('.name');
+    name.focus();
+    w2.contentContainer.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true }));
+    ok('a press inside a window that already holds focus leaves it where it is', doc.activeElement === name);
+    w2.close();
+    outside.remove();
+
+    const { readFileSync } = await import('node:fs');
+    const { ruleBody } = await import('./css_rules.mjs');
+    for (const sheet of ['base.css', 'flexdesk.css']) {
+        const css = readFileSync(resolvePath(HERE, '../css', sheet), 'utf8');
+        ok(`${sheet}: the focused frame draws no outline (its focus-within border shows it)`,
+           /outline:\s*none/.test(ruleBody(css, '.twm-managed-window:focus') || ''));
+    }
+}
+
+console.log('\n§9 progress windows do not put focus on a button that cancels (review 3)\n');
+{
+    const { showComputingWindow } = await import('../src/ui/components/computing_status_window.js');
+    const { showRunProgressDialog } = await import('../src/ui/components/confirm_dialog.js');
+    const editor = doc.createElement('textarea'); doc.body.appendChild(editor);
+    editor.focus();
+    const status = showComputingWindow({ message: 'Working', onCancel: () => {} });
+    ok('the computing status window leaves focus where the user is', doc.activeElement === editor);
+    status.complete?.({ ok: true });
+    doc.querySelectorAll('.twm-managed-window').forEach((el) => el.remove());
+
+    editor.focus();
+    const run = showRunProgressDialog({ onCancel: () => {} });
+    const win = doc.activeElement?.closest?.('.twm-managed-window');
+    ok('the run progress dialog takes focus', !!win);
+    ok('…on the window itself, not on Stop or a button',
+       doc.activeElement?.classList.contains('twm-managed-window'),
+       doc.activeElement?.className);
+    let enterCancelled = false;
+    run.result.then((r) => { enterCancelled = r?.status === 'cancelled'; });
+    doc.activeElement.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    ok('a stray Enter does not cancel the run', !enterCancelled);
+    run.complete({ ok: true });
+    editor.remove();
+}
+
+console.log('\n§10 a wizard in a window opens with focus on the step\'s field (review 6)\n');
+{
+    const { Wizard } = await import('../src/ui/components/wizard.js');
+    const wiz = new Wizard({ data: {}, steps: [
+        { id: 'a', label: 'A', render(body) { const i = doc.createElement('input'); i.className = 'step-field'; body.appendChild(i); } },
+        { id: 'b', label: 'B', render(body) { body.textContent = 'b'; } },
+    ] });
+    const w = wiz.openInWindow({ id: 'wiz', modal: true });
+    ok('focus is on the first step\'s field, not on the stepper',
+       doc.activeElement?.classList.contains('step-field'), doc.activeElement?.className);
+    wiz.dispose();
+    ok('disposing closes the window', !w.isVisible);
 }
 
 console.log(failures ? `\n${failures} FAILED\n` : '\nall passed\n');

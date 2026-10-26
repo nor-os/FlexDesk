@@ -11,8 +11,9 @@
  * It draws a layout picker, a tab per subplot slot (when the layout has more
  * than one) and, for the subplot in front: its title; its chart type, legend,
  * interpolation, NaN handling and data points; its x axis (time, or a series);
- * its y axes (label, scale, position, min, max, step) and their series (a
- * picker, label, colour, width, dash, stack group, the embedder's own fields
+ * its y axes (label, scale, position, min, max, step) and their series (each a
+ * block: a header line of picker, label and remove over one label column of
+ * colour, width, dash, stack group, the embedder's own fields
  * and, with `overlaySources`, an overlay source); its z axis while the chart
  * type is 3D; its reference lines and shaded bands; and the toggles of any
  * injected `seriesTransforms` (series_transforms.js).
@@ -102,14 +103,19 @@ function removeButton(title, onClick) {
 }
 
 /**
- * A labelled control. A single input or select is wrapped in a `<label>`; a
- * compound one (a picker, a colour field) is not, so a click on its text does
- * not land on whichever of its inputs comes first.
+ * A labelled control on the editor's label column. A single input or select
+ * is wrapped in a `<label>`; a compound one (a picker, a colour field) is not,
+ * so a click on its text does not land on whichever of its inputs comes
+ * first. A `hint` is drawn under the control, in the control's column.
  */
-function field(label, control) {
+function field(label, control, { hint = null } = {}) {
     const single = control.matches('input, select, textarea');
     const row = el(single ? 'label' : 'div', 'twm-plot-config__field');
     row.append(el('span', 'twm-plot-config__label', label), control);
+    if (hint != null && hint !== '') {
+        row.classList.add('twm-plot-config__field--hinted');
+        row.appendChild(el('span', 'twm-plot-config__hint', hint));
+    }
     return row;
 }
 
@@ -170,8 +176,12 @@ let editorCount = 0;
  *        source, written to `series.overlay.source`. Absent: no overlay controls.
  * @param {Object} [options.seriesTransforms] - `{ [id]: transform }` (series_transforms.js);
  *        their toggles are drawn per subplot.
- * @param {Function} [options.extraSeriesFields] - `(el, series, { subplot, axis, onChange })
- *        => { dispose? } | void`: fields of the embedder's own in each series row.
+ * @param {Function} [options.extraSeriesFields] - `(el, series, { subplot, axis, onChange, field })
+ *        => { dispose? } | specs | { fields: specs, dispose? } | void`: fields of the
+ *        embedder's own in each series block, on the series' label column. It may draw
+ *        into `el` (with `field(label, control, { hint })` for rows that line up) or
+ *        return field specs `{ label, control | render(slot) => { dispose? } | void,
+ *        hint? }`, which the editor lays out after anything drawn into `el`.
  * @param {Object} [options.logger] - Given to every AutocompleteField (provider errors);
  *   its `warn` also hears a part (an `extraSeriesFields` handle, say) that throws on dispose.
  * @returns {{ dispose: Function, refresh: Function, selectSubplot: Function,
@@ -489,18 +499,17 @@ function renderPlotConfigEditor(container, config, options = {}) {
         return group;
     }
 
+    /**
+     * One series as a block: a header line (series picker, legend label,
+     * remove) over its fields on the editor's label column (colour, width,
+     * dash, stack group, the embedder's fields, overlay).
+     */
     function seriesRow(sp, axis, s, overlaySources) {
         const row = el('div', 'twm-plot-config__series');
-        const main = el('div', 'twm-plot-config__series-main');
-        main.append(
+        const head = el('div', 'twm-plot-config__series-head');
+        head.append(
             seriesPicker(s, 'variable', 'series', sp, 'Series'),
             textInput(s.label, (v) => { s.label = v; notify(); }, { placeholder: 'Legend label', label: 'Legend label' }),
-            colorField(s.color, (v) => { if (v) s.color = v; else delete s.color; }, 'Colour'),
-            numberInput(s.lineWidth ?? 2, (v) => { s.lineWidth = v ?? 2; notify(); },
-                        { placeholder: '2', label: 'Line width', min: 1, max: 10, step: 1 }),
-            select(DASHES, s.lineStyle ?? 'solid', (v) => { s.lineStyle = v; notify(); }, { label: 'Dash' }),
-            textInput(s.stackGroup, (v) => { s.stackGroup = v || null; notify(); },
-                      { placeholder: 'Stack group', label: 'Stack group' }),
             removeButton('Remove series', () => {
                 const i = axis.series.indexOf(s);
                 if (i >= 0) axis.series.splice(i, 1);
@@ -508,16 +517,43 @@ function renderPlotConfigEditor(container, config, options = {}) {
                 notify();
             }),
         );
-        row.appendChild(main);
 
-        if (opts.extraSeriesFields) {
-            const extra = el('div', 'twm-plot-config__series-extra');
-            row.appendChild(extra);
-            const handle = opts.extraSeriesFields(extra, s, { subplot: sp, axis, onChange: notify });
-            if (typeof handle?.dispose === 'function') track(() => handle.dispose());
-        }
-        if (opts.overlaySources) row.appendChild(overlayEditor(s, overlaySources));
+        const fields = el('div', 'twm-plot-config__series-fields');
+        fields.append(
+            field('Colour', colorField(s.color, (v) => { if (v) s.color = v; else delete s.color; }, 'Colour')),
+            field('Width', numberInput(s.lineWidth ?? 2, (v) => { s.lineWidth = v ?? 2; notify(); },
+                                       { placeholder: '2', label: 'Line width', min: 1, max: 10, step: 1 })),
+            field('Dash', select(DASHES, s.lineStyle ?? 'solid', (v) => { s.lineStyle = v; notify(); }, { label: 'Dash' })),
+            field('Stack group', textInput(s.stackGroup, (v) => { s.stackGroup = v || null; notify(); },
+                                           { placeholder: 'None', label: 'Stack group' })),
+        );
+        if (opts.extraSeriesFields) fields.appendChild(extraFields(sp, axis, s));
+        if (opts.overlaySources) fields.appendChild(overlayEditor(s, overlaySources));
+        row.append(head, fields);
         return row;
+    }
+
+    /**
+     * The embedder's fields of a series: whatever `extraSeriesFields` draws
+     * into the box (which sits in the series' field column), then the field
+     * specs it returns, laid out by `field()`.
+     */
+    function extraFields(sp, axis, s) {
+        const extra = el('div', 'twm-plot-config__series-extra');
+        const result = opts.extraSeriesFields(extra, s, { subplot: sp, axis, onChange: notify, field });
+        if (typeof result?.dispose === 'function') track(() => result.dispose());
+        const specs = Array.isArray(result) ? result : (Array.isArray(result?.fields) ? result.fields : []);
+        for (const spec of specs) {
+            if (!spec) continue;
+            let control = spec.control ?? null;
+            if (!control && typeof spec.render === 'function') {
+                control = el('div', 'twm-plot-config__slot');
+                const handle = spec.render(control);
+                if (typeof handle?.dispose === 'function') track(() => handle.dispose());
+            }
+            if (control) extra.appendChild(field(spec.label ?? '', control, { hint: spec.hint }));
+        }
+        return extra;
     }
 
     function overlayEditor(s, overlaySources) {

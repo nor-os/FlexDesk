@@ -4,6 +4,63 @@
 
 Plotly-backed charts: the wrapper, the chart types, subplot layouts, downsampling, the plot grid, the plot-config editor and the two plot windows. Plotly itself is not in the bundle; call `setPlotlySource()` with the path to your copy. The plot window's `streamEvents` option is described with the [other application-neutral options](../concepts/domain-neutrality.md#no-application-globals-the-gallery-picker-and-plot-window-events-0170).
 
+## A plot config series is one block, and an embedder's fields share it (0.17.16)
+
+[`renderPlotConfigEditor`](#editing-a-plot-config-renderplotconfigeditor-0170)
+drew each series as one wrapped line: the series picker, the legend label, the
+colour swatch with a wide hex box, the width, the dash and the stack group,
+then the embedder's `extraSeriesFields` and the overlay select on label
+columns of their own. Each series is now one block:
+
+- **A header line**: the series picker, the legend label and the remove
+  button. It wraps when the window is narrow.
+- **Its fields, one per line, on the editor's label column** (the same 96px
+  column as the subplot's and the axes' fields): **Colour** (a `ColorField`:
+  the swatch and a hex box sized to `#rrggbb`), **Width**, **Dash**,
+  **Stack group**, then the embedder's fields, then **Overlay** (with
+  `overlaySources`). An overlay's own label, colour, dash, width and mode sit
+  under its source, set in by a rule, with their controls still on the
+  series' control column.
+
+It reads at the usual ~600px config window and down to 360px without
+overflowing. The classes are `.twm-plot-config__series-head` and
+`.twm-plot-config__series-fields`; `.twm-plot-config__series-main` is gone.
+
+`extraSeriesFields(el, series, ctx)` can now put its fields on that same
+column, in either of two ways, and the 0.17.0 form keeps working:
+
+```js
+renderPlotConfigEditor(el, plotConfig, {
+    // 1. return field specs: the editor lays them out
+    extraSeriesFields: (el, series, { onChange }) => [
+        { label: 'Scenario', control: scenarioSelect(series, onChange),
+          hint: 'The run this series is read from' },
+        { label: 'Note', render: (slot) => mountMyWidget(slot, series, onChange) },  // may return { dispose }
+    ],
+    // 2. or draw rows with the editor's own helper
+    // extraSeriesFields: (el, series, { onChange, field }) => {
+    //     el.appendChild(field('Scenario', scenarioSelect(series, onChange), { hint: '…' }));
+    // },
+});
+```
+
+- `ctx.field(label, control, { hint })` returns a field line (a `<label>`
+  when the control is a single input, select or textarea) whose hint is drawn
+  under the control.
+- What it returns may be an array of specs, or `{ fields: specs, dispose }`. A
+  spec is `{ label, control, hint? }` or `{ label, render(slot), hint? }`;
+  `render` draws into an empty slot on the field line and may return
+  `{ dispose }`. Specs are laid out after anything drawn into `el`.
+- `el` sits in the field column (`display: contents`), so rows appended to it
+  line up with the editor's; content drawn there any other way shows as
+  before. A returned `{ dispose }` is still disposed on every redraw.
+
+The config the editor reads and writes is unchanged: no key was added, renamed
+or defaulted differently, opening a series writes nothing, and each control
+writes its own key only.
+
+`tests/plot_config_editor.test.mjs` §12 pins it.
+
 ## An empty cell can name what is missing: `emptyMessage` as a function (0.17.12)
 
 [`renderPlotGrid`](#a-plot-config-in-any-container-renderplotgrid-0170),
@@ -303,7 +360,7 @@ const editor = renderPlotConfigEditor(el, plotConfig, {
     seriesProvider: ({ value, role, subplot }) => names(value),   // items, or a promise of them
     seriesTransforms,                                       // their toggles, per subplot
     overlaySources: () => mySources(),                      // optional
-    extraSeriesFields: (el, series, { subplot, axis, onChange }) => { /* your fields */ },
+    extraSeriesFields: (el, series, { subplot, axis, onChange, field }) => { /* your fields */ },
 });
 editor.dispose();
 ```
@@ -341,8 +398,11 @@ config it was given and then calls `onChange(config)`.
   dash, width and mode. `renderPlotGrid` draws it from the data you pass under
   the series' id in `overlays`. **None** removes `series.overlay`. Without
   `overlaySources` there are no overlay controls.
-- `extraSeriesFields(el, series, { subplot, axis, onChange })` puts fields of
-  your own in each series row; call `onChange()` after you edit the series. What
+- `extraSeriesFields(el, series, { subplot, axis, onChange, field })` puts fields of
+  your own in each series row; call `onChange()` after you edit the series.
+  Since 0.17.16 they can share the series' label column (`field`, or returned
+  field specs; see
+  [above](#a-plot-config-series-is-one-block-and-an-embedders-fields-share-it-01716)). What
   it returns is disposed (`dispose()`) when the row is redrawn or the editor
   is disposed. A `dispose()` that throws is reported to `logger.warn` and does
   not stop the rest of the editor being disposed.

@@ -47,10 +47,13 @@ export class TileBase {
      * @param {{resolve: Function}} [options.dataSource] - Where this tile asks for its
      *        own rows. Handed down by `TileGrid`; absent for a grid whose data is
      *        broadcast with `setData()`, and then nothing ever calls `loadData()`.
+     * @param {boolean} [options.configOnDoubleClick=true] - A double-click on the
+     *        title strip (not on its buttons or an editable field in it) does what
+     *        the cogwheel does. False leaves the cogwheel as the only way in.
      */
     constructor({ id, grid, eventBus = null, config = {}, readonly = false,
                   headless = false, host = null, stateGuard = null,
-                  dataSource = null }) {
+                  dataSource = null, configOnDoubleClick = true }) {
         this.host = host;
         // THE TILE PULLS; THE GRID DOES NOT PUSH.
         //
@@ -74,6 +77,9 @@ export class TileBase {
         this.config = { ...this.getDefaultConfig(), ...config };
         this.readonly = readonly;
         this.headless = headless;
+        this.configOnDoubleClick = configOnDoubleClick;
+        /** STORY-0128. See `setConfiguring`. */
+        this._configuring = false;
         this.element = null;
         this.contentElement = null;
         this.chartInstance = null;
@@ -288,7 +294,8 @@ export class TileBase {
         if (this._disposed) return;
 
         this.element = document.createElement('div');
-        this.element.className = `tile${this.readonly ? ' tile--readonly' : ''}`;
+        this.element.className = `tile${this.readonly ? ' tile--readonly' : ''}`
+            + `${this._configuring ? ' tile--configuring' : ''}`;
 
         // Use StateGuard bypass if available to set dataset properties
         const stateGuard = this.stateGuard;
@@ -595,6 +602,17 @@ export class TileBase {
                 this._onConfigClick();
             });
 
+            // STORY-0128. The title strip's double-click is a second door to
+            // the cogwheel, through the same `_onConfigClick`. Not on a button
+            // in the strip (each has its own verb) and not on an editable
+            // field, where a double-click selects a word.
+            header.addEventListener('dblclick', (e) => {
+                if (!this.configOnDoubleClick || !configBtn) return;
+                if (e.target.closest?.('button, input, textarea, select, [contenteditable=""], [contenteditable="true"], .tile-menu-dropdown')) return;
+                e.stopPropagation();
+                this._onConfigClick();
+            });
+
             // "..." menu button + dropdown
             const menuBtn = header.querySelector('.tile-menu-btn');
             const menuDropdown = header.querySelector('.tile-menu-dropdown');
@@ -704,6 +722,34 @@ export class TileBase {
         }
         if (this._menuHome && menu.parentNode !== this._menuHome) this._menuHome.appendChild(menu);
     }
+
+    /**
+     * Mark this tile as being configured, or clear the mark (STORY-0128).
+     * A convenience for `grid.setConfiguring(tile.id, on)`, which is the API:
+     * the grid holds the mark by tile id, so it outlives this tile instance
+     * (`setLayout` disposes and rebuilds every tile). A tile with no grid
+     * holds the mark itself.
+     *
+     * @param {boolean} [on=true]
+     */
+    setConfiguring(on = true) {
+        if (typeof this.grid?.setConfiguring === 'function') {
+            this.grid.setConfiguring(this.id, on);
+            return;
+        }
+        this._applyConfiguring(on);
+    }
+
+    /** Draw (or clear) the configuring mark. Called by the grid.
+     *  @param {boolean} on
+     *  @private */
+    _applyConfiguring(on) {
+        this._configuring = !!on;
+        this.element?.classList.toggle('tile--configuring', this._configuring);
+    }
+
+    /** True while this tile is marked as being configured. */
+    get isConfiguring() { return this._configuring; }
 
     /**
      * Handle config button click — highlight tile and emit config request.

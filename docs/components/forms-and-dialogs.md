@@ -309,3 +309,64 @@ the caller's own DOM.
 
 `tests/confirm_escaping.test.mjs` opens each of them in jsdom with hostile
 names and labels.
+
+## Windows: closing, focus and Esc (0.17.16)
+
+Every dialog above is a `ManagedWindow`, and so is any window you build
+yourself with `new ManagedWindow({ id, title, content, ... })`. Three things
+changed for all of them (BUG-0053):
+
+- **A closed window is gone.** `close()` (once `beforeClose` allows it) runs
+  `onClose`, removes the window from the registry and releases its content,
+  its DOM and every callback it was given. `ManagedWindow.get(id)` then answers
+  `null`, `ManagedWindow.all()` no longer lists it and `win.isClosed` is
+  `true`. A closed window cannot be shown again: `show()` on it warns and does
+  nothing. To reopen, build a new `ManagedWindow` with the same id; it restores
+  the geometry the last one saved under that id. Until 0.17.15 a closed window
+  stayed registered, holding its content and whatever its `onClose` captured,
+  until the same id opened again.
+- **Saved geometry is bounded.** Position and size are still saved per id
+  under `flexdesk.managedWindows.v1` (or your `storageKey`), but only for the
+  50 most recently saved ids; older entries are dropped.
+  `ManagedWindow.configure({ maxSavedWindows })` changes the cap
+  (`DEFAULT_MAX_SAVED_WINDOWS` is 50). Entries saved by an earlier version
+  carry no use stamp: those under the window manager's minted ids
+  (`twm-mw-…`, which never open again) are purged when the entry is read, and
+  the others are stamped in the order they were stored, as older than anything
+  saved since, so your stable ids keep their geometry. A window whose id is
+  minted per opening passes `persistGeometry: false` and neither saves nor
+  restores geometry; the window manager's own windows do. Modal windows never
+  saved geometry and still do not.
+- **Focus moves in and back.** With `focusOnOpen` (default `true`), opening a
+  window focuses the first element of its content that takes focus (a link,
+  button, input, select, textarea, `contenteditable` or `tabindex` element
+  that is not disabled or hidden), or the window itself when there is none.
+  `focusOnOpen: 'window'` always focuses the window itself, for a dialog whose
+  first button must not catch a stray Enter (`showRunProgressDialog` uses it,
+  so Stop is never focused). Closing gives focus back to the element that had
+  it before the window opened, if that element is still in the document and
+  focus is still in the window or nowhere (on `body`); a window closed while
+  the user works elsewhere does not pull focus back. Restoring a minimised
+  window is not an open and moves nothing. A dialog that focuses a field of
+  its own a frame later, as `openForm` and `openConfirm` do, still wins, and
+  `Wizard.openInWindow` renders its first step before it shows the window, so
+  focus lands on the step's first field. Pass `focusOnOpen: false` for a
+  window that must not take focus when it appears; `showComputingWindow`
+  does.
+- **The window itself holds focus.** Every window element has
+  `tabindex="-1"`: never a Tab stop, but a press on its title bar or on empty
+  content moves focus into the window (when it was not there already), so the
+  window's Esc still works after the user clicked it.
+- **Esc closes a non-modal window only from inside it.** Which window an Esc
+  closes:
+  1. a modal window on top, wherever focus is (as before);
+  2. otherwise the window holding focus, modal or not — so a modal under a
+     non-modal window still closes on an Esc from inside it;
+  3. otherwise (focus in no window) the topmost modal.
+  A non-modal window that does not hold focus never closes on Esc, so an Esc
+  meant for an editor beside it is left alone. An Esc something inside the
+  window already handled with `preventDefault()` (an autocomplete closing its
+  list) or one ending an IME composition (`isComposing`) closes nothing. One
+  Esc closes one window, even when the close hands focus to another window.
+
+`tests/managed_window_lifecycle.test.mjs` holds all of these.

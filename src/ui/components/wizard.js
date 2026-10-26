@@ -233,9 +233,12 @@ export class Wizard extends ComponentBase {
                 return false;
             },
         });
-        this.#window.show();
+        // Rendered and painted BEFORE show, so the window's focus-on-open
+        // (BUG-0053) lands on the step's first field — the stepper's buttons
+        // are disabled by then — and not on the first step button.
         this.#renderBody();
         this.#paint();
+        this.#window.show();
         return this.#window;
     }
 

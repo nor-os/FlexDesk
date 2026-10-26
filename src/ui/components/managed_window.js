@@ -24,6 +24,16 @@ import { getSetting } from '../../core/settings.js';
  *  `ManagedWindow.configure({ storageKey })` before the first window opens. */
 export const DEFAULT_WINDOW_STORAGE_KEY = 'flexdesk.managedWindows.v1';
 let _storageKey = DEFAULT_WINDOW_STORAGE_KEY;
+/** BUG-0053. How many window ids keep saved geometry. Every save stamps its
+ *  entry with a use counter; past the cap the least recently saved ids are
+ *  dropped, so ids minted per window (the window manager's `twm-mw-<time>-…`)
+ *  no longer grow the entry for ever. */
+export const DEFAULT_MAX_SAVED_WINDOWS = 50;
+/** The prefix of the ids the window manager mints per window
+ *  (`twm-mw-<time>-<rand>`). Such an id never opens again, so geometry saved
+ *  under it can never be restored: entries under it are purged on load. */
+const MINTED_ID_PREFIX = 'twm-mw-';
+let _maxSavedWindows = DEFAULT_MAX_SAVED_WINDOWS;
 const BASE_Z_INDEX = 6000;
 const MAX_Z_INDEX = 6999;
 
@@ -55,6 +65,10 @@ const DEFAULT_ICON = 'web_asset';
 // Global state for z-order management
 let _zIndexCounter = 0;
 let _activeWindows = new Map(); // id -> ManagedWindow instance
+/** BUG-0053. Esc events a window has already answered. Every visible window
+ *  listens on the document, and closing one can hand focus to another before
+ *  the same event reaches it — one Esc must close one window. */
+const _escAnswered = new WeakSet();
 
 /** Collect the focusable elements inside `root`, in DOM order. Used
  *  by the modal focus trap so Tab cycles within the modal frame and
@@ -86,7 +100,14 @@ function _loadState() {
     if (_stateCache) return _stateCache;
     try {
         const raw = localStorage.getItem(_storageKey);
-        _stateCache = raw ? JSON.parse(raw) : {};
+        const parsed = raw ? JSON.parse(raw) : {};
+        _stateCache = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+        // BUG-0053. Before 0.17.16 every window-manager window saved an entry
+        // under its minted id; they are junk, and leaving them in would let
+        // them crowd stable ids out of the cap.
+        for (const k of Object.keys(_stateCache)) {
+            if (k.startsWith(MINTED_ID_PREFIX)) delete _stateCache[k];
+        }
     } catch {
         _stateCache = {};
     }
@@ -109,8 +130,66 @@ function _getWindowState(id) {
 
 function _setWindowState(id, windowState) {
     const state = _loadState();
-    state[id] = windowState;
+    // `u` orders the entries by last save. A plain object's key order cannot
+    // carry that (integer-like ids sort first). An entry written before the
+    // stamp existed is a stable id the user has used (minted ids are purged
+    // on load), so it is stamped here, in the order it was stored, AHEAD of
+    // nothing newer: it ranks as older than any entry saved since, and the
+    // cap reaches it only after the minted junk is gone and real ids crowd it.
+    let latest = 0;
+    for (const k of Object.keys(state)) latest = Math.max(latest, Number(state[k]?.u) || 0);
+    for (const k of Object.keys(state)) {
+        if (!(Number(state[k]?.u) > 0) && state[k] && typeof state[k] === 'object') {
+            state[k] = { ...state[k], u: ++latest };
+        }
+    }
+    state[id] = { ...windowState, u: latest + 1 };
+    const ids = Object.keys(state);
+    if (ids.length > _maxSavedWindows) {
+        ids.sort((a, b) => (Number(state[a]?.u) || 0) - (Number(state[b]?.u) || 0));
+        for (const k of ids.slice(0, ids.length - _maxSavedWindows)) delete state[k];
+    }
     _saveState(state);
+}
+
+/** BUG-0053. The first element of `root` that actually takes focus. Tried in
+ *  DOM order rather than filtered by layout, because an element that is
+ *  `display: none` or `visibility: hidden` refuses `focus()` in a browser —
+ *  so asking the element is exact where measuring it would guess. */
+function _focusFirstIn(root) {
+    if (!root) return false;
+    const sel = [
+        'a[href]',
+        'button:not([disabled])',
+        'input:not([disabled]):not([type="hidden"])',
+        'select:not([disabled])',
+        'textarea:not([disabled])',
+        '[contenteditable="true"]',
+        '[tabindex]:not([tabindex="-1"])',
+    ].join(',');
+    for (const el of root.querySelectorAll(sel)) {
+        if (el.hidden || el.closest('[hidden]')) continue;
+        try { el.focus({ preventScroll: true }); } catch { continue; }
+        if (el.ownerDocument.activeElement === el) return true;
+    }
+    return false;
+}
+
+/** BUG-0053. Which window an Esc closes, or null.
+ *
+ *  - A modal on top answers wherever focus is, as it always has.
+ *  - Otherwise the window holding focus answers, modal or not.
+ *  - Otherwise (focus in no window) the topmost modal answers.
+ *  A non-modal window that does not hold focus never answers: an Esc meant
+ *  for an editor beside it is not its. */
+function _escAnswerer() {
+    const visible = Array.from(_activeWindows.values())
+        .filter((w) => w.isVisible && !w.isMinimized && w.element)
+        .sort((a, b) => b.zIndex - a.zIndex);
+    if (visible[0]?.modal) return visible[0];
+    const active = document.activeElement;
+    const holder = active ? visible.find((w) => w.element.contains(active)) : null;
+    return holder || visible.find((w) => w.modal) || null;
 }
 
 export class ManagedWindow {
@@ -150,6 +229,15 @@ export class ManagedWindow {
      *   away.
      * @param {Array} [options.titlebarButtons] - Extra buttons left of
      *   minimize: `{icon, title, onClick}`.
+     * @param {boolean} [options.persistGeometry=true] - Save and restore this
+     *   window's position and size under its id. Pass false for a window whose
+     *   id is minted per opening, so it never writes an entry.
+     * @param {boolean|'window'} [options.focusOnOpen=true] - When the window
+     *   opens, move focus to the first focusable element of its content (the
+     *   window itself when it has none; always the window itself with
+     *   `'window'`), and on close give focus back to the element that had it
+     *   before, if that element is still in the document and focus is still in
+     *   this window or nowhere.
      */
     constructor(options) {
         this.id = options.id;
@@ -274,6 +362,13 @@ export class ManagedWindow {
         this._restoreTimer = null;
         this.titlebarButtons = Array.isArray(options.titlebarButtons)
             ? options.titlebarButtons : [];
+        /** BUG-0053. See the constructor docs. */
+        this.persistGeometry = options.persistGeometry ?? true;
+        this.focusOnOpen = options.focusOnOpen ?? true;
+        /** The element that had focus when the window opened. */
+        this._returnFocusTo = null;
+        /** True once the window has closed: a closed window is spent. */
+        this._closed = false;
 
         this.element = null;
         this.backdropElement = null;
@@ -310,6 +405,12 @@ export class ManagedWindow {
      * Show the window.
      */
     show() {
+        if (this._closed) {
+            // BUG-0053. Close releases the content and every callback, so
+            // there is nothing left to show. Build a new window for the id.
+            console.warn(`[ManagedWindow] show() on closed window "${this.id}"; build a new ManagedWindow to reopen it`);
+            return;
+        }
         if (this.isVisible && !this.isMinimized) {
             // C27. `show()` IS THE REPAIR PATH, so it repairs. A window that is
             // visible by its own flags and hidden by an inline `display: none`
@@ -325,6 +426,7 @@ export class ManagedWindow {
             return;
         }
 
+        let opened = false;
         if (!this.element) {
             this._build();
             this._restoreState();
@@ -352,10 +454,38 @@ export class ManagedWindow {
             }
             this._installContainerResizeObserver();
             this.isVisible = true;
+            opened = true;
         }
 
         this.bringToFront();
         document.addEventListener('keydown', this._boundOnKeyDown);
+        if (opened && this.focusOnOpen) this._moveFocusIn();
+    }
+
+    /** BUG-0053. Focus into the content on open, remembering where it was. */
+    _moveFocusIn() {
+        const active = document.activeElement;
+        this._returnFocusTo = active && active !== document.body
+            && !this.element.contains(active) ? active : null;
+        if (this.focusOnOpen !== 'window' && _focusFirstIn(this.contentContainer)) return;
+        // Nothing focusable in the content (or the caller asked for the
+        // window): the window takes focus itself, so Esc (which a non-modal
+        // window answers only with focus inside) and Tab both start from here.
+        try { this.element.focus({ preventScroll: true }); } catch { /* detached */ }
+    }
+
+    /** BUG-0053. Give focus back on close — only when it is still in this
+     *  window (or nowhere): a window closed while the user works elsewhere
+     *  must not pull focus away from where they are. */
+    _returnFocus() {
+        const back = this._returnFocusTo;
+        this._returnFocusTo = null;
+        if (!back || !back.isConnected) return;
+        const active = document.activeElement;
+        const held = !active || active === document.body
+            || (this.element && this.element.contains(active));
+        if (!held) return;
+        try { back.focus({ preventScroll: true }); } catch { /* gone */ }
     }
 
     /**
@@ -389,6 +519,10 @@ export class ManagedWindow {
             this.onClose();
         }
 
+        // BUG-0053. Before the element leaves the document, while focus can
+        // still be seen to be inside it.
+        if (this.focusOnOpen) this._returnFocus();
+
         if (this.element && this.element.parentNode) {
             this.element.parentNode.removeChild(this.element);
         }
@@ -417,7 +551,43 @@ export class ManagedWindow {
         window.dispatchEvent(new CustomEvent('managed-window-closed', {
             detail: { id: this.id, container: this.container }
         }));
+        this._release();
     }
+
+    /** BUG-0053. A closed window leaves the registry and lets go of what it
+     *  held: its content, its DOM and every consumer callback (an `onClose`
+     *  typically captures its owner). Until now the registry kept all of it
+     *  alive until the same id opened again, and `get(id)` answered with the
+     *  dead window. */
+    _release() {
+        if (_activeWindows.get(this.id) === this) _activeWindows.delete(this.id);
+        this._closed = true;
+        // A close in the middle of a drag (a snap controller docking the
+        // window from its own `commit`) still finishes in `_onPointerUp`,
+        // which removes these; a programmatic close mid-drag has no pointer-up
+        // coming that is its business.
+        if (!this._dragState && !this._resizeState) {
+            document.removeEventListener('pointermove', this._boundOnPointerMove);
+            document.removeEventListener('pointerup', this._boundOnPointerUp);
+            document.removeEventListener('pointercancel', this._boundOnPointerUp);
+        }
+        this.content = null;
+        this.element = null;
+        this.contentContainer = null;
+        this.backdropElement = null;
+        this.onClose = null;
+        this.beforeClose = null;
+        this.onMinimize = null;
+        this.onMaximize = null;
+        this.snapController = null;
+        this.dragHost = null;
+        this.dragBounds = null;
+        this.titlebarButtons = [];
+    }
+
+    /** True once the window has closed. A closed window cannot be shown
+     *  again; `ManagedWindow.get(id)` no longer returns it. */
+    get isClosed() { return this._closed; }
 
     /**
      * Minimize to taskbar with animation.
@@ -794,6 +964,11 @@ export class ManagedWindow {
             this.element.classList.add('twm-managed-window--modal');
         }
         this.element.setAttribute('data-window-id', this.id);
+        // BUG-0053. Focusable by script and by a press, never by Tab (the
+        // modal trap's `_collectFocusable` skips tabindex -1): a press on the
+        // title bar or on empty content keeps focus in the window, where a
+        // non-modal window's Esc looks for it.
+        this.element.tabIndex = -1;
 
         // Top bar
         const topbar = document.createElement('div');
@@ -933,7 +1108,16 @@ export class ManagedWindow {
             // something, which is the whole complaint it was reported under.
             topbar.addEventListener('dblclick', () => this.toggleMaximize());
         }
-        this.element.addEventListener('pointerdown', () => this.bringToFront());
+        this.element.addEventListener('pointerdown', () => {
+            this.bringToFront();
+            // The title bar's pointerdown is default-prevented (it starts a
+            // drag), which also stops the browser moving focus. A press inside
+            // a window that does not hold focus gives it focus; a press on a
+            // field then moves it on to the field as usual.
+            if (this.element && !this.element.contains(document.activeElement)) {
+                try { this.element.focus({ preventScroll: true }); } catch { /* detached */ }
+            }
+        });
     }
 
     _addResizeHandles() {
@@ -1263,7 +1447,7 @@ export class ManagedWindow {
         const maxHeight = bounds.height;
 
         // Modal windows always center on screen - never restore saved position
-        const saved = this.modal ? null : _getWindowState(this.id);
+        const saved = this.modal || !this.persistGeometry ? null : _getWindowState(this.id);
         if (saved) {
             this.x = saved.x ?? this.x;
             this.y = saved.y ?? this.y;
@@ -1289,7 +1473,7 @@ export class ManagedWindow {
 
     _saveCurrentState() {
         // Modal windows always center - no need to persist position
-        if (this.modal) return;
+        if (this.modal || !this.persistGeometry || this._closed) return;
 
         _setWindowState(this.id, {
             x: this._preMaximizeState?.x ?? this.x,
@@ -1647,12 +1831,19 @@ export class ManagedWindow {
         const topWindow = Array.from(_activeWindows.values())
             .filter(w => w.isVisible && !w.isMinimized)
             .sort((a, b) => b.zIndex - a.zIndex)[0];
-        if (topWindow !== this) return;
-
         if (e.key === 'Escape') {
-            this.close();
+            // BUG-0053. An Esc something inside already answered (an
+            // autocomplete closing its list) or one that ends an IME
+            // composition is not the window's.
+            if (e.defaultPrevented || e.isComposing || _escAnswered.has(e)) return;
+            if (_escAnswerer() === this) {
+                _escAnswered.add(e);
+                this.close();
+            }
             return;
         }
+        if (topWindow !== this) return;
+
         // Focus trap for modals: Tab and Shift+Tab cycle through the
         // focusable elements inside the modal's frame instead of
         // escaping to underlying tiles. Without this, Tab moves the
@@ -1691,9 +1882,13 @@ export class ManagedWindow {
      *
      * @param {object} [opts]
      * @param {string} [opts.storageKey=DEFAULT_WINDOW_STORAGE_KEY]
+     * @param {number} [opts.maxSavedWindows=DEFAULT_MAX_SAVED_WINDOWS] How many
+     *   ids keep saved geometry; the least recently saved go first.
      */
-    static configure({ storageKey = DEFAULT_WINDOW_STORAGE_KEY } = {}) {
+    static configure({ storageKey = DEFAULT_WINDOW_STORAGE_KEY,
+                       maxSavedWindows = DEFAULT_MAX_SAVED_WINDOWS } = {}) {
         _storageKey = storageKey;
+        _maxSavedWindows = Math.max(1, Math.floor(maxSavedWindows) || DEFAULT_MAX_SAVED_WINDOWS);
         _stateCache = null;
     }
 

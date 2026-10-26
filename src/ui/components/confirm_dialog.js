@@ -314,6 +314,9 @@ export function showRunProgressDialog(options = {}) {
         canResize: false,
         canDrag: false,
         modal: true,
+        // BUG-0053. Focus goes to the window, never to Stop or Cancel: a stray
+        // Enter or Space would cancel the run.
+        focusOnOpen: 'window',
         onClose: () => {
             if (finished) return;
             finish('cancelled', 'Cancelled.', 'is-cancelled');

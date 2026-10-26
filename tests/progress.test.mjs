@@ -402,8 +402,13 @@ section('§5 showComputingWindow');
     check('opening another settles the first cancelled', await settled(first.result), { status: 'cancelled', message: 'Cancelled.' });
     check('…without calling its onCancel', c2, 0);
     ok('…and replaces its window', !firstEl.isConnected && content());
-    content().querySelector('.twm-computing-status__cancel-btn').click();
-    document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    // A real click on Cancel focuses it, and the status window (non-modal,
+    // BUG-0053) answers Esc only with focus inside it; jsdom's click() does
+    // not focus, so the focus is given here.
+    const cancelBtn = content().querySelector('.twm-computing-status__cancel-btn');
+    cancelBtn.focus();
+    cancelBtn.click();
+    document.activeElement.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     check('Cancel then Escape calls onCancel once and settles cancelled', [c3, await settled(second.result)], [1, { status: 'cancelled', message: 'Cancelled.' }]);
 
     let c4 = 0;

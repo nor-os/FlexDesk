@@ -170,6 +170,43 @@ a top-level page showed its name twice, in the title bar and in a one-segment
 breadcrumb under it (STORY-0124). `renderBreadcrumb`, which draws segments a
 content routes itself, is unchanged.
 
+## A kind that lives in a window: `windowOnly` and `window` (0.17.16)
+
+A kind can be a tool rather than a page: it opens in a managed window, never in
+a tile, and it can say how big that window is.
+
+```js
+const taxonomy = createTaxonomy({
+    root: 'start',
+    kinds: {
+        start: { label: 'Start', icon: 'apps' },
+        estimation: { label: 'Parameter Estimation', icon: 'tune',
+                      single: true, windowOnly: true, window: { width: 1100, height: 700 } },
+    },
+});
+wm.navigate('estimation');   // a window, whatever `dest` says
+```
+
+- **`window: { width?, height? }`** is the initial size, in px, of a window the
+  kind opens in, by `navigate(…, { dest: 'window' })` or, for a window-only
+  kind, always. ManagedWindow clamps it to the screen and to its minimum
+  (400 × 300), so a smaller size opens at the minimum. Without it a window
+  opens at ManagedWindow's default (600 × 400).
+- **`windowOnly: true`** sends every open path to a window: `navigate` with
+  any `dest`, `openInPrimary`, `openInLeaf`, the tab verbs and
+  `splitLeafWith`, `navigateActiveTab` (crumbs, Backspace) and
+  `openInWindow`. With `single`, opening it again reveals the window that is
+  open. Its window never goes into a tile: it has no *Back to tile*, its
+  maximise button maximises it, and it does not snap onto a tile when dragged.
+  A restored layout that still holds a tab of the kind in a tile (or archived
+  under a page) drops it and warns once, naming the kinds; the rest of the
+  layout stays, and the next open makes a window. An entry of it in a tab's
+  back history (a layout saved before the kind was window-only) opens its
+  window when Backspace reaches it. Neither the root kind nor a top-nav
+  page can be window-only (`createTaxonomy` refuses).
+- `taxonomy.isWindowOnly(kind)` and `taxonomy.windowSize(kind)` answer both
+  (STORY-0127).
+
 ## Buttons that change with the pane: `ctx.setChromeActions` (0.17.0)
 
 A factory may return `chromeActions` — `[{icon, title, onClick}]`, drawn in the

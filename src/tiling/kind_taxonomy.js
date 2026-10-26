@@ -62,6 +62,20 @@
  *               a reason, and keeps the first of any duplicates a restored
  *               layout holds. The root kind cannot be single: every new
  *               pane, tab and desktop is seeded with it.
+ *
+ *   window?     `{ width?, height? }` — the initial size, in px, of a managed
+ *               window this kind opens in (`navigate(…, { dest: 'window' })`,
+ *               or always for `windowOnly`); clamped to the screen and to the
+ *               window's minimum (400 × 300) as any window is. Absent: the
+ *               window's default size (STORY-0127).
+ *   windowOnly? `true`: the kind lives in a managed window, never in a tile
+ *               — a tool, not a page. Every open path (navigate with any
+ *               `dest`, openInPrimary, openInLeaf, the tab and split verbs)
+ *               opens it in a window; its window never docks into a tile
+ *               (no Back to tile, maximise is geometric, no drag-to-dock); a
+ *               restored layout drops a tile tab of it, with one warning, and
+ *               a tab's history entry of it opens a window. Neither the root
+ *               nor a top-nav kind can be window-only (STORY-0127).
  */
 
 import { PANEL_OFFERED, PANEL_SIDES, readPanelOffer } from './panel_availability.js';
@@ -104,6 +118,26 @@ export function createTaxonomy({ kinds, root } = {}) {
             throw new TypeError(
                 `createTaxonomy: '${kind}'.single must be true or a prop name`);
         }
+        if (def.window != null) {
+            const w = def.window;
+            const bad = (v) => v != null && !(typeof v === 'number' && Number.isFinite(v) && v > 0);
+            if (typeof w !== 'object' || Array.isArray(w) || bad(w.width) || bad(w.height)) {
+                throw new TypeError(
+                    `createTaxonomy: '${kind}'.window must be { width?, height? } in positive px`);
+            }
+        }
+        if (def.windowOnly != null && typeof def.windowOnly !== 'boolean') {
+            throw new TypeError(`createTaxonomy: '${kind}'.windowOnly must be true or false`);
+        }
+        if (def.windowOnly && def.isTopNav) {
+            throw new Error(
+                `createTaxonomy: '${kind}' is a top-nav page and cannot be windowOnly — a page lives in tiles`);
+        }
+    }
+    if (kinds[root].windowOnly) {
+        throw new Error(
+            `createTaxonomy: the root kind '${root}' cannot be windowOnly — `
+            + 'every new pane, tab and desktop is seeded with it');
     }
     if (kinds[root].single) {
         throw new Error(
@@ -227,6 +261,15 @@ export function createTaxonomy({ kinds, root } = {}) {
         return `${kind}\u0000${v == null ? '' : String(v)}`;
     };
 
+    /** Whether `kind` lives in a managed window only (KindDef `windowOnly`). */
+    const isWindowOnly = (kind) => _kinds[kind]?.windowOnly === true;
+
+    /** The initial size of a window `kind` opens in (KindDef `window`), or null. */
+    const windowSize = (kind) => {
+        const w = _kinds[kind]?.window;
+        return w ? { width: w.width ?? null, height: w.height ?? null } : null;
+    };
+
     /** The sentence a refused copy verb shows for a single kind. */
     const singleReason = (kind) =>
         `${_kinds[kind]?.label || kind} is open once: use the one that is open`;
@@ -246,5 +289,7 @@ export function createTaxonomy({ kinds, root } = {}) {
         isSingle,
         instanceKey,
         singleReason,
+        isWindowOnly,
+        windowSize,
     });
 }

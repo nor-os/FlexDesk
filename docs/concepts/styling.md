@@ -8,17 +8,20 @@ Three stylesheets, and that is the whole CSS contract:
 
 | | Specifier | Resolves to | |
 |---|---|---|---|
-| `dist/tokens.css` | `flexdesk/css/tokens` | `css/tokens.css` | Every rule reads `var(--…)` from here. Swap this one file and the shell restyles. |
+| `dist/tokens.css` | `flexdesk/css/tokens` | `dist/tokens.css` | Every rule reads `var(--…)` from here. Swap this one file and the shell restyles. |
 | `dist/reset.css` | `flexdesk/css/reset` | `dist/reset.css` | The reset. |
 | `dist/flexdesk.css` | `flexdesk/css` | `dist/flexdesk.css` | The library. Every class is `twm-` prefixed (the original working name; the prefix is stable and not worth a breaking rename). |
 
 A bundler, an import-map generator or `require.resolve` reaches each one by its
 specifier, through the package's `exports` map, which closes every other path
-into the package. The map sends `flexdesk/css/tokens` to the source
-`css/tokens.css`, not `dist/tokens.css`. The two are identical in a release,
-since `dist/` is rebuilt in the release commit, but can differ on a working
-checkout. `flexdesk/css/reset` is missing from 0.16.1 and earlier,
-where it fails with `ERR_PACKAGE_PATH_NOT_EXPORTED`.
+into the package. All three resolve to the built copy under `dist/`, the file
+the first column names. A specifier therefore never serves a source file that
+has moved on since `dist/` was last rebuilt, which a working checkout or a git
+dependency can hold. In 0.17.13 and earlier `flexdesk/css/tokens` resolved to
+the source `css/tokens.css` instead. The two files are identical in a release,
+since `dist/` is rebuilt in the release commit, so an installed release serves
+the same bytes as before. `flexdesk/css/reset` is missing from 0.16.1 and
+earlier, where it fails with `ERR_PACKAGE_PATH_NOT_EXPORTED`.
 
 `createDetailHeader` follows the prefix too: a badge is a `.twm-detail-header__badge`
 pill (a badge's `className` is added beside it, to recolour it), and an action is a

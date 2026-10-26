@@ -15,12 +15,22 @@
  *       dist/reset.css — the file the contract documents
  *   §2  the other two contract specifiers resolve, under `import` and under
  *       `require`, to exactly the files the docs name: `flexdesk/css` to
- *       dist/flexdesk.css, `flexdesk/css/tokens` to the source css/tokens.css
- *       (not dist/ — BUG-0030 tracks that split)
- *   §3  every `./css*` export exists on disk and sits under a path `files`
- *       publishes, so no CSS specifier points at a file the tarball lacks
+ *       dist/flexdesk.css, `flexdesk/css/tokens` to dist/tokens.css
+ *   §3  every `./css*` export exists on disk, sits under a path `files`
+ *       publishes, and is the BUILT copy under dist/, so no CSS specifier
+ *       points at a file the tarball lacks or at a source file
  *   §4  the docs' Styling table names, for every specifier, the file the
  *       exports map really resolves it to, so the docs cannot drift from it
+ *
+ * BUG-0030 — `./css/tokens` was the one contract stylesheet the map sent to the
+ * SOURCE (css/tokens.css), while the contract names dist/tokens.css and the
+ * other two specifiers already resolve into dist/. dist/ is rebuilt only in
+ * the release commit, so the two files are byte-identical in a release but
+ * can differ on a working checkout or a git dependency, and the specifier then
+ * served a file the contract does not document. §2 pins the new target, §3
+ * pins the rule that no CSS specifier may point outside dist/ (so a fourth
+ * stylesheet cannot repeat the mistake), and §4 pins that the docs' contract
+ * file and resolves-to columns name the same file.
  *
  * The package resolves itself by name (Node's self-reference), so this runs
  * against this checkout's package.json with nothing installed.
@@ -64,7 +74,7 @@ check('§1 require.resolve(flexdesk/css/reset) -> dist/reset.css',
 ok('§1 dist/reset.css exists', existsSync(join(ROOT, 'dist', 'reset.css')));
 
 // ── §2 the rest of the contract, pinned exactly ──────────────────────────
-const EXPECTED = { css: 'dist/flexdesk.css', 'css/tokens': 'css/tokens.css', 'css/reset': 'dist/reset.css' };
+const EXPECTED = { css: 'dist/flexdesk.css', 'css/tokens': 'dist/tokens.css', 'css/reset': 'dist/reset.css' };
 for (const spec of ['css', 'css/tokens']) {
     check(`§2 import.meta.resolve(flexdesk/${spec}) -> ${EXPECTED[spec]}`,
           viaImport(`${PKG.name}/${spec}`), EXPECTED[spec]);
@@ -90,6 +100,8 @@ for (const [key, value] of cssExports) {
         ok(`§3 ${key} -> ${t} is under a published path`,
            published.some((f) => path === f || path.startsWith(`${f}/`)),
            `files: ${JSON.stringify(published)}`);
+        ok(`§3 ${key} -> ${t} is the built copy under dist/, not a source file`,
+           path.startsWith('dist/'));
     }
 }
 
@@ -102,8 +114,9 @@ const rows = [...styling.matchAll(/^\| `([^`]+)` \| `([^`]+)` \| `([^`]+)` \|/gm
     .map(([, file, spec, target]) => ({ file, spec, target }));
 check('§4 the Styling table lists the three specifiers',
       rows.map((r) => r.spec).sort(), [`${PKG.name}/css`, `${PKG.name}/css/reset`, `${PKG.name}/css/tokens`]);
-for (const { spec, target } of rows) {
+for (const { file, spec, target } of rows) {
     check(`§4 docs: ${spec} resolves to ${target}`, viaImport(spec), target);
+    check(`§4 docs: ${spec} resolves to the contract file its row names (${file})`, target, file);
     check(`§4 docs: ${spec} target is the one this suite pins`,
           target, EXPECTED[spec.slice(PKG.name.length + 1)]);
 }

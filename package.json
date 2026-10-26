@@ -52,7 +52,7 @@
             "development": "./widgets.js"
         },
         "./css": "./dist/flexdesk.css",
-        "./css/tokens": "./css/tokens.css",
+        "./css/tokens": "./dist/tokens.css",
         "./css/reset": "./dist/reset.css",
         "./charts": {
             "import": "./dist/charts.js",

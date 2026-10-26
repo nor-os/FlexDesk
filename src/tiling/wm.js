@@ -306,11 +306,11 @@ export class WindowManager {
         // A window-only kind is never in a tile, and a single kind is open
         // once, whatever the saved layout says.
         const windowOnlyDropped = this._dropWindowOnlyTabs();
-        if (windowOnlyDropped) {
-            (this.logger ?? console).warn?.(`[wm] the saved layout held ${windowOnlyDropped} tab(s) `
-                + 'of a window-only kind in a tile; they open in a window when asked for');
+        if (windowOnlyDropped.length) {
+            (this.logger ?? console).warn?.(`[wm] the saved layout held ${windowOnlyDropped.length} tile tab(s) `
+                + `of window-only kind(s) ${[...new Set(windowOnlyDropped)].join(', ')}; they open in a window when asked for`);
         }
-        const deduped = this._dropDuplicateSingles() || windowOnlyDropped > 0;
+        const deduped = this._dropDuplicateSingles() || windowOnlyDropped.length > 0;
         for (const d of this.desktops.desktops) this._canonicalize(d.tree, d);
         this.renderer.tree = this.desktops.active().tree;
         this.renderer.render();
@@ -587,10 +587,6 @@ export class WindowManager {
         return keys;
     }
 
-    /** A restored layout keeps the FIRST instance of each single kind: later
-     *  live tabs are dropped (the tile shows the tab that took the dropped
-     *  one's place, or closes when it held nothing else), and so are later
-     *  archived ones. Answers whether anything was dropped. */
     /** Open a window-only kind (KindDef `windowOnly`) in its window — the one
      *  that is open, or a new one — and say so; any other kind: false, and the
      *  caller opens it where it asked (STORY-0127). */
@@ -600,22 +596,32 @@ export class WindowManager {
         return true;
     }
 
+    /** Whether a window record holds a window-only kind: such a window never
+     *  docks into a tile (Back to tile, maximize, drag-to-dock). */
+    _holdsWindowOnly(rec) {
+        return !!this.taxonomy.isWindowOnly
+            && _windowTabSpecs(rec).some((t) => this.taxonomy.isWindowOnly(t?.kind));
+    }
+
     /** A restored layout never holds a window-only kind in a tile: its tabs,
      *  and its tabs archived under a page, go. Windows are not restored, so
      *  the content simply opens in a window the next time it is asked for.
-     *  Returns how many tabs went. */
+     *  Returns the kinds of the tabs that went, one entry per tab. */
     _dropWindowOnlyTabs() {
-        if (!this.taxonomy.isWindowOnly) return 0;
-        let n = 0;
-        const keep = (t) => {
+        if (!this.taxonomy.isWindowOnly) return [];
+        const dropped = [];
+        this._pruneRestoredTabs((t) => {
             if (!t || !this.taxonomy.isWindowOnly(t.kind)) return true;
-            n += 1;
+            dropped.push(t.kind);
             return false;
-        };
-        this._pruneRestoredTabs(keep);
-        return n;
+        });
+        return dropped;
     }
 
+    /** A restored layout keeps the FIRST instance of each single kind: later
+     *  live tabs are dropped (the tile shows the tab that took the dropped
+     *  one's place, or closes when it held nothing else), and so are later
+     *  archived ones. Answers whether anything was dropped. */
     _dropDuplicateSingles() {
         const seen = new Set();
         return this._pruneRestoredTabs((t) => {
@@ -899,6 +905,9 @@ export class WindowManager {
         const tree = this._tree();
         const prior = tree.popActiveTabHistory?.(id);
         if (!prior || !prior.kind) return false;
+        // A window-only kind in a tab's history (a layout saved before the kind
+        // was one) goes back to its window, never into this tile.
+        if (this._openWindowOnly(prior.kind, prior.props || {})) return true;
         // A single kind opened elsewhere since this entry was pushed is
         // revealed there, not put back here as a second copy.
         if (this.revealInstance(prior.kind, prior.props || {})) return true;
@@ -1010,6 +1019,7 @@ export class WindowManager {
      *  the leaf. Used by Backspace + breadcrumb segments + anything
      *  else that should walk WITHIN the tile rather than reset it. */
     navigateActiveTab(leafId, kind, props = {}) {
+        if (this._openWindowOnly(kind, props)) return;
         if (this.revealInstance(kind, props)) return;
         const tree = this._tree();
         const leaf = tree.get(leafId);
@@ -1085,6 +1095,7 @@ export class WindowManager {
      *  previous mount, mounts the new kind into the same body element,
      *  and updates the window's title. */
     openInWindow(winId, kind, props = {}) {
+        if (this._openWindowOnly(kind, props)) return;
         if (this.revealInstance(kind, props)) return;
         const rec = this._windowToLeaf.get(winId);
         if (!rec) { this.openInPrimary(kind, props); return; }
@@ -2313,6 +2324,9 @@ export class WindowManager {
         // false lets the geometric maximise happen instead — the answer every
         // other window manager gives a window with nowhere to go back to.
         if (!rec) return false;
+        // A window-only kind has no tile to go back to (STORY-0127): the
+        // geometric maximise happens instead.
+        if (this._holdsWindowOnly(rec)) return false;
         const tree = this.desktops.desktops[rec.desktopIdx]?.tree;
         const home = rec.homeLeafId ? tree?.get(rec.homeLeafId) : null;
         if (home && home.kind === 'leaf') {
@@ -3178,6 +3192,7 @@ export class WindowManager {
     dockWindowInto(windowId, target) {
         const rec = this._windowToLeaf.get(windowId);
         if (!rec || !target?.leafId) return false;
+        if (this._holdsWindowOnly(rec)) return false;   // never into a tile (STORY-0127)
         rec._dock = { ...target };
         rec._demoting = true;
         try { rec.window.close({ force: true }); }
@@ -3383,7 +3398,8 @@ export class WindowManager {
             e.preventDefault();
             const rec = this._windowToLeaf.get(winId);
             if (!rec) return;
-            const items = [
+            // A window-only kind's window has no tile to go back to
+            const items = this._holdsWindowOnly(rec) ? [] : [
                 { label: 'Back to tile', icon: 'close_fullscreen', action: 'back' },
             ];
             // C40. Never onto a fixed desktop — `moveWindowToDesktop` refuses.
@@ -4341,6 +4357,9 @@ export class WindowManager {
     _navigateWindow(kind, props) {
         if (this.revealInstance(kind, props)) return;
         const size = this.taxonomy.windowSize?.(kind);
+        // A window-only kind's window maximises as any window does and never
+        // snaps into a tile (STORY-0127)
+        const dockable = !this.taxonomy.isWindowOnly?.(kind);
         const winId = `twm-mw-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`;
         const contentEl = document.createElement('div');
         contentEl.className = 'twm-window-content';
@@ -4364,8 +4383,8 @@ export class WindowManager {
             // every bit as dockable as a promoted one, and a window that can be
             // dragged onto a tile in one case and not the other is a rule
             // nobody can learn.
-            snap: this.snapPromotion,
-            snapController: this.snapPromotion ? this._snapController() : null,
+            snap: dockable && this.snapPromotion,
+            snapController: dockable && this.snapPromotion ? this._snapController() : null,
             // R1. THE PANE IS A BOX WITH `overflow: hidden`. A window contained
             // to one (C21) cannot be dragged a single pixel outside it, so
             // "drag a window from one tile to another" — the gesture all three
@@ -4383,9 +4402,11 @@ export class WindowManager {
             // harder. So the maximize button docks — and the separate demote
             // button the WM used to inject beside it is gone, because two
             // buttons for one verb is how you get a chrome nobody reads.
-            onMaximize: () => this.bringBackWindow(winId),
-            maximizeIcon: 'close_fullscreen',
-            maximizeTitle: 'Back to tile',
+            ...(dockable ? {
+                onMaximize: () => this.bringBackWindow(winId),
+                maximizeIcon: 'close_fullscreen',
+                maximizeTitle: 'Back to tile',
+            } : {}),
             onClose: () => this._onManagedWindowClosed(winId, mountInfo),
         });
         // DECORATED ONCE, below, after the record exists. It was called here as

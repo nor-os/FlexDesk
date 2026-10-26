@@ -7,8 +7,11 @@
  *       single), never in a tile, at the kind's window size
  *   §2  a kind with only a `window` size opens in a window of that size when
  *       asked to, and in tiles otherwise
- *   §3  a restored layout drops its tile tabs, with one warning; asked for
- *       again it opens in a window
+ *   §3  a restored layout drops its tile tabs, with one warning naming the
+ *       kind; asked for again it opens in a window
+ *   §4  its window never docks into a tile (Back to tile, maximise,
+ *       drag-to-dock); navigateActiveTab, openInTabFromContext and a tab's
+ *       back history open its window
  *
  *     node tests/window_only_kinds.test.mjs
  */
@@ -182,11 +185,43 @@ console.log('\n§3 a restored layout drops a window-only kind\'s tile tabs');
     await tick();
     check('no tile holds it after the restore', tileKinds().includes('tool'), false);
     check('nothing of it was mounted', mounts.filter((m) => m.kind === 'tool').length, 0);
-    ok('one warning names it', warnings.filter((w) => /window-only/.test(w)).length === 1, JSON.stringify(warnings));
+    ok('one warning names the kind', warnings.filter((w) => /window-only kind\(s\) tool;/.test(w)).length === 1, JSON.stringify(warnings));
     ok('the rest of the layout stays', tileKinds().includes('sized'));
     wm.navigate('tool');
     await tick();
     check('asked for again, it opens in a window', windows('tool').length, 1);
+}
+
+console.log('\n§4 its window never docks into a tile, and no other path puts it there');
+{
+    const rec = windows('tool')[0];
+    const winId = [...wm._windowToLeaf.entries()].find(([, r]) => r === rec)[0];
+    const leaf = wm.desktops.active().tree.primaryLeafId();
+    check('Back to tile refuses (the maximise is geometric)', wm.bringBackWindow(winId), false);
+    check('drag-to-dock refuses', wm.dockWindowInto(winId, { leafId: leaf, mode: 'tab' }), false);
+    check('it has no Back-to-tile maximise', [rec.window.maximizeTitle === 'Back to tile', !!rec.window.snapController], [false, false]);
+    check('…and is still the one window, no tile tab', [windows('tool').length, tileKinds().includes('tool')], [1, false]);
+
+    wm.navigateActiveTab(leaf, 'tool');
+    await tick();
+    check('navigateActiveTab (crumbs, Backspace) opens the window', tileKinds().includes('tool'), false);
+    wm.openInTabFromContext({ leafId: leaf }, 'tool');
+    await tick();
+    check('openInTabFromContext opens the window', tileKinds().includes('tool'), false);
+
+    // A tab whose back history holds the kind (saved before it was window-only)
+    const tree = wm.desktops.active().tree;
+    wm.navigate('sheet', { id: 'a' });
+    await tick();
+    const l = tree.get(tree.primaryLeafId());
+    const tab = l.tabs[l.activeTabIdx];
+    tab.history = [...(tab.history || []), { kind: 'tool', props: {}, title: 'Estimation' }];
+    rec.window.close({ force: true });
+    await tick();
+    check('its window is closed', windows('tool').length, 0);
+    wm.navigateBack();
+    await tick();
+    check('Backspace to that entry opens the window, not the tile', [windows('tool').length, tileKinds().includes('tool')], [1, false]);
 }
 
 shell.dispose();

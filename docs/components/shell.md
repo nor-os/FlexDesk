@@ -189,14 +189,20 @@ wm.navigate('estimation');   // a window, whatever `dest` says
 
 - **`window: { width?, height? }`** is the initial size, in px, of a window the
   kind opens in, by `navigate(…, { dest: 'window' })` or, for a window-only
-  kind, always. ManagedWindow clamps it to the screen. Without it a window
+  kind, always. ManagedWindow clamps it to the screen and to its minimum
+  (400 × 300), so a smaller size opens at the minimum. Without it a window
   opens at ManagedWindow's default (600 × 400).
 - **`windowOnly: true`** sends every open path to a window: `navigate` with
   any `dest`, `openInPrimary`, `openInLeaf`, the tab verbs and
-  `splitLeafWith`. With `single`, opening it again reveals the window that is
-  open. A restored layout that still holds a tab of the kind in a tile (or
-  archived under a page) drops it and warns once; the rest of the layout
-  stays, and the next open makes a window. Neither the root kind nor a top-nav
+  `splitLeafWith`, `navigateActiveTab` (crumbs, Backspace) and
+  `openInWindow`. With `single`, opening it again reveals the window that is
+  open. Its window never goes into a tile: it has no *Back to tile*, its
+  maximise button maximises it, and it does not snap onto a tile when dragged.
+  A restored layout that still holds a tab of the kind in a tile (or archived
+  under a page) drops it and warns once, naming the kinds; the rest of the
+  layout stays, and the next open makes a window. An entry of it in a tab's
+  back history (a layout saved before the kind was window-only) opens its
+  window when Backspace reaches it. Neither the root kind nor a top-nav
   page can be window-only (`createTaxonomy` refuses).
 - `taxonomy.isWindowOnly(kind)` and `taxonomy.windowSize(kind)` answer both
   (STORY-0127).

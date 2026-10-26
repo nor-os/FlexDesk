@@ -65,14 +65,17 @@
  *
  *   window?     `{ width?, height? }` — the initial size, in px, of a managed
  *               window this kind opens in (`navigate(…, { dest: 'window' })`,
- *               or always for `windowOnly`); clamped to the screen as any
- *               window is. Absent: the window's default size (STORY-0127).
+ *               or always for `windowOnly`); clamped to the screen and to the
+ *               window's minimum (400 × 300) as any window is. Absent: the
+ *               window's default size (STORY-0127).
  *   windowOnly? `true`: the kind lives in a managed window, never in a tile
  *               — a tool, not a page. Every open path (navigate with any
  *               `dest`, openInPrimary, openInLeaf, the tab and split verbs)
- *               opens it in a window, and a restored layout drops a tile tab
- *               of it, with one warning. Neither the root nor a top-nav kind
- *               can be window-only (STORY-0127).
+ *               opens it in a window; its window never docks into a tile
+ *               (no Back to tile, maximise is geometric, no drag-to-dock); a
+ *               restored layout drops a tile tab of it, with one warning, and
+ *               a tab's history entry of it opens a window. Neither the root
+ *               nor a top-nav kind can be window-only (STORY-0127).
  */
 
 import { PANEL_OFFERED, PANEL_SIDES, readPanelOffer } from './panel_availability.js';
@@ -118,7 +121,7 @@ export function createTaxonomy({ kinds, root } = {}) {
         if (def.window != null) {
             const w = def.window;
             const bad = (v) => v != null && !(typeof v === 'number' && Number.isFinite(v) && v > 0);
-            if (typeof w !== 'object' || bad(w.width) || bad(w.height)) {
+            if (typeof w !== 'object' || Array.isArray(w) || bad(w.width) || bad(w.height)) {
                 throw new TypeError(
                     `createTaxonomy: '${kind}'.window must be { width?, height? } in positive px`);
             }

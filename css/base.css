@@ -3775,6 +3775,208 @@ body.twm-window-maximized .twm-resize-handle {
     text-overflow: ellipsis;
 }
 
+/* ══ CATEGORY PICKER (STORY-0126) ══════════════════════════════════════
+   `CategoryPicker` (category_picker.js): a search field over three columns —
+   categories, the active category's items, the highlighted item's detail.
+   Placed by `ActionDropdown.position` (inline top/left/max-height), so it is
+   `position: fixed` on --z-over-windows: over the managed window it opened
+   from. It shrinks to the inline max-height and its columns scroll inside.
+   A category's colour arrives as `--twm-category-picker-color` on its rows. */
+.twm-category-picker {
+    position: fixed;
+    z-index: var(--z-over-windows);
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    width: 640px;
+    max-width: calc(100vw - 2 * var(--space-md));
+    height: 440px;
+    background: var(--surface-1);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: var(--font-size-md);
+    overflow: hidden;
+}
+.twm-category-picker[hidden] {
+    display: none;
+}
+.twm-category-picker__search {
+    flex: none;
+    padding: var(--space-md);
+    border-bottom: 1px solid var(--border-default);
+}
+.twm-category-picker__input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: var(--space-sm) var(--space-md);
+    background: var(--surface-0);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: var(--font-size-md);
+}
+.twm-category-picker__input:focus {
+    outline: none;
+    border-color: var(--accent-bright);
+}
+.twm-category-picker__body {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+}
+.twm-category-picker__column {
+    flex: none;
+    box-sizing: border-box;
+    padding: var(--space-sm) 0;
+    border-right: 1px solid var(--border-default);
+    overflow-y: auto;
+}
+.twm-category-picker__categories {
+    width: 170px;
+}
+.twm-category-picker__items {
+    width: 220px;
+}
+.twm-category-picker__category,
+.twm-category-picker__item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    width: 100%;
+    box-sizing: border-box;
+    padding: var(--space-sm) var(--space-lg);
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: var(--font-size-md);
+    text-align: left;
+    cursor: pointer;
+}
+.twm-category-picker__category:hover,
+.twm-category-picker__item:hover {
+    background: var(--state-hover);
+}
+.twm-category-picker__category--active,
+.twm-category-picker__item--highlighted,
+.twm-category-picker__category--active:hover,
+.twm-category-picker__item--highlighted:hover {
+    background: var(--state-selected);
+}
+/* The column the arrow keys move in marks its row with an accent edge. */
+.twm-category-picker__column--current .twm-category-picker__category--active,
+.twm-category-picker__column--current .twm-category-picker__item--highlighted {
+    box-shadow: inset 2px 0 0 var(--accent-bright);
+}
+.twm-category-picker__category--empty {
+    color: var(--text-dim);
+}
+.twm-category-picker__dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-circle);
+    background: var(--twm-category-picker-color, var(--text-muted));
+}
+.twm-category-picker__category-label,
+.twm-category-picker__item-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.twm-category-picker__count {
+    flex: none;
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    font-variant-numeric: tabular-nums;
+}
+.twm-category-picker__badge,
+.twm-category-picker__item .twm-category-picker__icon {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    box-sizing: border-box;
+    color: var(--twm-category-picker-color, var(--text-muted));
+}
+.twm-category-picker__badge {
+    border: 1px solid var(--twm-category-picker-color, var(--text-muted));
+    border-radius: var(--radius-sm);
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    overflow: hidden;
+    white-space: nowrap;
+}
+.twm-category-picker__item .twm-category-picker__icon {
+    font-size: 18px;
+}
+.twm-category-picker__group {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-md) var(--space-lg) var(--space-xs);
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+.twm-category-picker__empty,
+.twm-category-picker__detail-empty {
+    padding: var(--space-md) var(--space-lg);
+    color: var(--text-muted);
+}
+.twm-category-picker__detail {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    padding: var(--space-xl);
+    overflow-y: auto;
+}
+.twm-category-picker__title {
+    color: var(--text-bright);
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-semibold);
+}
+.twm-category-picker__description {
+    color: var(--text-secondary);
+    line-height: var(--line-height-normal);
+}
+.twm-category-picker__preview-label {
+    margin-top: var(--space-sm);
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+.twm-category-picker__preview {
+    margin: 0;
+    padding: var(--space-md);
+    background: var(--surface-0);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    color: var(--text-body);
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-sm);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+.twm-category-picker__add {
+    margin-top: auto;
+    align-self: flex-end;
+}
+/* ══ end CATEGORY PICKER ══ */
+
 /* ── from code.css ───────────────────────── */
 /* Code language tabs */
 .twm-code-tabs-header {

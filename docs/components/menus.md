@@ -2,7 +2,7 @@
 
 > **Package:** `@flexdesk/widgets` · [All docs](../README.md)
 
-`createMenuBar` draws File / Edit / View menus from one declarative model, with pointer and keyboard behaviour and the WAI-ARIA menubar roles, and plugs into the shell. `ActionDropdown` draws a dropdown of action buttons from a trigger.
+`createMenuBar` draws File / Edit / View menus from one declarative model, with pointer and keyboard behaviour and the WAI-ARIA menubar roles, and plugs into the shell. `ActionDropdown` draws a dropdown of action buttons from a trigger. `CategoryPicker` draws a categorised picker (search, categories, items, a detail pane) from a trigger.
 
 ## Context menus stay inside the window (0.17.9)
 
@@ -188,3 +188,77 @@ its right edge. Either flips to the other edge when the menu would leave the
 window. A tile's ⋯ menu uses `'end'`
 ([Dashboard tiles](tiles.md#the--menu-is-drawn-over-the-page-0179)).
 
+## A categorised picker: `CategoryPicker` (0.17.16)
+
+An `ActionDropdown` is a flat list. When the choices fall into categories and
+each needs a sentence (and perhaps a sample) before it is chosen, use
+`CategoryPicker`: a search field over three columns — the categories (a
+colour dot, the label, the item count), the active category's items (an icon
+and the label), and a detail pane for the highlighted item (its title,
+description, an optional monospace preview and an Add button).
+
+```js
+import { CategoryPicker } from '@flexdesk/widgets';
+
+const picker = new CategoryPicker({
+    trigger: addCellButton,
+    categories: [
+        { id: 'text', label: 'Text', color: 'var(--accent-light)', items: [
+            { id: 'heading', label: 'Heading', badge: 'H',
+              description: 'A section heading; it shapes the outline.',
+              preview: '## Debt dynamics' },
+            { id: 'doc', label: 'Documentation', icon: 'description',
+              description: 'Markdown with LaTeX math.', keywords: ['markdown', 'latex'] },
+        ] },
+        { id: 'functions', label: 'Functions', color: 'var(--color-warning)', items: [
+            { id: 'lag', label: 'Delay / Lag', badge: 'Δt',
+              description: 'The value of an expression some time ago.',
+              preview: 'expected = lag(inflation, 2)', keywords: 'delay history' },
+        ] },
+    ],
+    onSelect: (item, category) => insertCell(category.id, item.id),
+    placeholder: 'Search cells…',   // the search field's placeholder (default 'Search…')
+    addLabel: 'Add cell',            // the detail pane's button (default 'Add')
+    previewLabel: 'Writes',          // a caption over the preview (none by default)
+    align: 'start',                  // or 'end', as ActionDropdown.position takes it
+});
+// The trigger's click toggles it; or drive it:
+picker.open(); picker.close(); picker.toggle(); picker.position();
+picker.setCategories(next);          // keeps the active category and the highlight when they still exist
+picker.destroy();
+```
+
+An item has `id` and `label`, and optionally `icon` (a Material Symbols
+ligature) or `badge` (a short text drawn as a monospace badge in the
+category's colour), `description`, `preview` (text, shown monospace and
+pre-wrapped) and `keywords` (an array or a string; searched, never shown). A
+category's `color` is any CSS colour; it reaches the rows as
+`--twm-category-picker-color`, and without one the dot and badge are muted.
+`onSelect(item, category)` gets your own objects back.
+
+- **Anchored like ActionDropdown.** It is appended to `body`, placed by
+  `ActionDropdown.position` (`position: fixed`, under the trigger when it fits,
+  flipped above it when it does not, kept 8px inside the window, capped to the
+  room there), and drawn on `--z-over-windows`, over the managed window it
+  opened from. Its columns scroll inside; the popover itself does not. The
+  trigger gets `aria-haspopup="dialog"`, `aria-expanded` and `twm-is-open`.
+- **Search.** Focus is in the search field on open (the query starts empty).
+  Typing filters every category's items by label, description and keywords:
+  each word must appear, case-insensitively. While a query is set the items
+  column is one hit list grouped under the category labels, the counts are hit
+  counts (a category with none is dimmed), and the first hit is highlighted.
+  Clicking a category then jumps to its first hit.
+- **Keyboard.** With no query, Up/Down move within the current column (the
+  categories, or the items) and wrap; Left/Right move between the two. With a
+  query, Up/Down walk the hit list across categories and Left/Right stay the
+  caret's. Enter picks the highlighted item. A printable key typed while a row
+  has focus goes to the search field. Escape closes the picker and nothing
+  else (it is caught first and stopped, so a ManagedWindow around it stays
+  open). Escape and a pick give focus back to the trigger.
+- **Pointer.** Hovering or clicking an item shows it in the detail pane;
+  double-clicking it, or Add, picks it. A click outside closes the picker.
+
+The Add button is FlexDesk's `twm-btn twm-btn--primary`; everything else is
+styled from the tokens (`tests/category_picker.test.mjs` checks there is no
+colour literal in its rules, and that base.css and flexdesk.css carry the same
+block).

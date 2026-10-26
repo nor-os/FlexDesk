@@ -303,8 +303,14 @@ export class WindowManager {
                 }
             }
         }
-        // A single kind is open once, whatever the saved layout says.
-        const deduped = this._dropDuplicateSingles();
+        // A window-only kind is never in a tile, and a single kind is open
+        // once, whatever the saved layout says.
+        const windowOnlyDropped = this._dropWindowOnlyTabs();
+        if (windowOnlyDropped) {
+            (this.logger ?? console).warn?.(`[wm] the saved layout held ${windowOnlyDropped} tab(s) `
+                + 'of a window-only kind in a tile; they open in a window when asked for');
+        }
+        const deduped = this._dropDuplicateSingles() || windowOnlyDropped > 0;
         for (const d of this.desktops.desktops) this._canonicalize(d.tree, d);
         this.renderer.tree = this.desktops.active().tree;
         this.renderer.render();
@@ -585,16 +591,47 @@ export class WindowManager {
      *  live tabs are dropped (the tile shows the tab that took the dropped
      *  one's place, or closes when it held nothing else), and so are later
      *  archived ones. Answers whether anything was dropped. */
+    /** Open a window-only kind (KindDef `windowOnly`) in its window — the one
+     *  that is open, or a new one — and say so; any other kind: false, and the
+     *  caller opens it where it asked (STORY-0127). */
+    _openWindowOnly(kind, props) {
+        if (!this.taxonomy.isWindowOnly?.(kind)) return false;
+        this._navigateWindow(kind, props);
+        return true;
+    }
+
+    /** A restored layout never holds a window-only kind in a tile: its tabs,
+     *  and its tabs archived under a page, go. Windows are not restored, so
+     *  the content simply opens in a window the next time it is asked for.
+     *  Returns how many tabs went. */
+    _dropWindowOnlyTabs() {
+        if (!this.taxonomy.isWindowOnly) return 0;
+        let n = 0;
+        const keep = (t) => {
+            if (!t || !this.taxonomy.isWindowOnly(t.kind)) return true;
+            n += 1;
+            return false;
+        };
+        this._pruneRestoredTabs(keep);
+        return n;
+    }
+
     _dropDuplicateSingles() {
         const seen = new Set();
-        let dropped = false;
-        const keep = (t) => {
+        return this._pruneRestoredTabs((t) => {
             const k = t ? this._instanceKey(t.kind, t.props) : null;
             if (k == null) return true;
             if (seen.has(k)) return false;
             seen.add(k);
             return true;
-        };
+        });
+    }
+
+    /** Drop every tab of the restored layout `keep(tab)` refuses, in the
+     *  tiles and in their archived pages; a tile left empty closes (seeding a
+     *  content tile if none is left). Returns whether anything went. */
+    _pruneRestoredTabs(keep) {
+        let dropped = false;
         for (const d of this.desktops.desktops) {
             const tree = d.tree;
             for (const leaf of tree.leaves()) {
@@ -1029,6 +1066,7 @@ export class WindowManager {
      *  tab feature shipped), the behavior is identical to the old
      *  setLeafContent: one tab in, one tab out. */
     openInLeaf(leafId, kind, props = {}) {
+        if (this._openWindowOnly(kind, props)) return;
         if (this.revealInstance(kind, props)) return;
         const tree = this._tree();
         const leaf = tree.get(leafId);
@@ -1089,6 +1127,7 @@ export class WindowManager {
      *  If only panel tiles exist (or the tree is empty), spawn a new
      *  content leaf and canonicalize so the panels wrap it. */
     openInPrimary(kind, props = {}) {
+        if (this._openWindowOnly(kind, props)) return;
         if (this.revealInstance(kind, props)) return;
         const tree = this._tree();
         let leafId = tree.primaryLeafId();
@@ -1172,6 +1211,7 @@ export class WindowManager {
      *  pane in a split never dismounts the original). Returns the new
      *  leaf id, or null if the leaf can't be split. */
     splitLeafWith(leafId, dir, kind, props = {}, title = '') {
+        if (this._openWindowOnly(kind, props)) return null;
         if (this.revealInstance(kind, props)) return null;
         const tree = this._tree();
         leafId = this._contentLeafId(leafId);
@@ -4223,6 +4263,9 @@ export class WindowManager {
 
     /** The routing behind `navigate`, for a kind known to be registered. */
     _route(kind, props, opts) {
+        // A window-only kind (KindDef `windowOnly`) opens in a window, whatever
+        // the destination asked for.
+        if (this._openWindowOnly(kind, props)) return;
         const { ctx = null, transient = false } = opts;
         // Append the tab but stay where you are. Only meaningful with `newTab`.
         const background = !!opts.background;
@@ -4297,6 +4340,7 @@ export class WindowManager {
      *  source leaf — closing the window just disposes the content. */
     _navigateWindow(kind, props) {
         if (this.revealInstance(kind, props)) return;
+        const size = this.taxonomy.windowSize?.(kind);
         const winId = `twm-mw-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`;
         const contentEl = document.createElement('div');
         contentEl.className = 'twm-window-content';
@@ -4309,6 +4353,8 @@ export class WindowManager {
             title: mountInfo?.title || title,
             icon: 'web_asset',
             content: contentEl,
+            ...(size?.width ? { defaultWidth: size.width } : {}),
+            ...(size?.height ? { defaultHeight: size.height } : {}),
             canMinimize: true,
             canMaximize: true,
             canResize: true,
@@ -4425,6 +4471,7 @@ export class WindowManager {
      *  routing) but uses `appendLeafTab` so the existing content
      *  stays in place as a tab. */
     openInTabFromContext(ctx, kind, props = {}, transient = false, background = false) {
+        if (this._openWindowOnly(kind, props)) return;
         if (this.revealInstance(kind, props)) return;
         // Managed-window content: just open in the window — managed
         // windows aren't tabbed (one window = one content).
@@ -4461,6 +4508,7 @@ export class WindowManager {
      *  "Add row" button, which passes no ctx) reliably lands as a sibling
      *  tab in the main tile rather than swapping its content. */
     openInTabInPrimary(kind, props = {}, transient = false, background = false) {
+        if (this._openWindowOnly(kind, props)) return;
         if (this.revealInstance(kind, props)) return;
         const tree = this._tree();
         const leafId = tree.primaryLeafId();

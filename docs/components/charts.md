@@ -45,12 +45,19 @@ renderPlotConfigEditor(el, plotConfig, {
 ```
 
 - `ctx.field(label, control, { hint })` returns a field line (a `<label>`
-  when the control is a single input, select or textarea) whose hint is drawn
-  under the control.
-- What it returns may be an array of specs, or `{ fields: specs, dispose }`. A
-  spec is `{ label, control, hint? }` or `{ label, render(slot), hint? }`;
-  `render` draws into an empty slot on the field line and may return
-  `{ dispose }`. Specs are laid out after anything drawn into `el`.
+  when the control is a single input, select or textarea). A hint is drawn
+  under the control, outside the label: the line is then a `<div>`, its label
+  text is the `<label for>` of a single control, and the hint is the control's
+  `aria-describedby`, so it describes the control without joining its name.
+- Only an ARRAY return is field specs. A spec is
+  `{ label: string, control: HTMLElement, hint? }` or
+  `{ label: string, render(slot), hint? }`; `render` draws into an empty slot
+  on the field line and may return `{ dispose }`. Specs are laid out after
+  anything drawn into `el`. A spec without a string `label`, with a `control`
+  that is not an Element, with neither `control` nor `render`, or whose
+  `render` throws is skipped with a warning (`logger.warn`, else
+  `console.warn`); the rest of the row is drawn. Any other return is a handle
+  as in 0.17.0 (`{ dispose }`), even one that has a `fields` property.
 - `el` sits in the field column (`display: contents`), so rows appended to it
   line up with the editor's; content drawn there any other way shows as
   before. A returned `{ dispose }` is still disposed on every redraw.

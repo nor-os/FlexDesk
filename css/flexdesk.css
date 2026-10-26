@@ -11187,6 +11187,11 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-sm);
 }
+/* ... and still shows a hex that is not a colour (the well's border above
+ * would otherwise hide ColorField's invalid border). */
+.twm-plot-config .twm-color-field--invalid .twm-color-field__hex {
+    border-color: var(--color-danger);
+}
 /* A field line's select keeps to its options, as the number boxes do. */
 .twm-plot-config__series-fields .twm-plot-config__field > .twm-plot-config__input--select {
     flex: 0 1 auto;

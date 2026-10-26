@@ -102,20 +102,37 @@ function removeButton(title, onClick) {
     return b;
 }
 
+let hintCount = 0;
+
 /**
  * A labelled control on the editor's label column. A single input or select
  * is wrapped in a `<label>`; a compound one (a picker, a colour field) is not,
  * so a click on its text does not land on whichever of its inputs comes
- * first. A `hint` is drawn under the control, in the control's column.
+ * first. A `hint` is drawn under the control, in the control's column, and
+ * outside any `<label>`: the row is then a `<div>` whose label text is the
+ * `<label for>` of a single control, and the hint describes the control
+ * (`aria-describedby`) without being part of its name.
  */
 function field(label, control, { hint = null } = {}) {
     const single = control.matches('input, select, textarea');
-    const row = el(single ? 'label' : 'div', 'twm-plot-config__field');
-    row.append(el('span', 'twm-plot-config__label', label), control);
-    if (hint != null && hint !== '') {
-        row.classList.add('twm-plot-config__field--hinted');
-        row.appendChild(el('span', 'twm-plot-config__hint', hint));
+    const hinted = hint != null && hint !== '';
+    if (!hinted) {
+        const row = el(single ? 'label' : 'div', 'twm-plot-config__field');
+        row.append(el('span', 'twm-plot-config__label', label), control);
+        return row;
     }
+    const row = el('div', 'twm-plot-config__field twm-plot-config__field--hinted');
+    const text = el(single ? 'label' : 'span', 'twm-plot-config__label', label);
+    const note = el('span', 'twm-plot-config__hint', hint);
+    note.id = `twm-plot-config-hint-${++hintCount}`;
+    if (single) {
+        if (!control.id) control.id = `${note.id}-control`;
+        text.htmlFor = control.id;
+    }
+    const target = single ? control : (control.querySelector('input, select, textarea') ?? control);
+    const describedBy = target.getAttribute('aria-describedby');
+    target.setAttribute('aria-describedby', describedBy ? `${describedBy} ${note.id}` : note.id);
+    row.append(text, control, note);
     return row;
 }
 
@@ -177,11 +194,12 @@ let editorCount = 0;
  * @param {Object} [options.seriesTransforms] - `{ [id]: transform }` (series_transforms.js);
  *        their toggles are drawn per subplot.
  * @param {Function} [options.extraSeriesFields] - `(el, series, { subplot, axis, onChange, field })
- *        => { dispose? } | specs | { fields: specs, dispose? } | void`: fields of the
- *        embedder's own in each series block, on the series' label column. It may draw
- *        into `el` (with `field(label, control, { hint })` for rows that line up) or
- *        return field specs `{ label, control | render(slot) => { dispose? } | void,
- *        hint? }`, which the editor lays out after anything drawn into `el`.
+ *        => { dispose? } | specs[] | void`: fields of the embedder's own in each series
+ *        block, on the series' label column. It may draw into `el` (with
+ *        `field(label, control, { hint })` for rows that line up) and return a handle,
+ *        or return an ARRAY of field specs `{ label: string, control: HTMLElement,
+ *        hint? }` / `{ label: string, render(slot) => { dispose? } | void, hint? }`,
+ *        laid out after anything drawn into `el`. A bad spec is skipped with a warning.
  * @param {Object} [options.logger] - Given to every AutocompleteField (provider errors);
  *   its `warn` also hears a part (an `extraSeriesFields` handle, say) that throws on dispose.
  * @returns {{ dispose: Function, refresh: Function, selectSubplot: Function,
@@ -319,13 +337,14 @@ function renderPlotConfigEditor(container, config, options = {}) {
         return node;
     }
 
-    function colorField(value, onSet, label) {
+    /** `keep` takes its teardown: the body's (track), or a narrower redraw's. */
+    function colorField(value, onSet, label, keep = track) {
         const f = new ColorField({
             value: value ?? '',
             label,
             onChange: (v) => { if (v !== null) { onSet(v || null); notify(); } },
         });
-        track(() => f.dispose());
+        keep(() => f.dispose());
         return f.render();
     }
 
@@ -533,25 +552,51 @@ function renderPlotConfigEditor(container, config, options = {}) {
         return row;
     }
 
+    const warn = (...args) => (opts.logger?.warn ? opts.logger.warn(...args) : console.warn(...args));
+
     /**
      * The embedder's fields of a series: whatever `extraSeriesFields` draws
-     * into the box (which sits in the series' field column), then the field
-     * specs it returns, laid out by `field()`.
+     * into the box (which sits in the series' field column), then, when it
+     * returns an ARRAY, those field specs laid out by `field()`. Anything
+     * else it returns is a handle, disposed when the row goes (`{ dispose }`).
+     * A spec that is not `{ label, control: Element }` or
+     * `{ label, render(slot) }` is skipped with a warning, as is a `render`
+     * that throws: one bad field never leaves half a body.
      */
     function extraFields(sp, axis, s) {
         const extra = el('div', 'twm-plot-config__series-extra');
         const result = opts.extraSeriesFields(extra, s, { subplot: sp, axis, onChange: notify, field });
-        if (typeof result?.dispose === 'function') track(() => result.dispose());
-        const specs = Array.isArray(result) ? result : (Array.isArray(result?.fields) ? result.fields : []);
-        for (const spec of specs) {
-            if (!spec) continue;
-            let control = spec.control ?? null;
-            if (!control && typeof spec.render === 'function') {
-                control = el('div', 'twm-plot-config__slot');
-                const handle = spec.render(control);
-                if (typeof handle?.dispose === 'function') track(() => handle.dispose());
+        if (!Array.isArray(result)) {
+            if (typeof result?.dispose === 'function') track(() => result.dispose());
+            return extra;
+        }
+        for (const spec of result) {
+            const label = spec?.label;
+            let control = null;
+            if (typeof label !== 'string') {
+                warn('[plot config editor] an extraSeriesFields spec has no label; skipped', spec);
+                continue;
             }
-            if (control) extra.appendChild(field(spec.label ?? '', control, { hint: spec.hint }));
+            if (spec.control != null) {
+                if (!(spec.control instanceof Element)) {
+                    warn('[plot config editor] an extraSeriesFields spec control is not an Element; skipped', spec);
+                    continue;
+                }
+                control = spec.control;
+            } else if (typeof spec.render === 'function') {
+                control = el('div', 'twm-plot-config__slot');
+                try {
+                    const handle = spec.render(control);
+                    if (typeof handle?.dispose === 'function') track(() => handle.dispose());
+                } catch (error) {
+                    warn('[plot config editor] an extraSeriesFields spec failed to render; skipped', error);
+                    continue;
+                }
+            } else {
+                warn('[plot config editor] an extraSeriesFields spec has neither control nor render; skipped', spec);
+                continue;
+            }
+            extra.appendChild(field(label, control, { hint: spec.hint }));
         }
         return extra;
     }
@@ -562,14 +607,29 @@ function renderPlotConfigEditor(container, config, options = {}) {
         const details = el('div', 'twm-plot-config__overlay-fields');
         wrap.append(head, details);
 
+        // The details' colour field is torn down on each redraw of the
+        // details, not left for the body's next redraw.
+        let detailDisposers = [];
+        const disposeDetails = () => {
+            const fns = detailDisposers;
+            detailDisposers = [];
+            for (const fn of fns) {
+                try { fn(); } catch (error) {
+                    opts.logger?.warn?.('[plot config editor] a field failed to dispose', error);
+                }
+            }
+        };
+        track(disposeDetails);
+        const keep = (fn) => { detailDisposers.push(fn); };
         const drawDetails = () => {
+            disposeDetails();
             details.replaceChildren();
             const ov = s.overlay;
             if (!ov) return;
             details.append(
                 field('Label', textInput(ov.label, (v) => { ov.label = v; notify(); },
                                          { placeholder: `${s.label || s.variable || 'Series'} (actual)` })),
-                field('Colour', colorField(ov.color, (v) => { if (v) ov.color = v; else delete ov.color; }, 'Overlay colour')),
+                field('Colour', colorField(ov.color, (v) => { if (v) ov.color = v; else delete ov.color; }, 'Overlay colour', keep)),
                 field('Dash', select(DASHES, ov.lineStyle ?? 'dashed', (v) => { ov.lineStyle = v; notify(); })),
                 field('Width', numberInput(ov.lineWidth ?? 2, (v) => { ov.lineWidth = v ?? 2; notify(); },
                                            { placeholder: '2', min: 1, max: 10, step: 1 })),

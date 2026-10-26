@@ -3880,7 +3880,9 @@ body.twm-window-maximized .twm-resize-handle {
     width: 8px;
     height: 8px;
     border-radius: var(--radius-circle);
-    background: var(--twm-category-picker-color, var(--text-muted));
+    /* background-color, not the shorthand: the colour is the caller's, and a
+       url() in the shorthand would be fetched */
+    background-color: var(--twm-category-picker-color, var(--text-muted));
 }
 .twm-category-picker__category-label,
 .twm-category-picker__item-label {
@@ -3918,6 +3920,11 @@ body.twm-window-maximized .twm-resize-handle {
 }
 .twm-category-picker__item .twm-category-picker__icon {
     font-size: 18px;
+}
+/* One category's hits while a query is set: role="group", named by its header. */
+.twm-category-picker__hits {
+    display: flex;
+    flex-direction: column;
 }
 .twm-category-picker__group {
     display: flex;

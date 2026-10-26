@@ -83,6 +83,7 @@ export class CategoryPicker {
      * @param {string} [config.addLabel='Add'] - The detail pane's button
      * @param {string} [config.previewLabel] - A caption over the preview block (none when omitted)
      * @param {'start'|'end'} [config.align='start'] - Which trigger edge it lines up with first
+     * @param {string} [config.label='Pick'] - The popover's accessible name (its `aria-label`)
      */
     constructor(config) {
         this.trigger = config.trigger;
@@ -93,6 +94,7 @@ export class CategoryPicker {
         this.addLabel = config.addLabel ?? 'Add';
         this.previewLabel = config.previewLabel || '';
         this.align = config.align === 'end' ? 'end' : 'start';
+        this.label = config.label || 'Pick';
 
         this.isOpen = false;
         this.el = null;
@@ -123,7 +125,17 @@ export class CategoryPicker {
     _build() {
         const root = _el('div', `twm-category-picker ${this.className}`.trim());
         root.setAttribute('role', 'dialog');
+        root.setAttribute('aria-label', this.label);
         root.hidden = true;
+        // FOCUS STAYS IN THE SEARCH FIELD. A press on anything but the field
+        // (a row, a group header, the detail text, padding, a disabled button)
+        // would otherwise move focus to <body>, outside the popover, and the
+        // arrow keys, Enter and typing would stop reaching it while it is
+        // open. The click still happens; only the focus move is cancelled
+        // (which also means the preview's text cannot be drag-selected).
+        root.addEventListener('mousedown', (e) => {
+            if (e.target !== this._input) e.preventDefault();
+        });
 
         const search = _el('div', 'twm-category-picker__search');
         const input = _el('input', 'twm-category-picker__input');
@@ -141,14 +153,16 @@ export class CategoryPicker {
 
         const body = _el('div', 'twm-category-picker__body');
         const cats = _el('div', 'twm-category-picker__categories twm-category-picker__column');
+        cats.id = `${this._id}-cats`;
         cats.setAttribute('role', 'listbox');
         cats.setAttribute('aria-label', 'Categories');
         const items = _el('div', 'twm-category-picker__items twm-category-picker__column');
         items.id = `${this._id}-items`;
         items.setAttribute('role', 'listbox');
         items.setAttribute('aria-label', 'Items');
+        // No aria-live: the input's aria-activedescendant already announces
+        // each move, and a live region would read the pane on every one.
         const detail = _el('div', 'twm-category-picker__detail');
-        detail.setAttribute('aria-live', 'polite');
         body.append(cats, items, detail);
 
         root.append(search, body);
@@ -197,6 +211,7 @@ export class CategoryPicker {
             const btn = _el('button', 'twm-category-picker__category');
             btn.type = 'button';
             btn.tabIndex = -1;
+            btn.id = `${this._id}-cat-${c}`;
             btn.setAttribute('role', 'option');
             btn.dataset.index = String(c);
             if (cat.color) btn.style.setProperty('--twm-category-picker-color', cat.color);
@@ -216,19 +231,24 @@ export class CategoryPicker {
             this._catsEl.appendChild(btn);
         });
 
-        // Items (or hits, grouped under their category).
+        // Items (or hits: each category's in a role="group" named by its header).
         this._itemsEl.replaceChildren();
         this._rows = [];
         let lastCat = -1;
+        let into = this._itemsEl;
         for (const v of visible) {
             const cat = this.categories[v.c];
             const item = cat.items[v.i];
             if (searching && v.c !== lastCat) {
-                const group = _el('div', 'twm-category-picker__group');
-                group.setAttribute('role', 'presentation');
-                if (cat.color) group.style.setProperty('--twm-category-picker-color', cat.color);
-                group.append(_el('span', 'twm-category-picker__dot'), _el('span', null, cat.label));
-                this._itemsEl.appendChild(group);
+                const header = _el('div', 'twm-category-picker__group');
+                header.id = `${this._id}-group-${v.c}`;
+                if (cat.color) header.style.setProperty('--twm-category-picker-color', cat.color);
+                header.append(_el('span', 'twm-category-picker__dot'), _el('span', null, cat.label));
+                into = _el('div', 'twm-category-picker__hits');
+                into.setAttribute('role', 'group');
+                into.setAttribute('aria-labelledby', header.id);
+                into.appendChild(header);
+                this._itemsEl.appendChild(into);
                 lastCat = v.c;
             }
             const btn = _el('button', 'twm-category-picker__item');
@@ -257,7 +277,7 @@ export class CategoryPicker {
                 this._pick(v);
             });
             this._rows.push({ ...v, el: btn });
-            this._itemsEl.appendChild(btn);
+            into.appendChild(btn);
         }
         if (!visible.length) {
             this._itemsEl.appendChild(_el('div', 'twm-category-picker__empty',
@@ -285,10 +305,15 @@ export class CategoryPicker {
         this._itemsEl.classList.toggle('twm-category-picker__column--current', column === 'items');
 
         const hlRow = this._rows.find((r) => this._hl && r.c === this._hl.c && r.i === this._hl.i);
-        if (hlRow) this._input.setAttribute('aria-activedescendant', hlRow.el.id);
+        const activeCatEl = this._catsEl.children[this._activeCat];
+        // The input names the option the arrow keys are on: the active
+        // category while the categories column is current, else the highlight.
+        const current = column === 'categories' ? activeCatEl : hlRow?.el;
+        this._input.setAttribute('aria-controls', column === 'categories' ? this._catsEl.id : this._itemsEl.id);
+        if (current) this._input.setAttribute('aria-activedescendant', current.id);
         else this._input.removeAttribute('aria-activedescendant');
         hlRow?.el.scrollIntoView?.({ block: 'nearest' });
-        this._catsEl.children[this._activeCat]?.scrollIntoView?.({ block: 'nearest' });
+        activeCatEl?.scrollIntoView?.({ block: 'nearest' });
 
         this._renderDetail();
     }
@@ -385,6 +410,8 @@ export class CategoryPicker {
 
     _onKeydown(e) {
         if (!this.isOpen) return;
+        // An IME composing a character owns Enter and Escape.
+        if (e.isComposing || e.keyCode === 229) return;
         if (e.key === 'Escape') {
             // Capture phase, and stopped: an open picker is the innermost
             // thing on screen, so Escape closes it and not the ManagedWindow
@@ -423,6 +450,19 @@ export class CategoryPicker {
                 e.preventDefault();
                 if (this._hl) this._pick(this._hl);
                 break;
+            case 'Tab': {
+                // Tab stays inside, like a modal ManagedWindow's focus trap:
+                // it cycles the search field and Add (when Add is enabled).
+                // Leaving would strand an open popover with a dead keyboard.
+                e.preventDefault();
+                e.stopPropagation();
+                const add = this._detailEl.querySelector('.twm-category-picker__add');
+                const stops = [this._input, ...(add && !add.disabled ? [add] : [])];
+                const at = stops.indexOf(e.target);
+                const next = at < 0 ? 0 : (at + (e.shiftKey ? -1 : 1) + stops.length) % stops.length;
+                stops[next].focus();
+                break;
+            }
             default:
                 // A printable key typed while a row or the button has focus
                 // goes to the search field.
@@ -442,9 +482,11 @@ export class CategoryPicker {
         this._input.value = '';
         this._query = '';
         this._column = 'items';
-        this._render();
+        // Shown and placed first, then drawn: scrolling the highlight into
+        // view does nothing in a hidden popover.
         this.el.hidden = false;
         this.position();
+        this._render();
 
         this.trigger?.classList.add('twm-is-open');
         this.trigger?.setAttribute('aria-expanded', 'true');
@@ -477,11 +519,26 @@ export class CategoryPicker {
         this.el.style.overflowY = 'hidden';
     }
 
-    /** Replace the categories; the active category and the highlight are kept when they still exist. */
+    /**
+     * Replace the categories. The active category and the highlight are
+     * looked up again by `id`, so they are kept when they still exist,
+     * wherever they moved to.
+     */
     setCategories(categories) {
+        const oldCat = this.categories[this._activeCat];
+        const oldHlCat = this._hl ? this.categories[this._hl.c] : null;
+        const oldHlItem = oldHlCat?.items?.[this._hl.i];
         this.categories = categories || [];
-        if (this._activeCat >= this.categories.length) this._activeCat = 0;
-        if (this._hl && !this.categories[this._hl.c]?.items?.[this._hl.i]) this._hl = null;
+        const catAt = (cat) => (cat ? this.categories.findIndex((c) => c.id === cat.id) : -1);
+
+        const active = catAt(oldCat);
+        this._activeCat = active >= 0 ? active : 0;
+        this._hl = null;
+        const hc = catAt(oldHlCat);
+        if (hc >= 0 && oldHlItem) {
+            const hi = (this.categories[hc].items || []).findIndex((it) => it.id === oldHlItem.id);
+            if (hi >= 0) this._hl = { c: hc, i: hi };
+        }
         if (this.el) this._render();
     }
 

@@ -221,10 +221,11 @@ const picker = new CategoryPicker({
     addLabel: 'Add cell',            // the detail pane's button (default 'Add')
     previewLabel: 'Writes',          // a caption over the preview (none by default)
     align: 'start',                  // or 'end', as ActionDropdown.position takes it
+    label: 'Add a cell',             // the popover's accessible name (default 'Pick')
 });
 // The trigger's click toggles it; or drive it:
 picker.open(); picker.close(); picker.toggle(); picker.position();
-picker.setCategories(next);          // keeps the active category and the highlight when they still exist
+picker.setCategories(next);          // finds the active category and the highlight again by id
 picker.destroy();
 ```
 
@@ -252,11 +253,20 @@ category's `color` is any CSS colour; it reaches the rows as
   categories, or the items) and wrap; Left/Right move between the two. With a
   query, Up/Down walk the hit list across categories and Left/Right stay the
   caret's. Enter picks the highlighted item. A printable key typed while a row
-  has focus goes to the search field. Escape closes the picker and nothing
+  has focus goes to the search field. Tab and Shift+Tab stay inside: they
+  cycle the search field and Add (when it is enabled), as a modal
+  ManagedWindow's focus trap does. Keys an IME is composing with are left to
+  it. Escape closes the picker and nothing
   else (it is caught first and stopped, so a ManagedWindow around it stays
   open). Escape and a pick give focus back to the trigger.
 - **Pointer.** Hovering or clicking an item shows it in the detail pane;
   double-clicking it, or Add, picks it. A click outside closes the picker.
+  Pressing anywhere inside but the search field keeps focus where it is, so
+  the keyboard keeps working (the preview's text cannot be drag-selected).
+- **Accessibility.** The popover is a named `role="dialog"`. The search field
+  is a combobox whose `aria-activedescendant` is the active category while the
+  categories column is current, else the highlighted item. While a query is
+  set, each category's hits are a `role="group"` named by its header.
 
 The Add button is FlexDesk's `twm-btn twm-btn--primary`; everything else is
 styled from the tokens (`tests/category_picker.test.mjs` checks there is no

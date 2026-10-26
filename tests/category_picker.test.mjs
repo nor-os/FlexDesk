@@ -152,10 +152,15 @@ section('§2 filtering');
     type(picker, 'a');
     check('hits across categories, in category order',
           itemLabels(el), ['Heading', 'Documentation', 'Parameter', 'Stock', 'Delay / Lag']);
-    check('grouped under the category labels',
-          qa(el, '.twm-category-picker__items > *').map((n) => n.classList.contains('twm-category-picker__group')
-              ? `[${n.textContent}]` : n.querySelector('.twm-category-picker__item-label').textContent),
-          ['[Text]', 'Heading', 'Documentation', '[Model structure]', 'Parameter', 'Stock', '[Functions]', 'Delay / Lag']);
+    const groups = qa(el, '.twm-category-picker__items > *');
+    check('the listbox holds one role="group" per category with hits',
+          groups.map((g) => [g.className, g.getAttribute('role')]),
+          Array(3).fill(['twm-category-picker__hits', 'group']));
+    check('…each named by its header, followed by its hits',
+          groups.map((g) => [document.getElementById(g.getAttribute('aria-labelledby'))?.textContent,
+                             ...qa(g, '.twm-category-picker__item-label').map((n) => n.textContent)]),
+          [['Text', 'Heading', 'Documentation'], ['Model structure', 'Parameter', 'Stock'], ['Functions', 'Delay / Lag']]);
+    ok('…the header is inside its group', groups.every((g) => g.firstElementChild.classList.contains('twm-category-picker__group')));
     check('the counts are hit counts', counts(el), ['2', '2', '1', '0']);
     ok('a category with no hits is dimmed', qa(el, '.twm-category-picker__category')[3].classList.contains('twm-category-picker__category--empty'));
     type(picker, 'MARKDOWN math');
@@ -333,6 +338,102 @@ section('§6 CSS');
         .filter((c) => !new RegExp(`\\.${c}(?![\\w-])`).test(rules));
     check('every twm-category-picker class it sets is styled', unstyled, []);
     picker.destroy();
+}
+
+// ── §7 ──────────────────────────────────────────────────────────────────
+section('§7 review fixes');
+{
+    const { trigger, picker, picks, el } = make({ label: 'Add a cell' });
+    check('the dialog is named (label option)', el.getAttribute('aria-label'), 'Add a cell');
+    const dflt = make();
+    check('…default name', dflt.el.getAttribute('aria-label'), 'Pick');
+    dflt.picker.destroy();
+    ok('the detail pane is not a live region', !q(el, '[aria-live]'));
+
+    picker.open();
+    const input = picker._input;
+    // 1. a press anywhere but the input keeps focus in it
+    for (const sel of ['.twm-category-picker__description', '.twm-category-picker__preview',
+                       '.twm-category-picker__detail', '.twm-category-picker__column', '.twm-category-picker__item',
+                       '.twm-category-picker__category']) {
+        const ev = new window.MouseEvent('mousedown', { bubbles: true, cancelable: true });
+        q(el, sel).dispatchEvent(ev);
+        ok(`a mousedown on ${sel} does not move focus`, ev.defaultPrevented);
+    }
+    const onInput = new window.MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    input.dispatchEvent(onInput);
+    ok('…one on the input is left alone (caret placement)', !onInput.defaultPrevented);
+
+    // 2. Tab cycles input <-> Add and never leaves
+    const add = () => q(el, '.twm-category-picker__add');
+    let outer = 0;
+    const onOuter = () => { outer++; };
+    document.addEventListener('keydown', onOuter);
+    const tab = keyOn(input, 'Tab');
+    ok('Tab from the input goes to Add', document.activeElement === add() && tab.defaultPrevented);
+    keyOn(add(), 'Tab');
+    ok('Tab from Add comes back to the input', document.activeElement === input);
+    keyOn(input, 'Tab', { shiftKey: true });
+    ok('Shift+Tab cycles backwards', document.activeElement === add());
+    keyOn(add(), 'Tab', { shiftKey: true });
+    ok('…to the input', document.activeElement === input);
+    document.removeEventListener('keydown', onOuter);
+    ok('the Tab never reached a focus trap around it', outer === 0);
+    ok('…and the picker stayed open', picker.isOpen);
+    click(qa(el, '.twm-category-picker__category')[3]);    // Empty: Add disabled
+    keyOn(input, 'Tab');
+    ok('with Add disabled, Tab stays in the input', document.activeElement === input);
+
+    // 4. IME composition owns Enter / Escape
+    click(qa(el, '.twm-category-picker__category')[0]);
+    keyOn(input, 'Enter', { isComposing: true });
+    keyOn(input, 'Escape', { isComposing: true });
+    ok('Enter and Esc while composing neither pick nor close', picker.isOpen && picks.length === 0);
+    keyOn(input, 'Enter', { keyCode: 229 });
+    ok('…nor with keyCode 229', picker.isOpen && picks.length === 0);
+
+    // 6. activedescendant follows the categories column
+    keyOn(input, 'ArrowLeft');
+    const cat0 = qa(el, '.twm-category-picker__category')[0];
+    ok('categories have ids', qa(el, '.twm-category-picker__category').every((b) => b.id));
+    check('in the categories column, activedescendant is the active category',
+          input.getAttribute('aria-activedescendant'), cat0.id);
+    check('…and aria-controls the categories listbox', input.getAttribute('aria-controls'), q(el, '.twm-category-picker__categories').id);
+    keyOn(input, 'ArrowDown');
+    check('…following it', input.getAttribute('aria-activedescendant'), qa(el, '.twm-category-picker__category')[1].id);
+    keyOn(input, 'ArrowRight');
+    check('back in the items column, it is the highlighted item',
+          input.getAttribute('aria-activedescendant'), q(el, '.twm-category-picker__item--highlighted').id);
+    check('…and aria-controls the items listbox', input.getAttribute('aria-controls'), q(el, '.twm-category-picker__items').id);
+
+    // 3. a reopened picker draws while shown, so its highlight is scrolled into view
+    keyOn(input, 'ArrowDown');                              // Parameter
+    picker.close();
+    const scrolled = [];
+    const orig = window.HTMLElement.prototype.scrollIntoView;
+    window.HTMLElement.prototype.scrollIntoView = function () { scrolled.push([this.textContent, el.hidden]); };
+    picker.open();
+    window.HTMLElement.prototype.scrollIntoView = orig;
+    ok('reopened: the highlight is scrolled into view while the popover is shown',
+       scrolled.some(([t, hidden]) => t.includes('Parameter') && !hidden));
+    ok('…and never while hidden', scrolled.every(([, hidden]) => !hidden));
+
+    // 7. setCategories keeps the active category and highlight by id
+    const reordered = CATS().reverse();                     // Empty, Functions, Model structure, Text
+    reordered[2].items = [{ id: 'new', label: 'New' }, ...reordered[2].items];
+    picker.setCategories(reordered);
+    check('the active category is found again by id', activeCat(el), 'Model structure');
+    check('…and the highlighted item', highlighted(el), 'Parameter');
+    picker.setCategories(CATS().filter((c) => c.id !== 'model'));
+    check('a vanished category falls back to the first one and its first item', [activeCat(el), highlighted(el)], ['Text', 'Heading']);
+    picker.destroy();
+    trigger.remove();
+
+    // 8. the dot's colour is background-color
+    const rules = stripComments(css('base.css'));
+    const dot = rules.match(/\.twm-category-picker__dot \{([^}]*)\}/)?.[1] || '';
+    ok('the dot sets background-color, not the background shorthand',
+       /background-color: var\(--twm-category-picker-color/.test(dot) && !/(^|[\s;])background:/.test(dot));
 }
 
 done();

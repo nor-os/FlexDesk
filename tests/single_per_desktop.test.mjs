@@ -24,6 +24,9 @@
  *   §5  the move verbs refuse to carry the kind onto a desktop that holds it;
  *       removing a desktop closes its window that would land beside one
  *   §6  a reload keeps one desktop's live instance and another's archived one
+ *   §7  a free-floating window navigated to the kind from another desktop
+ *       opens it on that desktop and moves there with it; where that desktop
+ *       has one, it is revealed and the window keeps its content
  *
  *     node tests/single_per_desktop.test.mjs
  */
@@ -383,6 +386,47 @@ console.log('\n§6 a reload keeps a live instance and another desktop\'s archive
     await tick();
     check('desktop 1\'s top-nav button brings its archived model back there',
         [wm.desktops.activeIdx, activeKind(0), perDesktop('model')[1]], [0, 'model', 1]);
+}
+
+// ── §7 ──────────────────────────────────────────────────────────────────
+console.log('\n§7 a floating window navigated from another desktop');
+{
+    wm.switchDesktop(0);
+    await tick();
+    wm.navigate('sheet', {}, { dest: 'window' });
+    await tick();
+    const winId = [...wm._windowToLeaf.keys()].find((id) => !wm._windowToLeaf.get(id).homeLeafId);
+    check('desktop 1 holds a model tile and a floating sheet window',
+        [perDesktop('model')[0], wm._windowToLeaf.get(winId)?.desktopIdx], [1, 0]);
+
+    wm.addDesktop();
+    const other = wm.desktops.desktops.length - 1;
+    wm.switchDesktop(other);
+    await tick();
+    const liveBefore = live('model').length;
+    wm.navigate('model', {}, { dest: 'origin', newTab: true, ctx: { windowId: winId } });
+    await tick();
+    check('navigated on a desktop with no model, the window shows it and moves there',
+        [wm.desktops.activeIdx, wm._windowToLeaf.get(winId).original.kind,
+         wm._windowToLeaf.get(winId).desktopIdx, live('model').length - liveBefore,
+         wm.findInstance('model')?.windowId === winId],
+        [other, 'model', other, 1, true]);
+    wm.switchDesktop(0);
+    await tick();
+    check('desktop 1 still has its one model, the tile',
+        [wm.findInstance('model')?.where, perDesktop('model')[0],
+         live('model').filter((m) => m.windowId == null && m.alive).length > 0],
+        ['tab', 1, true]);
+
+    wm.openInWindow(winId, 'sheet');
+    await tick();
+    const mounted = mounts.length;
+    wm.openInWindow(winId, 'model');
+    await tick();
+    check('navigated on a desktop that has a model, that one is revealed: no second mount',
+        [wm.desktops.activeIdx, wm._windowToLeaf.get(winId).original.kind,
+         wm._windowToLeaf.get(winId).desktopIdx, mounts.length - mounted, activeKind(0)],
+        [0, 'sheet', other, 0, 'model']);
 }
 
 shell.dispose();

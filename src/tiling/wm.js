@@ -354,7 +354,9 @@ export class WindowManager {
     // desktop's instance, so it never stands in for another desktop's. The
     // move verbs refuse to carry the kind onto a desktop that already holds
     // it (`desktopMoveRefusal`), and removing a desktop closes a window of it
-    // that would land beside the active desktop's own instance.
+    // that would land beside the active desktop's own instance. A floating
+    // window navigated to the kind from another desktop moves there with it
+    // (`openInWindow`).
 
     /** The key a tab's instance is unique under on desktop `desktopIdx`: its
      *  instance key, scoped to that desktop for a `single: 'desktop'` kind;
@@ -1166,6 +1168,21 @@ export class WindowManager {
         if (this.revealInstance(kind, props)) return;
         const rec = this._windowToLeaf.get(winId);
         if (!rec) { this.openInPrimary(kind, props); return; }
+        // A free-floating window is drawn over every desktop, so it can be
+        // navigated from another desktop than its own. A `single: 'desktop'`
+        // kind opened in it opens on the ACTIVE desktop, which holds none (the
+        // reveal above found none): the window moves there with it — refused,
+        // as the move verbs are, when that desktop holds a kind of its tabs
+        // already. Moved, the window is that desktop's, so a tab of its
+        // own already showing the kind is the instance to reveal.
+        const active = this.desktops.activeIdx;
+        if (this.taxonomy.isSinglePerDesktop(kind) && rec.desktopIdx !== active) {
+            this._quietDepth += 1;
+            try { this.moveWindowToDesktop(winId, active); }
+            finally { this._quietDepth -= 1; }
+            if (rec.desktopIdx !== active) return;
+            if (this.revealInstance(kind, props)) return;
+        }
         try { rec.mountInfo?.destroy?.(); } catch {}
         // R8. THE BODY, NOT THE CONTENT ELEMENT. A floated pane's window holds
         // a tab strip above its body, and both are children of `contentEl` —

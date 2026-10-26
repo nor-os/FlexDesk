@@ -23,6 +23,22 @@ const DEFAULT_ALLOWED_ATTRIBUTES = Object.freeze([
 const DEFAULT_ALLOWED_ATTRIBUTE_PREFIXES = Object.freeze([
 ]);
 
+// What belongs here: the keys FlexDesk's own widgets write (the last group,
+// which tests/state_guard_defaults.test.mjs keeps complete by scanning src/),
+// the third-party attributes Plotly sets, and generic UI words. What does not:
+// one application's own keys. Whether `data-order-id` is a legitimate write is
+// that application's call, and it says so by adding the key (see
+// docs/concepts/state-guard.md). A key listed here for one embedder's sake that
+// no widget writes is a key every OTHER embedder's strict guard lets through
+// without a word, which is the one thing a strict guard is there to stop.
+//
+// The list does not yet meet that, and it has not been audited key by key:
+// many keys no widget writes are still here, some of them carried over from one
+// application's markup (series-id, dataset-id, func-name and connector-id are
+// examples). Thirteen that name one application's concepts were taken out. The
+// test pins nine of the rest as still allowed, so dropping one is a deliberate
+// edit, and the docs tell an embedder that a strict guard built from the
+// defaults lets a write of such a key through. Do not add another like them.
 const DEFAULT_ALLOWED_DATASET_KEYS = Object.freeze([
     'testid',
     'phase',
@@ -70,11 +86,8 @@ const DEFAULT_ALLOWED_DATASET_KEYS = Object.freeze([
     'node-name',
     'lang',
     'playback-control',
-    // Simulation/scenario state keys
+    // Generic state words
     'status',
-    'scenario-id',
-    'run-id',
-    'run-state',
     'selected',
     'active',
     'disabled',
@@ -90,13 +103,10 @@ const DEFAULT_ALLOWED_DATASET_KEYS = Object.freeze([
     'input-index',
     'output-index',
     'port-index',
-    // Scenario editor keys
+    // Identifier and binding keys
     'source',
     'series-id',
     'dataset-id',
-    'mirror-input-bound',
-    'mirror-change-bound',
-    'mirror-input',
     'bound',
     'field',
     'key',
@@ -105,14 +115,11 @@ const DEFAULT_ALLOWED_DATASET_KEYS = Object.freeze([
     'tab-id',
     'param-id',
     'target-id',
-    'override-type',
     // Tree view component keys
     'item-id',
     'category-id',
-    // Calibration page keys
-    'info-for',
-    'column',
     // Data page keys
+    'column',
     'readonly',
     'id',
     'action',
@@ -131,12 +138,6 @@ const DEFAULT_ALLOWED_DATASET_KEYS = Object.freeze([
     'label',
     'title',
     'description',
-    // DSL generator keys
-    'dsl-state',
-    'dsl-section-registered',
-    'dsl-scrollbars-installed',
-    'dsl-tabs-bound',
-    'dsl-controls-bound',
     // Inline highlighter keys
     'inline-hl',
     // Overlay scrollbar keys (UI-only, not state storage)

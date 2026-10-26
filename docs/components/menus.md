@@ -133,11 +133,15 @@ const shell = await createShell({
 - **The host gives up the row's height.** `body.twm-body` is a flex column,
   and the row is a fixed-size item in it (`flex: 0 0 auto`). The host still
   takes whatever is left, so it is shorter by the row's height and nothing is
-  drawn under the row. The row's height is the bar's (24px) plus its padding.
-- **It is styled with FlexDesk tokens.** It is a flex row with
-  `padding: var(--space-xxs) var(--space-xs)`, background `var(--surface-1)`,
-  text `var(--text-body)` and a bottom border `var(--surface-0)`, the same
-  border as the top bar. The `.twm-menubar` inside it keeps its own styles.
+  drawn under the row. The row's height is the bar's (24px) plus its padding
+  and its two 1px borders.
+- **It is a band of its own, on FlexDesk tokens (0.17.14).** It is a flex row
+  with `padding: var(--space-xxs) var(--space-xs)`, background
+  `var(--surface-0)` (darker than the top bar), text `var(--text-body)` and a
+  `1px solid var(--border-strong)` border above and below, so it is set off
+  from the top bar and from the tiles under it. Until 0.17.13 it had
+  `var(--surface-1)` and only a `var(--surface-0)` bottom border, and barely
+  stood out (STORY-0122). The `.twm-menubar` inside it keeps its own styles.
 - **It is not part of the top bar.** It is a sibling of `.twm-global-top-bar`,
   not inside it. A window-drag region bound to the top bar
   (`WindowChromeController`'s `topBar`, which defaults to

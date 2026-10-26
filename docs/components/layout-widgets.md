@@ -199,3 +199,31 @@ runs on the bottom panel built over it. The bottom panel behaves as it did:
 re-shows its pane, fires `onSelect` and is remembered, as `select` does. A
 remembered tab that is already in front when `remember.read` answers is shown
 again: its pane hears `onShow` and `onSelect` fires, and nothing is written back.
+
+## Tree items with row actions (0.17.14)
+
+`createTreeItem` takes `actions`, in the shape `createTreeNode` takes them:
+
+```js
+const item = createTreeItem({
+    id: path, label, icon: 'description', badge: { text: '65' },
+    actions: {
+        rename: { icon: 'edit',   title: 'Rename', onClick: (id) => startRename(id) },
+        delete: { icon: 'delete', title: 'Delete', onClick: (id) => confirmDelete(id) },
+    },
+});
+```
+
+- Each entry is a `.twm-tree-node__action-btn` (`type="button"`,
+  `data-action`, its `title`, a Material Symbols icon) in a
+  `.twm-tree-item__actions` slot, the row's last child, after the label, the
+  subtitle and the badge.
+- A click on an entry with `onClick` calls `onClick(id, event)` and stops
+  there, so it does not select the item.
+- The slot is one line at the row's end, shown on hover, on focus within the
+  row and on the selected item. It takes no height of its own (`height: 0`,
+  the buttons centred on the label line), so a row is as tall with actions as
+  without.
+- Without `actions` the item's markup is what it was. Until 0.17.13 an item
+  had no actions, and an app that added its own slot got no styles for it
+  (STORY-0121).

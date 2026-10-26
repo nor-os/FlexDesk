@@ -46,7 +46,7 @@ check('it is a row', decl(row, 'display'), 'flex');
 check('its bar is centred in it', decl(row, 'align-items'), 'center');
 check('full width', decl(row, 'width'), '100%');
 check('border-box, so its padding is inside the strip', decl(row, 'box-sizing'), 'border-box');
-for (const prop of ['padding', 'background-color', 'color', 'border-bottom']) {
+for (const prop of ['padding', 'background-color', 'color', 'border-top', 'border-bottom']) {
     const v = decl(row, prop);
     ok(`${prop} is on FlexDesk tokens (${v})`, v && /var\(--[\w-]+\)/.test(v) && !/#[0-9a-f]{3,8}\b|rgba?\(/i.test(v));
 }
@@ -56,6 +56,10 @@ ok(`every token it reads is defined in tokens.css (${used.join(', ')})`,
 check('in normal flow: no position (the top bar\'s legacy fixed does not apply)', decl(row, 'position'), null);
 check('no z-index, so the top bar\'s dropdowns draw over it', decl(row, 'z-index'), null);
 ok('no fixed height: it is the bar\'s height plus its padding', !decl(row, 'height'));
+// STORY-0122: a band of its own, set off from the top bar above and the host below
+check('a band darker than the top bar', decl(row, 'background-color'), 'var(--surface-0)');
+check('a border above it', decl(row, 'border-top'), '1px solid var(--border-strong)');
+check('and one below it', decl(row, 'border-bottom'), '1px solid var(--border-strong)');
 const item = ruleBody(FLEX, ITEM);
 ok('body.twm-body places it', item);
 check('…as a fixed-size item of the column', decl(item, 'flex'), '0 0 auto');

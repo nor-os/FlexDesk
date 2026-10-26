@@ -1282,16 +1282,19 @@ body.twm-dt-col-resizing {
  * to the top bar does not include it. No z-index, so it is no stacking
  * context: the top bar's dropdowns draw over it, and the .twm-menubar inside
  * keeps its own styles, its menus (position: fixed, --z-over-windows) drawing
- * over the page. Its height is the bar's plus the padding. */
+ * over the page. It reads as a band of its own (STORY-0122, 0.17.14): darker
+ * than the top bar, with a border above and below. Its height is the bar's
+ * plus the padding and the two borders. */
 .twm-global-menu-bar {
     display: flex;
     align-items: center;
     width: 100%;
     box-sizing: border-box;
     padding: var(--space-xxs) var(--space-xs);
-    background-color: var(--surface-1);
+    background-color: var(--surface-0);
     color: var(--text-body);
-    border-bottom: 1px solid var(--surface-0);
+    border-top: 1px solid var(--border-strong);
+    border-bottom: 1px solid var(--border-strong);
     overflow: visible; /* the bar's menus extend below */
 }
 .twm-bar-center {
@@ -2435,6 +2438,23 @@ body.twm-window-maximized .twm-resize-handle {
     font-size: 10px;
     color: var(--text-dim);
     margin-left: var(--space-xs);
+}
+/* Row actions (createTreeItem's `actions`, STORY-0121): one line at the row's
+ * end, after label, subtitle and badge, shown on hover, on focus within and on
+ * the selected item. The slot is no taller than the label line, so a row is
+ * as high with actions as without. */
+.twm-tree-item__actions {
+    display: none;
+    align-items: center;
+    gap: var(--space-xxs);
+    flex-shrink: 0;
+    height: 0;
+    overflow: visible;
+}
+.twm-tree-item:hover > .twm-tree-item__actions,
+.twm-tree-item:focus-within > .twm-tree-item__actions,
+.twm-tree-item.selected > .twm-tree-item__actions {
+    display: flex;
 }
 /* ═══════════════════════════════════════════════════════════════════════════
    Plot Popout Window

@@ -128,26 +128,35 @@ export function createTreeNode(options) {
     `;
     setText(node, '.twm-tree-node__label', label);
 
-    // Add action buttons if specified
-    if (actions) {
-        const actionsEl = node.querySelector('.twm-tree-node__actions');
-        Object.entries(actions).forEach(([actionId, actionConfig]) => {
-            const btn = document.createElement('button');
-            btn.className = 'twm-tree-node__action-btn';
-            btn.dataset.action = actionId;
-            btn.title = actionConfig.title || actionId;
-            btn.innerHTML = `<span class="material-symbols-outlined">${actionConfig.icon}</span>`;
-            if (actionConfig.onClick) {
-                btn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    actionConfig.onClick(id, e);
-                });
-            }
-            actionsEl.appendChild(btn);
-        });
-    }
+    if (actions) appendActionButtons(node.querySelector('.twm-tree-node__actions'), id, actions);
 
     return node;
+}
+
+/**
+ * Fill a node's or an item's actions slot: one `.twm-tree-node__action-btn`
+ * per entry. A click on an entry with `onClick` runs `onClick(id, event)` and
+ * goes no further, so it neither selects the item nor toggles the node.
+ * @param {HTMLElement} actionsEl
+ * @param {string} id - The node's or item's id
+ * @param {Object<string, { icon: string, title?: string, onClick?: Function }>} actions
+ */
+function appendActionButtons(actionsEl, id, actions) {
+    Object.entries(actions).forEach(([actionId, actionConfig]) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'twm-tree-node__action-btn';
+        btn.dataset.action = actionId;
+        btn.title = actionConfig.title || actionId;
+        btn.innerHTML = `<span class="material-symbols-outlined">${actionConfig.icon}</span>`;
+        if (actionConfig.onClick) {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                actionConfig.onClick(id, e);
+            });
+        }
+        actionsEl.appendChild(btn);
+    });
 }
 
 /**
@@ -164,6 +173,10 @@ export function createTreeNode(options) {
  * @param {Object} [options.badge] - Optional badge config
  * @param {string} [options.badge.text] - Badge text (if empty, renders as status dot)
  * @param {string} [options.badge.variant] - 'muted'|'pass'|'fail'|'error'
+ * @param {Object} [options.actions] - Row actions, as createTreeNode takes them
+ *   ({ id: { icon, title, onClick(id, event) } }): buttons in one line at the
+ *   row's end (`.twm-tree-item__actions`), shown on hover, on focus within and
+ *   on the selected item
  * @returns {HTMLElement} - Item element
  */
 export function createTreeItem(options) {
@@ -177,6 +190,7 @@ export function createTreeItem(options) {
         subtitle = null,
         data = null,
         badge = null,
+        actions = null,
     } = options;
 
     const item = document.createElement('div');
@@ -219,6 +233,13 @@ export function createTreeItem(options) {
     setText(item, '.twm-tree-item__label', label);
     if (subtitle) setText(item, '.twm-tree-item__subtitle', subtitle);
     if (badge?.text) setText(item, '.twm-tree-item__badge', badge.text);
+
+    if (actions) {
+        const actionsEl = document.createElement('span');
+        actionsEl.className = 'twm-tree-item__actions';
+        appendActionButtons(actionsEl, id, actions);
+        item.appendChild(actionsEl);
+    }
 
     return item;
 }

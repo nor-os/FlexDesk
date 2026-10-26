@@ -239,6 +239,18 @@ openForm({
   a form without one is not made a container). A form with a row opens at the
   wide (640px) layout. The row is `.twm-modal__field-group`.
 
+### The inputs of a row are equally wide (0.17.15)
+
+Every input in a `{ row }` gets the same width: each field takes its label's
+width (the first one the form's 130px label column), and what is left of the
+row is shared equally between the inputs. A form whose widest row has three or
+more fields opens wider, about 230px per field past the label column
+(`170 + 230 × fields`, so 860px for three and 1090px for four), up to 90% of the
+window; forms without such a row open as before. Until 0.17.14 every field was
+an equal share of the row, including the first one's label column, so its input
+was a sliver beside the others: about 15px for the first of four number fields
+in a 640px form (BUG-0050).
+
 A form with neither renders exactly as before.
 `tests/open_form_rows_bounds.test.mjs` covers both in jsdom.
 

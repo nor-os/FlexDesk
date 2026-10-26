@@ -2262,6 +2262,12 @@ tr:hover .twm-row-action { opacity: 1; }
     padding: 2px 8px;
     line-height: 22px;
 }
+/* A path of one segment is not drawn (STORY-0124): the tile's title already
+ * names it, so the strip and its slot take no room until a second level. */
+.twm-page-shell__breadcrumb .twm-tile-breadcrumb[hidden],
+.twm-page-shell__breadcrumb:has(> .twm-tile-breadcrumb[hidden]) {
+    display: none;
+}
 .twm-page-shell__content {
     flex: 1 1 auto;
     min-height: 0;

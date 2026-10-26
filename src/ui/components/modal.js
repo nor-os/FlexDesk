@@ -56,8 +56,11 @@
  * Rows — an entry of the form `{ row: [field, field, ...] }` puts its fields
  * side by side (a min and a max, say). Each is an ordinary field: its own
  * label, hint, error, `setVisible`, value and submitted key — the row is
- * layout only and has no name. The row stacks its fields when the form is
- * narrower than 360px (a container query on `.twm-modal__form`).
+ * layout only and has no name. Its inputs are equally wide: the space left
+ * after the labels is shared equally. A form whose widest row has three or
+ * more fields opens wider (about 230px per field, up to 90% of the window).
+ * The row stacks its fields when the form is narrower than 360px (a
+ * container query on `.twm-modal__form`).
  *
  * Picker — a value the user LOOKS UP rather than types (an id chosen in a
  * search dialog, say). The row shows a read-only box and a search button;
@@ -913,6 +916,11 @@ function _estimateWidth(fields) {
     // Forms with a textarea, a colour list, a section divider or a row of
     // fields get the wider layout so multi-line content + grouped fields
     // breathe; otherwise 480 px is enough for label + single-line input pairs.
+    // A row of three or more fields needs more than 640 px for inputs of a
+    // usable width (BUG-0050): ~230 px per field (its label and input) past the
+    // label column, clamped to 90% of the window.
+    const widest = Math.max(0, ...fields.filter((f) => Array.isArray(f?.row)).map((f) => _formFields(f.row).length));
+    if (widest >= 3) return Math.max(640, Math.min(170 + widest * 230, Math.floor(window.innerWidth * 0.9)));
     const wide = fields.some((f) => f && (f.type === 'textarea' || f.type === 'colorList' || f.section || Array.isArray(f.row)));
     return wide ? 640 : 480;
 }

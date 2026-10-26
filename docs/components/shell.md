@@ -155,6 +155,20 @@ content: {
 chrome shows only — the tree, the tab labels and the saved layout are left
 alone — and a call from content whose pane has since been rebuilt does nothing.
 
+## A tile breadcrumb of one segment is not drawn (0.17.15)
+
+`mountTileBreadcrumb` (and the page shell around a content, which mounts one)
+draws the path to where a tile is: an optional root crumb, the top-nav page,
+the trail, the entity's ancestors and the entity. When that path is a single
+segment, a top-nav page with no root crumb, no trail and no entity, the strip
+says only what the tile's own title bar already says. It is then `hidden`, and
+`.twm-page-shell__breadcrumb` around it takes no room, so the tile's content
+starts right under its title. `refresh()` shows the strip again as soon as the
+path has two segments; a path of two or more is drawn as before. Until 0.17.14
+a top-level page showed its name twice, in the title bar and in a one-segment
+breadcrumb under it (STORY-0124). `renderBreadcrumb`, which draws segments a
+content routes itself, is unchanged.
+
 ## Buttons that change with the pane: `ctx.setChromeActions` (0.17.0)
 
 A factory may return `chromeActions` — `[{icon, title, onClick}]`, drawn in the

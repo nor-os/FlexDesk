@@ -290,7 +290,11 @@ section('§2 { row: [...] } puts fields side by side, each its own field');
     ok('a row lays its fields out side by side', /display:\s*flex/.test(group) && !/flex-direction:\s*column/.test(group),
        `rule body: ${JSON.stringify(group)}`);
     const cell = ruleBody(css, '.twm-modal__field-group > .twm-modal__row') || '';
-    ok('…sharing the width', /flex:\s*1 1 0/.test(cell) && /min-width:\s*0/.test(cell));
+    ok('…each based on its label alone, the free space shared equally (BUG-0050)',
+       /flex:\s*1 1 auto/.test(cell) && /min-width:\s*0/.test(cell));
+    const control = ruleBody(css, '.twm-modal__field-group > .twm-modal__row > :not(:first-child)') || '';
+    ok('…the controls lending the row no intrinsic width, so every input is equally wide',
+       /contain:\s*inline-size/.test(control) && /min-width:\s*0/.test(control));
     const container = ruleBody(css, '.twm-managed-window--modal .twm-modal__form:has(.twm-modal__field-group)') || '';
     ok('a form with a row is the query container', /container:\s*twm-form\s*\/\s*inline-size/.test(container));
     const q = css.match(/@container\s+twm-form\s*\(max-width:\s*(\d+)px\)\s*\{([\s\S]*?\}\s*)\}/);
@@ -340,6 +344,16 @@ section('§3 a form with no rows and no bounds renders as before');
 {
     const f = await open({ fields: [{ name: 'a', label: 'A' }, { name: 'b', label: 'B', type: 'number' }] });
     check('a plain form is still 480px wide', f.win.style.width, '480px');
+    await f.cancel();
+}
+{
+    // BUG-0050: a row of three fields widens the dialog past 640px
+    const three = { row: ['x', 'y', 'z'].map((n) => ({ name: n, label: n.toUpperCase(), type: 'number' })) };
+    const f = await open({ fields: [three] });
+    const expected = Math.max(640, Math.min(170 + 3 * 230, Math.floor(window.innerWidth * 0.9)));
+    check('a row of three fields opens about 230px per field wide (clamped to 90% of the window)',
+          f.win.style.width, `${expected}px`);
+    ok('…which is wider than the two-field layout', expected > 640, `innerWidth ${window.innerWidth}`);
     await f.cancel();
 }
 

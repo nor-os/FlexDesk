@@ -6438,8 +6438,18 @@ button.twm-about-dialog__btn--close:focus {
     align-items: flex-start;
     column-gap: 10px;
 }
+/* Each field's basis is its label alone (the first field's: the form's 130px
+ * label column): the controls lend the row no intrinsic width
+ * (`contain: inline-size`), so the free space is shared equally and every
+ * input of a row is equally wide (BUG-0050). Until 0.17.14 each field was an
+ * equal share of the row (`flex: 1 1 0`), so the first input, whose share
+ * also held the 130px column, was the narrowest by far. */
 .twm-modal__field-group > .twm-modal__row {
-    flex: 1 1 0;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.twm-modal__field-group > .twm-modal__row > :not(:first-child) {
+    contain: inline-size;
     min-width: 0;
 }
 .twm-managed-window--modal .twm-modal__fields > .twm-modal__field-group {
@@ -9053,6 +9063,12 @@ tr:hover .twm-row-action { opacity: 1; }
     gap: 6px;
     padding: 2px 8px;
     line-height: 22px;
+}
+/* A path of one segment is not drawn (STORY-0124): the tile's title already
+ * names it, so the strip and its slot take no room until a second level. */
+.twm-page-shell__breadcrumb .twm-tile-breadcrumb[hidden],
+.twm-page-shell__breadcrumb:has(> .twm-tile-breadcrumb[hidden]) {
+    display: none;
 }
 .twm-page-shell__content {
     flex: 1 1 auto;

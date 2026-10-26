@@ -24,7 +24,9 @@
 /** Build a breadcrumb strip element + render initial state. Returns
  *  `{ el, destroy }`. The strip is wired to the WM (clicks open content
  *  in the primary tile) and, when the embedder supplies a `rootCrumb`
- *  with a `subscribe` hook, to whatever keeps the root label fresh. */
+ *  with a `subscribe` hook, to whatever keeps the root label fresh.
+ *  While the path is a single segment (the tile itself) the strip is
+ *  `hidden` and takes no room; `refresh()` shows it once there are more. */
 export function mountTileBreadcrumb(kind, props, ctx) {
     const eventBus  = ctx?.eventBus;
     const taxonomy  = ctx?.taxonomy;
@@ -82,9 +84,12 @@ export function mountTileBreadcrumb(kind, props, ctx) {
         try { return ctx.trailSegments() || []; }
         catch (err) { console.warn('[breadcrumb] trailSegments threw', err); return []; }
     };
+    // One segment is the tile itself, which its title already names: the strip
+    // is hidden (and its page-shell slot with it) until there is a level above.
     const render = () => {
-        _renderInto(root,
-            _segments(kind, props, taxonomy, rootCrumb, rootLabel, navigate, trailOf()));
+        const segments = _segments(kind, props, taxonomy, rootCrumb, rootLabel, navigate, trailOf());
+        _renderInto(root, segments);
+        root.hidden = segments.length < 2;
     };
     render();
 

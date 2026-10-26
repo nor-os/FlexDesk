@@ -23,6 +23,11 @@
  *       a stale draw is dropped, also one for the old layout that resolves
  *       after a layout change while the grid is zero-size
  *   §7  the barrel, the stylesheet, no app vocabulary
+ *   §8  emptyMessage as a function (subplot, results, index) => string
+ *       (STORY-0117): per subplot, on every empty draw (first draw, update
+ *       with results or plotConfig, a failed draw), in place without
+ *       re-rendering; PlotPopoutWindow calls it on its own redraws; a string
+ *       is used exactly as before
  *
  * ── HOW TO RUN ───────────────────────────────────────────────────────────
  *
@@ -797,6 +802,115 @@ async function figureOf(subplot, results = RESULTS, options = {}) {
     ok('PlotPopoutWindow has no renderer of its own any more',
        !/#renderSubplotChart|#renderAllCharts|#buildSubplotGrid|buildTrace\(/.test(popout)
        && /renderPlotGrid\(/.test(popout));
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// §8 emptyMessage AS A FUNCTION OF THE SUBPLOT (STORY-0117)
+// ════════════════════════════════════════════════════════════════════════
+{
+    console.log('\n§8 emptyMessage may be (subplot, results, index) => string');
+    const msg = (c) => c.querySelector('.twm-plot-no-data')?.textContent ?? null;
+    /** Names the subplot's first series that the results lack. */
+    const missing = (subplot, results, index) => {
+        const name = subplot.yAxes[0].series.map((s) => s.variable)
+            .find((v) => !results?.series?.[v]);
+        return `${index}: ${name ?? '?'} not in ${results ? 'this run' : 'any run'}`;
+    };
+
+    resetPlotly();
+    const calls = [];
+    const host = mountHost();
+    const config = { layout: '2x2', subplots: [sp(['a']), sp(['gdp']), sp(['cpi'])] };
+    const grid = renderPlotGrid(host, config, RESULTS, {
+        emptyMessage: (subplot, results, index) => {
+            calls.push({ subplot, results, index });
+            return missing(subplot, results, index);
+        },
+    });
+    await settle();
+    const cells = grid.charts;
+    const root = host.querySelector('.twm-plot-grid');
+    check('each empty subplot names its own missing series; the slot with no subplot keeps noSubplotMessage',
+          cells.map(msg), [null, '1: gdp not in this run', '2: cpi not in this run', 'No subplot configured.']);
+    ok('  ...called with the subplot, the results and the index',
+       calls.length === 2
+       && calls.every((c) => c.subplot === config.subplots[c.index] && c.results === RESULTS)
+       && calls.map((c) => c.index).join() === '1,2');
+
+    const next = { time: [0, 1, 2, 3], series: { gdp: [1, 2, 3, 4] } };
+    await grid.update({ results: next });
+    check('update({ results }): the messages follow the new results',
+          cells.map(msg), ['0: a not in this run', null, '2: cpi not in this run', 'No subplot configured.']);
+    ok('  ...in place: the same grid and the same cells',
+       host.querySelector('.twm-plot-grid') === root && grid.charts.every((c, i) => c === cells[i]));
+    ok('  ...called with the new results', calls.at(-1).results === next);
+
+    await grid.update({ results: null });
+    check('update({ results: null }): called with null results',
+          cells.map(msg), ['0: a not in any run', '1: gdp not in any run', '2: cpi not in any run',
+                           'No subplot configured.']);
+
+    const config2 = { layout: '2x2', subplots: [sp(['x']), sp(['y']), sp(['z']), sp(['w'])] };
+    await grid.update({ plotConfig: config2, results: RESULTS });
+    check('update({ plotConfig }) with the same layout: the new subplots name theirs, in the same cells',
+          [cells.map(msg), grid.charts.every((c, i) => c === cells[i])],
+          [['0: x not in this run', '1: y not in this run', '2: z not in this run', '3: w not in this run'], true]);
+
+    // A subplot that fails to draw shows the function's message too.
+    const errors = [];
+    const hostF = mountHost();
+    const gridF = renderPlotGrid(hostF, { layout: '1x1', subplots: [sp(['a'])] }, RESULTS, {
+        resolveSeries: () => { throw new Error('boom'); },
+        onError: ({ index }) => errors.push(index),
+        emptyMessage: (subplot, results, index) => `failed ${index} with ${Object.keys(results.series).length}`,
+    });
+    await settle();
+    check('a failed draw shows the function\'s message', [msg(gridF.charts[0]), errors], ['failed 0 with 3', [0]]);
+    gridF.dispose();
+    hostF.remove();
+    grid.dispose();
+    host.remove();
+
+    // A string is used exactly as before: the same text, every cell, every draw.
+    const hostS = mountHost();
+    const gridS = renderPlotGrid(hostS, { layout: '1x2', subplots: [sp(['gdp']), sp(['a'])] }, RESULTS,
+                                 { emptyMessage: 'Nothing here.' });
+    await settle();
+    check('a string emptyMessage is shown as is', gridS.charts.map(msg), ['Nothing here.', null]);
+    await gridS.update({ results: null });
+    check('  ...and after an update', gridS.charts.map(msg), ['Nothing here.', 'Nothing here.']);
+    gridS.dispose();
+    hostS.remove();
+
+    // PlotPopoutWindow (through openPlotPopoutWindow) calls it on its own redraws.
+    resetPlotly();
+    const handlers = new Map();
+    const bus = {
+        on(name, fn) { handlers.set(name, fn); return () => handlers.delete(name); },
+        emit() {},
+    };
+    let current = RESULTS;
+    const { openPlotPopoutWindow } = await import('../src/charts/plot_popout_window.js');
+    const win = await openPlotPopoutWindow({
+        id: 'empty-fn-popout', title: 'Empty message function',
+        plotConfig: { layout: '1x2', subplots: [sp(['gdp']), sp(['a'])] },
+        getResults: () => current,
+        services: { eventBus: bus },
+        emptyMessage: missing,
+    });
+    await settle();
+    const cellsP = () => [...win._contentEl.querySelectorAll('.twm-plot-grid > .twm-plot-grid__cell')];
+    check('popout: the function names the missing series', cellsP().map(msg), ['0: gdp not in this run', null]);
+    current = { time: [0, 1, 2, 3], series: { gdp: [1, 2, 3, 4] } };
+    handlers.get('data:changed')?.();
+    await settle();
+    check('popout: a redraw on its refresh event calls it with the new results',
+          cellsP().map(msg), [null, '1: a not in this run']);
+    win.updateConfig({ layout: '1x2', subplots: [sp(['q']), sp(['gdp'])] });
+    await settle();
+    check('popout: updateConfig() redraws with it', cellsP().map(msg), ['0: q not in this run', null]);
+    win.close();
+    await settle();
 }
 
 await settle();

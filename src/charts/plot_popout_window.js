@@ -62,6 +62,11 @@ export class PlotPopoutWindow {
      *        updates through `refreshEvent` and explicit calls only.
      * @param {Function} [options.resolveSeries] - `(series, results, subplot) => { y, x? } | null`
      *        (plot_grid.js); used by the chart and the data table. Default resolveSeriesData.
+     * @param {string|Function} [options.emptyMessage='No data yet.'] - What a chart
+     *        cell with nothing to draw says: a string, or `(subplot, results, index) =>
+     *        string`, called on every redraw that leaves the cell empty (renderPlotGrid).
+     * @param {string} [options.tableEmptyMessage='No data yet.'] - What the Data tab
+     *        says with no rows.
      */
     constructor({ id, title, plotConfig, getResults, services, host, onClose, actuals,
                   configRenderer, seriesTransforms, resolveSeries = resolveSeriesData,
@@ -1010,6 +1015,8 @@ const _openWindows = new Map();
  * @param {Function} options.getResults - Returns { time: number[], series: { [key]: number[] } }
  * @param {Object} options.services - { eventBus, logger }
  * @param {Object} [options.actuals] - ETL overlay data
+ * @param {string|Function} [options.emptyMessage] - As PlotPopoutWindow's: a string
+ *        or `(subplot, results, index) => string`. Every option is forwarded.
  * @returns {PlotPopoutWindow}
  */
 export async function openPlotPopoutWindow(options) {

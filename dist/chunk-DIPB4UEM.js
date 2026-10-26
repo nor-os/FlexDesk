@@ -1379,6 +1379,9 @@ function resolveSeriesData(series, results) {
   if (!y) return null;
   return series._resultTime ? { y, x: series._resultTime } : { y };
 }
+function emptyMessageFor(message, subplot, results, index) {
+  return typeof message === "function" ? message(subplot, results, index) : message;
+}
 function renderPlotGrid(container, plotConfig, results, options = {}) {
   const opts = {
     resolveSeries: resolveSeriesData,
@@ -1435,6 +1438,9 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
     cellsLayout = config?.layout;
     tokens = cells.map(() => 0);
     deferred.clear();
+  }
+  function showEmpty(cell, index) {
+    showMessage(cell, emptyMessageFor(opts.emptyMessage, config?.subplots?.[index] ?? null, data, index));
   }
   function showMessage(cell, text) {
     purgeCell(cell);
@@ -1597,7 +1603,7 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
     const figure = await buildFigure(sp, index);
     if (!current()) return false;
     if (!figure) {
-      showMessage(cell, opts.emptyMessage);
+      showEmpty(cell, index);
       deferred.delete(index);
       return false;
     }
@@ -1627,7 +1633,7 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
       if (disposed) return false;
       if (cells[index] === cell && tokens[index] === token) {
         deferred.delete(index);
-        showMessage(cell, opts.emptyMessage);
+        showEmpty(cell, index);
       }
       opts.onError?.({ index, error });
       return false;
@@ -1719,6 +1725,11 @@ var PlotPopoutWindow = class {
    *        updates through `refreshEvent` and explicit calls only.
    * @param {Function} [options.resolveSeries] - `(series, results, subplot) => { y, x? } | null`
    *        (plot_grid.js); used by the chart and the data table. Default resolveSeriesData.
+   * @param {string|Function} [options.emptyMessage='No data yet.'] - What a chart
+   *        cell with nothing to draw says: a string, or `(subplot, results, index) =>
+   *        string`, called on every redraw that leaves the cell empty (renderPlotGrid).
+   * @param {string} [options.tableEmptyMessage='No data yet.'] - What the Data tab
+   *        says with no rows.
    */
   constructor({
     id,
@@ -2840,4 +2851,4 @@ export {
   openPlotPopoutWindow,
   openRawTracesWindow
 };
-//# sourceMappingURL=chunk-2YTM3GJE.js.map
+//# sourceMappingURL=chunk-DIPB4UEM.js.map

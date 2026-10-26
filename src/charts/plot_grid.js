@@ -73,6 +73,16 @@ function resolveSeriesData(series, results) {
 }
 
 /**
+ * The text of an empty cell: `message` itself when it is a string, else what
+ * the function `message(subplot, results, index)` returns. PlotPopoutWindow
+ * hands its `emptyMessage` to the grid unchanged, so this is the one place the
+ * two forms are told apart.
+ */
+function emptyMessageFor(message, subplot, results, index) {
+    return typeof message === 'function' ? message(subplot, results, index) : message;
+}
+
+/**
  * Draw `plotConfig` into `container`.
  *
  * @param {HTMLElement} container - Receives one `.twm-plot-grid` child.
@@ -95,7 +105,10 @@ function resolveSeriesData(series, results) {
  * @param {Object} [options.theme] - Overrides for PLOT_GRID_THEME.
  * @param {boolean} [options.alwaysShowLegend=false] - Draw a 'hidden' legend at the top.
  * @param {Object} [options.layout] - Plotly layout fields merged over every figure's.
- * @param {string} [options.emptyMessage='No data yet.']
+ * @param {string|Function} [options.emptyMessage='No data yet.'] - What a subplot
+ *        with nothing to draw says: a string, or `(subplot, results, index) => string`,
+ *        called each time a cell is drawn empty (first draw, every `update()`, a
+ *        failed draw) with the grid's results at that moment (null when there are none).
  * @param {string} [options.noSubplotMessage='No subplot configured.']
  * @param {Function} [options.onError] - `({ index, error })` when drawing a subplot
  *        throws — on an update or on a resize that draws a deferred one; that
@@ -168,6 +181,11 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
         cellsLayout = config?.layout;
         tokens = cells.map(() => 0);
         deferred.clear();
+    }
+
+    /** Show the empty message in cell `index`, for its subplot and the current results. */
+    function showEmpty(cell, index) {
+        showMessage(cell, emptyMessageFor(opts.emptyMessage, config?.subplots?.[index] ?? null, data, index));
     }
 
     function showMessage(cell, text) {
@@ -348,7 +366,7 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
 
         const figure = await buildFigure(sp, index);
         if (!current()) return false;
-        if (!figure) { showMessage(cell, opts.emptyMessage); deferred.delete(index); return false; }
+        if (!figure) { showEmpty(cell, index); deferred.delete(index); return false; }
 
         if (!hasSize(cell)) { deferred.add(index); return false; }
         deferred.delete(index);
@@ -381,7 +399,7 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
             if (disposed) return false;
             if (cells[index] === cell && tokens[index] === token) {
                 deferred.delete(index);
-                showMessage(cell, opts.emptyMessage);
+                showEmpty(cell, index);
             }
             opts.onError?.({ index, error });
             return false;

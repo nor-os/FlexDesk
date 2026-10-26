@@ -4,6 +4,40 @@
 
 Plotly-backed charts: the wrapper, the chart types, subplot layouts, downsampling, the plot grid, the plot-config editor and the two plot windows. Plotly itself is not in the bundle; call `setPlotlySource()` with the path to your copy. The plot window's `streamEvents` option is described with the [other application-neutral options](../concepts/domain-neutrality.md#no-application-globals-the-gallery-picker-and-plot-window-events-0170).
 
+## An empty cell can name what is missing: `emptyMessage` as a function (0.17.12)
+
+[`renderPlotGrid`](#a-plot-config-in-any-container-renderplotgrid-0170),
+`PlotPopoutWindow` and `openPlotPopoutWindow` take `emptyMessage` as a string,
+as before, or as a function of the subplot:
+
+```js
+const grid = renderPlotGrid(el, plotConfig, results, {
+    emptyMessage: (subplot, results, index) => {
+        const name = subplot.yAxes[0].series[0]?.variable;
+        return results ? `${name} not in this run` : 'No data yet.';
+    },
+});
+await grid.update({ results: next });   // the empty cells say what is missing in `next`
+```
+
+The function is called each time a cell is drawn empty, with that cell's
+subplot, the grid's results at that moment (null when there are none) and the
+cell's index in the layout: on the first draw, on every `update()` (new
+`results`, a new `plotConfig`, `overlays` or `hiddenSeries`), on a resize that
+draws a deferred cell, and when a subplot fails to draw. So the message follows
+results that stream in or change, without disposing and rebuilding the grid. A
+slot with no subplot still shows `noSubplotMessage`.
+
+The plot window hands its `emptyMessage` to its grid, so the function is called
+on the window's own redraws too: its refresh and stream events and
+`updateConfig()`. `openPlotPopoutWindow` forwards it with its other options.
+The Data tab's `tableEmptyMessage` stays a string.
+
+A string `emptyMessage` is shown exactly as before, and no option or export
+changed.
+
+`tests/plot_grid.test.mjs` §8 pins it.
+
 ## Interpolation `'auto'` is a listed choice (0.17.9)
 
 A subplot's `interpolation` is `'linear'`, `'step'`, `'cubic'` or `'auto'`.
@@ -197,7 +231,9 @@ subplot: its chart type, interpolation, data points and stack groups, every
 y-axis (left or right, linear or log, min, max, step), reference lines and
 shaded bands, the NaN strategy, the x-axis clipped to the results' time
 range, or an x variable instead of time (`xAxis: { useTime: false, variable }`).
-A subplot with nothing to draw shows `emptyMessage` (default `No data yet.`); a
+A subplot with nothing to draw shows `emptyMessage` (default `No data yet.`;
+[a function of the subplot](#an-empty-cell-can-name-what-is-missing-emptymessage-as-a-function-01712)
+since 0.17.12); a
 slot with no subplot shows `noSubplotMessage` (`No subplot configured.`); null
 results empty every subplot. A cell that is detached or has no size is not
 drawn: the grid's own ResizeObserver draws it once it has one. `dispose()`

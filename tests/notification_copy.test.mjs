@@ -5,10 +5,11 @@
  *       takes the right-click (no native menu); the item copies the title, the
  *       message and the description, one per line, through the clipboard API
  *   §2  a toast without a title or description copies what it has
- *   §3  right-clicking a history entry does the same, and the popover stays
- *       open while the menu is used
- *   §4  the text is selectable: the sheets give it `user-select: text`, and a
- *       click that ends a selection in a toast does not close it
+ *   §3  right-clicking a history entry does the same, the popover stays
+ *       open while the menu is used, and Escape closes the menu alone
+ *   §4  the text is selectable: the sheets give it `user-select: text`, a
+ *       click that ends a selection in a toast does not close it, and neither
+ *       does a click or double-click on its text; a click on its chrome does
  *
  *     node tests/notification_copy.test.mjs
  *
@@ -72,11 +73,12 @@ function rightClick(el) {
     el.dispatchEvent(ev);
     return ev;
 }
-function realClick(el) {
+function realClick(el, detail = 1) {
     for (const type of ['mousedown', 'mouseup', 'click']) {
-        el.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0 }));
+        el.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, detail }));
     }
 }
+const escape = () => document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 const menu = () => document.querySelector('.twm-context-menu');
 const menuLabels = () => [...(menu()?.querySelectorAll('[role="menuitem"]') ?? [])].map((b) => b.lastElementChild.textContent);
 
@@ -138,6 +140,12 @@ console.log('§3 right-click a history entry > Copy message');
     await wait();
     ok('the entry\'s title and message are copied', copied[0] === 'Disk\nAlmost full', JSON.stringify(copied));
     ok('the popover stays open while its menu is used', !!document.querySelector('.twm-notification-history__panel'));
+    rightClick(item.querySelector('.twm-notification-history__item-body'));
+    escape();
+    ok('Escape closes the open menu', !menu());
+    ok('... and leaves the popover open', !!document.querySelector('.twm-notification-history__panel'));
+    escape();
+    ok('the next Escape closes the popover', !document.querySelector('.twm-notification-history__panel'));
     bell.unmount();
     nc.dispose();
 }
@@ -156,8 +164,13 @@ console.log('§4 the text is selectable');
     realClick(body);
     ok('a click that ends a selection does not close the toast', document.querySelector('.twm-notification') === toast);
     sel.removeAllRanges();
-    realClick(body);
-    ok('a plain click still closes it', !document.querySelector('.twm-notification'));
+    realClick(body, 1);
+    realClick(body, 2);
+    ok('a click and a double-click on the text do not close it', document.querySelector('.twm-notification') === toast);
+    realClick(toast.querySelector('.twm-notification__title'));
+    ok('... nor does a click on the title', document.querySelector('.twm-notification') === toast);
+    realClick(toast);
+    ok('a plain click on the chrome still closes it', !document.querySelector('.twm-notification'));
     nc.dispose();
 
     for (const sheet of ['base.css', 'flexdesk.css']) {

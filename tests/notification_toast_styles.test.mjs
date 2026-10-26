@@ -130,7 +130,7 @@ section('§4 the buttons work');
     click(toastEl(id).querySelector('.twm-notification__action-btn'));
     check('the action ran', got, 1);
     const other = nc.show({ severity: 'info', message: 'close me', persistent: true });
-    click(toastEl(other).querySelector('.twm-notification__body'));
+    click(toastEl(other));
     ok('a click on the card closes it', !toastEl(other));
     nc.dispose();
 }

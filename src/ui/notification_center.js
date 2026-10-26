@@ -91,6 +91,10 @@ export function showNotificationMenu(event, notification, logger) {
         });
 }
 
+/** The toast's text: clicking it selects, it does not dismiss. */
+const TOAST_TEXT = '.twm-notification__title, .twm-notification__body, '
+    + '.twm-notification__description, .twm-notification__status';
+
 /** A non-empty text selection inside `el`: a click that ends one is not a click on it. */
 function selectsTextIn(el) {
     const sel = el.ownerDocument.getSelection?.();
@@ -789,8 +793,10 @@ export class NotificationCenter extends ComponentBase {
             item.appendChild(actionsEl);
         }
 
+        // A click on the text is the start of selecting it (a double-click's
+        // first click leaves only a caret), so only the toast's chrome closes it.
         item.addEventListener('click', (event) => {
-            if (event.target.closest('button') || NotificationCenter.#isRunning(notification)
+            if (event.target.closest(`button, ${TOAST_TEXT}`) || NotificationCenter.#isRunning(notification)
                 || selectsTextIn(item)) {
                 return;
             }

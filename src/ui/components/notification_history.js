@@ -218,7 +218,10 @@ export class NotificationHistory {
             if (ev.target.closest?.('.twm-context-menu')) return;
             if (!panel.contains(ev.target) && !this.triggerEl.contains(ev.target)) cleanup();
         };
-        const onKey = (ev) => { if (ev.key === 'Escape') cleanup(); };
+        // Escape closes the innermost layer: an open entry menu closes itself.
+        const onKey = (ev) => {
+            if (ev.key === 'Escape' && !document.querySelector('.twm-context-menu')) cleanup();
+        };
         const onResize = () => cleanup();
 
         document.addEventListener('mousedown', onDocDown, true);

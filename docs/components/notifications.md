@@ -120,7 +120,8 @@ background, a left border in the severity's colour (`--color-success`,
 `--color-warning`, `--color-danger`; info keeps the blue) and the entry
 animation `twm-notification-in`, which the sheet now defines. The card sets
 `pointer-events: auto` over the root's `none`, so its buttons and its
-click-to-close work.
+click-to-close work. Since [Copy message](#copy-message), click-to-close takes
+only a click on the card outside its text.
 
 Until 0.17.2 the card carried the bare `notification` / `notification--<severity>`
 classes, which no FlexDesk sheet styled: the card had no background and no
@@ -167,8 +168,11 @@ its menu is used.
 
 The text of a toast and of a history entry (title, message, description,
 status) is selectable: the sheets give it `user-select: text` over the body's
-`none`. A click that ends a selection inside a toast does not close it, and a
-plain click still does. `notificationText(notification)` returns the copied
+`none`. A click or double-click on a toast's text (title, message,
+description, status) selects it and does not close the toast, nor does a click
+that ends a selection inside it. Only a click on the card outside the text (the
+header's empty space, the padding, the timestamp) closes it, besides the ×
+button. `notificationText(notification)` returns the copied
 text, and `showNotificationMenu(event, notification, logger)` opens the menu.
 Both are exported from `widgets`. `tests/notification_copy.test.mjs` covers it.
 

@@ -40,8 +40,9 @@
  * -------------------------
  * A right-click on a toast, or on its entry in the history, opens the context
  * menu with "Copy message": the title, the message and the description, one
- * per line, go to the clipboard as plain text. The text is also selectable,
- * and a click that ends a selection does not close the toast.
+ * per line, go to the clipboard as plain text. The text is also selectable:
+ * a click on the title, message, description or status, or one that ends a
+ * selection, does not close the toast; only a click on its chrome does.
  */
 import { ComponentBase } from './base/component_base.js';
 import { getSetting } from '../core/settings.js';

@@ -149,6 +149,9 @@ const shell = await createShell({
   (no `container`) is clamped, centred and maximised below the top bar and
   the row, not under the row. Windows inside the shell already stay within
   the host.
+- **A modal leaves it usable, like the top bar.** A modal `ManagedWindow`'s
+  backdrop starts below the top bar (`top: 35px`), so the row, like the top
+  bar, is not dimmed and its menus can still be opened while a modal is open.
 
 A shell without the row looks exactly as before: nothing changes until the
 page has a `.twm-global-menu-bar`. The row works only inside `body.twm-body`.

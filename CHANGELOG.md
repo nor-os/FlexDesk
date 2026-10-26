@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.17.13 (2026-10-26)
+
+A patch release: everything below is additive. Every fix is documented in a
+section of the docs headed "(0.17.13)"; each entry links to it.
+
+### Added and changed
+
+- [The menu bar in its own row under the top bar](docs/components/menus.md#the-menu-bar-in-its-own-row-under-the-top-bar-01713): a shell's menu bar can sit on a second line, as a full-width strip directly under the top bar. Put `chrome.menuBar` in a `.twm-global-menu-bar` that is a child of `body.twm-body`, between `.twm-global-top-bar` and the host. The row is a fixed-size item in the body's flex column (`flex: 0 0 auto`), so the host is shorter by the row's height and nothing is drawn under it. It is styled with FlexDesk tokens (`padding: var(--space-xxs) var(--space-xs)`, background `var(--surface-1)`, text `var(--text-body)`, a bottom border `var(--surface-0)` like the top bar's), and the `.twm-menubar` inside it keeps its own styles. It is a sibling of the top bar, not part of it: a window-drag region bound to the top bar (`WindowChromeController`'s `topBar`) does not include it, so a press on the row never drags the window, and it sets no `z-index`, so the top bar's dropdowns are drawn over it. A `ManagedWindow` on `document.body` (no `container`) is clamped, centred and maximised below the top bar and the row. A modal's backdrop starts below the top bar, so the row, like the top bar, stays usable while a modal is open. A shell without the row looks exactly as before; the row works only inside `body.twm-body` (STORY-0119).
+
+### Removed or renamed exports
+
+None. Compared with 0.17.12, across every entry point (`core`, `widgets`, `wm`,
+`host`, `canvas`, `flow`, `charts`, `tiles`, `editor`) and the package
+`exports` map, no export was added, removed or renamed, and no option was
+removed or renamed. Not an export but worth knowing: flexdesk.css has one new
+class, `.twm-global-menu-bar`, and defines no new custom property.
+
 ## 0.17.12 (2026-10-26)
 
 A patch release: everything below is additive. Every fix is documented in a

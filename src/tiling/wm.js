@@ -353,10 +353,11 @@ export class WindowManager {
     // a free-floating one is drawn over every desktop, but it is that one
     // desktop's instance, so it never stands in for another desktop's. The
     // move verbs refuse to carry the kind onto a desktop that already holds
-    // it (`desktopMoveRefusal`), and removing a desktop closes a window of it
-    // that would land beside the active desktop's own instance. A floating
-    // window navigated to the kind from another desktop moves there with it
-    // (`openInWindow`).
+    // it (`desktopMoveRefusal`). Navigating inside a window looks on the
+    // window's own desktop (`openInWindow`). Removing a desktop brings its
+    // windows across, a window never being destroyed by a tile operation, so
+    // the active desktop can then hold the kind twice until the next reload
+    // keeps the first.
 
     /** The key a tab's instance is unique under on desktop `desktopIdx`: its
      *  instance key, scoped to that desktop for a `single: 'desktop'` kind;
@@ -458,7 +459,12 @@ export class WindowManager {
      *  open names no props at all — a top-nav button, `openInPrimary(kind)` —
      *  which asks to SEE the instance, not to empty it. */
     revealInstance(kind, props = {}) {
-        const loc = this.findInstance(kind, props);
+        return this._revealFound(this.findInstance(kind, props), kind, props);
+    }
+
+    /** Reveal the instance at `loc` (a `findInstance` result, or null) and
+     *  hand it `props`. Answers whether there was one to reveal. */
+    _revealFound(loc, kind, props) {
         if (!loc || !this._revealAt(loc)) return false;
         if (props && Object.keys(props).length) this._deliverProps(kind, props);
         return true;
@@ -1165,24 +1171,15 @@ export class WindowManager {
      *  and updates the window's title. */
     openInWindow(winId, kind, props = {}) {
         if (this._openWindowOnly(kind, props)) return;
-        if (this.revealInstance(kind, props)) return;
         const rec = this._windowToLeaf.get(winId);
         if (!rec) { this.openInPrimary(kind, props); return; }
-        // A free-floating window is drawn over every desktop, so it can be
-        // navigated from another desktop than its own. A `single: 'desktop'`
-        // kind opened in it opens on the ACTIVE desktop, which holds none (the
-        // reveal above found none): the window moves there with it — refused,
-        // as the move verbs are, when that desktop holds a kind of its tabs
-        // already. Moved, the window is that desktop's, so a tab of its
-        // own already showing the kind is the instance to reveal.
-        const active = this.desktops.activeIdx;
-        if (this.taxonomy.isSinglePerDesktop(kind) && rec.desktopIdx !== active) {
-            this._quietDepth += 1;
-            try { this.moveWindowToDesktop(winId, active); }
-            finally { this._quietDepth -= 1; }
-            if (rec.desktopIdx !== active) return;
-            if (this.revealInstance(kind, props)) return;
-        }
+        // A window is on its own desktop, even a free-floating one drawn over
+        // every desktop: a `single: 'desktop'` kind navigated to in it is
+        // looked for on the window's desktop, not the one on screen.
+        const loc = this.taxonomy.isSinglePerDesktop(kind)
+            ? this._findInstance(kind, props, rec.desktopIdx)
+            : this.findInstance(kind, props);
+        if (this._revealFound(loc, kind, props)) return;
         try { rec.mountInfo?.destroy?.(); } catch {}
         // R8. THE BODY, NOT THE CONTENT ELEMENT. A floated pane's window holds
         // a tab strip above its body, and both are children of `contentEl` —
@@ -4081,10 +4078,9 @@ export class WindowManager {
      * ruling is that a tile operation may move a window and never destroy it,
      * and removing a desktop is the largest tile operation there is: they come
      * across to the desktop that ends up active, re-homed onto its ground by
-     * `_rehomeContainedWindows` on the render below. The one exception is a
-     * window holding a `single: 'desktop'` kind the active desktop already
-     * has: a desktop holds that kind once, so the removed desktop's instance
-     * closes with the rest of that desktop's tiles.
+     * `_rehomeContainedWindows` on the render below. One holding a
+     * `single: 'desktop'` kind the active desktop already has makes it hold
+     * the kind twice, until a reload keeps the first.
      */
     removeDesktop(idx) {
         const m = this.desktops;
@@ -4105,10 +4101,8 @@ export class WindowManager {
         if (m.activeIdx >= m.desktops.length) m.activeIdx = m.desktops.length - 1;
         // AFTER the splice and AFTER `activeIdx` is repaired, so the survivors
         // resolve against the array the rest of this method uses.
-        const incoming = [];
-        for (const [windowId, rec] of this._windowToLeaf) {
+        for (const [, rec] of this._windowToLeaf) {
             if (rec.desktopIdx === idx) {
-                incoming.push(windowId);
                 rec.desktopIdx = m.activeIdx;
                 // ONLY A WINDOW THAT WAS ALREADY CONTAINED, which is what
                 // `rec.homeLeafId` says and what `moveWindowToDesktop`'s guard
@@ -4126,10 +4120,6 @@ export class WindowManager {
             }
         }
         this.renderer.tree = m.active().tree;
-        for (const windowId of incoming) {
-            if (!this.desktopMoveRefusal({ windowId }, m.activeIdx)) continue;
-            try { this._windowToLeaf.get(windowId).window.close({ force: true }); } catch { /* gone */ }
-        }
         this.renderer.render();
         this._persist();
         this._notifyChange();

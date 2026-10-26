@@ -22,11 +22,11 @@
  *   §4  a free-floating window opened on desktop 2 is desktop 2's instance
  *       only: it neither shadows desktop 1's archived one nor gets it dropped
  *   §5  the move verbs refuse to carry the kind onto a desktop that holds it;
- *       removing a desktop closes its window that would land beside one
+ *       removing a desktop brings its windows across, never closing them
  *   §6  a reload keeps one desktop's live instance and another's archived one
- *   §7  a free-floating window navigated to the kind from another desktop
- *       opens it on that desktop and moves there with it; where that desktop
- *       has one, it is revealed and the window keeps its content
+ *   §7  navigating inside a free-floating window looks on the window's own
+ *       desktop: its instance there is revealed, and with none the window
+ *       shows the kind and stays on its desktop
  *
  *     node tests/single_per_desktop.test.mjs
  */
@@ -353,9 +353,12 @@ console.log('\n§5 the move verbs keep one per desktop');
     const liveBefore = live('model').length;
     wm.removeDesktop(floatDesk);
     await tick();
-    check('removing the floating window\'s desktop closes it: desktop 1 has its own',
-        [wm.desktops.activeIdx, wm._windowToLeaf.size, live('model').length - liveBefore, perDesktop('model')[0]],
-        [0, 0, -1, 1]);
+    check('removing the floating window\'s desktop brings the window across, never closing it',
+        [wm.desktops.activeIdx, wm._windowToLeaf.size, live('model').length - liveBefore,
+         [...wm._windowToLeaf.values()][0]?.desktopIdx],
+        [0, 1, 0, 0]);
+    [...wm._windowToLeaf.values()][0].window.close({ force: true });
+    await tick();
 }
 
 // ── §6 ──────────────────────────────────────────────────────────────────
@@ -389,7 +392,7 @@ console.log('\n§6 a reload keeps a live instance and another desktop\'s archive
 }
 
 // ── §7 ──────────────────────────────────────────────────────────────────
-console.log('\n§7 a floating window navigated from another desktop');
+console.log('\n§7 navigating inside a floating window');
 {
     wm.switchDesktop(0);
     await tick();
@@ -403,30 +406,28 @@ console.log('\n§7 a floating window navigated from another desktop');
     const other = wm.desktops.desktops.length - 1;
     wm.switchDesktop(other);
     await tick();
-    const liveBefore = live('model').length;
-    wm.navigate('model', {}, { dest: 'origin', newTab: true, ctx: { windowId: winId } });
-    await tick();
-    check('navigated on a desktop with no model, the window shows it and moves there',
-        [wm.desktops.activeIdx, wm._windowToLeaf.get(winId).original.kind,
-         wm._windowToLeaf.get(winId).desktopIdx, live('model').length - liveBefore,
-         wm.findInstance('model')?.windowId === winId],
-        [other, 'model', other, 1, true]);
-    wm.switchDesktop(0);
-    await tick();
-    check('desktop 1 still has its one model, the tile',
-        [wm.findInstance('model')?.where, perDesktop('model')[0],
-         live('model').filter((m) => m.windowId == null && m.alive).length > 0],
-        ['tab', 1, true]);
-
-    wm.openInWindow(winId, 'sheet');
-    await tick();
-    const mounted = mounts.length;
     wm.openInWindow(winId, 'model');
     await tick();
-    check('navigated on a desktop that has a model, that one is revealed: no second mount',
+    check("navigated from another desktop, the window's own desktop's model is revealed, none in the window",
         [wm.desktops.activeIdx, wm._windowToLeaf.get(winId).original.kind,
-         wm._windowToLeaf.get(winId).desktopIdx, mounts.length - mounted, activeKind(0)],
-        [0, 'sheet', other, 0, 'model']);
+         wm._windowToLeaf.get(winId).desktopIdx, live('model').filter((m) => m.windowId != null && m.alive).length,
+         activeKind(0)],
+        [0, 'sheet', 0, 0, 'model']);
+
+    wm.switchDesktop(other);
+    await tick();
+    wm.navigate('sheet', {}, { dest: 'window' });
+    await tick();
+    const ownId = [...wm._windowToLeaf.keys()].find((id) => id !== winId && !wm._windowToLeaf.get(id).homeLeafId);
+    wm.openInWindow(ownId, 'model');
+    await tick();
+    check('on a desktop with no model, the window shows it and stays that desktop\'s',
+        [wm.desktops.activeIdx, wm._windowToLeaf.get(ownId).original.kind,
+         wm._windowToLeaf.get(ownId).desktopIdx, wm.findInstance('model')?.windowId === ownId],
+        [other, 'model', other, true]);
+    wm.switchDesktop(0);
+    await tick();
+    check('desktop 1 still has its one model, the tile', perDesktop('model')[0], 1);
 }
 
 shell.dispose();

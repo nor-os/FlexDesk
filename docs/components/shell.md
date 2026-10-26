@@ -109,8 +109,14 @@ createTaxonomy({
   it: *Move to desktop N* (Alt+Shift+N and the tile and window menus, whose row
   is greyed with the reason), and dropping a floating window onto another
   desktop's tile. `wm.desktopMoveRefusal({ leafId } | { windowId }, idx)`
-  answers that reason, or null. Removing a desktop closes a window of it that
-  holds the kind when the desktop it lands on has its own.
+  answers that reason, or null. Removing a desktop brings its windows across
+  to the active desktop and never closes one, so that desktop can then hold
+  the kind twice, until a reload keeps the first.
+- **Navigating inside a window looks on the window's own desktop**
+  (`openInWindow`, and the in-window navigation that goes through it): a
+  floating window of desktop 1 navigated to the kind while desktop 2 is on
+  screen reveals desktop 1's instance, and shows the kind itself when desktop
+  1 has none. The window stays on its desktop.
 - **A page restore and a restored layout dedupe per desktop**: a tile's archived
   page brings its instance back unless that desktop has it live elsewhere, and
   a reload keeps the first instance on each desktop. Each desktop's instance

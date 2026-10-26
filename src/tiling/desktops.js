@@ -27,6 +27,25 @@ const DEFAULT_PANEL_STATE = {
     bottom: true,
 };
 
+/** An object that is not an array: what a saved desktop or map is. */
+function _isRecord(v) {
+    return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/** Throw a `TypeError` saying what the saved layout was expected to hold at
+ *  `path` and what it held instead (see the same helper in tile_tree.js, which
+ *  reads the trees these desktops hold). */
+function _expect(ok, path, want, got) {
+    if (ok) return;
+    let shown;
+    if (got === undefined) shown = 'nothing';
+    else {
+        try { shown = JSON.stringify(got); } catch { shown = String(got); }
+        if (shown.length > 40) shown = `${shown.slice(0, 37)}...`;
+    }
+    throw new TypeError(`${path}: expected ${want}, found ${shown}`);
+}
+
 /**
  * `seed()` yields the leaf a fresh (or emptied) desktop starts with. It comes
  * from the taxonomy's root kind — see WindowManager, which supplies it. The
@@ -178,23 +197,65 @@ export class DesktopManager {
         };
     }
 
+    /**
+     * Rebuild the manager from what `serialize()` wrote. `null`/`undefined` is
+     * nothing saved and gives the fresh manager.
+     *
+     * The blob is whatever the host's `state` held under `DESKTOPS_KEY`: a file
+     * anyone can truncate or edit, which is valid JSON of any shape. So it is
+     * read STRICTLY, and a blob that `serialize()` could not have written throws
+     * a `TypeError` naming the path and what was expected there. It builds only
+     * objects of its own and touches nothing its caller holds, which is what lets
+     * `WindowManager.load` treat a throw as "nothing saved" with nothing to undo.
+     *
+     * Strict about SHAPE, not about every value. What the loader, the tree
+     * operations and the renderer index, iterate or branch on has to be what they
+     * need (containers, node and tab kinds, `dir`, `children`, `sizes`,
+     * `activeTabIdx`). What is only drawn or coerced is taken as it is: a desktop's
+     * `id`, `label`, `group` and `fixed`, a panel's flag, a tab's title and props,
+     * `activeIdx`. A layout that fails on one of those would be thrown away for
+     * nothing, and an app can put almost anything in a title.
+     *
+     * And strict is not hostile to an old blob. A key the loader has always given
+     * a default may be absent: a desktop's `id`, `label` and `panels`, the keys
+     * later releases added (`panelShares`, `group`, `fixed`), and a leaf's `tabs`
+     * and `pageTabs`. What `serialize()` has always written and the loader cannot
+     * do without (`desktops`, a desktop's `tree`, a split's `dir`, `children` and
+     * `sizes`) may not.
+     */
     static deserialize(blob, { seed, panelDefaults = null } = {}) {
         const m = new DesktopManager({ seed, panelDefaults });
-        if (!blob || !Array.isArray(blob.desktops) || blob.desktops.length === 0) return m;
-        m.desktops = blob.desktops.map((raw) => ({
-            id: raw.id || `desk-${Math.random().toString(36).slice(2,8)}`,
-            label: raw.label || '?',
-            tree: raw.tree ? TileTree.deserialize(raw.tree) : new TileTree(),
-            windows: [],
-            // A RESTORED desktop's own answer wins over the default: the user
-            // closed that panel, and re-opening it on every reload is the bug
-            // this merge order avoids. The default only fills a key the stored
-            // blob predates.
-            panels: { ...m.panelDefaults, ...(raw.panels || {}) },
-            panelShares: { ...(raw.panelShares || {}) },
-            group: raw.group || null,
-            fixed: !!raw.fixed,
-        }));
+        if (blob == null) return m;
+        _expect(Array.isArray(blob.desktops) && blob.desktops.length > 0,
+            'desktops', 'a non-empty array of desktops', blob.desktops);
+        m.desktops = blob.desktops.map((raw, i) => {
+            const at = `desktops[${i}]`;
+            _expect(_isRecord(raw), at, 'a desktop, an object', raw);
+            // `null` is a desktop with nothing on it (serialize() writes that);
+            // a desktop with no `tree` key at all is not one serialize() writes.
+            _expect(raw.tree === null || (_isRecord(raw.tree) && _isRecord(raw.tree.root)),
+                `${at}.tree`, '{ root }, or null for an empty desktop', raw.tree);
+            _expect(raw.panels == null || _isRecord(raw.panels), `${at}.panels`, 'an object', raw.panels);
+            // The VALUES of `panels` and `panelShares` are not checked: the loader
+            // already coerces a flag (`!!`) and `_validShare` drops a share that
+            // is not one, so the panel opens at its default.
+            _expect(raw.panelShares == null || _isRecord(raw.panelShares),
+                `${at}.panelShares`, 'an object', raw.panelShares);
+            return {
+                id: raw.id || `desk-${Math.random().toString(36).slice(2,8)}`,
+                label: raw.label || '?',
+                tree: raw.tree ? TileTree.deserialize(raw.tree, `${at}.tree`) : new TileTree(),
+                windows: [],
+                // A RESTORED desktop's own answer wins over the default: the user
+                // closed that panel, and re-opening it on every reload is the bug
+                // this merge order avoids. The default only fills a key the stored
+                // blob predates.
+                panels: { ...m.panelDefaults, ...(raw.panels || {}) },
+                panelShares: { ...(raw.panelShares || {}) },
+                group: raw.group || null,
+                fixed: !!raw.fixed,
+            };
+        });
         // Empty tree → seed with the taxonomy root so the desktop is usable.
         for (const d of m.desktops) {
             if (!d.tree.rootId) d.tree.setRoot(makeLeaf(seed()));
@@ -212,7 +273,9 @@ export class DesktopManager {
  * against a host that cannot persist (e.g. the standalone demo).
  */
 
-const DESKTOPS_KEY = 'desktops';
+/** The logical state key the layout is saved under. Exported so a warning about
+ *  a layout that could not be read can name it. */
+export const DESKTOPS_KEY = 'desktops';
 
 export async function loadDesktops(state) {
     if (!state) return null;

@@ -21,6 +21,25 @@
 let _idCounter = 1;
 function _newId(prefix) { return `${prefix}-${_idCounter++}`; }
 
+/** An object that is not an array: what a saved node, tab or map is. */
+function _isRecord(v) {
+    return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/** Throw a `TypeError` saying what the saved layout was expected to hold at
+ *  `path` and what it held instead. The value is shown short: a layout can be
+ *  large, and the line is read in a console. */
+function _expect(ok, path, want, got) {
+    if (ok) return;
+    let shown;
+    if (got === undefined) shown = 'nothing';
+    else {
+        try { shown = JSON.stringify(got); } catch { shown = String(got); }
+        if (shown.length > 40) shown = `${shown.slice(0, 37)}...`;
+    }
+    throw new TypeError(`${path}: expected ${want}, found ${shown}`);
+}
+
 function _isPanel(leaf) {
     return String(leaf?.content?.kind || '').startsWith('panel:');
 }
@@ -939,11 +958,42 @@ export class TileTree {
         };
     }
 
-    static deserialize(blob) {
+    /** Rebuild a tree from what `serialize()` wrote. A blob with no root is an
+     *  empty tree, as it always was. Anything else is read STRICTLY: a node that
+     *  `serialize()` could not have written throws a `TypeError` naming where
+     *  (`at` is the path of the blob, for the message only) and what it wanted,
+     *  rather than building half a tree or failing later, inside the renderer,
+     *  with `node.sizes.reduce is not a function`. The caller decides what a
+     *  tree that cannot be read means; see `WindowManager.load`. */
+    static deserialize(blob, at = 'tree') {
         const t = new TileTree();
         if (!blob || !blob.root) return t;
-        const build = (raw) => {
+        // A tab, and the legacy `content` a leaf mirrors its active tab into, are
+        // the same shape: what `makeLeaf` and `_syncActiveTab` read. Its `title` and
+        // `props` are NOT checked. A title is only drawn, and is whatever a content
+        // factory returned (a number, say); props are the app's, and a factory that
+        // cannot use them is told so by the registry's mount-error tile, not by a
+        // layout thrown away.
+        const checkTab = (tab, path) => {
+            _expect(_isRecord(tab) && typeof tab.kind === 'string', path, 'a tab, { kind, props, title }', tab);
+        };
+        const build = (raw, path) => {
+            _expect(_isRecord(raw), path, 'a node, an object', raw);
+            _expect(raw.kind === 'leaf' || raw.kind === 'split', `${path}.kind`, '"leaf" or "split"', raw.kind);
             if (raw.kind === 'leaf') {
+                if (raw.content != null) checkTab(raw.content, `${path}.content`);
+                _expect(raw.tabs == null || Array.isArray(raw.tabs), `${path}.tabs`, 'an array of tabs', raw.tabs);
+                (raw.tabs || []).forEach((tab, i) => checkTab(tab, `${path}.tabs[${i}]`));
+                _expect(raw.activeTabIdx == null || Number.isFinite(raw.activeTabIdx),
+                    `${path}.activeTabIdx`, 'a number', raw.activeTabIdx);
+                _expect(raw.pageTabs == null || _isRecord(raw.pageTabs), `${path}.pageTabs`, 'an object', raw.pageTabs);
+                for (const [page, arc] of Object.entries(raw.pageTabs || {})) {
+                    const where = `${path}.pageTabs[${JSON.stringify(page)}]`;
+                    _expect(_isRecord(arc) && Array.isArray(arc.tabs), where, '{ tabs, activeTabIdx }', arc);
+                    arc.tabs.forEach((tab, i) => checkTab(tab, `${where}.tabs[${i}]`));
+                    _expect(arc.activeTabIdx == null || Number.isFinite(arc.activeTabIdx),
+                        `${where}.activeTabIdx`, 'a number', arc.activeTabIdx);
+                }
                 // Forward-compat with the pre-tabs layout: an old
                 // serialized leaf carries `content` but no `tabs`.
                 // makeLeaf will derive a single-tab list from `content`.
@@ -961,7 +1011,6 @@ export class TileTree {
                 if (raw.pageTabs && typeof raw.pageTabs === 'object') {
                     leaf.pageTabs = {};
                     for (const [k, v] of Object.entries(raw.pageTabs)) {
-                        if (!v || !Array.isArray(v.tabs)) continue;
                         leaf.pageTabs[k] = {
                             tabs: v.tabs.map((t) => ({
                                 kind:  t.kind,
@@ -974,7 +1023,16 @@ export class TileTree {
                 }
                 return leaf;
             }
-            const children = raw.children.map(build);
+            // `sizes` run parallel to `children`: the renderer, `setSplitSizes`,
+            // `swapSiblings` and the panel canonicalizer all index one by the
+            // other, and none of them looks at a length first.
+            _expect(raw.dir === 'h' || raw.dir === 'v', `${path}.dir`, '"h" or "v"', raw.dir);
+            _expect(Array.isArray(raw.children) && raw.children.length > 0,
+                `${path}.children`, 'a non-empty array of nodes', raw.children);
+            _expect(Array.isArray(raw.sizes) && raw.sizes.length === raw.children.length
+                    && raw.sizes.every((n) => Number.isFinite(n) && n >= 0),
+                `${path}.sizes`, `${raw.children.length} non-negative numbers, one per child`, raw.sizes);
+            const children = raw.children.map((c, i) => build(c, `${path}.children[${i}]`));
             const split = makeSplit({
                 dir: raw.dir, children: children.map((c) => c.id),
                 sizes: raw.sizes,
@@ -982,7 +1040,7 @@ export class TileTree {
             children.forEach((c) => t._register(c));
             return split;
         };
-        const root = build(blob.root);
+        const root = build(blob.root, `${at}.root`);
         t.setRoot(root);
         return t;
     }

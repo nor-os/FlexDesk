@@ -18,7 +18,7 @@
  *   wm.switchDesktop(idx) / wm.addDesktop() / wm.moveFocusedToDesktop(idx)
  */
 
-import { DesktopManager, saveDesktops, loadDesktops } from './desktops.js';
+import { DesktopManager, saveDesktops, loadDesktops, DESKTOPS_KEY } from './desktops.js';
 import { TileRenderer } from './tile_renderer.js';
 import { makeLeaf } from './tile_tree.js';
 import { PLACEHOLDER_KIND } from './content_registry.js';
@@ -38,7 +38,7 @@ const PANEL_TITLES = {
 
 export class WindowManager {
     constructor({ rootEl, api, ctx, onChange, eventBus, host, taxonomy, events, content,
-                  panelDefaults = null, snapPromotion = false,
+                  logger = null, panelDefaults = null, snapPromotion = false,
                   promoteInPlace = false, tabLayout = null, backToOpenList = false,
                   floatActiveTab = false, newTabButton = true }) {
         if (!taxonomy) throw new Error('WindowManager: a taxonomy is required');
@@ -62,6 +62,9 @@ export class WindowManager {
         this.events = events || {};
         this.ctx = ctx || {};
         this.eventBus = eventBus || null;
+        // Where load() reports a saved layout it could not read; else `console`,
+        // as the keymap does.
+        this.logger = logger || null;
         this.onChange = onChange || (() => {});
         // Panel availability. Runtime overrides (`setPanelAvailability`) win
         // over the primary kind's declaration (`KindDef.panels`); the last
@@ -250,10 +253,41 @@ export class WindowManager {
     // ── Persistence ─────────────────────────────────────────────────
     async load() {
         const blob = await loadDesktops(this.host?.state);
-        if (blob) {
-            this.desktops = DesktopManager.deserialize(blob, {
-                seed: this._rootLeaf, panelDefaults: this.panelDefaults });
-            this.renderer.tree = this.desktops.active().tree;
+        // A SAVED LAYOUT THAT CANNOT BE READ IS NO LAYOUT. The state is a file that
+        // can be truncated or edited into valid JSON of the wrong shape, and a boot
+        // that dies on it dies on every start until someone deletes the file by
+        // hand. `deserialize` reads the blob strictly and throws before anything the
+        // WM holds has been touched, so recovering is doing nothing: `this.desktops`
+        // and the renderer are as they were, and the rest of this method runs as it
+        // does for a host with nothing saved. The catch stops there on purpose. The
+        // canonicalize and the render below only ever see a layout that WAS read, so
+        // a throw from them is a bug that has to reach the embedder, not a bad file
+        // to be answered by discarding what the user saved.
+        //
+        // The bad blob is LEFT in the store. Deleting it here would destroy the only
+        // copy of whatever the user was trying to restore; the next `_persist` (any
+        // layout change) overwrites it, and until then each boot warns again, which
+        // is the reminder.
+        if (blob != null) {
+            let restored = null;
+            try {
+                restored = DesktopManager.deserialize(blob, {
+                    seed: this._rootLeaf, panelDefaults: this.panelDefaults });
+            } catch (err) {
+                // ONE string, as the keymap's warning is. The embedder's logger is
+                // usually a LoggingService, whose `scoped()` loggers read two leading
+                // strings as (subcategory, message) and keep only the second, and
+                // whose own warn(message, metadata) keeps the first string and files
+                // the rest as metadata: spread over several arguments, the key would
+                // be the whole recorded message and the cause would be gone. The
+                // console prints one string the same as several.
+                (this.logger ?? console).warn?.(`[wm] bad layout for state key ${DESKTOPS_KEY} `
+                    + `(opening the default layout): ${err?.message ?? err}`);
+            }
+            if (restored) {
+                this.desktops = restored;
+                this.renderer.tree = this.desktops.active().tree;
+            }
         }
         // Normalize: managed windows don't survive a reload, so any
         // window-placeholder leaves restore their original content.

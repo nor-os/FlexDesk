@@ -29,7 +29,7 @@ FlexDesk is nine entry points that share their code, so you load only what you u
 `@flexdesk/wm`
 
 - [Shell and navigation](components/shell.md): `createShell`, kinds, navigating between them, what a pane tells its chrome.
-- [Panels and desktops](components/panels-and-desktops.md): which panels a page offers, panel sizes, `mountNavPanel`, the desktop bar.
+- [Panels and desktops](components/panels-and-desktops.md): which panels a page offers, panel sizes, `mountNavPanel`, the desktop bar, a saved layout that cannot be read.
 - [Command palette](components/command-palette.md): grouped results, drill-down, disabled rows, prefix-only sources.
 - [Keys, Back and tab layout](components/keymap.md): rebinding the window manager's keys, Back and the breadcrumb, zoom, tab layout.
 

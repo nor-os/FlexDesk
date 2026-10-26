@@ -10,6 +10,7 @@ The shell's left, right and bottom panels, and its virtual desktops. A kind says
 - [Panels keep the size you dragged them to (0.17.0)](#panels-keep-the-size-you-dragged-them-to-0170)
 - [A navigation panel you drive yourself: `mountNavPanel` (0.17.0)](#a-navigation-panel-you-drive-yourself-mountnavpanel-0170)
 - [Your desktops beside the app's (0.10.0)](#your-desktops-beside-the-apps-0100)
+- [A saved layout that cannot be read (0.17.14)](#a-saved-layout-that-cannot-be-read-01714)
 
 ## Panels a page does not offer (0.17.0)
 
@@ -125,3 +126,58 @@ screen. With neither set anywhere, the bar is what it always was.
 main pane; it used to replace that pane with the active tab alone. A target still
 holding only its seed is replaced, as before. `dispose()` removes the bar, so a
 rebuilt shell paints a fresh one.
+
+## A saved layout that cannot be read (0.17.14)
+
+The shell saves its layout through the host's `state` under the key `desktops`
+and reads it back when it boots. That file can be truncated or edited by hand.
+Text that is not JSON was always handled: the host logs `[host] bad JSON for
+state key desktops` and answers `null`. A layout that is valid JSON but not a
+layout (a split whose `sizes` is a number, a `null` desktop, a split with no
+`children`) used to make `createShell` throw, on every start, until the file was
+deleted by hand, so an app had to vet the file before booting. Others were let
+through half understood: a desktop with no `tree` came back as an empty one.
+
+Now such a layout is ignored. `createShell` resolves, the shell opens its
+default layout exactly as it does when nothing was saved, and one warning names
+the state key and the first thing wrong. The warning reads:
+
+```
+[wm] bad layout for state key desktops (opening the default layout): desktops[0].tree.root.children[1].sizes: expected 2 non-negative numbers, one per child, found 5
+```
+
+The warning goes to the `logger` you pass to `createShell`, else to
+`console.warn`, once per start. It is a single string, like the keymap's, so it
+arrives whole at any logger: a `LoggingService` (or one of its `scoped()`
+loggers) records that line as the message, with the key and the cause in it.
+
+- **All or nothing.** One bad desktop sets the whole layout aside; the shell does
+  not guess which parts to keep. Nothing of the bad layout is drawn, not even
+  the tiles before the damage.
+- **The file is left where it is.** Deleting it would destroy the only copy of
+  what the user was trying to restore. The next time the shell saves the layout
+  (any change to it) that save replaces the file, and until then every start
+  warns again.
+- **What is unreadable** is a shape `serialize()` could not have written:
+  `desktops` not a non-empty array; a desktop that is not an object, or has no
+  `tree` (a `tree` of `null` is a desktop with nothing on it, and is fine); a
+  `panels` or `panelShares` that is not an object; a node that is not a `leaf`
+  or a `split`; a split without a `dir` of `h` or `v`, without children, or
+  whose `sizes` are not one non-negative number per child; a tab without a
+  string `kind`; and a leaf's `tabs`, `pageTabs` or `activeTabIdx` of the wrong
+  type.
+- **What still loads.** Values that are only drawn or coerced are taken as they
+  are: a title (a content factory can return a number), a desktop's `label`,
+  `group` and `fixed`, a panel's flag, a tab's props. A layout saved by an
+  earlier release loads too: the keys that came later (`panelShares`, `group`,
+  `fixed`, a leaf's `pageTabs`) may be missing, and so may a desktop's `id`,
+  `label` and `panels`, and a leaf's `tabs`. Keys it does not know are ignored, a
+  tab of a kind with no factory registered is the usual placeholder tile, and an
+  `activeIdx` past the last desktop is clamped.
+
+`DESKTOPS_KEY` (`'desktops'`) names the key, and `DesktopManager.deserialize`
+throws the `TypeError` above for a blob that cannot be read, which is what
+`wm.load()` catches; `wm.load()` itself does not throw for one.
+
+`tests/saved_layout_unreadable.test.mjs` boots a real shell over each of 78
+shapes of broken layout and over the readable ones.

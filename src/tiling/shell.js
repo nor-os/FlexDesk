@@ -62,7 +62,11 @@ import { openForm } from '../ui/components/modal.js';
  *                                     it through (the palette + tile tab menu
  *                                     hand it to the entity catalog's fetchers).
  * @param {object}     [cfg.eventBus]
- * @param {object}     [cfg.logger]
+ * @param {object}     [cfg.logger]     `{ warn? }`. Told of problems the shell
+ *                                      carries on from: a keymap binding it
+ *                                      does not know, a saved layout it cannot
+ *                                      read (the default one opens instead).
+ *                                      Else `console`.
  * @param {object}     [cfg.tableStore] threaded into ctx for table persistence
  * @param {object}     [cfg.events]     bus-event NAMES the WM listens for
  * @param {object}     [cfg.rootCrumb]  the breadcrumb's leading segment
@@ -237,6 +241,7 @@ export async function createShell({
         host,
         taxonomy,
         events,
+        logger,
         panelDefaults: panels,
         snapPromotion,
         promoteInPlace,

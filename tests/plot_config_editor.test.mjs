@@ -27,6 +27,15 @@
  *   §11 interpolation 'auto' is a listed choice: a subplot saved with it opens
  *       with Auto chosen (not "auto (not found)"), keeps it unchanged, can be
  *       picked again, and is drawn as 'linear' (BUG-0042)
+ *   §12 a series is one block: a header line (picker, label, remove) over
+ *       label-column fields (colour as a ColorField, width, dash, stack group,
+ *       the embedder's fields, overlay); extraSeriesFields may draw with the
+ *       `field` helper or return field specs; opening a fully specified series
+ *       writes nothing, and each control writes its own key only (BUG-0052)
+ *   §13 review fixes: an invalid hex still shows; a hint is outside the
+ *       control's label and describes it; a bad spec is skipped with a
+ *       warning; only an array is specs; a bare series opens unchanged; an
+ *       overlay's colour field is disposed when its details redraw (BUG-0052)
  *
  * ── HOW TO RUN ───────────────────────────────────────────────────────────
  *
@@ -43,7 +52,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve as resolvePath } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 
-import { ruleBody } from './css_rules.mjs';
+import { ruleBody, specificity, compareSpecificity, stripComments } from './css_rules.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -803,6 +812,252 @@ console.log('\ncharts: renderPlotConfigEditor\n');
     const shape = (interpolation) => buildTrace({ chartType: 'line', x: [0, 1], y: [1, 2], interpolation }).line?.shape;
     check("'auto' is drawn as 'linear' (Plotly shape linear)", shape('auto'), shape('linear'));
     check('... which is the shape linear', shape('auto'), 'linear');
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// §12 A SERIES IS ONE BLOCK; EXTRA FIELDS SHARE ITS LAYOUT; DATA PARITY (BUG-0052)
+// ════════════════════════════════════════════════════════════════════════
+{
+    console.log('\n§12 series block, extraSeriesFields layout, data parity');
+    const full = () => {
+        const config = oneByOne();
+        config.subplots[0].yAxes[0].series = [{
+            id: 'a', variable: 'Banks::Assets[Cash]', label: 'Cash', color: '#1f77b4', lineWidth: 3,
+            lineStyle: 'dashed', stackGroup: 'g1', scenario: 'base',
+            overlay: { source: 'gdp', label: 'GDP actual', color: '#ff0000', lineStyle: 'dotted',
+                       lineWidth: 4, mode: 'markers' },
+        }];
+        return config;
+    };
+    const scenarioSelect = (series, onChange) => {
+        const box = document.createElement('select');
+        box.className = 'my-scenario';
+        for (const v of ['base', 'high']) box.appendChild(new dom.window.Option(v, v));
+        box.value = series.scenario ?? '';
+        box.addEventListener('change', () => { series.scenario = box.value; onChange(); });
+        return box;
+    };
+    const overlaySources = async () => [{ value: 'gdp', label: 'GDP' }, { value: 'cpi', label: 'CPI' }];
+    const labels = (scope) => [...scope.querySelectorAll(':scope > .twm-plot-config__field > .twm-plot-config__label, '
+        + ':scope > .twm-plot-config__series-extra > .twm-plot-config__field > .twm-plot-config__label, '
+        + ':scope > .twm-plot-config__overlay > .twm-plot-config__overlay-source > .twm-plot-config__field > .twm-plot-config__label')]
+        .map((n) => n.textContent);
+
+    // ── the layout, with specs returned by the embedder ─────────────────
+    let rendered = 0;
+    let slotDisposed = 0;
+    const specs = open(full(), {
+        overlaySources,
+        extraSeriesFields: (box, series, { onChange, field }) => {
+            ok('extraSeriesFields is handed the field helper', typeof field === 'function');
+            return [
+                { label: 'Scenario', control: scenarioSelect(series, onChange), hint: 'The run it is read from' },
+                { label: 'Note', render: (slot) => { rendered += 1; slot.appendChild(document.createElement('input')); return { dispose() { slotDisposed += 1; } }; } },
+            ];
+        },
+    });
+    await ticks();
+    const block = specs.el.querySelector('.twm-plot-config__series');
+    const head = block.querySelector(':scope > .twm-plot-config__series-head');
+    const fieldsCol = block.querySelector(':scope > .twm-plot-config__series-fields');
+    ok('a series is a header line over a field column', !!head && !!fieldsCol && block.children.length === 2);
+    ok('the header holds the picker, the legend label and the remove button',
+       !!head.querySelector('.twm-autocomplete-field__input') && !!head.querySelector('input[aria-label="Legend label"]')
+       && !!head.querySelector('button[aria-label="Remove series"]'));
+    check('the fields are on one label column, the embedder\'s among them',
+          labels(fieldsCol), ['Colour', 'Width', 'Dash', 'Stack group', 'Scenario', 'Note', 'Overlay']);
+    ok('the colour is a ColorField (swatch + hex)',
+       !!fieldsCol.querySelector('.twm-plot-config__field > .twm-color-field > .twm-color-field__swatch')
+       && !!fieldsCol.querySelector('.twm-plot-config__field > .twm-color-field > .twm-color-field__hex'));
+    const scenarioField = control(fieldsCol, 'Scenario').closest('.twm-plot-config__field');
+    check('a spec hint is drawn under its control',
+          scenarioField.querySelector('.twm-plot-config__hint')?.textContent, 'The run it is read from');
+    ok('a render spec draws into a slot on the field line',
+       rendered === 1 && !!control(fieldsCol, 'Note')?.closest('.twm-plot-config__slot'));
+    ok('no old one-line row is left', !specs.el.querySelector('.twm-plot-config__series-main'));
+    check('opening it writes nothing', specs.calls.length, 0);
+    pick(control(fieldsCol, 'Scenario'), 'high');
+    check('a spec control writes through the embedder', [specs.config.subplots[0].yAxes[0].series[0].scenario, specs.calls.length], ['high', 1]);
+    specs.editor.dispose();
+    check('what a render spec returns is disposed', slotDisposed, 1);
+
+    // ── the helper, drawn into the box (the 0.17.0 form keeps working) ───
+    const helper = open(full(), {
+        extraSeriesFields: (box, series, { onChange, field }) => {
+            box.appendChild(field('Scenario', scenarioSelect(series, onChange), { hint: 'hinted' }));
+        },
+    });
+    const col = helper.el.querySelector('.twm-plot-config__series-fields');
+    check('a row drawn with the field helper is a row of the column',
+          labels(col), ['Colour', 'Width', 'Dash', 'Stack group', 'Scenario']);
+    ok('... with its hint', !!col.querySelector('.twm-plot-config__field--hinted > .twm-plot-config__hint'));
+    helper.editor.dispose();
+
+    // ── data parity ─────────────────────────────────────────────────────
+    const parity = open(full(), {
+        overlaySources,
+        extraSeriesFields: (box, series, { onChange, field }) => [
+            { label: 'Scenario', control: scenarioSelect(series, onChange) },
+        ],
+    });
+    await ticks();
+    const before = JSON.parse(JSON.stringify(parity.config));
+    const series = () => parity.config.subplots[0].yAxes[0].series[0];
+    const scope = () => parity.el.querySelector('.twm-plot-config__series');
+    check('opening a fully specified series writes nothing', parity.config, before);
+    check('... and calls no onChange', parity.calls.length, 0);
+    /** The series keys (and overlay keys, as `overlay.key`) that differ from `before`. */
+    const changed = () => {
+        const was = before.subplots[0].yAxes[0].series[0];
+        const now = series();
+        const out = [];
+        for (const k of new Set([...Object.keys(was), ...Object.keys(now)])) {
+            if (k === 'overlay') {
+                for (const o of new Set([...Object.keys(was.overlay ?? {}), ...Object.keys(now.overlay ?? {})])) {
+                    if (JSON.stringify(was.overlay?.[o]) !== JSON.stringify(now.overlay?.[o])) out.push(`overlay.${o}`);
+                }
+            } else if (JSON.stringify(was[k]) !== JSON.stringify(now[k])) out.push(k);
+        }
+        const rest = JSON.parse(JSON.stringify(parity.config));
+        rest.subplots[0].yAxes[0].series[0] = was;
+        if (JSON.stringify(rest) !== JSON.stringify(before)) out.push('(outside the series)');
+        return out.sort();
+    };
+    const reset = () => { Object.keys(series()).forEach((k) => delete series()[k]); Object.assign(series(), JSON.parse(JSON.stringify(before.subplots[0].yAxes[0].series[0]))); parity.editor.refresh(); };
+    const edits = [
+        ['the series picker', ['variable'], () => { const i = scope().querySelector('.twm-plot-config__series-head .twm-autocomplete-field__input'); type(i, 'Other'); commit(i); }],
+        ['the legend label', ['label'], () => type(scope().querySelector('input[aria-label="Legend label"]'), 'Money')],
+        ['the colour', ['color'], () => type(control(scope(), 'Colour').closest('.twm-plot-config__field').querySelector('.twm-color-field__hex'), '#00ff00')],
+        ['the width', ['lineWidth'], () => { const i = control(scope(), 'Width'); i.value = '5'; commit(i); }],
+        ['the dash', ['lineStyle'], () => pick(control(scope(), 'Dash'), 'Solid')],
+        ['the stack group', ['stackGroup'], () => type(control(scope(), 'Stack group'), 'g2')],
+        ['the embedder\'s scenario', ['scenario'], () => pick(control(scope(), 'Scenario'), 'high')],
+        ['the overlay source', ['overlay.source'], () => pick(control(scope(), 'Overlay'), 'CPI')],
+        ['the overlay label', ['overlay.label'], () => type(control(scope().querySelector('.twm-plot-config__overlay-fields'), 'Label'), 'x')],
+        ['the overlay mode', ['overlay.mode'], () => pick(control(scope().querySelector('.twm-plot-config__overlay-fields'), 'Mode'), 'Lines')],
+    ];
+    for (const [what, keys, act] of edits) {
+        reset();
+        await ticks();
+        const n = parity.calls.length;
+        act();
+        check(`editing ${what} writes only ${keys.join(', ')}`, changed(), keys);
+        ok(`... and calls onChange`, parity.calls.length > n);
+    }
+    parity.editor.dispose();
+
+    // ── the stylesheet ──────────────────────────────────────────────────
+    const css = readFileSync(resolvePath(HERE, '../css/flexdesk.css'), 'utf8');
+    ok('the extra box is display: contents, so its rows join the column',
+       /display:\s*contents/.test(ruleBody(css, '.twm-plot-config__series-extra') ?? ''));
+    ok('the field column is a column', /flex-direction:\s*column/.test(ruleBody(css, '.twm-plot-config__series-fields') ?? ''));
+    ok('the header line wraps (narrow windows)', /flex-wrap:\s*wrap/.test(ruleBody(css, '.twm-plot-config__series-head') ?? ''));
+    const block2 = css.slice(css.indexOf('/* ══ PLOT CONFIG EDITOR'), css.indexOf('/* ══ end PLOT CONFIG EDITOR'));
+    check('the editor\'s rules use no literal colours', block2.match(/#[0-9a-f]{3,6}\b|rgba?\(/gi) ?? [], []);
+    const docs = readFileSync(resolvePath(HERE, '../docs/components/charts.md'), 'utf8');
+    ok('the docs describe it in a 0.17.16 section', /## .*\(0\.17\.16\)/.test(docs) && /extraSeriesFields/.test(docs));
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// §13 BUG-0052 REVIEW FIXES
+// ════════════════════════════════════════════════════════════════════════
+{
+    console.log('\n§13 review fixes');
+    const { ColorField } = await import('../src/ui/components/color_field.js');
+    const css = stripComments(readFileSync(resolvePath(HERE, '../css/flexdesk.css'), 'utf8'));
+
+    // 1. an invalid hex keeps its invalid border inside the editor
+    const well = '.twm-plot-config .twm-color-field__hex';
+    const invalid = '.twm-plot-config .twm-color-field--invalid .twm-color-field__hex';
+    ok('an invalid hex in the editor has a danger border',
+       /border-color:\s*var\(--color-danger\)/.test(ruleBody(css, invalid) ?? ''));
+    ok('... which beats the editor\'s well border (specificity)',
+       compareSpecificity(specificity(invalid), specificity(well)) > 0);
+    ok('... and comes after it', css.indexOf(`${invalid} {`) > css.indexOf(`${well} {`));
+
+    // 2. a hint is outside the label, and describes the control
+    const config = oneByOne();
+    config.subplots[0].yAxes[0].series.push({ id: 'a', variable: 'v' });
+    const warnings = [];
+    const logger = { warn: (...a) => warnings.push(a) };
+    const sel = document.createElement('select');
+    sel.className = 'my-pick';
+    sel.appendChild(new dom.window.Option('x', 'x'));
+    const hinted = open(config, {
+        logger,
+        extraSeriesFields: () => [
+            { label: 'Pick', control: sel, hint: 'A hint' },
+            { label: 'Bad', control: 'not an element' },
+            { control: document.createElement('input') },
+            { label: 'Nothing' },
+            null,
+            { label: 'Throws', render: () => { throw new Error('nope'); } },
+            { label: 'Last', control: Object.assign(document.createElement('input'), { className: 'my-last' }) },
+        ],
+    });
+    const hintEl = hinted.el.querySelector('.twm-plot-config__hint');
+    ok('the hint is not inside any <label>', !!hintEl && !hintEl.closest('label'));
+    ok('the control is not inside a <label> holding the hint', !sel.closest('label'));
+    const lbl = sel.closest('.twm-plot-config__field').querySelector('label.twm-plot-config__label');
+    ok('the label text is the control\'s <label for>', !!lbl && lbl.htmlFor === sel.id && !!sel.id);
+    check('the control is described by the hint', sel.getAttribute('aria-describedby'), hintEl.id);
+    check('bad specs are skipped, the rest laid out',
+          [...hinted.el.querySelectorAll('.twm-plot-config__series-extra > .twm-plot-config__field > .twm-plot-config__label')]
+              .map((n) => n.textContent), ['Pick', 'Last']);
+    check('... each with a warning', warnings.filter((w) => /extraSeriesFields spec/.test(String(w[0]))).length, 5);
+    ok('... and the body is whole (overlay-less series fields, add buttons)',
+       !!buttonText(hinted.el, 'Add series') && !!buttonText(hinted.el, 'Add shaded band'));
+
+    // 5. a bare series opens unchanged, and after refresh()
+    const bare = JSON.parse(JSON.stringify(config));
+    check('a bare { id, variable } series is unchanged after open', config, bare);
+    hinted.editor.refresh();
+    await ticks();
+    check('... and after refresh()', config, bare);
+    check('... with no onChange', hinted.calls.length, 0);
+    hinted.editor.dispose();
+
+    // 4. only an array is specs: a 0.17.0 handle with a `fields` array is a handle
+    let disposed = 0;
+    const handle = open(oneByOne(), {
+        extraSeriesFields: (box) => {
+            box.appendChild(Object.assign(document.createElement('span'), { className: 'mine' }));
+            return { fields: [{ label: 'Not a spec', control: document.createElement('input') }],
+                     dispose() { disposed += 1; } };
+        },
+    });
+    click(buttonText(handle.el, 'Add series'));
+    ok('a handle with a fields array is not laid out as specs',
+       !!handle.el.querySelector('.mine')
+       && !handle.el.querySelector('.twm-plot-config__series-extra > .twm-plot-config__field'));
+    handle.editor.dispose();
+    ok('... and is still disposed', disposed === 1);
+
+    // 6. the overlay's colour field is disposed when its details redraw
+    const cfDisposed = new Set();
+    const orig = ColorField.prototype.dispose;
+    ColorField.prototype.dispose = function patched(...a) { cfDisposed.add(this); return orig.apply(this, a); };
+    const cfRendered = [];
+    const origRender = ColorField.prototype.render;
+    ColorField.prototype.render = function patchedRender(...a) { cfRendered.push(this); return origRender.apply(this, a); };
+    try {
+        const ov = oneByOne();
+        ov.subplots[0].yAxes[0].series.push({ id: 'a', variable: 'v' });
+        const o = open(ov, { overlaySources: async () => [{ value: 'g', label: 'G' }, { value: 'c', label: 'C' }] });
+        await ticks();
+        const source = () => control(o.el.querySelector('.twm-plot-config__overlay'), 'Overlay');
+        pick(source(), 'G');
+        const first = cfRendered.at(-1);
+        pick(source(), 'C');
+        ok('choosing another source disposes the old overlay colour field', cfDisposed.has(first));
+        const second = cfRendered.at(-1);
+        pick(source(), 'None');
+        ok('choosing None disposes the current one', cfDisposed.has(second));
+        o.editor.dispose();
+    } finally {
+        ColorField.prototype.dispose = orig;
+        ColorField.prototype.render = origRender;
+    }
 }
 
 await ticks();

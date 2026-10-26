@@ -11293,6 +11293,11 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     flex: 1 1 140px;
     min-width: 0;
 }
+/* A picker has no helper text: its empty helper takes no room (it held a
+ * 28px gap under every picker, and the series header line off its centre). */
+.twm-plot-config__picker > .twm-autocomplete-field__helper:empty {
+    display: none;
+}
 .twm-plot-config__axes,
 .twm-plot-config__list,
 .twm-plot-config__series-list {
@@ -11326,37 +11331,114 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     gap: var(--space-xs) var(--space-md);
 }
+/* A series is one block (BUG-0052): a header line (picker, legend label,
+ * remove) over its fields, one per line on the editor's 96px label column —
+ * colour, width, dash, stack group, the embedder's `extraSeriesFields` (their
+ * box is `display: contents`, so its rows are rows of the column) and the
+ * overlay. Until 0.17.15 all of it was one wrapped line. */
 .twm-plot-config__series {
     display: flex;
     flex-direction: column;
-    gap: var(--space-xxs);
-    padding: var(--space-xs) 0;
+    gap: var(--space-xs);
+    padding: var(--space-sm) 0;
     border-top: 1px solid var(--border-subtle);
+    min-width: 0;
 }
-.twm-plot-config__series-main,
+.twm-plot-config__series-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+.twm-plot-config__series-head > .twm-plot-config__picker {
+    flex: 2 1 140px;
+}
+.twm-plot-config__series-head > .twm-plot-config__input {
+    flex: 1 1 100px;
+}
+.twm-plot-config__series-fields {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xxs);
+    min-width: 0;
+}
+.twm-plot-config__series-extra {
+    display: contents;
+}
 .twm-plot-config__row {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: var(--space-xs);
 }
-.twm-plot-config__series-main > .twm-plot-config__input:not(.twm-plot-config__input--number):not(.twm-plot-config__input--select),
 .twm-plot-config__row > .twm-plot-config__input:not(.twm-plot-config__input--number):not(.twm-plot-config__input--select) {
     flex: 1 1 100px;
 }
-.twm-plot-config__series-main > .twm-plot-config__input--select,
 .twm-plot-config__row > .twm-plot-config__input--select {
     flex: 0 1 auto;
 }
-.twm-plot-config__series-extra:empty {
-    display: none;
+/* On a field line a colour is the swatch and a hex box sized to `#rrggbb`. */
+.twm-plot-config__field > .twm-color-field {
+    flex: 0 1 auto;
+    flex-wrap: nowrap;
 }
+.twm-plot-config__field > .twm-color-field > .twm-color-field__hex {
+    flex: 0 1 auto;
+    width: 10ch;
+}
+/* A colour's hex box is a well like the editor's other inputs. */
+.twm-plot-config .twm-color-field__hex {
+    box-sizing: border-box;
+    padding: var(--space-xxs) var(--space-xs);
+    background: var(--surface-3);
+    color: var(--text-primary);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+}
+/* ... and still shows a hex that is not a colour (the well's border above
+ * would otherwise hide ColorField's invalid border). */
+.twm-plot-config .twm-color-field--invalid .twm-color-field__hex {
+    border-color: var(--color-danger);
+}
+/* A field line's select keeps to its options, as the number boxes do. */
+.twm-plot-config__series-fields .twm-plot-config__field > .twm-plot-config__input--select {
+    flex: 0 1 auto;
+    max-width: 100%;
+}
+/* An embedder's control drawn by a field spec's `render(slot)`. */
+.twm-plot-config__slot {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+/* A field's hint, under its control: past the label column. Only a field
+ * with a hint wraps, so a number box never drops under its label. */
+.twm-plot-config__field--hinted {
+    flex-wrap: wrap;
+}
+.twm-plot-config__hint {
+    box-sizing: border-box;
+    flex: 1 0 100%;
+    padding-left: calc(96px + var(--space-sm));
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+}
+/* The overlay's own fields, under its source: set in by a rule, their label
+ * column shortened by as much, so their controls stay on the series' column. */
 .twm-plot-config__overlay,
 .twm-plot-config__overlay-fields {
     display: flex;
     flex-direction: column;
     gap: var(--space-xxs);
-    padding-left: var(--space-md);
+    min-width: 0;
+}
+.twm-plot-config__overlay-fields:not(:empty) {
+    margin-left: var(--space-sm);
+    padding-left: calc(var(--space-sm) - 1px);
+    border-left: 1px solid var(--border-subtle);
+}
+.twm-plot-config__overlay-fields > .twm-plot-config__field > .twm-plot-config__label {
+    flex-basis: calc(96px - 2 * var(--space-sm));
 }
 .twm-plot-config__overlay-source {
     color: var(--text-muted);

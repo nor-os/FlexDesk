@@ -4,6 +4,67 @@
 
 The window manager binds a set of keyboard chords: F1 to F12, Backspace, Ctrl+K, Ctrl+Tab, Ctrl/Shift+Arrows, the Alt chords, `?` and Esc. `keymap.bindings` takes any of them back or rebinds it. The same page covers what depends on those keys and on how a user moves around: what Back and the breadcrumb do, the content zoom control (`chrome.zoom`), and the shell options `backToOpenList`, `floatActiveTab` and `tabLayout`.
 
+## The digit chords follow the key's position, not its character (0.17.14)
+
+Alt+1..9 switch to desktop N and Alt+Shift+1..9 move the focused tile to desktop
+N. The keymap now names the digit row by the key's position, `event.code`
+(`Digit1`..`Digit9`), which neither Shift nor the keyboard layout changes, and
+no longer by the character the key types, `event.key`. Through 0.17.13 it read the
+character, so a real Alt+Shift+2 never matched: Shift turns the 2 into `@` on a
+US keyboard and `"` on a German one. Moving a tile worked from the tile's
+context menu but not from the keyboard, while a synthetic event with
+`key: '2'` did match, which hid it. The chord ids are unchanged, so `bindings`
+spelled `Alt+Shift+2` takes back or rebinds the chord whatever the layout.
+
+On every keyboard below, Alt with the key at position 2 now switches to desktop
+2 and Alt+Shift with it moves the tile there (a Mac in a text field is the one
+exception, below):
+
+| Keyboard | That key types | Through 0.17.13 |
+|---|---|---|
+| US | `2`, with Shift `@` | Alt+2 switched; Alt+Shift+2 did nothing |
+| German | `2`, with Shift `"` | the same |
+| French AZERTY | `é`, with Shift `2` | Alt+2 did nothing; Alt+Shift+2 moved the tile |
+| Mac, Option held | `™`, with Shift `€` | neither did anything, outside a text field |
+
+Alt+Shift+N for the desktop you are already on does nothing, and a panel (the
+Navigator, say) cannot be moved to another desktop. The tile menu never offered
+either, and `wm.moveFocusedToDesktop` refuses both itself, so the keyboard
+cannot do what the menu will not.
+
+Four kinds of press are still read by the character, `event.key`, as before:
+
+- **An event with no position.** A synthetic `KeyboardEvent` that sets `key` and
+  no `code` is read by `key`, so a test or a script that dispatches
+  `{ key: '2', altKey: true }` keeps working. So does the numpad, whose `code` is
+  `Numpad2`: with NumLock on its `key` is the digit and it is a digit chord, and
+  with NumLock off its `key` is `ArrowDown` and it is the arrow chord.
+- **AltGr.** Windows reports AltGr as Ctrl+Alt, and a German, French or Spanish
+  layout types `{ [ ] @ # |` on its digit row with it. Those presses are not
+  digit chords: nothing switches, and the character is typed, in a field too.
+- **Option on a Mac, in a text field.** Option changes the character on every
+  Mac layout, and a programmer types on the digit row with it: on a German
+  keyboard Option+5, 6, 7, 8 and 9 type `[ ] | { }` and Option+Shift+7 types
+  `\`, on a Spanish or Swedish one Option+2 types `@`, on a US one `™`. Such a
+  press is an Alt press with no Ctrl and no AltGr state, so nothing in the
+  event tells it from Alt+2 on Windows, and the keymap goes by the platform
+  instead (`navigator.userAgentData.platform`, or `navigator.platform` where
+  the browser has no such property, naming a Mac, an iPhone or an iPad). With
+  focus in an input, a textarea, a select or a `contenteditable="true"`
+  element that press is typing: nothing switches and the character is typed.
+  With focus anywhere else nothing is typed, so it is a chord by position like
+  every other press, and Option+2 switches to desktop 2 on any Mac keyboard. To
+  switch desktops by key while typing on a Mac, leave the field first. Windows
+  and Linux have no such limit: Alt types no character there, so the digit
+  chords work in a field.
+- **Letters.** Alt+H, V, T, N, W and F, and the Alt+letter swallowing, are still
+  named by the character. Letter keys move between layouts (the key that types
+  `w` on AZERTY sits where QWERTY has `z`), so a position would bind the wrong
+  key there. Option+letter on a Mac types a symbol (Option+H is `˙`), which is
+  not a letter, so those chords do not fire on a Mac.
+
+`tests/keymap_digit_row.test.mjs` pins it.
+
 ## Your keys, not the window manager's: `keymap` (0.17.0)
 
 The window manager binds F1..F12, Backspace, Ctrl+K, Ctrl+Tab, Ctrl/Shift+Arrows,
@@ -42,9 +103,11 @@ throw a `TypeError`, so a binding you meant to change never stays in force
 unnoticed.
 
 **A key press is read as loosely as before.** With no bindings every key does
-what it did in 0.16, and a binding takes over every key press its chord was
-read as. Backspace ignores Shift and Alt, so `{ Backspace: false }` also hands
-Shift+Backspace and Alt+Backspace to the page. Alt+T/N/W/F ignore Shift. With
+what it did in 0.16, apart from the digit row, which is read by position (see
+[the digit chords](#the-digit-chords-follow-the-keys-position-not-its-character-01714)),
+and a binding takes over every key press its chord was read as. Backspace
+ignores Shift and Alt, so `{ Backspace: false }` also hands Shift+Backspace and
+Alt+Backspace to the page. Alt+T/N/W/F ignore Shift. With
 Alt held, Ctrl and Meta are ignored, so Alt+Ctrl+H is `Alt+H`. Ctrl+K and
 Ctrl+Tab also match with Meta held, and Ctrl wins when both are held:
 Ctrl+Meta+K is `Ctrl+K`, and Meta+K is `Meta+K` only without Ctrl. Esc and `?`

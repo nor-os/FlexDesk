@@ -3975,10 +3975,26 @@ export class WindowManager {
         return true;
     }
 
+    /**
+     * Move the focused tile, with every tab it holds, to desktop `idx` (from 0).
+     * A refused move returns `undefined` and changes nothing; the callers (the
+     * keymap's `toDesktop:N`, the tile menu's *Move to desktop*) read no result.
+     *
+     * The tile menu (`shell.js`, `_tileContextMenu`) never offers a panel, a
+     * fixed desktop or the desktop you are on, and this method refuses all
+     * three itself, because the menu is one door and Alt+Shift+N is another.
+     * A fixed desktop it always refused; a panel and the desktop you are on it
+     * did not, and the move to the desktop you are on destroys the tile: source
+     * and target are one tree, so the tabs are appended to its primary tile and
+     * then the focused tile is closed. A stray Shift on Alt+N reaches that.
+     */
     moveFocusedToDesktop(idx) {
         const tree = this._tree();
         const focused = tree.focused();
         if (!focused || !focused.content) return;
+        // A panel is chrome, not content (the menu's `isPanel`). Moved, it would
+        // replace the target desktop's home ground.
+        if (String(focused.content.kind || '').startsWith('panel:')) return;
         // C20. IT DESTROYS A LEAF, SO IT ANSWERS TO THE SAME VETO `closeFocused`
         // does. A move is not a close from the pane's point of view, but it is
         // exactly a close from the PAGE's: this was the fourth door out of a
@@ -3988,6 +4004,9 @@ export class WindowManager {
         if (closeChrome === false || closeChrome?.disabled === true) return;
         // C40. A fixed desktop is the embedder's, and nothing is moved onto it.
         if (this.desktops.desktops[idx]?.fixed) return;
+        // Already there. Without this, `tree.close` below removes the tile from
+        // the same tree its tabs were just appended to, and it is gone.
+        if (idx === this.desktops.activeIdx) return;
         this.desktops.ensureCount(idx + 1);
         const target = this.desktops.desktops[idx];
         // C40. THE PANE'S TABS JOIN THE TARGET'S PRIMARY LEAF, ALL OF THEM. It

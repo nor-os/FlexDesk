@@ -287,6 +287,70 @@ function _compose(mods, key) {
     return [...used, k].join('+');
 }
 
+/** What counts as "focus is in an editable field": a key press aimed at one of
+ *  these may be typing. */
+const TEXT_FIELDS = 'input, textarea, select, [contenteditable="true"]';
+
+/**
+ * Whether Alt on this machine is a key that TYPES: Option on a Mac (and on an
+ * iPad with a keyboard). Option changes the character on every Mac layout, so
+ * Option+digit is how a programmer types `{ } [ ] | \ @ #` on a German,
+ * Spanish, Swedish or French keyboard, where Windows and Linux keep Alt for
+ * shortcuts and type those with AltGr. Nothing in the event tells the two
+ * apart (a US Windows Alt+Shift+2 and a German Mac Option+8 both arrive as
+ * `altKey` with a printable `key`), so this is read from the platform, at the
+ * key press so that it is never stale.
+ */
+function _altTypes() {
+    const nav = globalThis.navigator;
+    return /^(mac|iphone|ipad|ipod)/i.test(nav?.userAgentData?.platform || nav?.platform || '');
+}
+
+/**
+ * The digit ('1'..'9') a keydown on the digit row stands for, or null.
+ *
+ * `e.key` is what the layout and the modifiers TYPE, and `Alt+Shift+2` names a
+ * key, not a character. With Shift held a US keyboard's 2 types "@" and a
+ * German one's '"'; Option on a Mac types "™" or "€"; and an AZERTY keyboard's
+ * digit row types "&", "é", '"' and the like with no modifier at all and the
+ * digits only with Shift. Read `e.key` and Alt+Shift+2 is never seen from a
+ * real key press (only from a synthetic event that sets `key: '2'`, which is
+ * how the tests hid it), and on AZERTY it is the unshifted Alt+1..9 that never
+ * fire. `e.code` is the key's position (`Digit2`), which neither Shift nor the
+ * layout changes.
+ *
+ * `e.key` is still read in three cases:
+ *
+ *  - An event with no `Digit` code: a synthetic one that carries only `key`,
+ *    and the numpad (`Numpad2`), whose `key` is the digit itself with NumLock
+ *    on and a navigation key ("ArrowDown") with it off. The numpad is left to
+ *    say which it is, so a numpad used as arrows still moves focus.
+ *  - AltGr. Windows reports it as Ctrl+Alt, and a German, French or Spanish
+ *    layout types `{ [ ] @ # |` on its digit row with it. Taking those events
+ *    for Alt+digit would switch desktops, and swallow the character in a
+ *    field (the Alt chords work in fields), instead of typing it.
+ *  - Option on a Mac, with focus in an editable field. It types the same
+ *    characters AltGr does (German Option+8 is "{"), but arrives as a bare
+ *    `altKey` with no Ctrl and no AltGraph state, so the AltGr test above does
+ *    not see it. Out of a field nothing is typed, so there the key's position
+ *    is read as everywhere else and Option+2 switches desktop; in a field the
+ *    character is typed, as it was before the position was read, and the
+ *    chord waits for focus to leave the field. The test is the platform, not
+ *    "does `key` look like a character": US Windows Alt+Shift+2 types "@" in
+ *    the same way and is the very press this function exists to read.
+ *
+ * This is for the digit row only. Letter keys move with the layout (AZERTY and
+ * QWERTZ swap some, Dvorak most), so `KeyW` is not "the W key" there: a letter
+ * chord stays named by the character its key types.
+ */
+function _digitOfEvent(e) {
+    const typesCharacter = e.getModifierState?.('AltGraph') || (e.ctrlKey && e.altKey)
+        || (_altTypes() && !!e.target?.closest?.(TEXT_FIELDS));
+    const byPosition = typesCharacter ? null : /^Digit([1-9])$/.exec(e.code ?? '');
+    if (byPosition) return byPosition[1];
+    return /^[1-9]$/.test(e.key) ? e.key : null;
+}
+
 /**
  * The chord id a keydown event is read as, in `DEFAULT_CHORDS`' spelling, or
  * null. This is NOT an exact match on the modifier set: it reads an event the
@@ -303,6 +367,9 @@ function _compose(mods, key) {
  *   F1..F12, Shift+Left/Right, Ctrl+Left/Right     exactly those modifiers
  *   with Alt held, Ctrl and Meta are ignored:
  *     Alt(+Shift)+1..9, +H, +V, +Arrow             Shift picks the Alt+Shift+… row
+ *                                                  (1..9 by the key's position,
+ *                                                  not the character it types:
+ *                                                  see `_digitOfEvent`)
  *     Alt+T / N / W / F                            Shift ignored
  *     any other Alt+letter                         Alt+Letter
  *
@@ -330,7 +397,8 @@ function _chordOfEvent(e) {
         return null;
     }
     const sh = shift ? 'Shift+' : '';
-    if (/^[1-9]$/.test(key)) return `Alt+${sh}${key}`;
+    const digit = _digitOfEvent(e);
+    if (digit) return `Alt+${sh}${digit}`;
     if (lower === 'h' || lower === 'v') return `Alt+${sh}${lower.toUpperCase()}`;
     if (lower === 't' || lower === 'n' || lower === 'w' || lower === 'f') return `Alt+${lower.toUpperCase()}`;
     if (ARROWS.includes(key)) return `Alt+${sh}${key}`;
@@ -442,7 +510,7 @@ export function installKeymap({ wm, palette, navSelector = null, bindings = null
         if (!chord) return;
         const b = table.get(chord);
         if (!b || b.disabled) return;
-        if (!b.inField && e.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+        if (!b.inField && e.target?.closest?.(TEXT_FIELDS)) return;
         if (b.run(ctx, e) !== false) e.preventDefault();
     };
 

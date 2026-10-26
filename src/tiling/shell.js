@@ -708,7 +708,9 @@ function _tileContextMenu(wm, leafId, x, y) {
     ];
     if (wm.desktops.desktops.length > 1 && !isPanel) {
         for (const [i, d] of wm.desktops.desktops.entries()) {
-            // C40. Never onto a fixed desktop — `moveFocusedToDesktop` refuses.
+            // C40. Never onto a fixed desktop, nor the one you are on, and (see
+            // `isPanel` above) never a panel: `moveFocusedToDesktop` refuses all
+            // three too, because the keyboard reaches it without this menu.
             if (i === wm.desktops.activeIdx || d.fixed) continue;
             items.push({ label: `Move to desktop ${d.label}`, icon: 'sweep',
                          action: `move:${i}` });

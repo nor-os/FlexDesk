@@ -136,7 +136,8 @@ export function createTreeNode(options) {
 /**
  * Fill a node's or an item's actions slot: one `.twm-tree-node__action-btn`
  * per entry. A click on an entry with `onClick` runs `onClick(id, event)` and
- * goes no further, so it neither selects the item nor toggles the node.
+ * goes no further, so it neither selects the item nor toggles the node; nor
+ * does a double-click, so it never reaches TreeView's onItemDoubleClick.
  * @param {HTMLElement} actionsEl
  * @param {string} id - The node's or item's id
  * @param {Object<string, { icon: string, title?: string, onClick?: Function }>} actions
@@ -154,6 +155,7 @@ function appendActionButtons(actionsEl, id, actions) {
                 e.stopPropagation();
                 actionConfig.onClick(id, e);
             });
+            btn.addEventListener('dblclick', (e) => e.stopPropagation());
         }
         actionsEl.appendChild(btn);
     });

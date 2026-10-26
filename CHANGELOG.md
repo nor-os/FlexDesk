@@ -3,11 +3,11 @@
 ## 0.17.14 (2026-10-26)
 
 A patch release. Everything below is additive except one changed default (see
-"Changed default"). Each entry links to its section of the docs.
+"Changed default"). Each entry with a docs section links to it.
 
 ### Added and changed
 
-- [Tree items with row actions](docs/components/layout-widgets.md#tree-items-with-row-actions-01714): `createTreeItem` takes `actions` in the shape `createTreeNode` takes them (`{ id: { icon, title, onClick(id, event) } }`). The buttons (`.twm-tree-node__action-btn`) sit in one line in a `.twm-tree-item__actions` slot at the row's end, shown on hover, on focus within and on the selected item; the slot takes no height, so a row is as tall with actions as without, and a click on an action does not select the item. Without `actions` the markup is unchanged (STORY-0121).
+- [Tree items with row actions](docs/components/layout-widgets.md#tree-items-with-row-actions-01714): `createTreeItem` takes `actions` in the shape `createTreeNode` takes them (`{ id: { icon, title, onClick(id, event) } }`). The buttons (`.twm-tree-node__action-btn`) sit in one line in a `.twm-tree-item__actions` slot at the row's end, shown on hover, on focus within and on the selected item; the slot takes no height, so a row is as tall with actions as without; it is hidden by opacity, so Tab still reaches the buttons; a click on an action does not select the item and a double-click does not reach `onItemDoubleClick`. Without `actions` the markup is unchanged. `createTreeNode`'s action buttons, built by the same code, are now `type="button"`, so inside a form they no longer submit it (STORY-0121).
 - [The digit chords follow the key's position](docs/components/keymap.md#the-digit-chords-follow-the-keys-position-not-its-character-01714): Alt+1..9 and Alt+Shift+1..9 match `event.code` (`Digit1`..`Digit9`), so Alt+Shift+N moves the focused tile to desktop N from a real key press on any layout (BUG-0046).
 - [Spinners turn without keyframes of your own](docs/concepts/styling.md#spinners-turn-without-keyframes-of-your-own-01714): flexdesk.css defines the `@keyframes` its tile-loading, data-table, computing-status and run-progress spinners name (BUG-0047).
 - [A saved layout that cannot be read](docs/components/panels-and-desktops.md#a-saved-layout-that-cannot-be-read-01714): a saved `desktops` layout that is JSON but not a layout is ignored with one warning, and the shell opens its default layout instead of throwing (BUG-0048).

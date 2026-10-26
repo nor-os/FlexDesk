@@ -219,11 +219,15 @@ const item = createTreeItem({
   `.twm-tree-item__actions` slot, the row's last child, after the label, the
   subtitle and the badge.
 - A click on an entry with `onClick` calls `onClick(id, event)` and stops
-  there, so it does not select the item.
+  there, so it does not select the item; a double-click on it does not reach
+  TreeView's `onItemDoubleClick` either.
 - The slot is one line at the row's end, shown on hover, on focus within the
-  row and on the selected item. It takes no height of its own (`height: 0`,
-  the buttons centred on the label line), so a row is as tall with actions as
-  without.
+  row and on the selected item. Elsewhere it is transparent and takes no
+  pointer, but its buttons stay in the tab order, so Tab reaches them and
+  shows them. It takes no height of its own (`height: 0`, the buttons centred
+  on the label line), so a row is as tall with actions as without.
+- `createTreeNode`'s action buttons, built by the same code, are now
+  `type="button"` too: inside a form they no longer submit it.
 - Without `actions` the item's markup is what it was. Until 0.17.13 an item
   had no actions, and an app that added its own slot got no styles for it
   (STORY-0121).

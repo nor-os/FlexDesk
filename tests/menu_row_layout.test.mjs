@@ -55,7 +55,7 @@ ok(`every token it reads is defined in tokens.css (${used.join(', ')})`,
    used.length && used.every((name) => new RegExp(`^\\s*${name}\\s*:`, 'm').test(TOKENS)));
 check('in normal flow: no position (the top bar\'s legacy fixed does not apply)', decl(row, 'position'), null);
 check('no z-index, so the top bar\'s dropdowns draw over it', decl(row, 'z-index'), null);
-ok('no fixed height: it is the bar\'s height plus its padding', !decl(row, 'height'));
+ok('no fixed height: it is the bar\'s height plus its padding and borders', !decl(row, 'height'));
 // STORY-0122: a band of its own, set off from the top bar above and the host below
 check('a band darker than the top bar', decl(row, 'background-color'), 'var(--surface-0)');
 check('a border above it', decl(row, 'border-top'), '1px solid var(--border-strong)');
@@ -154,7 +154,7 @@ Object.defineProperty(window, 'innerHeight', { configurable: true, value: 800 })
 globalThis.innerWidth = 1200;
 globalThis.innerHeight = 800;
 globalThis.localStorage ||= window.localStorage;
-const ROW_H = 29;
+const ROW_H = 30;   // the bar (24) + padding (2 + 2) + the two borders (1 + 1)
 menuRow.getBoundingClientRect = () => ({ x: 0, y: 35, left: 0, top: 35, right: 1200, bottom: 35 + ROW_H, width: 1200, height: ROW_H });
 const maximised = (id) => {
     const w = new ManagedWindow({ id, title: id, content: document.createElement('div'),

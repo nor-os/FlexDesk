@@ -101,6 +101,62 @@ The bar is `.twm-menubar` (not the older `.twm-menu-bar` icon strip).
 `tests/menu_bar.test.mjs` drives it in jsdom; `tests/menu_bar_css.test.mjs`
 holds its stylesheet.
 
+## The menu bar in its own row under the top bar (0.17.13)
+
+A shell's menu bar can sit on a second line, as a full-width strip directly
+under the top bar. Put `chrome.menuBar` in a `.twm-global-menu-bar` that is a
+child of `body.twm-body`, between `.twm-global-top-bar` and the host:
+
+```html
+<body class="twm-body">
+  <div class="twm-global-top-bar">
+    <div class="twm-bar-left">…</div>
+    <div class="twm-bar-center twm-top-nav">…</div>
+    <div class="twm-bar-right">…</div>
+  </div>
+  <div class="twm-global-menu-bar">
+    <div id="menus"></div>            <!-- chrome.menuBar -->
+  </div>
+  <div class="twm-host">…</div>     <!-- createShell's root -->
+  <div class="twm-global-bottom-bar">…</div>
+</body>
+```
+
+```js
+const shell = await createShell({
+    // …
+    menuBar: { menus, onAction },
+    chrome:  { menuBar: document.getElementById('menus') },
+});
+```
+
+- **The host gives up the row's height.** `body.twm-body` is a flex column,
+  and the row is a fixed-size item in it (`flex: 0 0 auto`). The host still
+  takes whatever is left, so it is shorter by the row's height and nothing is
+  drawn under the row. The row's height is the bar's (24px) plus its padding.
+- **It is styled with FlexDesk tokens.** It is a flex row with
+  `padding: var(--space-xxs) var(--space-xs)`, background `var(--surface-1)`,
+  text `var(--text-body)` and a bottom border `var(--surface-0)`, the same
+  border as the top bar. The `.twm-menubar` inside it keeps its own styles.
+- **It is not part of the top bar.** It is a sibling of `.twm-global-top-bar`,
+  not inside it. A window-drag region bound to the top bar
+  (`WindowChromeController`'s `topBar`, which defaults to
+  `.twm-global-top-bar`) does not include the row. A press on the row never
+  drags the window, and its menus open and take clicks as usual. The row sets
+  no `z-index`, so the top bar's dropdowns are drawn over it, and the bar's
+  menus (`position: fixed`) are drawn over the page.
+- **Windows on the page stop under it.** A `ManagedWindow` on `document.body`
+  (no `container`) is clamped, centred and maximised below the top bar and
+  the row, not under the row. Windows inside the shell already stay within
+  the host.
+
+A shell without the row looks exactly as before: nothing changes until the
+page has a `.twm-global-menu-bar`. The row works only inside `body.twm-body`.
+Outside it, the top bar is `position: fixed` and would cover the row.
+`tests/menu_row_layout.test.mjs` loads flexdesk.css in jsdom and checks the
+row's rules, its place after the top bar, the drag region and the window
+bounds.
+
 ## Action dropdowns: separators (0.17.0)
 
 `new ActionDropdown({ trigger, options, onSelect })` draws one button per

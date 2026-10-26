@@ -17,11 +17,11 @@ import {
 } from "./chunk-MIW7D6WC.js";
 import {
   showContextMenu
-} from "./chunk-F35XSQWA.js";
+} from "./chunk-IG74S3ZH.js";
 import {
   modalHost,
   openModal
-} from "./chunk-BE2PU3LL.js";
+} from "./chunk-ZMH3OC7H.js";
 import {
   buildHistogramTrace,
   buildLegendLayout,
@@ -36,11 +36,11 @@ import {
   purge,
   resize,
   strideDownsampleShared
-} from "./chunk-75FLVAUT.js";
-import "./chunk-NIJEJAZ7.js";
+} from "./chunk-TLIV6QSU.js";
+import "./chunk-2PM6ZMNS.js";
 import {
   isHexColor
-} from "./chunk-CVMCZZX2.js";
+} from "./chunk-MADMGRX2.js";
 import "./chunk-HNU6MM2B.js";
 import "./chunk-WUFLGETN.js";
 import {

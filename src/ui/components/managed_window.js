@@ -34,6 +34,17 @@ const MAX_Z_INDEX = 6999;
 const TOP_BAR_HEIGHT = 35;
 const BOTTOM_BAR_HEIGHT = 22;
 
+/** STORY-0119. The space above a window on `document.body`: the top bar, and
+ *  under it a shell's menu row (`.twm-global-menu-bar`, a sibling of the top
+ *  bar in body.twm-body's column) when the page has one. The row is measured,
+ *  not assumed, because its height is its content's. Without a row this is
+ *  TOP_BAR_HEIGHT, exactly as before. */
+function _topInset() {
+    const row = typeof document !== 'undefined'
+        ? document.querySelector('body > .twm-global-menu-bar') : null;
+    return TOP_BAR_HEIGHT + (row ? row.getBoundingClientRect().height : 0);
+}
+
 /** C11. How close to an edge the POINTER must come for a snap zone to arm.
  *  Small enough that it takes intent, large enough to hit without aiming. */
 const SNAP_EDGE = 12;
@@ -953,6 +964,10 @@ export class ManagedWindow {
      *      width  = window.innerWidth
      *      height = window.innerHeight - TOP_BAR_HEIGHT - BOTTOM_BAR_HEIGHT
      *
+     *  (STORY-0119: TOP_BAR_HEIGHT here is `_topInset()`, which is
+     *  TOP_BAR_HEIGHT on a page without a menu row and adds the row's height
+     *  on a page with one.)
+     *
      *  so, substituting into the clamps below:
      *
      *      maxWidth  = width                          = window.innerWidth                      ✓
@@ -1005,11 +1020,12 @@ export class ManagedWindow {
                 height: this.container.clientHeight,
             };
         }
+        const top = _topInset();
         return {
             minX: 0,
-            minY: TOP_BAR_HEIGHT,
+            minY: top,
             width: window.innerWidth,
-            height: window.innerHeight - TOP_BAR_HEIGHT - BOTTOM_BAR_HEIGHT,
+            height: window.innerHeight - top - BOTTOM_BAR_HEIGHT,
         };
     }
 
@@ -1266,7 +1282,8 @@ export class ManagedWindow {
         } else {
             // Center on screen (between top and bottom bars)
             this.x = Math.max(0, (maxWidth - this.width) / 2);
-            this.y = Math.max(TOP_BAR_HEIGHT, TOP_BAR_HEIGHT + (maxHeight - this.height) / 2);
+            const top = _topInset();
+            this.y = Math.max(top, top + (maxHeight - this.height) / 2);
         }
     }
 
@@ -1584,7 +1601,8 @@ export class ManagedWindow {
 
         // Calculate max available dimensions
         const maxWidth = window.innerWidth;
-        const maxHeight = window.innerHeight - TOP_BAR_HEIGHT - BOTTOM_BAR_HEIGHT;
+        const top = _topInset();
+        const maxHeight = window.innerHeight - top - BOTTOM_BAR_HEIGHT;
 
         let newX = state.startWinX;
         let newY = state.startWinY;
@@ -1604,12 +1622,12 @@ export class ManagedWindow {
 
         // Handle vertical resize
         if (dir.includes('s')) {
-            newH = Math.max(this.minHeight, Math.min(state.startHeight + dy, maxHeight - (newY - TOP_BAR_HEIGHT)));
+            newH = Math.max(this.minHeight, Math.min(state.startHeight + dy, maxHeight - (newY - top)));
         }
         if (dir.includes('n')) {
             const maxDy = state.startHeight - this.minHeight;
             const actualDy = Math.min(dy, maxDy);
-            newY = Math.max(TOP_BAR_HEIGHT, state.startWinY + actualDy);
+            newY = Math.max(top, state.startWinY + actualDy);
             newH = state.startHeight - (newY - state.startWinY);
         }
 

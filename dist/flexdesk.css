@@ -1695,6 +1695,25 @@ body.twm-dt-col-resizing {
 .twm-global-top-bar, .twm-global-top-bar .twm-bar-left, .twm-global-top-bar .twm-bar-center, .twm-global-top-bar .twm-bar-right {
     min-width: 0; /* allow flex children to shrink */
 }
+/* Global menu row (STORY-0119, 0.17.13): a shell's `chrome.menuBar` in a
+ * full-width strip of its own, directly under .twm-global-top-bar in
+ * body.twm-body's column (host.css), so the host below shrinks by its height.
+ * It is a sibling of the top bar, not inside it: a window-drag region bound
+ * to the top bar does not include it. No z-index, so it is no stacking
+ * context: the top bar's dropdowns draw over it, and the .twm-menubar inside
+ * keeps its own styles, its menus (position: fixed, --z-over-windows) drawing
+ * over the page. Its height is the bar's plus the padding. */
+.twm-global-menu-bar {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    box-sizing: border-box;
+    padding: var(--space-xxs) var(--space-xs);
+    background-color: var(--surface-1);
+    color: var(--text-body);
+    border-bottom: 1px solid var(--surface-0);
+    overflow: visible; /* the bar's menus extend below */
+}
 .twm-bar-center {
     white-space: nowrap;
     overflow: hidden;
@@ -8528,8 +8547,9 @@ body.twm-dragging * { user-select: none; }
  * the WM host fills the remaining space.
  */
 
-/* Body is a flex column: top bar, WM host (fill), bottom bar. We
- * override the legacy `position: fixed` on both bars so they become
+/* Body is a flex column: top bar, menu row (when there is one), WM host
+ * (fill), bottom bar. We override the legacy `position: fixed` on both
+ * bars so they become
  * deterministic flex items and the host's height is exactly the
  * leftover space — no math, no overlap, no off-by-N pixels. Their
  * `z-index` stays put for dropdown stacking. */
@@ -8545,6 +8565,12 @@ body.twm-body > .twm-global-top-bar,
 body.twm-body > .twm-global-bottom-bar {
     position: relative !important;
     inset: auto !important;
+    flex: 0 0 auto;
+}
+/* The menu row (STORY-0119) sits between the top bar and the host, in
+ * normal flow: a fixed-size strip, so the host's leftover space is less by
+ * exactly its height. */
+body.twm-body > .twm-global-menu-bar {
     flex: 0 0 auto;
 }
 body.twm-body > .twm-host {

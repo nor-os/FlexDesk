@@ -1797,8 +1797,9 @@ body.twm-dragging * { user-select: none; }
  * the WM host fills the remaining space.
  */
 
-/* Body is a flex column: top bar, WM host (fill), bottom bar. We
- * override the legacy `position: fixed` on both bars so they become
+/* Body is a flex column: top bar, menu row (when there is one), WM host
+ * (fill), bottom bar. We override the legacy `position: fixed` on both
+ * bars so they become
  * deterministic flex items and the host's height is exactly the
  * leftover space — no math, no overlap, no off-by-N pixels. Their
  * `z-index` stays put for dropdown stacking. */
@@ -1814,6 +1815,12 @@ body.twm-body > .twm-global-top-bar,
 body.twm-body > .twm-global-bottom-bar {
     position: relative !important;
     inset: auto !important;
+    flex: 0 0 auto;
+}
+/* The menu row (STORY-0119) sits between the top bar and the host, in
+ * normal flow: a fixed-size strip, so the host's leftover space is less by
+ * exactly its height. */
+body.twm-body > .twm-global-menu-bar {
     flex: 0 0 auto;
 }
 body.twm-body > .twm-host {

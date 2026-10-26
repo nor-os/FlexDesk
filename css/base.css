@@ -1275,6 +1275,25 @@ body.twm-dt-col-resizing {
 .twm-global-top-bar, .twm-global-top-bar .twm-bar-left, .twm-global-top-bar .twm-bar-center, .twm-global-top-bar .twm-bar-right {
     min-width: 0; /* allow flex children to shrink */
 }
+/* Global menu row (STORY-0119, 0.17.13): a shell's `chrome.menuBar` in a
+ * full-width strip of its own, directly under .twm-global-top-bar in
+ * body.twm-body's column (host.css), so the host below shrinks by its height.
+ * It is a sibling of the top bar, not inside it: a window-drag region bound
+ * to the top bar does not include it. No z-index, so it is no stacking
+ * context: the top bar's dropdowns draw over it, and the .twm-menubar inside
+ * keeps its own styles, its menus (position: fixed, --z-over-windows) drawing
+ * over the page. Its height is the bar's plus the padding. */
+.twm-global-menu-bar {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    box-sizing: border-box;
+    padding: var(--space-xxs) var(--space-xs);
+    background-color: var(--surface-1);
+    color: var(--text-body);
+    border-bottom: 1px solid var(--surface-0);
+    overflow: visible; /* the bar's menus extend below */
+}
 .twm-bar-center {
     white-space: nowrap;
     overflow: hidden;

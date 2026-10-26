@@ -21,7 +21,7 @@ await grid.update({ results: next });   // the empty cells say what is missing i
 ```
 
 The function is called each time a cell is drawn empty, with that cell's
-subplot, the grid's results at that moment (null when there are none) and the
+subplot, the grid's results at that moment (as the grid was given them, so null or undefined when there are none) and the
 cell's index in the layout: on the first draw, on every `update()` (new
 `results`, a new `plotConfig`, `overlays` or `hiddenSeries`), on a resize that
 draws a deferred cell, and when a subplot fails to draw. So the message follows

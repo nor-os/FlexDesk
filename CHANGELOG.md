@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.17.12 (2026-10-26)
+
+A patch release: everything below is additive. Every fix is documented in a
+section of the docs headed "(0.17.12)"; each entry links to it.
+
+### Added and changed
+
+- [An empty cell can name what is missing: `emptyMessage` as a function](docs/components/charts.md#an-empty-cell-can-name-what-is-missing-emptymessage-as-a-function-01712): `renderPlotGrid`, `PlotPopoutWindow` and `openPlotPopoutWindow` take `emptyMessage` as a string, as before, or as a function `(subplot, results, index) => string`. It is called each time a cell is drawn empty, with that cell's subplot, the grid's results at that moment (as the grid was given them, so null or undefined when there are none) and the cell's index in the layout: on the first draw, on every `update()` (new `results`, a new `plotConfig`, `overlays` or `hiddenSeries`), on a resize that draws a deferred cell, and when a subplot fails to draw, so the message follows results that stream in or change without rebuilding the grid. The plot window hands its `emptyMessage` to its grid, so the function is also called on the window's refresh and stream events and `updateConfig()`; `openPlotPopoutWindow` forwards it. A slot with no subplot still shows `noSubplotMessage`, the Data tab's `tableEmptyMessage` stays a string, and a string `emptyMessage` is shown exactly as before (STORY-0117).
+
+### Removed or renamed exports
+
+None. Compared with 0.17.11, across every entry point (`core`, `widgets`, `wm`,
+`host`, `canvas`, `flow`, `charts`, `tiles`, `editor`) and the package
+`exports` map, no export was added, removed or renamed, and no option was
+removed or renamed: `emptyMessage` accepts a function as well as a string.
+
 ## 0.17.11 (2026-10-25)
 
 A patch release: everything below is additive. Every fix is documented in a

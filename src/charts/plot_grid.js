@@ -108,7 +108,7 @@ function emptyMessageFor(message, subplot, results, index) {
  * @param {string|Function} [options.emptyMessage='No data yet.'] - What a subplot
  *        with nothing to draw says: a string, or `(subplot, results, index) => string`,
  *        called each time a cell is drawn empty (first draw, every `update()`, a
- *        failed draw) with the grid's results at that moment (null when there are none).
+ *        failed draw) with the grid's results at that moment (as the grid was given them, so null or undefined when there are none).
  * @param {string} [options.noSubplotMessage='No subplot configured.']
  * @param {Function} [options.onError] - `({ index, error })` when drawing a subplot
  *        throws — on an update or on a resize that draws a deferred one; that

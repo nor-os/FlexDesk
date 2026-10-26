@@ -4824,24 +4824,23 @@ button.twm-about-dialog__btn--close:focus {
     min-width: min(400px, var(--twm-slide-out-host-w, 400px));
     max-width: var(--twm-slide-out-host-w, none);
 
-    /* Never drawn outside its host (BUG-0051). While open the panel is
-     * `position: fixed` at its host's right edge, where the host's
-     * `overflow: hidden` no longer clips it, and a slide from
-     * translateX(100%) alone was drawn across whatever lies right of the
-     * host (a dock panel). The clip runs with the slide, at the same timing:
-     * at every frame its right inset equals the offset, so only the part
-     * already inside the panel's final box (inside the host) shows. The
-     * left inset of -16px keeps the box shadow, which falls on the host. */
-    transform: translateX(100%);
-    clip-path: inset(0 100% 0 -16px);
-    transition: transform 200ms ease-out, clip-path 200ms ease-out, visibility 0s linear 200ms;
+    /* Never drawn outside its final box (BUG-0051). While open the panel
+     * is `position: fixed` at its host's right edge, where the host's
+     * `overflow: hidden` no longer clips it, and its slide from
+     * translateX(100%) was drawn across whatever lies right of the host (a
+     * dock panel). It does not move any more: a clip alone carries the
+     * motion, revealing it from its right edge leftwards, so no frame can
+     * paint outside its box (a transform and a clip animated together can
+     * drift apart, the transform often running on the compositor). The left
+     * inset of -16px keeps the box shadow. */
+    clip-path: inset(0 0 0 100%);
+    transition: clip-path 200ms ease-out, visibility 0s linear 200ms;
     visibility: hidden;
 }
 .twm-slide-out-panel--open {
-    transform: translateX(0);
     clip-path: inset(0 0 0 -16px);
     visibility: visible;
-    transition: transform 200ms ease-out, clip-path 200ms ease-out, visibility 0s linear 0s;
+    transition: clip-path 200ms ease-out, visibility 0s linear 0s;
 }
 /* Header bar */
 .twm-slide-out-panel__header {

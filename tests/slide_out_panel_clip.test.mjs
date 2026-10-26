@@ -1,13 +1,13 @@
 /**
- * BUG-0051 — AN OPENING SLIDE-OUT PANEL IS NEVER DRAWN OUTSIDE ITS HOST.
+ * BUG-0051 — AN OPENING SLIDE-OUT PANEL IS NEVER DRAWN OUTSIDE ITS BOX.
  *
  * While open the panel is `position: fixed` at its host's right edge, where
  * the host's `overflow: hidden` no longer clips it; sliding in from
- * translateX(100%) it was drawn across the dock panel right of the host. A
- * clip now runs with the slide: closed, it is shifted by its own width and
- * clipped by its own width from the right; open, neither. With the same
- * duration and easing the clip's right inset equals the shift at every frame,
- * so only the part inside the panel's final box shows.
+ * translateX(100%) it was drawn across the dock panel right of the host. It
+ * does not move any more: a clip alone carries the motion (closed: clipped
+ * from the left by its whole width; open: not, but for the shadow's -16px),
+ * so no frame paints outside its final box. No transform is animated beside
+ * it: a transform (often run on the compositor) and a clip could drift apart.
  *
  * jsdom applies no stylesheet and runs no transition, so this reads the rules.
  *
@@ -35,14 +35,14 @@ for (const sheet of ['flexdesk.css', 'base.css']) {
     const css = readFileSync(join(HERE, '..', 'css', sheet), 'utf8');
     const closed = ruleBody(css, '.twm-slide-out-panel');
     const open = ruleBody(css, '.twm-slide-out-panel--open');
-    check('closed: shifted by its own width', decl(closed, 'transform'), 'translateX(100%)');
-    check('closed: clipped by its own width from the right', decl(closed, 'clip-path'), 'inset(0 100% 0 -16px)');
-    check('open: not shifted', decl(open, 'transform'), 'translateX(0)');
+    check('closed: clipped away from the left by its whole width', decl(closed, 'clip-path'), 'inset(0 0 0 100%)');
     check('open: not clipped (the left -16px keeps the shadow)', decl(open, 'clip-path'), 'inset(0 0 0 -16px)');
+    check('closed: no transform moves it', decl(closed, 'transform'), null);
+    check('open: no transform moves it', decl(open, 'transform'), null);
     for (const [name, body] of [['closing', closed], ['opening', open]]) {
         const t = decl(body, 'transition') || '';
-        const of = (prop) => (t.split(',').map((s) => s.trim()).find((s) => s.startsWith(`${prop} `)) || '').replace(`${prop} `, '');
-        check(`${name}: the clip runs with the slide, same duration and easing`, of('clip-path'), of('transform'));
+        check(`${name}: only the clip and visibility transition`,
+              t.split(',').map((x) => x.trim().split(' ')[0]).sort().join(','), 'clip-path,visibility');
     }
 }
 

@@ -137,6 +137,9 @@
     --z-popover:  200;
     --z-modal:    1000;
     --z-toast:    10000;
+    /* A context menu is what the pointer just asked for: over everything,
+       toasts and managed windows included (a right-click on a toast). */
+    --z-context-menu: 10100;
     /* What opens FROM a managed window and must draw over it: managed windows
        stack from 6000 to 6999 (managed_window.js), so a popover at
        --z-popover would open behind the window that opened it. */

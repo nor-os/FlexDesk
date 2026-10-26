@@ -120,7 +120,8 @@ background, a left border in the severity's colour (`--color-success`,
 `--color-warning`, `--color-danger`; info keeps the blue) and the entry
 animation `twm-notification-in`, which the sheet now defines. The card sets
 `pointer-events: auto` over the root's `none`, so its buttons and its
-click-to-close work.
+click-to-close work. Since [Copy message](#copy-message), click-to-close takes
+only a click on the card outside its text.
 
 Until 0.17.2 the card carried the bare `notification` / `notification--<severity>`
 classes, which no FlexDesk sheet styled: the card had no background and no
@@ -155,6 +156,27 @@ Until 0.17.3 the bell counted only on bus events, so a toast raised through
 `show()` / `warn()` / `error()` / `info()` never raised its badge, and a dismissal
 was pushed as a second entry: a toast that timed out was in `history` twice
 and counted twice. `tests/notification_history_follows_center.test.mjs` holds it.
+
+### Copy message
+
+Right-clicking a toast, or its entry in the `NotificationHistory` popover, opens
+the context menu (`showContextMenu`) with **Copy message**. It copies the
+notification's title, message and description, one per line and skipping any
+that is empty, as plain text through `navigator.clipboard.writeText`. The menu
+replaces the browser's native one there. The history popover stays open while
+its menu is used. Every context menu draws on `--z-context-menu` (tokens.css),
+over toasts (`--z-toast`) and managed windows, so the menu opens over the toast
+that was right-clicked.
+
+The text of a toast and of a history entry (title, message, description,
+status) is selectable: the sheets give it `user-select: text` over the body's
+`none`. A click or double-click on a toast's text (title, message,
+description, status) selects it and does not close the toast, nor does a click
+that ends a selection inside it. Only a click on the card outside the text (the
+header's empty space, the padding, the timestamp) closes it, besides the ×
+button. `notificationText(notification)` returns the copied
+text, and `showNotificationMenu(event, notification, logger)` opens the menu.
+Both are exported from `widgets`. `tests/notification_copy.test.mjs` covers it.
 
 ### Alerts with history: a log, a pane, a tab host and a bell (0.14.0)
 

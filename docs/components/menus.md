@@ -66,7 +66,8 @@ bar.setChecked('dark', true);     // …and unchecks the rest of the radio group
 `createMenuBar(el, opts)` returns a `MenuBar` (also exported, for
 `instanceof`). Its methods: `open(menuId, { focusItem })`, `close()`,
 `focus()`, `isOpen()`, `isEnabled(id)`, `isChecked(id)`, `setEnabled(id, on)`,
-`setChecked(id, on)`, `commands()` and `dispose()`.
+`setChecked(id, on)`, `commands()`, `setStyle(style)` (0.17.18, below) and
+`dispose()`.
 
 - **Pointer.** Clicking a title opens its menu; while one is open, hovering
   another title switches to it. Hovering an item with a submenu opens it.
@@ -100,6 +101,42 @@ shell.chrome.menuBar.setEnabled('save', dirty);
 The bar is `.twm-menubar` (not the older `.twm-menu-bar` icon strip).
 `tests/menu_bar.test.mjs` drives it in jsdom; `tests/menu_bar_css.test.mjs`
 holds its stylesheet.
+
+## A hamburger instead of the bar: `style: 'hamburger'` (0.17.18)
+
+The same menus can be drawn as one icon button in place of the row of titles,
+for a top bar with no room for File / Edit / Help. Its menu lists the menus,
+and each one flies out its items: ☰ › File › Open…
+
+```js
+const bar = createMenuBar(el, { menus, onAction, style: 'hamburger', label: 'Main menu' });
+bar.setStyle('bar');        // and back: bar.setStyle('hamburger')
+bar.style;                  // 'bar' | 'hamburger'
+```
+
+- **Options.** `style` is `'bar'` (the default) or `'hamburger'`; anything
+  else is a boot error. `icon` is the button's Material Symbols glyph
+  (`'menu'`). `label` names the button (its `aria-label` and its tooltip).
+- **The same model.** `onAction`, `setEnabled`, `setChecked`, `isEnabled`,
+  `isChecked` and `commands()` work as in the bar; an item fires with its own
+  id, never a hamburger id.
+- **`open(menuId, { focusItem })`** opens the hamburger with that menu flown
+  out, focus on its row (or, with `focusItem`, on its first item).
+- **Keyboard.** Alt or F10 focuses the button; Down, Enter or Space opens it.
+  In its menu Up/Down move across the menus, Right flies one out and Left
+  closes it. There is no next or previous title, so Left/Right on the button
+  itself, and at the top level of its menu, go nowhere. Esc closes one level.
+- **`setStyle(style)`** switches at run time (a setting, a narrow window). It
+  closes whatever is open and keeps every `setEnabled` / `setChecked`; if the
+  bar had focus, the first title (or the button) gets it.
+- **Styling.** The bar gets `.twm-menubar--hamburger`, the button
+  `.twm-menubar__title--icon`, the size of the top bar's other icon buttons
+  (`.twm-panel-toggle-btn`).
+
+In a shell, pass it with the model: `menuBar: { menus, onAction, style:
+'hamburger' }`, and switch later through `shell.chrome.menuBar.setStyle(…)`.
+A hamburger belongs in the top bar itself (at the left, before the app's
+icon), not in the `.twm-global-menu-bar` row below.
 
 ## The menu bar in its own row under the top bar (0.17.13)
 

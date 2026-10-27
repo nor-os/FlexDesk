@@ -7033,6 +7033,26 @@ button.twm-about-dialog__btn--close:focus {
     margin: var(--space-xs) var(--space-md);
     background: var(--surface-3);
 }
+/* The hamburger (STORY-0133, `style: 'hamburger'`): one icon button in place
+ * of the titles, the size of the top bar's other icon buttons
+ * (.twm-panel-toggle-btn: a 22px box, an --font-size-xl glyph). Its menu
+ * lists the menus, each flying out its items. */
+.twm-menubar--hamburger {
+    align-items: center;
+}
+.twm-menubar__title--icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    color: var(--text-secondary);
+}
+.twm-menubar__title--icon .material-symbols-outlined {
+    font-size: var(--font-size-xl);
+    line-height: 1;
+}
 /* ══ end MENU BAR ══ */
 
 /* ══ TOGGLE ══════════════════════════════════════════════════════════

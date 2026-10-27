@@ -9,7 +9,8 @@
  *       does not cut it off), draws over managed windows, is opaque and scrolls
  *       when it is taller than the viewport; a checked item draws its mark
  *   §2  every class the bar sets — titles, menus, submenus, check and radio
- *       items, disabled items, separators, shortcuts, an empty submenu — has a
+ *       items, disabled items, separators, shortcuts, an empty submenu, the
+ *       hamburger and its icon title — has a
  *       rule in the MENU BAR section
  *   §3  every class a MENU BAR rule names is one the bar sets
  *   §4  base.css's MENU BAR section is flexdesk.css's (the hand-mirror)
@@ -91,6 +92,11 @@ mouse('mouseover', item('Export'));
 harvest();                                           // a static submenu
 click(host.querySelectorAll('.twm-menubar__title')[1]);
 harvest();                                           // View: check and radio items
+bar.setStyle('hamburger');
+harvest();                                           // the hamburger, closed
+click(host.querySelector('.twm-menubar__title'));
+mouse('mouseover', item('File'));
+harvest();                                           // its menu, File flown out
 bar.dispose();
 
 const set = [...seen].filter((c) => c.startsWith('twm-menubar'));

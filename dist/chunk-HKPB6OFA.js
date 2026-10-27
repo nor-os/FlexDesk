@@ -1389,6 +1389,8 @@ function installHelpShortcut({ target = document } = {}) {
 var SEL_TITLE = ".twm-menubar__title";
 var SEL_ITEM = ".twm-menubar__item";
 var SEL_MENU = ".twm-menubar__menu";
+var STYLES = ["bar", "hamburger"];
+var HAMBURGER = "twm-menubar:hamburger";
 function createMenuBar(el, opts) {
   return new MenuBar(el, opts);
 }
@@ -1400,16 +1402,22 @@ var MenuBar = class {
    * @param {Function} [opts.onAction]  `(id, { item, checked }) => void`
    * @param {string}  [opts.label]      the bar's accessible name ('Menu')
    * @param {string}  [opts.emptyLabel] the disabled row an empty submenu shows ('Empty')
+   * @param {string}  [opts.style]      'bar' (a title per menu, the default) or 'hamburger' (one button)
+   * @param {string}  [opts.icon]       the hamburger's Material Symbols icon ('menu')
    */
-  constructor(el, { menus, onAction = null, label = "Menu", emptyLabel = "Empty" } = {}) {
+  constructor(el, { menus, onAction = null, label = "Menu", emptyLabel = "Empty", style = "bar", icon = "menu" } = {}) {
     if (!el || typeof el.appendChild !== "function") {
       throw new TypeError("createMenuBar: `el` must be an element");
     }
     _validateMenus(menus);
+    _validateStyle(style);
     this.el = el;
     this.menus = menus;
     this._onAction = typeof onAction === "function" ? onAction : null;
     this._emptyLabel = emptyLabel;
+    this._label = label;
+    this._icon = icon;
+    this._style = style;
     this._doc = el.ownerDocument;
     this._disabled = /* @__PURE__ */ new Map();
     this._checked = /* @__PURE__ */ new Map();
@@ -1420,26 +1428,10 @@ var MenuBar = class {
     this._active = false;
     this._returnTo = null;
     this._altArmed = false;
-    el.innerHTML = "";
     el.classList.add("twm-menubar");
     el.setAttribute("role", "menubar");
     el.setAttribute("aria-label", label);
-    this._titles = menus.map((m, i) => {
-      const entry = this._doc.createElement("div");
-      entry.className = "twm-menubar__entry";
-      entry.setAttribute("role", "none");
-      const btn = this._doc.createElement("button");
-      btn.type = "button";
-      btn.className = "twm-menubar__title";
-      btn.setAttribute("role", "menuitem");
-      btn.setAttribute("aria-haspopup", "menu");
-      btn.setAttribute("aria-expanded", "false");
-      btn.tabIndex = i === 0 ? 0 : -1;
-      btn.textContent = m.label;
-      entry.appendChild(btn);
-      el.appendChild(entry);
-      return btn;
-    });
+    this._renderTitles();
     this._h = {
       mousedown: (e) => this._onMouseDown(e),
       click: (e) => this._onClick(e),
@@ -1473,12 +1465,37 @@ var MenuBar = class {
   isOpen() {
     return this._openIdx >= 0;
   }
-  /** Open the menu with this id (focus on its title, or on its first item). */
+  /** Open the menu with this id (focus on its title, or on its first item).
+   *  A hamburger opens with that menu flown out (focus on its row, or on
+   *  the menu's first item). */
   open(menuId, { focusItem = false } = {}) {
     const i = this.menus.findIndex((m) => m.id === menuId);
     if (i < 0) return;
     this._enter();
-    this._open(i, focusItem ? "first" : null);
+    if (this._style !== "hamburger") {
+      this._open(i, focusItem ? "first" : null);
+      return;
+    }
+    this._open(0, null);
+    const row = this._itemsIn(this._stack[0].menu).find((b) => this._models.get(b)?.id === `${HAMBURGER}:${menuId}`);
+    if (!row) return;
+    row.focus({ preventScroll: true });
+    this._openSub(row, focusItem ? "first" : null);
+  }
+  /** 'bar' or 'hamburger'. */
+  get style() {
+    return this._style;
+  }
+  /** Draw the menus as a bar or as one hamburger button. Whatever is open
+   *  closes; the model and every setEnabled / setChecked stay. */
+  setStyle(style) {
+    _validateStyle(style);
+    if (style === this._style) return;
+    const hadFocus = this.el.contains(this._doc.activeElement);
+    this._deactivate();
+    this._style = style;
+    this._renderTitles();
+    if (hadFocus) this._focusTitle(0);
   }
   /** Close every open menu. Focus stays in the bar if it was there. */
   close() {
@@ -1546,7 +1563,7 @@ var MenuBar = class {
     this._doc.removeEventListener("mousedown", this._h.docMousedown, true);
     this._doc.defaultView?.removeEventListener("blur", this._h.winBlur);
     this.el.innerHTML = "";
-    this.el.classList.remove("twm-menubar");
+    this.el.classList.remove("twm-menubar", "twm-menubar--hamburger");
     this.el.removeAttribute("role");
     this.el.removeAttribute("aria-label");
   }
@@ -1616,6 +1633,48 @@ var MenuBar = class {
       btn.setAttribute("aria-checked", this._isChecked(item) ? "true" : "false");
     }
   }
+  // ── titles ────────────────────────────────────────────────────────
+  /** The titles for the current style. `_top` is what they open: the
+   *  menus themselves, or the hamburger's one menu that lists them. */
+  _renderTitles() {
+    const d = this._doc;
+    const burger = this._style === "hamburger";
+    this.el.innerHTML = "";
+    this.el.classList.toggle("twm-menubar--hamburger", burger);
+    this._top = burger ? [{ id: HAMBURGER, label: this._label, items: this.menus.map((m) => ({
+      id: `${HAMBURGER}:${m.id}`,
+      label: m.label,
+      submenu: m.items
+    })) }] : this.menus;
+    this._titles = this._top.map((m, i) => {
+      const entry = d.createElement("div");
+      entry.className = "twm-menubar__entry";
+      entry.setAttribute("role", "none");
+      const btn = d.createElement("button");
+      btn.type = "button";
+      btn.className = "twm-menubar__title";
+      btn.setAttribute("role", "menuitem");
+      btn.setAttribute("aria-haspopup", "menu");
+      btn.setAttribute("aria-expanded", "false");
+      btn.tabIndex = i === 0 ? 0 : -1;
+      if (burger) {
+        btn.classList.add("twm-menubar__title--icon", "twm-has-tooltip");
+        btn.setAttribute("aria-label", m.label);
+        btn.dataset.tooltip = m.label;
+        btn.dataset.tooltipPlacement = "bottom";
+        const icon = d.createElement("span");
+        icon.className = "material-symbols-outlined";
+        icon.setAttribute("aria-hidden", "true");
+        icon.textContent = this._icon;
+        btn.appendChild(icon);
+      } else {
+        btn.textContent = m.label;
+      }
+      entry.appendChild(btn);
+      this.el.appendChild(entry);
+      return btn;
+    });
+  }
   // ── open / close ──────────────────────────────────────────────────
   _setRoving(i) {
     this._titles.forEach((t, j) => {
@@ -1652,7 +1711,7 @@ var MenuBar = class {
     i = (i % n + n) % n;
     this._focusTitle(i);
     this._closeAll();
-    const m = this.menus[i];
+    const m = this._top[i];
     const title = this._titles[i];
     const menu = this._buildMenu(m.items, m.label);
     title.parentElement.appendChild(menu);
@@ -1875,6 +1934,7 @@ var MenuBar = class {
   _titleKey(key, i) {
     const n = this._titles.length;
     const open = this._openIdx >= 0;
+    if (n === 1 && (key === "ArrowRight" || key === "ArrowLeft" || key === "Home" || key === "End")) return true;
     switch (key) {
       case "ArrowRight":
         open ? this._open(i + 1, null) : this._focusTitle((i + 1) % n);
@@ -1934,11 +1994,11 @@ var MenuBar = class {
         return true;
       case "ArrowRight":
         if (item?.submenu != null && !this._isDisabled(item)) this._openSub(btn, "first");
-        else this._open(this._openIdx + 1, "first");
+        else if (this._titles.length > 1) this._open(this._openIdx + 1, "first");
         return true;
       case "ArrowLeft":
         if (level > 0) this._closeFrom(level);
-        else this._open(this._openIdx - 1, "first");
+        else if (this._titles.length > 1) this._open(this._openIdx - 1, "first");
         return true;
       case "Enter":
       case " ":
@@ -1991,6 +2051,11 @@ function _kind(item) {
   if (typeof item.checked === "boolean") return "menuitemcheckbox";
   return "menuitem";
 }
+function _validateStyle(style) {
+  if (!STYLES.includes(style)) {
+    throw new TypeError(`createMenuBar: \`style\` must be ${STYLES.map((s) => `'${s}'`).join(" or ")}`);
+  }
+}
 function _validateMenus(menus) {
   if (!Array.isArray(menus) || !menus.length) {
     throw new TypeError("createMenuBar: `menus` must be a non-empty array");
@@ -2038,4 +2103,4 @@ export {
   createMenuBar,
   MenuBar
 };
-//# sourceMappingURL=chunk-JKZLNKG6.js.map
+//# sourceMappingURL=chunk-HKPB6OFA.js.map

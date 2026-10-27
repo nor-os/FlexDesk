@@ -21,6 +21,8 @@
  *   §11 commands(): the model as palette rows
  *   §12 a bad model is a boot error; dispose() takes the document listeners off
  *   §13 createShell: chrome.menuBar mounts it, the palette lists its verbs
+ *   §14 style 'hamburger': one icon button whose menu flies out the menus;
+ *       the same model, keys, open(), and setStyle() switches at run time
  *
  *     node tests/menu_bar.test.mjs
  */
@@ -753,6 +755,97 @@ section('§13 createShell mounts it from chrome.menuBar, and the palette lists i
 
     const barrel = await import('../widgets.js');
     ok('@flexdesk/widgets exports createMenuBar and MenuBar', barrel.createMenuBar === createMenuBar && barrel.MenuBar === MenuBar);
+}
+
+// ── §14 ──────────────────────────────────────────────────────────────────
+section('§14 style: hamburger — one button, the menus fly out of its menu');
+{
+    const throws = (fn) => { try { fn(); return false; } catch (e) { return e instanceof TypeError; } };
+    ok('an unknown style is a boot error', throws(() => createMenuBar(document.createElement('div'), { menus: MODEL(), style: 'ribbon' })));
+
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const fired = [];
+    const hb = createMenuBar(el, { menus: MODEL(), style: 'hamburger', label: 'Main menu',
+        onAction: (id, info) => fired.push({ id, checked: info.checked }) });
+    const hTitles = () => [...el.querySelectorAll('.twm-menubar__title')];
+    const hMenus = () => [...el.querySelectorAll('[role="menu"]')];
+    const rows = (menu) => [...menu.querySelectorAll('.twm-menubar__label')].map((n) => n.textContent);
+    const btn = hTitles()[0];
+    check('the style', hb.style, 'hamburger');
+    check('one title', hTitles().length, 1);
+    ok('the bar is marked as a hamburger', el.classList.contains('twm-menubar--hamburger'));
+    check('it is an icon, named by the label', [btn.textContent, btn.getAttribute('aria-label'), btn.dataset.tooltip],
+          ['menu', 'Main menu', 'Main menu']);
+    check('…still a menubar title', [el.getAttribute('role'), btn.getAttribute('role'), btn.getAttribute('aria-haspopup')],
+          ['menubar', 'menuitem', 'menu']);
+
+    click(btn);
+    check('its menu lists the menus', rows(hMenus()[0]), ['File', 'Edit', 'View']);
+    ok('each one opens a submenu', [...hMenus()[0].querySelectorAll('.twm-menubar__item')].every((b) => b.getAttribute('aria-haspopup') === 'menu'));
+    mouse('mouseover', itemIn(hMenus()[0], 'Edit'));
+    check('hovering Edit flies it out', [hMenus().length, rows(hMenus()[1])], [2, ['Undo', 'Redo']]);
+    click(itemIn(hMenus()[1], 'Undo'));
+    check('an item fires onAction with its own id', fired.map((f) => f.id), ['undo']);
+    check('…and closes everything', hMenus().length, 0);
+
+    outside.focus();
+    press('F10');
+    ok('F10 focuses the button', document.activeElement === btn);
+    press('ArrowRight');
+    ok('Right on the one title stays there', document.activeElement === btn && hMenus().length === 0);
+    press('ArrowDown');
+    check('Down opens it on File', focused(), 'File');
+    press('ArrowRight');
+    check('Right flies File out, on its first item', focused(), 'New');
+    press('ArrowLeft');
+    check('Left closes it, back on File', [focused(), hMenus().length], ['File', 1]);
+    press('ArrowLeft');
+    check('Left at the top level goes nowhere', [focused(), hMenus().length], ['File', 1]);
+    press('ArrowDown'); press('ArrowDown'); press('ArrowRight'); press('ArrowDown'); press('ArrowDown');
+    check('View: Down skips the separator', focused(), 'Dark');
+    press('Enter');
+    check('a radio item flips as in the bar', [fired.at(-1), hb.isChecked('dark'), hb.isChecked('light')],
+          [{ id: 'dark', checked: true }, true, false]);
+    ok('…and focus went back', document.activeElement === outside);
+
+    hb.setEnabled('redo', false);
+    hb.open('edit', { focusItem: true });
+    check('open(menuId) flies that menu out, on its first item', [hMenus().length, hMenus()[1]?.getAttribute('aria-label'), focused()], [2, 'Edit', 'Undo']);
+    check('setEnabled holds inside the hamburger', itemIn(hMenus()[1], 'Redo').getAttribute('aria-disabled'), 'true');
+    press('Escape'); press('Escape');
+    check('Esc closes one level at a time', hMenus().length, 0);
+    ok('commands() is the same model', hb.commands().some((r) => r.id === 'menubar:undo' && r.context === 'Edit'));
+
+    hb.open('file');
+    hb.setStyle('bar');
+    check('setStyle(bar) draws the titles, closing what was open', [hb.style, hTitles().map((b) => b.textContent), hMenus().length],
+          ['bar', ['File', 'Edit', 'View'], 0]);
+    ok('…and drops the hamburger class', !el.classList.contains('twm-menubar--hamburger'));
+    check('…keeping its state', [hb.isEnabled('redo'), hb.isChecked('dark')], [false, true]);
+    hb.setStyle('hamburger');
+    check('and back', [hTitles().length, hTitles()[0].textContent], [1, 'menu']);
+    ok('setStyle checks its argument', throws(() => hb.setStyle('ribbon')));
+    hb.dispose();
+    ok('dispose() takes the hamburger class off', !el.classList.contains('twm-menubar--hamburger'));
+
+    const { createShell } = await import('../src/tiling/shell.js');
+    const { createTaxonomy } = await import('../src/tiling/kind_taxonomy.js');
+    const { createEntityCatalog } = await import('../src/tiling/entity_sources.js');
+    const root = document.createElement('div');
+    const barEl = document.createElement('div');
+    document.body.append(barEl, root);
+    const shell = await createShell({
+        root,
+        entities: createEntityCatalog({ sources: [] }),
+        taxonomy: createTaxonomy({ root: 'home', kinds: { home: { label: 'Home', isTopNav: true } } }),
+        content: { home: (h) => { h.textContent = 'home'; return {}; } },
+        panels: { left: false, right: false, bottom: false },
+        menuBar: { menus: MODEL(), style: 'hamburger' },
+        chrome: { menuBar: barEl },
+    });
+    check('createShell passes menuBar.style through', [shell.chrome.menuBar.style, barEl.querySelectorAll('.twm-menubar__title').length], ['hamburger', 1]);
+    shell.dispose();
 }
 
 done();

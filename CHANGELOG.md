@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.17.18 (2026-10-27)
+
+A patch release. One additive menu bar option.
+
+### Added
+
+- [A hamburger instead of the bar: `style: 'hamburger'`](docs/components/menus.md#a-hamburger-instead-of-the-bar-style-hamburger-01718): `createMenuBar` (and `createShell`'s `menuBar`) can draw the menus as one icon button whose menu flies out each menu's items. Same model, `onAction`, `setEnabled` / `setChecked` and `commands()`; `open(menuId)` opens it with that menu flown out. `bar.setStyle('bar' | 'hamburger')` switches at run time and `bar.style` reads it; `icon` sets the glyph (`'menu'`) (STORY-0133).
+
+### Changed behaviour
+
+None.
+
+### Removed or renamed exports
+
+None. New: `MenuBar#setStyle`, `MenuBar#style`, the `style` and `icon` options, the `.twm-menubar--hamburger` and `.twm-menubar__title--icon` classes.
+
 ## 0.17.17 (2026-10-27)
 
 A patch release. One additive taxonomy option and notification copying; one

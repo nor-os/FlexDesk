@@ -13,7 +13,7 @@ import {
   installHelpShortcut,
   renderMarkdown,
   setHelpProvider
-} from "./chunk-JKZLNKG6.js";
+} from "./chunk-HKPB6OFA.js";
 import {
   TAB_LEVELS,
   createTabs

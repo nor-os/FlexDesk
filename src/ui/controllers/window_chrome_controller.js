@@ -404,10 +404,13 @@ export class WindowChromeController {
         // What never starts a drag: anything you can click or type into. An
         // embedder adds its own with `noDrag`. (`.window-controls` and
         // `.panel-toggles` are kept for embedders' own markup of that shape.)
+        // A menu bar in the top bar (a hamburger, STORY-0133) drops its menus
+        // inside the bar's DOM: a press on a menu's padding or separator is
+        // in the bar, not a drag.
         const NO_DRAG_SELECTOR = [
             '.no-drag', 'button', 'a', 'input', 'select', 'textarea', 'label',
             '[role="button"]', '[role="menuitem"]', '[role="tab"]', '[contenteditable="true"]',
-            '.twm-window-controls', '.window-controls', '.panel-toggles',
+            '.twm-window-controls', '.window-controls', '.panel-toggles', '.twm-menubar',
             this._noDrag,
         ].filter(Boolean).join(', ');
 

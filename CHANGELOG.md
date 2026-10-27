@@ -2,7 +2,8 @@
 
 ## 0.17.18 (2026-10-27)
 
-A patch release. One additive menu bar option.
+A patch release. One additive menu bar option; one entry changes what
+embedders see (listed under "Changed behaviour").
 
 ### Added
 
@@ -10,7 +11,7 @@ A patch release. One additive menu bar option.
 
 ### Changed behaviour
 
-None.
+- `WindowChromeController` never starts a window drag from a press inside a `.twm-menubar`: a hamburger in the top bar drops its menus inside the bar, and a press on a menu's padding or separator dragged the window (STORY-0133).
 
 ### Removed or renamed exports
 

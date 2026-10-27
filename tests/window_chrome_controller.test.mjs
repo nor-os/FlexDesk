@@ -140,6 +140,17 @@ document.querySelector('.app-bar .tool').dispatchEvent(pointer('pointerdown', { 
 document.querySelector('.app-bar .brand').dispatchEvent(pointer('pointerdown', { clientX: 1200 }));
 await tick();
 check('…but not one on a button, or on what the embedder listed in noDrag', win.calls.splice(0), []);
+{
+    // A hamburger menu bar in the top bar: its open menu is inside the bar.
+    const mb = document.createElement('div');
+    mb.className = 'twm-menubar';
+    mb.innerHTML = '<div class="twm-menubar__menu" role="menu"><div class="twm-menubar__separator" role="separator"></div></div>';
+    bar.appendChild(mb);
+    mb.querySelector('.twm-menubar__separator').dispatchEvent(pointer('pointerdown', { clientX: 600 }));
+    await tick();
+    check('…nor one inside a menu bar (a menu\'s separator)', win.calls.splice(0), []);
+    mb.remove();
+}
 
 for (const [cls, edge] of [['right', 'e'], ['corner.tl', 'nw'], ['bottom', 's']]) {
     document.querySelector(`.twm-resize-handle.${cls}`).dispatchEvent(pointer('pointerdown'));

@@ -7639,6 +7639,7 @@ var WindowChromeController = class {
       ".twm-window-controls",
       ".window-controls",
       ".panel-toggles",
+      ".twm-menubar",
       this._noDrag
     ].filter(Boolean).join(", ");
     let dragging = false;

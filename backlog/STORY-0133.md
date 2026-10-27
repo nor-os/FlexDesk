@@ -29,6 +29,7 @@ norman, 2026-10-27: EcoSim and EcoAgent have slightly different top bars. EcoAge
 - [x] Keyboard: Alt/F10 focuses the button, Down opens it, Right/Left fly a menu out and close it, Esc closes one level; Left/Right at the top go nowhere
 - [x] `setStyle('bar' | 'hamburger')` switches at run time, keeping state; an unknown style is a TypeError; `createShell`'s `menuBar.style` passes through
 - [x] Styled in the MENU BAR section (both sheets), sized as the top bar's other icon buttons; docs and CHANGELOG
+- [x] A press inside a menu bar (an open menu's padding or separator) never starts a window drag (`WindowChromeController`)
 
 ## History
 

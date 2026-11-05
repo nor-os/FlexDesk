@@ -1,9 +1,30 @@
 import {
+  collectFocusable,
   openAnchoredLayer
-} from "./chunk-TEEYVOUH.js";
+} from "./chunk-OPT6DQQP.js";
 
 // src/ui/components/popover.js
 var OPEN = /* @__PURE__ */ new Set();
+var nothingOpened = (toggled) => ({ el: null, close() {
+}, closed: Promise.resolve(), reposition() {
+}, toggled });
+function keepTabInside(el) {
+  el.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Tab" || ev.defaultPrevented) return;
+    const controls = collectFocusable(el);
+    if (!controls.length) {
+      ev.preventDefault();
+      return;
+    }
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    const active = el.ownerDocument.activeElement;
+    if (ev.shiftKey ? active === first || active === el : active === last) {
+      ev.preventDefault();
+      (ev.shiftKey ? last : first).focus();
+    }
+  });
+}
 function openPopover({
   anchor,
   content,
@@ -17,9 +38,7 @@ function openPopover({
   for (const open of OPEN) {
     if (anchor && open.anchor === anchor) {
       open.close("toggle");
-      return { el: null, close() {
-      }, closed: Promise.resolve(), reposition() {
-      }, toggled: true };
+      return nothingOpened(true);
     }
   }
   const el = document.createElement("div");
@@ -28,6 +47,7 @@ function openPopover({
   if (label) el.setAttribute("aria-label", label);
   el.tabIndex = -1;
   el.appendChild(content);
+  keepTabInside(el);
   let settle;
   const closed = new Promise((resolve) => {
     settle = resolve;
@@ -46,6 +66,7 @@ function openPopover({
       settle();
     }
   });
+  if (!layer) return nothingOpened(false);
   const handle = { el, anchor, closed, toggled: false, close: layer.close, reposition: layer.place };
   OPEN.add(handle);
   anchor?.classList?.add("twm-is-open");
@@ -58,4 +79,4 @@ function openPopover({
 export {
   openPopover
 };
-//# sourceMappingURL=chunk-YGSXAKCK.js.map
+//# sourceMappingURL=chunk-P4TU6QLA.js.map

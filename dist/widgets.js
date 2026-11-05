@@ -1,6 +1,6 @@
 import {
   openPopover
-} from "./chunk-YGSXAKCK.js";
+} from "./chunk-P4TU6QLA.js";
 import {
   StateMachine
 } from "./chunk-3PHCPZHT.js";
@@ -25,7 +25,7 @@ import {
   ActionDropdown,
   ComponentBase,
   SlideOutPanel
-} from "./chunk-RCHJ5M2O.js";
+} from "./chunk-CGZZK6LV.js";
 import {
   ColorListField,
   SortableList,
@@ -37,13 +37,7 @@ import {
   openForm,
   openModal,
   showContextMenu
-} from "./chunk-R2LLV53N.js";
-import {
-  modalHost,
-  openAnchoredLayer,
-  positionAnchored,
-  setModalHost
-} from "./chunk-TEEYVOUH.js";
+} from "./chunk-X65I4UZM.js";
 import {
   ACTIONS,
   AutocompleteField,
@@ -90,7 +84,7 @@ import {
   resolvePaging,
   toTSV,
   tsvCell
-} from "./chunk-4RIYTKVI.js";
+} from "./chunk-U5SGU26G.js";
 import {
   ColorField,
   DEFAULT_MAX_SAVED_WINDOWS,
@@ -99,7 +93,7 @@ import {
   ToggleField,
   isHexColor,
   normalizeHex
-} from "./chunk-MLSR3YEB.js";
+} from "./chunk-WD5SRMVC.js";
 import {
   ROW_CONTROL_SELECTOR,
   choiceSections,
@@ -107,11 +101,16 @@ import {
   filterSections,
   findChoice,
   flatChoices,
+  isInAnchoredLayer,
   isRowActivation,
   isRowControl,
+  modalHost,
+  openAnchoredLayer,
+  positionAnchored,
   selectBox,
+  setModalHost,
   shownValue
-} from "./chunk-NFGA4WJQ.js";
+} from "./chunk-OPT6DQQP.js";
 import {
   getSetting
 } from "./chunk-HNU6MM2B.js";
@@ -5238,6 +5237,7 @@ function createSelect({
   emptyText = (typed) => typed ? `Nothing matches \u201C${typed}\u201D.` : "Nothing to choose from.",
   loose = false,
   name = null,
+  carrier = null,
   align = "start"
 } = {}) {
   let source = options;
@@ -5257,13 +5257,15 @@ function createSelect({
   const label = node("span", "twm-select__label");
   trigger.append(icon2, label, glyphNode("twm-select__caret", "expand_more"));
   let root = trigger;
-  let carrier = null;
-  if (name) {
+  let hidden = carrier;
+  if (name && !hidden) {
+    hidden = node("input");
+    hidden.type = "hidden";
+    hidden.name = name;
+  }
+  if (hidden) {
     root = node("div", "twm-select-field");
-    carrier = node("input");
-    carrier.type = "hidden";
-    carrier.name = name;
-    root.append(trigger, carrier);
+    root.append(trigger, hidden);
   }
   let focusHolder = trigger;
   const list = createOptionList({
@@ -5298,7 +5300,7 @@ function createSelect({
     const glyph = showIcon ? chosen?.icon || "" : "";
     icon2.textContent = glyph;
     icon2.hidden = !glyph;
-    if (carrier) carrier.value = isEmptyValue(current) ? "" : shownValue(current);
+    if (hidden) hidden.value = isEmptyValue(current) ? "" : shownValue(current);
   }
   function draw(typed) {
     const text = typed.trim();
@@ -5336,7 +5338,7 @@ function createSelect({
     paint();
     layer?.close("pick");
     if (!changed) return;
-    carrier?.dispatchEvent(new Event("change", { bubbles: true }));
+    hidden?.dispatchEvent(new Event("change", { bubbles: true }));
     onChange?.(current, option.source);
   }
   function open() {
@@ -5364,6 +5366,7 @@ function createSelect({
         focusHolder.removeAttribute("aria-activedescendant");
       }
     });
+    if (!layer) return;
     trigger.classList.add("twm-is-open");
     trigger.setAttribute("aria-expanded", "true");
     draw("");
@@ -5431,8 +5434,8 @@ function createSelect({
   setDisabled(disabled);
   return {
     el: root,
-    /** The hidden input carrying the value, when there is a `name`. */
-    input: carrier,
+    /** The hidden input carrying the value, when there is one. */
+    input: hidden,
     get value() {
       return current;
     },
@@ -6495,7 +6498,7 @@ function createTagInput(host, options = {}) {
   const readOnly = !!options.readOnly;
   const allowDuplicates = !!options.allowDuplicates;
   const removeLabel = typeof options.removeLabel === "function" ? options.removeLabel : (tag) => `Remove ${tag}`;
-  const spell = typeof options.normalise === "function" ? (text) => String(options.normalise(text) ?? "").trim() : (text) => text.trim();
+  const spell = typeof options.normalise === "function" ? (text) => String(options.normalise(text.trim()) ?? "").trim() : (text) => text.trim();
   const cleaned = (list) => {
     const out = (Array.isArray(list) ? list : []).map((v) => v == null ? "" : spell(String(v))).filter((v) => v !== "");
     return allowDuplicates ? out : [...new Set(out)];
@@ -6573,25 +6576,32 @@ function createTagInput(host, options = {}) {
     changed();
     return true;
   };
-  const offerable = (o) => {
-    const tag = spell(shownValue(optionValue(o)));
-    return tag !== "" && (allowDuplicates || !tags.includes(tag));
+  const offered = (list) => {
+    const seen = /* @__PURE__ */ new Set();
+    const rows = [];
+    for (const o of list || []) {
+      const tag = spell(shownValue(optionValue(o)));
+      if (tag === "" || seen.has(tag) || !allowDuplicates && tags.includes(tag)) continue;
+      seen.add(tag);
+      rows.push(o !== null && typeof o === "object" ? { ...o, value: tag } : tag);
+    }
+    return rows;
   };
-  const rankedFor = (query) => {
-    const needle = spell(query).toLowerCase();
-    const at = (o) => spell(shownValue(optionValue(o))).toLowerCase().indexOf(needle);
-    const open = options.suggestions.filter(offerable);
-    return needle ? open.filter((o) => at(o) >= 0).sort((a, b) => at(a) - at(b)) : open;
+  const rankedFor = () => {
+    const needle = spell(input.value).toLowerCase();
+    const word = (o) => shownValue(optionValue(o));
+    const at = (o) => word(o).toLowerCase().indexOf(needle);
+    return offered(options.suggestions).filter((o) => at(o) >= 0).sort((x, y) => at(x) - at(y) || word(x).localeCompare(word(y)));
   };
-  const askedFor = (query, ctx) => {
-    const answer = options.suggestions(query, ctx);
-    if (typeof answer?.then === "function") return answer.then((list) => (list || []).filter(offerable));
-    return (answer || []).filter(offerable);
+  const askedFor = (_query, ctx) => {
+    const answer = options.suggestions(input.value, ctx);
+    return typeof answer?.then === "function" ? answer.then(offered) : offered(answer);
   };
   const asking = typeof options.suggestions === "function";
   const menu = input && options.suggestions ? attachInputOptions(input, {
     options: asking ? askedFor : rankedFor,
     anchor: root,
+    normalise: spell,
     openOnFocus: true,
     passEnter: true,
     debounce: asking ? void 0 : 0,
@@ -6611,7 +6621,9 @@ function createTagInput(host, options = {}) {
   if (input) {
     input.addEventListener("keydown", (ev) => {
       if (ev.isComposing) return;
-      if (ev.key === "Enter" || ev.key === ",") {
+      if (ev.key === "," && menu?.takeActive()) {
+        ev.preventDefault();
+      } else if (ev.key === "Enter" || ev.key === ",") {
         ev.preventDefault();
         commitInput();
       } else if (ev.key === "Backspace" && input.value === "" && tags.length) {
@@ -9376,6 +9388,7 @@ export {
   installTabsScrollbars,
   installWorkspaceScrollbars,
   isHexColor,
+  isInAnchoredLayer,
   isRowActivation,
   isRowControl,
   localSource,

@@ -1,16 +1,15 @@
 import {
   openPopover
-} from "./chunk-YGSXAKCK.js";
-import "./chunk-TEEYVOUH.js";
+} from "./chunk-P4TU6QLA.js";
 import {
   DataTable
-} from "./chunk-4RIYTKVI.js";
+} from "./chunk-U5SGU26G.js";
 import {
   choiceList,
   selectBox,
   shownValue,
   toggleChips
-} from "./chunk-NFGA4WJQ.js";
+} from "./chunk-OPT6DQQP.js";
 import "./chunk-QXAOTGCC.js";
 import {
   CONNECTOR_STRINGS,
@@ -177,7 +176,7 @@ function openPopover2({ className = "", onClose = null, ...rest }) {
       onClose?.(reason);
     }
   });
-  if (!handle.toggled) OPEN.push(handle);
+  if (handle.el) OPEN.push(handle);
   return handle;
 }
 function nextOption(listbox, current, step) {
@@ -2068,7 +2067,7 @@ function openValuePicker({
     focus: search,
     onClose: () => settle(result)
   });
-  if (handle.toggled) settle(null);
+  if (!handle.el) settle(null);
   else paint();
   done.close = () => handle.close("closed");
   return done;
@@ -2679,7 +2678,7 @@ function openStepPicker({
     focus: search,
     onClose: () => settle(result)
   });
-  if (handle.toggled) settle(null);
+  if (!handle.el) settle(null);
   else filter();
   done.close = () => handle.close("closed");
   return done;
@@ -8317,7 +8316,7 @@ function openStepMenu({ anchor, label, items, strings = null, onClose = null }) 
     focus: enabled(root)[0] || root,
     onClose: () => onClose?.()
   });
-  return { el: root, close: () => handle.close("closed"), toggled: handle.toggled };
+  return { el: handle.el ? root : null, close: () => handle.close("closed"), toggled: handle.toggled };
 }
 
 // src/flow/outline/editor.js

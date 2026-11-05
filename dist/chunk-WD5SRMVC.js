@@ -1,4 +1,8 @@
 import {
+  collectFocusable,
+  isInAnchoredLayer
+} from "./chunk-OPT6DQQP.js";
+import {
   getSetting
 } from "./chunk-HNU6MM2B.js";
 
@@ -21,23 +25,6 @@ var DEFAULT_ICON = "web_asset";
 var _zIndexCounter = 0;
 var _activeWindows = /* @__PURE__ */ new Map();
 var _escAnswered = /* @__PURE__ */ new WeakSet();
-function _collectFocusable(root) {
-  if (!root) return [];
-  const sel = [
-    "a[href]",
-    "button:not([disabled])",
-    'input:not([disabled]):not([type="hidden"])',
-    "select:not([disabled])",
-    "textarea:not([disabled])",
-    '[tabindex]:not([tabindex="-1"])'
-  ].join(",");
-  return Array.from(root.querySelectorAll(sel)).filter((el) => {
-    if (el.hidden) return false;
-    if (el.closest("[hidden]")) return false;
-    const r = el.getBoundingClientRect();
-    return r.width > 0 || r.height > 0;
-  });
-}
 var _stateCache = null;
 function _loadState() {
   if (_stateCache) return _stateCache;
@@ -1329,7 +1316,8 @@ var ManagedWindow = class {
     }
     if (topWindow !== this) return;
     if (e.key === "Tab" && this.modal && this.element) {
-      const focusables = _collectFocusable(this.element);
+      if (isInAnchoredLayer(document.activeElement)) return;
+      const focusables = collectFocusable(this.element);
       if (focusables.length === 0) {
         e.preventDefault();
         return;
@@ -1719,4 +1707,4 @@ export {
   normalizeHex,
   ColorField
 };
-//# sourceMappingURL=chunk-MLSR3YEB.js.map
+//# sourceMappingURL=chunk-WD5SRMVC.js.map

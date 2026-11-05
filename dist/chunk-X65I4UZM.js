@@ -1,24 +1,22 @@
 import {
-  modalHost,
-  openAnchoredLayer
-} from "./chunk-TEEYVOUH.js";
-import {
   ColorField,
   ManagedWindow,
   ToggleField,
   isHexColor,
   normalizeHex
-} from "./chunk-MLSR3YEB.js";
+} from "./chunk-WD5SRMVC.js";
 import {
   choiceList,
   choiceSections,
   filterSections,
   findChoice,
   flatChoices,
+  modalHost,
+  openAnchoredLayer,
   selectBox,
   shownValue,
   toggleChips
-} from "./chunk-NFGA4WJQ.js";
+} from "./chunk-OPT6DQQP.js";
 import {
   DragReorder
 } from "./chunk-WVFGV5FT.js";
@@ -642,6 +640,10 @@ function attachInputOptions(input, {
         input.removeAttribute("aria-activedescendant");
       }
     });
+    if (!layer) {
+      wanted = false;
+      return;
+    }
     input.setAttribute("aria-expanded", "true");
   };
   function forget() {
@@ -674,7 +676,7 @@ function attachInputOptions(input, {
       return;
     }
     const text = query ?? "";
-    list.setRows(sections, { mark: text.trim(), isCurrent });
+    list.setRows(sections, { mark: normalise(text.trim()), isCurrent });
     show();
     highlight(text);
   }
@@ -730,6 +732,12 @@ function attachInputOptions(input, {
     onPick?.(option);
     picking = false;
   }
+  function takeActive() {
+    const option = layer && list.activeOption();
+    if (!option) return false;
+    take(option);
+    return true;
+  }
   const openFor = (text) => {
     query = text;
     wanted = true;
@@ -752,11 +760,9 @@ function attachInputOptions(input, {
     }
     if (ev.key === "Enter") {
       if (!layer) return;
-      const option = list.activeOption();
-      if (option) {
+      if (takeActive()) {
         ev.preventDefault();
         ev.stopImmediatePropagation();
-        take(option);
         return;
       }
       close();
@@ -785,6 +791,7 @@ function attachInputOptions(input, {
       openFor(text);
     },
     close,
+    takeActive,
     /** Replace the options; an open list redraws. */
     setOptions(next) {
       source = next;
@@ -1873,4 +1880,4 @@ export {
   showContextMenu,
   hideContextMenu
 };
-//# sourceMappingURL=chunk-R2LLV53N.js.map
+//# sourceMappingURL=chunk-X65I4UZM.js.map

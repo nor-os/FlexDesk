@@ -601,6 +601,9 @@ export function openConfirm({
  *                 existing caller has always got.
  *   - `onMaximizeChange` `(maximized, contentEl) => void`, called on each
  *                 flip. Only useful with `maximizable`.
+ *   - `beforeClose`      `() => boolean | Promise<boolean>`: asked when Esc, the
+ *                 X or the backdrop would dismiss; answering false keeps the
+ *                 modal open. An action button does not ask it.
  *
  * ══ C29. WHY A DIALOG'S MAXIMISE IS THE GEOMETRIC ONE ═══════════════════
  *
@@ -642,6 +645,7 @@ export function openModal({
     backdropOpacity = undefined,
     maximizable      = false,
     onMaximizeChange = null,
+    beforeClose      = null,
 } = {}) {
     return new Promise((resolve) => {
         const body = document.createElement('div');
@@ -747,6 +751,7 @@ export function openModal({
             canDrag: true,
             defaultWidth:  width,
             defaultHeight: height,
+            beforeClose,
             // Esc, the X and the backdrop all land here without passing through
             // `close`, so the listener is dropped here as well as there — the
             // three dismissals a user reaches for most are exactly the ones

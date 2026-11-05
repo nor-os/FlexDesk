@@ -19,8 +19,8 @@ map. See `.gitignore` — it says so there too, because it is the kind of thing 
 Every JavaScript entry in the `exports` map has two conditions: `import`, the
 prebuilt bundle under `dist/`, and `development`, the source barrel at the
 package root (`core.js`, `host.js`, `wm.js`, `widgets.js`, `charts.js`,
-`tiles.js`, `editor.js`, `canvas.js`, `flow.js`), which re-exports `src/`.
-Up to 0.17.0 those nine barrels were missing from `files`, so the published
+`tiles.js`, `editor.js`, `canvas.js`, `flow.js`, `git.js`), which re-exports `src/`.
+Up to 0.17.0 those barrels were missing from `files`, so the published
 package did not contain them and a resolver that took the `development` branch
 (`require.resolve` under `--conditions=development`, for one) got a path to
 nothing. From 0.17.1 they ship, beside the `src/` they import.

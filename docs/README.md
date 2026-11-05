@@ -8,7 +8,7 @@ New here? Start with the [quickstart](quickstart.md). The [README](../README.md)
 
 ## Packages
 
-FlexDesk is nine entry points that share their code, so you load only what you use. [Packages and entry points](concepts/packages-and-entry-points.md) has the sizes and the reasoning.
+FlexDesk is ten entry points that share their code, so you load only what you use. [Packages and entry points](concepts/packages-and-entry-points.md) has the sizes and the reasoning.
 
 | Entry | What is in it | Read |
 |---|---|---|
@@ -21,6 +21,7 @@ FlexDesk is nine entry points that share their code, so you load only what you u
 | `@flexdesk/editor` | Monaco loader, editor factory, tab bar, search, split panes | [Editor](components/editor.md) |
 | `@flexdesk/canvas` | The canvas kernel: a pannable, zoomable surface, the edge router, a graph layer | [Flow canvas editor](components/flow-canvas-editor.md) |
 | `@flexdesk/flow` | The flow-editor kit and the canvas, outline and lane editors | [Flow editors and the flow kit](components/flow-editors.md) |
+| `@flexdesk/git` | A source-control panel, a commit graph and a diff viewer, over a written adapter contract | [Git panel, commit graph and diff viewer](components/git.md) |
 
 ## Components
 
@@ -66,6 +67,7 @@ FlexDesk is nine entry points that share their code, so you load only what you u
 - [Charts](components/charts.md): `@flexdesk/charts`, on Plotly.
 - [Editor](components/editor.md): `@flexdesk/editor`, on Monaco.
 - [Dashboard tiles](components/tiles.md): `@flexdesk/tiles`, a draggable widget grid.
+- [Git panel, commit graph and diff viewer](components/git.md): `@flexdesk/git`, over a written adapter contract that any backend can implement.
 
 ### Flow editors
 
@@ -82,7 +84,7 @@ These have no page of their own: `ManagedWindow`, modals, `TreeView`, context me
 
 ## Concepts
 
-- [Packages and entry points](concepts/packages-and-entry-points.md): the nine entries, what they weigh, and why they are separate.
+- [Packages and entry points](concepts/packages-and-entry-points.md): the ten entries, what they weigh, and why they are separate.
 - [Host port](concepts/host-port.md): how FlexDesk reaches storage, dialogs and native windows without touching them.
 - [Domain neutrality](concepts/domain-neutrality.md): storage keys, theme names and MIME types are yours; no application globals.
 - [State guard](concepts/state-guard.md): who wrote that `data-*` attribute.

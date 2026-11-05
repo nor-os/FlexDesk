@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>FlexDesk — the git panel, commit graph and diff viewer</title>
+    <!-- One component's page, for headless Edge. It loads the SOURCE barrel
+         `../git.js` and the stylesheets under `../css/`. Serve the repository
+         root over http and open /demo/git.html; `demo/git_probe.mjs` does both
+         and drives it. The repository behind it is demo/git.js's, in memory. -->
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />
+    <link href="../css/tokens.css" rel="stylesheet" />
+    <link href="../css/reset.css" rel="stylesheet" />
+    <link href="../css/flexdesk.css" rel="stylesheet" />
+    <style>
+        html, body { height: 100%; margin: 0; }
+        body { background: var(--surface-0); color: var(--text-body); font-family: var(--font-family-sans); }
+        .demo { display: grid; grid-template-columns: 320px 420px minmax(0, 1fr); height: 100%; }
+        .demo > div { min-width: 0; min-height: 0; border-right: 1px solid var(--border-default); display: flex; flex-direction: column; }
+        #graph { flex: 1; min-height: 0; }
+        #diff { flex: 1; min-height: 0; }
+    </style>
+</head>
+<body class="twm-body">
+    <div class="demo">
+        <div id="panel"></div>
+        <div id="graph"></div>
+        <div id="diff"></div>
+    </div>
+    <script type="module" src="./git.js"></script>
+</body>
+</html>

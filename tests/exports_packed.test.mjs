@@ -78,7 +78,7 @@ for (const [entry, cond, target] of ALL) {
 
 // ── §3 the development barrels resolve once installed ────────────────────
 const JS_ENTRIES = Object.entries(PKG.exports).filter(([, v]) => v && typeof v === 'object');
-check('§3 the nine JavaScript entries carry a development condition',
+check('§3 every JavaScript entry carries a development condition',
       JS_ENTRIES.map(([entry, v]) => [entry, v.development]),
       JS_ENTRIES.map(([entry]) => [entry, `${entry}.js`]));
 for (const [entry, value] of JS_ENTRIES) {

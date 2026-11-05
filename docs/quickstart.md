@@ -14,7 +14,7 @@ The package ships a prebuilt `dist/`. Copy it into your site (the examples below
 mkdir -p vendor && cp -r node_modules/flexdesk/dist vendor/flexdesk
 ```
 
-Under a bundler you need none of that. Import the entries as `flexdesk/core`, `flexdesk/host`, `flexdesk/wm`, `flexdesk/widgets` (and `flexdesk/charts`, `flexdesk/tiles`, `flexdesk/editor`, `flexdesk/canvas`, `flexdesk/flow`), and the stylesheets as `flexdesk/css/tokens`, `flexdesk/css/reset` and `flexdesk/css`. The rest of these docs write the entries as `@flexdesk/wm` and so on, which is the name the import map below gives them.
+Under a bundler you need none of that. Import the entries as `flexdesk/core`, `flexdesk/host`, `flexdesk/wm`, `flexdesk/widgets` (and `flexdesk/charts`, `flexdesk/tiles`, `flexdesk/editor`, `flexdesk/canvas`, `flexdesk/flow`, `flexdesk/git`), and the stylesheets as `flexdesk/css/tokens`, `flexdesk/css/reset` and `flexdesk/css`. The rest of these docs write the entries as `@flexdesk/wm` and so on, which is the name the import map below gives them.
 
 ## The page
 

@@ -166,7 +166,7 @@ function keyboardShortcutsTopic(shortcuts = KEYMAP_SHORTCUTS) {
     html: `<table class="help-shortcuts"><thead><tr><th>Keys</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table>`
   };
 }
-var DEFAULT_NAV_SELECTOR = ".twm-global-top-bar .twm-bar-center.twm-top-nav .twm-top-nav__btn";
+var DEFAULT_NAV_SELECTOR = ".twm-global-top-bar .twm-bar-center.twm-top-nav .twm-top-nav__btn, .twm-fl-bar .twm-fl-item[data-kind]";
 var DIRS = ["left", "right", "up", "down"];
 var _where = (d) => d === "up" || d === "down" ? d : `on the ${d}`;
 var ACTIONS = {
@@ -242,10 +242,10 @@ function _action(name) {
   if (m[1] === "nav") {
     return {
       label: `Jump to top-nav page ${n + 1}`,
-      // The selector is a CONFIG option, not a constant. An embedder that
-      // moves its sections out of the top bar — into an icon rail, say —
-      // would otherwise find F1..F8 silently doing nothing. Passing
-      // `navSelector` is how such an embedder keeps the keys.
+      // The default finds the top bar's buttons and the page rail's. An
+      // embedder that draws its page buttons in markup of its own would
+      // otherwise find F1..F8 silently doing nothing. Passing `navSelector`
+      // is how such an embedder keeps the keys.
       run: ({ navSelector }) => {
         const btns = document.querySelectorAll(navSelector || DEFAULT_NAV_SELECTOR);
         if (n >= btns.length) return false;
@@ -2626,6 +2626,14 @@ function createTaxonomy({ kinds, root } = {}) {
         `createTaxonomy: '${kind}' is both a top-nav kind and owned by one`
       );
     }
+    if (def.railPin !== void 0) {
+      if (def.railPin !== "bottom") {
+        throw new TypeError(`createTaxonomy: '${kind}'.railPin must be 'bottom'`);
+      }
+      if (!def.isTopNav) {
+        throw new Error(`createTaxonomy: '${kind}' has a railPin but is not a top-nav kind`);
+      }
+    }
     if (def.panels !== void 0) {
       if (!def.panels || typeof def.panels !== "object" || Array.isArray(def.panels)) {
         throw new TypeError(`createTaxonomy: '${kind}'.panels must be an object`);
@@ -2729,7 +2737,8 @@ function createTaxonomy({ kinds, root } = {}) {
     kind,
     label: m.shortLabel || m.label,
     longLabel: m.label,
-    icon: m.icon
+    icon: m.icon,
+    railPin: m.railPin ?? null
   }));
   const isSingle = (kind) => {
     const s = _kinds[kind]?.single;
@@ -9683,9 +9692,9 @@ async function createShell({
   desktopBar = {},
   menuBar: menuBarCfg = null,
   chrome = {},
-  // An embedder that moved its sections out of the top bar — into an icon
-  // rail, say — passes the selector its own buttons match, and F1..F8 keep
-  // working. Omitted, the default top-bar selector applies.
+  // An embedder that draws its page buttons in markup of its own passes the
+  // selector they match, and F1..F8 keep working. Omitted, the default finds
+  // `chrome.topNav`'s buttons and `chrome.rail`'s.
   navSelector = null,
   keymap = null
 } = {}) {
@@ -9694,6 +9703,9 @@ async function createShell({
   }
   if (!taxonomy) throw new Error("createShell: a taxonomy is required");
   if (!entities) throw new Error("createShell: an entity catalog is required");
+  if (chrome.topNav && chrome.rail) {
+    throw new TypeError("createShell: `chrome.topNav` and `chrome.rail` both paint the pages; give one");
+  }
   if (chrome.menuBar && !menuBarCfg?.menus) {
     throw new TypeError("createShell: `chrome.menuBar` needs `menuBar: { menus }`");
   }
@@ -9717,6 +9729,7 @@ async function createShell({
   const registry = createContentRegistry(content);
   let wm = null;
   let topNavEl = null;
+  let rail = null;
   let desktopsEl = null;
   let toggles = null;
   const syncChrome = () => {
@@ -9724,6 +9737,7 @@ async function createShell({
     syncPanelToggles(toggles, wm);
     syncDesktopBar(desktopsEl, wm);
     syncTopNav(topNavEl, wm);
+    rail?.sync();
   };
   wm = new WindowManager({
     rootEl: root,
@@ -9777,6 +9791,7 @@ async function createShell({
   const disposeKeymap = installKeymap({ wm, palette, navSelector, bindings, logger });
   const paletteBtn = mountPaletteButton(chrome.paletteButton, palette);
   topNavEl = mountTopNav(chrome.topNav, taxonomy, wm);
+  rail = chrome.rail ? mountPageRail(chrome.rail, { wm }) : null;
   desktopsEl = mountDesktopBar(chrome.desktops, wm, desktopBar || {});
   const zoom = mountZoomControl(chrome.zoom, { root, host });
   if (zoom) await zoom.ready;
@@ -9795,6 +9810,7 @@ async function createShell({
     chrome: Object.freeze({
       paletteButtonEl: paletteBtn,
       topNavEl,
+      railEl: rail?.el ?? null,
       desktopsEl,
       panelToggles: toggles,
       // `get`/`set` so an embedder can drive the zoom from its own settings
@@ -9835,6 +9851,10 @@ async function createShell({
       } catch {
       }
       try {
+        rail?.dispose();
+      } catch {
+      }
+      try {
         menuBar?.dispose();
       } catch {
       }
@@ -9865,14 +9885,67 @@ function mountTopNav(hostEl, taxonomy, wm) {
   });
   return hostEl;
 }
-function syncTopNav(hostEl, wm) {
-  if (!hostEl) return;
+function activePageKind(wm) {
   const tree = wm.desktops.active().tree;
   const primaryId = tree.primaryLeafId();
   const primaryKind = primaryId ? tree.get(primaryId)?.content?.kind : null;
-  const topNavKind = wm.taxonomy.topNavFor(primaryKind) || primaryKind;
+  return wm.taxonomy.topNavFor(primaryKind) || primaryKind;
+}
+function syncTopNav(hostEl, wm) {
+  if (!hostEl) return;
+  const topNavKind = activePageKind(wm);
   hostEl.querySelectorAll("[data-kind]").forEach((b) => {
     b.classList.toggle("twm-top-nav__btn--on", b.dataset.kind === topNavKind);
+  });
+}
+function mountPageRail(hostEl, { wm, activeKind = activePageKind, decorate = null } = {}) {
+  if (!hostEl || typeof hostEl.appendChild !== "function") {
+    throw new TypeError("mountPageRail: `hostEl` must be an element");
+  }
+  if (!wm) throw new TypeError("mountPageRail: `wm` is required");
+  hostEl.classList.add("twm-fl-bar");
+  if (!hostEl.hasAttribute("aria-label")) hostEl.setAttribute("aria-label", "Pages");
+  const entries = wm.taxonomy.topNavEntries();
+  const buttons = [
+    ...entries.filter((k) => k.railPin !== "bottom"),
+    ...entries.filter((k) => k.railPin === "bottom")
+  ].map((k) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "twm-fl-item twm-has-tooltip";
+    btn.classList.toggle("twm-fl-item--bottom", k.railPin === "bottom");
+    btn.dataset.kind = k.kind;
+    btn.dataset.tooltip = k.longLabel;
+    btn.setAttribute("aria-label", k.longLabel);
+    const glyph = document.createElement("span");
+    glyph.className = "material-symbols-outlined";
+    glyph.setAttribute("aria-hidden", "true");
+    glyph.textContent = k.icon;
+    btn.appendChild(glyph);
+    decorate?.(btn, k);
+    return btn;
+  });
+  hostEl.replaceChildren(...buttons);
+  const onClick = (e) => {
+    const btn = e.target.closest("[data-kind]");
+    if (btn) wm.openInPrimary(btn.dataset.kind);
+  };
+  hostEl.addEventListener("click", onClick);
+  return Object.freeze({
+    el: hostEl,
+    sync: () => {
+      const active = activeKind(wm);
+      for (const btn of buttons) {
+        const on = btn.dataset.kind === active;
+        btn.classList.toggle("twm-fl-item--on", on);
+        if (on) btn.setAttribute("aria-current", "page");
+        else btn.removeAttribute("aria-current");
+      }
+    },
+    dispose: () => {
+      hostEl.removeEventListener("click", onClick);
+      hostEl.replaceChildren();
+    }
   });
 }
 function mountPaletteButton(hostEl, palette) {
@@ -10220,6 +10293,7 @@ export {
   mountLandingActions,
   mountLandingShell,
   mountNavPanel,
+  mountPageRail,
   mountTileBreadcrumb,
   mountZoomControl,
   openTileTabMenu,

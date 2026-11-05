@@ -1850,34 +1850,66 @@ body.twm-dt-col-resizing {
 .twm-panel-toggle-btn[aria-disabled="true"]:active {
     background: transparent;
 }
-/* Fixed-left vertical icon bar */
+/* The page rail: a fixed-left vertical icon bar (chrome.rail, mountPageRail).
+ * A short window scrolls it, without a scrollbar that would narrow it: the wheel
+ * and the keyboard still reach every item. */
 .twm-fl-bar {
     display: flex;
     flex-direction: column;
     align-items: stretch;
+    flex: 0 0 var(--twm-rail-width);
+    width: var(--twm-rail-width);
     gap: var(--space-sm);
-    height: 100%;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-width: none;
+    background: var(--twm-rail-bg);
+}
+.twm-fl-bar::-webkit-scrollbar {
+    width: 0;
+    height: 0;
 }
 .twm-fl-item {
     background: transparent;
     border: none;
     border-left: 2px solid transparent; /* space reserved for active indicator */
-    color: #9e9e9e; /* default grey for inactive */
+    border-radius: 0;
+    color: var(--twm-rail-icon);
+    flex: 0 0 var(--twm-rail-item-height);
     width: 100%;
-    height: 44px;
+    height: var(--twm-rail-item-height);
+    padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     transition: color var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast);
 }
+.twm-fl-item .material-symbols-outlined {
+    font-size: var(--twm-rail-icon-size);
+    font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+}
 .twm-fl-item:hover {
-    color: var(--text-bright); /* hovered icons become pure white */
+    color: var(--twm-rail-icon-on);
+    background: transparent;
+}
+.twm-fl-item--on,
+.twm-fl-item--on:hover {
+    color: var(--twm-rail-icon-on);
+    border-left-color: var(--twm-rail-icon-on);
     background: transparent;
 }
 .twm-fl-item:focus-visible {
     outline: 2px solid var(--accent-bright);
     outline-offset: -2px;
+}
+/* The first pinned item takes the free space, so the pinned ones stay together */
+.twm-fl-item--bottom {
+    margin-top: auto;
+}
+.twm-fl-item--bottom ~ .twm-fl-item--bottom {
+    margin-top: 0;
 }
 /* Unified collapsible arrow system */
 /* Compounded for the Material Symbols tie — see `.twm-leaf__icon`. */
@@ -8865,7 +8897,16 @@ body.twm-body > .twm-global-bottom-bar {
 body.twm-body > .twm-global-menu-bar {
     flex: 0 0 auto;
 }
-body.twm-body > .twm-host {
+/* The row that holds a page rail beside the WM host: it takes the host's place
+ * in the column, and the host fills what the rail leaves. */
+.twm-workspace {
+    flex: 1 1 auto;
+    display: flex;
+    min-height: 0;
+    min-width: 0;
+}
+body.twm-body > .twm-host,
+.twm-workspace > .twm-host {
     flex: 1 1 auto;
     min-height: 0;
     min-width: 0;

@@ -116,6 +116,14 @@
     /* A DataTable row or cell that has just arrived flashes from this to transparent. */
     --twm-dt-new-bg:  color-mix(in srgb, var(--accent-bright) 22%, transparent);  /* rgba(0, 122, 204, 0.22) */
 
+    /* ── The page rail (chrome.rail: .twm-fl-bar, .twm-fl-item) ─── */
+    --twm-rail-width:       50px;
+    --twm-rail-item-height: 44px;
+    --twm-rail-icon-size:   22px;
+    --twm-rail-bg:      #333333;
+    --twm-rail-icon:    #9e9e9e;              /* an item at rest */
+    --twm-rail-icon-on: var(--text-bright);   /* hovered, and the active item with its bar */
+
     /* ── Overlay scrollbars (installOverlayScrollbar) ─────────── */
     --scrollbar-size:         6px;
     --scrollbar-radius:       3px;

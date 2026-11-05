@@ -1823,7 +1823,16 @@ body.twm-body > .twm-global-bottom-bar {
 body.twm-body > .twm-global-menu-bar {
     flex: 0 0 auto;
 }
-body.twm-body > .twm-host {
+/* The row that holds a page rail beside the WM host: it takes the host's place
+ * in the column, and the host fills what the rail leaves. */
+.twm-workspace {
+    flex: 1 1 auto;
+    display: flex;
+    min-height: 0;
+    min-width: 0;
+}
+body.twm-body > .twm-host,
+.twm-workspace > .twm-host {
     flex: 1 1 auto;
     min-height: 0;
     min-width: 0;

@@ -30,6 +30,9 @@
  *               after the root. Omit on the top-nav kind itself.
  *   isTopNav    True iff this kind owns a slot in the top-nav strip.
  *   order       Sort key for top-nav display (lower = leftward).
+ *   railPin     `'bottom'`: on a page rail (`chrome.rail`), this top-nav kind
+ *               stands apart at the bottom, after every kind that is not
+ *               pinned, whatever its `order`. The top strip ignores it.
  *   appGlobal   True iff the kind is not scoped to the root entity (a
  *               preferences page, say). Its breadcrumb omits the root.
  *   sources     Entity-source ids the tile hamburger lists when a tile
@@ -103,6 +106,14 @@ export function createTaxonomy({ kinds, root } = {}) {
         if (def.isTopNav && def.topNav) {
             throw new Error(
                 `createTaxonomy: '${kind}' is both a top-nav kind and owned by one`);
+        }
+        if (def.railPin !== undefined) {
+            if (def.railPin !== 'bottom') {
+                throw new TypeError(`createTaxonomy: '${kind}'.railPin must be 'bottom'`);
+            }
+            if (!def.isTopNav) {
+                throw new Error(`createTaxonomy: '${kind}' has a railPin but is not a top-nav kind`);
+            }
         }
         if (def.panels !== undefined) {
             if (!def.panels || typeof def.panels !== 'object' || Array.isArray(def.panels)) {
@@ -232,8 +243,9 @@ export function createTaxonomy({ kinds, root } = {}) {
     };
 
     /** Top-nav entries in display order:
-     *      { kind, label (short), longLabel, icon }
-     *  `label` is the chip text; `longLabel` is what the palette shows. */
+     *      { kind, label (short), longLabel, icon, railPin }
+     *  `label` is the chip text; `longLabel` is what the palette shows;
+     *  `railPin` is the KindDef's, or null. */
     const topNavEntries = () =>
         Object.entries(_kinds)
             .filter(([, m]) => m.isTopNav)
@@ -243,6 +255,7 @@ export function createTaxonomy({ kinds, root } = {}) {
                 label:     m.shortLabel || m.label,
                 longLabel: m.label,
                 icon:      m.icon,
+                railPin:   m.railPin ?? null,
             }));
 
     /** Whether `kind` exists once (KindDef `single`). */

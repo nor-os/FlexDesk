@@ -126,7 +126,8 @@ export function keyboardShortcutsTopic(shortcuts = KEYMAP_SHORTCUTS) {
 // is to be left unprevented (an F-key with no Nth top-nav button, Esc). `label`
 // is the shortcuts table's words; an action without one is not listed.
 
-const DEFAULT_NAV_SELECTOR = '.twm-global-top-bar .twm-bar-center.twm-top-nav .twm-top-nav__btn';
+const DEFAULT_NAV_SELECTOR = '.twm-global-top-bar .twm-bar-center.twm-top-nav .twm-top-nav__btn, '
+    + '.twm-fl-bar .twm-fl-item[data-kind]';
 const DIRS = ['left', 'right', 'up', 'down'];
 const _where = (d) => (d === 'up' || d === 'down' ? d : `on the ${d}`);
 
@@ -173,10 +174,10 @@ function _action(name) {
     if (m[1] === 'nav') {
         return {
             label: `Jump to top-nav page ${n + 1}`,
-            // The selector is a CONFIG option, not a constant. An embedder that
-            // moves its sections out of the top bar — into an icon rail, say —
-            // would otherwise find F1..F8 silently doing nothing. Passing
-            // `navSelector` is how such an embedder keeps the keys.
+            // The default finds the top bar's buttons and the page rail's. An
+            // embedder that draws its page buttons in markup of its own would
+            // otherwise find F1..F8 silently doing nothing. Passing `navSelector`
+            // is how such an embedder keeps the keys.
             run: ({ navSelector }) => {
                 const btns = document.querySelectorAll(navSelector || DEFAULT_NAV_SELECTOR);
                 if (n >= btns.length) return false;

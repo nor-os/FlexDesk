@@ -4,6 +4,14 @@
 
 The window manager binds a set of keyboard chords: F1 to F12, Backspace, Ctrl+K, Ctrl+Tab, Ctrl/Shift+Arrows, the Alt chords, `?` and Esc. `keymap.bindings` takes any of them back or rebinds it. The same page covers what depends on those keys and on how a user moves around: what Back and the breadcrumb do, the content zoom control (`chrome.zoom`), and the shell options `backToOpenList`, `floatActiveTab` and `tabLayout`.
 
+## F1..F12 and a page rail (0.18.0)
+
+F1..F12 press the Nth page button. With no `navSelector` they now find the
+buttons of a [page rail](shell.md#the-pages-as-a-vertical-rail-chromerail-0180)
+(`chrome.rail`, `mountPageRail`) as well as those of `chrome.topNav`, so a rail
+needs no selector of yours. Pass `navSelector` only for page buttons in markup of
+your own; it still replaces the default.
+
 ## The digit chords follow the key's position, not its character (0.17.14)
 
 Alt+1..9 switch to desktop N and Alt+Shift+1..9 move the focused tile to desktop

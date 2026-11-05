@@ -324,6 +324,14 @@ the caller's own DOM.
 `tests/confirm_escaping.test.mjs` opens each of them in jsdom with hostile
 names and labels.
 
+## A modal that can refuse to close: `beforeClose` (0.18.0)
+
+`openModal({ beforeClose })` takes `() => boolean | Promise<boolean>`, as
+`ManagedWindow`'s does. It is asked when Esc or the X would dismiss the modal, and
+answering false keeps it open. An action button does not ask it. A modal it lets
+close resolves `null`, as any dismissal does. `openFilterDialog`'s `confirmDiscard`
+is built on it.
+
 ## Windows: closing, focus and Esc (0.17.16)
 
 Every dialog above is a `ManagedWindow`, and so is any window you build

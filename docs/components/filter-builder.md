@@ -239,7 +239,7 @@ const result = await openFilterDialog({
 | `clearLabel` | Adds a button answering `{ action: 'clear', expr: null }`, for a caller to whom "no filter" and "leave it alone" are different answers. |
 | `actions` | More buttons, before Cancel: `{ label, value, danger, icon, confirm, run }`. `confirm` is `openConfirm`'s options, asked first, and `run` behaves as `onSubmit` does. |
 
-**`openModal` gains `beforeClose`** for this: `() => boolean | Promise<boolean>`, asked when Esc or the X would dismiss, as `ManagedWindow`'s is. An action button does not ask it.
+`confirmDiscard` asks through [`openModal`'s `beforeClose`](forms-and-dialogs.md#a-modal-that-can-refuse-to-close-beforeclose-0180).
 
 ## Styling
 

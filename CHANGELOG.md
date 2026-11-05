@@ -19,6 +19,7 @@ A consumer on a caret range has to raise it: `^0.17.18` does not take 0.18.0.
 - [An assistant chat: `mountChatShell`](docs/components/chat-shell.md#an-assistant-chat-mountchatshell-0180), a domain-free chat over the conversation view with its state machine (`ChatStateMachine`) and a transport of yours.
 - [Taking one message out of a conversation: `view.remove(id)`](docs/components/conversation.md#taking-one-message-out-remove-0180).
 - [Tag suggestions and one spelling for tags: `suggestions`, `normalise`](docs/components/input-fields.md#suggestions-and-one-spelling-for-tags-suggestions-normalise-0180) on the tag input.
+- [A modal that can refuse to close: `beforeClose`](docs/components/forms-and-dialogs.md#a-modal-that-can-refuse-to-close-beforeclose-0180) on `openModal`.
 
 ### Changed behaviour
 
@@ -48,7 +49,7 @@ None. Compared with 0.17.18 across every entry point. New:
   - the picker: `createWorkspacePicker`, `mountPickerField`, `createPickerSwitcher`, `createRecentItems`;
   - the filter: `createFilterModel`, `createFilterBuilder`, `openFilterDialog`, `emptyFilter`, `cloneFilter`, `parseFilter`, `serializeFilter`, `countConditions`, `coerceFilterValue`, `toConditionTree`, `fromConditionTree`, `FILTER_OPERATORS`, `FILTER_TYPE_OPERATORS`;
   - the chat: `mountChatShell`, `ChatStateMachine`, `CHAT_STATES`, `CHAT_TRANSITIONS`, `CHAT_BUS_EVENTS`, `CHAT_TRANSPORT_EVENTS`, `CHAT_SHELL_LABELS`.
-- `view.remove(id)` on the conversation view; `createTagInput`'s `suggestions` and `normalise` options.
+- `view.remove(id)` on the conversation view; `createTagInput`'s `suggestions` and `normalise` options; `openModal`'s `beforeClose` option.
 - Custom properties in `tokens.css`: `--twm-diff-add-bg`, `--twm-diff-add-fg`, `--twm-diff-del-bg`, `--twm-diff-del-fg`, `--twm-git-lane-0` to `--twm-git-lane-7`, `--twm-rail-width`, `--twm-rail-item-height`, `--twm-rail-icon-size`, `--twm-rail-bg`, `--twm-rail-icon`, `--twm-rail-icon-on`.
 
 ## 0.17.18 (2026-10-27)

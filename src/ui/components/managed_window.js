@@ -18,6 +18,8 @@
  */
 
 import { getSetting } from '../../core/settings.js';
+import { isInAnchoredLayer } from './anchored_layer.js';
+import { collectFocusable } from '../utils/focusable.js';
 
 /** Where window geometry lives when the embedder names no key. An embedder
  *  that saved geometry under another key keeps it by passing that key to
@@ -69,29 +71,6 @@ let _activeWindows = new Map(); // id -> ManagedWindow instance
  *  listens on the document, and closing one can hand focus to another before
  *  the same event reaches it — one Esc must close one window. */
 const _escAnswered = new WeakSet();
-
-/** Collect the focusable elements inside `root`, in DOM order. Used
- *  by the modal focus trap so Tab cycles within the modal frame and
- *  can't escape into the underlying tiles. */
-function _collectFocusable(root) {
-    if (!root) return [];
-    const sel = [
-        'a[href]',
-        'button:not([disabled])',
-        'input:not([disabled]):not([type="hidden"])',
-        'select:not([disabled])',
-        'textarea:not([disabled])',
-        '[tabindex]:not([tabindex="-1"])',
-    ].join(',');
-    return Array.from(root.querySelectorAll(sel)).filter((el) => {
-        // Skip hidden / zero-size elements — Tab visits only what the
-        // user can actually see.
-        if (el.hidden) return false;
-        if (el.closest('[hidden]')) return false;
-        const r = el.getBoundingClientRect();
-        return r.width > 0 || r.height > 0;
-    });
-}
 
 // Global state cache
 let _stateCache = null;
@@ -965,7 +944,7 @@ export class ManagedWindow {
         }
         this.element.setAttribute('data-window-id', this.id);
         // BUG-0053. Focusable by script and by a press, never by Tab (the
-        // modal trap's `_collectFocusable` skips tabindex -1): a press on the
+        // modal trap's `collectFocusable` skips tabindex -1): a press on the
         // title bar or on empty content keeps focus in the window, where a
         // non-modal window's Esc looks for it.
         this.element.tabIndex = -1;
@@ -1850,7 +1829,10 @@ export class ManagedWindow {
         // active element into the background — bad UX, and a
         // genuine WCAG focus-trap violation for accessibility tools.
         if (e.key === 'Tab' && this.modal && this.element) {
-            const focusables = _collectFocusable(this.element);
+            // A popover opened from this modal is over it but outside its frame,
+            // and sees to its own Tab.
+            if (isInAnchoredLayer(document.activeElement)) return;
+            const focusables = collectFocusable(this.element);
             if (focusables.length === 0) {
                 e.preventDefault();
                 return;

@@ -99,6 +99,20 @@ submit with "onCreate is not a function".
 `tests/open_form.test.mjs` mounts the real `openForm` in jsdom and covers all
 four, plus a plain form submitting as before.
 
+#### It is `createCombobox` (0.18.0)
+
+The field draws with [`createCombobox`](input-fields.md#a-text-box-that-also-offers-a-list-createcombobox-0180)
+instead of an `<input list>` and a `<datalist>`, so its list shows each option's label and
+`description`, and looks like the rest of the app. What it submits has not changed.
+
+- **Enter with the list open closes the list; the next one submits.** Escape closes the list and
+  leaves the form open. No row is active until the arrow keys pick one, so Enter keeps what was typed.
+- The markup differs: no `<datalist>`, and `.twm-combobox__hint` has no `data-for`. Read it
+  under its row, `[data-field-row="kind"] .twm-combobox__hint`. The input is still `[name="kind"]`.
+
+A plain `select` stays a native `<select>`: `selectBox` is shared with the charts,
+the settings page and the flow kit, so drawing a form's with `createSelect` would remove no code.
+
 ### Options: typed, unavailable, grouped, and changed while open (0.17.0)
 
 ```js

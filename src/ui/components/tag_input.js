@@ -28,12 +28,20 @@
  *     tags.getValue();          // ['baseline']
  *     tags.setValue(['a', 'b']);
  *     tags.dispose();
+ *
+ * `suggestions` (0.18.0) offers known tags under the box, on `attachInputOptions`:
+ * the arrow keys walk the rows, and Enter or a comma takes the active one; with none
+ * active they commit what was typed. Whatever the list's source, a row is in the one
+ * spelling, says a tag once and is not a tag already in the list. An array is filtered
+ * and ordered here, the earliest match first and then alphabetically; a function
+ * answers for itself and keeps its own order, and may be async.
+ * `normalise` (0.18.0) keeps one spelling of a tag: `Path Finding` and `path-finding`
+ * cannot both exist, whichever way one arrives. It is handed the trimmed text.
  */
+import { attachInputOptions } from './combobox.js';
+import { shownValue } from './choice_controls.js';
 
-/** The list as strings, the empty ones left out. */
-const normalise = (list) => (Array.isArray(list) ? list : [])
-    .map((v) => (v == null ? '' : String(v).trim()))
-    .filter((v) => v !== '');
+const optionValue = (o) => (o !== null && typeof o === 'object' ? o.value : o);
 
 /**
  * @typedef {Object} TagInputOptions
@@ -45,6 +53,9 @@ const normalise = (list) => (Array.isArray(list) ? list : [])
  * @property {string} [label] - The text box's accessible name.
  * @property {(tag: string) => string} [removeLabel] - A remove button's `aria-label`.
  * @property {string} [className] - Extra classes on the root.
+ * @property {Array|((query: string, ctx: {signal: AbortSignal}) => Array|Promise<Array>)} [suggestions] -
+ *     Known tags: strings or `{ value, label?, description?, icon?, hint? }`.
+ * @property {(text: string) => string} [normalise] - The one spelling of a tag.
  */
 
 /**
@@ -59,8 +70,16 @@ export function createTagInput(host, options = {}) {
     const allowDuplicates = !!options.allowDuplicates;
     const removeLabel = typeof options.removeLabel === 'function'
         ? options.removeLabel : (tag) => `Remove ${tag}`;
+    const spell = typeof options.normalise === 'function'
+        ? (text) => String(options.normalise(text.trim()) ?? '').trim() : (text) => text.trim();
 
-    let tags = normalise(options.value);
+    /** The list as spelled, the empty ones left out, and a repeat unless it is allowed. */
+    const cleaned = (list) => {
+        const out = (Array.isArray(list) ? list : []).map((v) => (v == null ? '' : spell(String(v)))).filter((v) => v !== '');
+        return allowDuplicates ? out : [...new Set(out)];
+    };
+
+    let tags = cleaned(options.value);
     let disposed = false;
 
     const root = document.createElement('div');
@@ -134,7 +153,7 @@ export function createTagInput(host, options = {}) {
         if (disposed || readOnly) return false;
         const next = [...tags];
         for (const piece of String(text).split(',')) {
-            const tag = piece.trim();
+            const tag = spell(piece);
             if (tag === '') continue;
             if (!allowDuplicates && next.includes(tag)) continue;
             next.push(tag);
@@ -150,17 +169,66 @@ export function createTagInput(host, options = {}) {
         return true;
     };
 
+    /** Known tags as rows: in the one spelling, each once, less those already in the list. */
+    const offered = (list) => {
+        const seen = new Set();
+        const rows = [];
+        for (const o of list || []) {
+            const tag = spell(shownValue(optionValue(o)));
+            if (tag === '' || seen.has(tag) || (!allowDuplicates && tags.includes(tag))) continue;
+            seen.add(tag);
+            rows.push(o !== null && typeof o === 'object' ? { ...o, value: tag } : tag);
+        }
+        return rows;
+    };
+    // What is typed is the query however the list opened: an arrow key or a click
+    // reopening it must not offer rows that have nothing to do with the text in the box.
+    /** An array of known tags: those holding what is typed, the earliest match first, then alphabetically. */
+    const rankedFor = () => {
+        const needle = spell(input.value).toLowerCase();
+        const word = (o) => shownValue(optionValue(o));
+        const at = (o) => word(o).toLowerCase().indexOf(needle);
+        return offered(options.suggestions).filter((o) => at(o) >= 0)
+            .sort((x, y) => at(x) - at(y) || word(x).localeCompare(word(y)));
+    };
+    /** A function's answer, whenever it comes. */
+    const askedFor = (_query, ctx) => {
+        const answer = options.suggestions(input.value, ctx);
+        return typeof answer?.then === 'function' ? answer.then(offered) : offered(answer);
+    };
+    const asking = typeof options.suggestions === 'function';
+
+    // Before the box's own keydown listener: a row taken by Enter is not also a commit.
+    const menu = input && options.suggestions
+        ? attachInputOptions(input, {
+            options: asking ? askedFor : rankedFor,
+            anchor: root,
+            normalise: spell,
+            openOnFocus: true,
+            passEnter: true,
+            debounce: asking ? undefined : 0,
+            onPick(option) {
+                input.value = '';
+                commitText(shownValue(option.value));
+                input.focus();
+            },
+        })
+        : null;
+
     const commitInput = () => {
         if (!input) return;
         const text = input.value;
         input.value = '';
+        menu?.close();
         commitText(text);
     };
 
     if (input) {
         input.addEventListener('keydown', (ev) => {
             if (ev.isComposing) return;
-            if (ev.key === 'Enter' || ev.key === ',') {
+            if (ev.key === ',' && menu?.takeActive()) {
+                ev.preventDefault();
+            } else if (ev.key === 'Enter' || ev.key === ',') {
                 ev.preventDefault();
                 commitInput();
             } else if (ev.key === 'Backspace' && input.value === '' && tags.length) {
@@ -202,13 +270,14 @@ export function createTagInput(host, options = {}) {
         /** Replaces the list. Does not call `onChange`. */
         setValue(list) {
             if (disposed) return;
-            tags = normalise(list);
+            tags = cleaned(list);
             paint();
         },
         focus() { input?.focus(); },
         dispose() {
             if (disposed) return;
             disposed = true;
+            menu?.destroy();
             root.remove();
         },
     };

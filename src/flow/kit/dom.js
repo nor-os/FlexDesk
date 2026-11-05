@@ -1,27 +1,16 @@
 /**
- * THE KIT'S SMALL DOM HELPERS, AND ITS ONE POPOVER.
+ * THE KIT'S SMALL DOM HELPERS, AND ITS POPOVER.
  *
  * Everything here builds elements; nothing here reads the network, storage or
- * a consumer's vocabulary. The popover is the step picker's and *Insert a
- * value*'s shell (36 §3.5, §3.7):
- *
- *  - it is appended to FlexDesk's modal host (`modalHost()`, C25) or to
- *    `document.body` — the same question a modal and a context menu ask, so a
- *    consumer spanning two browser windows gets it in the window it set;
- *  - it is `position: fixed`, placed under its anchor (above when there is no
- *    room below) and CLAMPED to the viewport;
- *  - it is dismissed by a press outside it, by Escape, or by `close()`, and
- *    **it returns focus to its anchor** when it closes with focus inside it —
- *    a picker that drops focus on `<body>` drops it where an editor's keys
- *    never arrive — except when focus has just left it by Tab, which the
- *    pickers close it for (`'blur'`): that focus is going where it was sent;
- *  - there is ONE at a time: opening a second closes the first, and opening one
- *    from the anchor that holds the open one closes it (a toggle);
- *  - `closeFlowPopovers()` closes whichever is open, which is what an editor's
- *    `destroy()` calls so that nothing it opened outlives it.
+ * a consumer's vocabulary. The popover, the step picker's and *Insert a value*'s
+ * shell (36 §3.5, §3.7), is FlexDesk's `openPopover`, which says how it is placed,
+ * dismissed and toggled and that it returns focus to its anchor: a picker that
+ * drops focus on `<body>` drops it where an editor's keys never arrive. What the
+ * kit adds is `closeFlowPopovers()`, which closes whichever of its own is open:
+ * what an editor's `destroy()` calls so that nothing it opened outlives it.
  */
 
-import { modalHost } from '../../ui/components/modal.js';
+import { openPopover as openAnchoredPopover } from '../../ui/components/popover.js';
 
 /** The category tones (36 §3.1, §3.12); the stylesheet maps each to tokens. */
 export const TONES = Object.freeze(['violet', 'teal', 'amber', 'grey', 'blue', 'indigo']);
@@ -81,118 +70,38 @@ export function uid(stem = 'flow') {
 
 // ── the popover ──────────────────────────────────────────────────────────
 
-const EDGE = 8;
-const GAP = 4;
-let ACTIVE = null;
+/** The kit's open popovers, oldest first. */
+const OPEN = [];
 
-/** Close whichever kit popover is open. */
+/** Close every kit popover that is open. */
 export function closeFlowPopovers() {
-    ACTIVE?.close('closed');
+    OPEN[0]?.close('closed');
 }
 
-/** The open popover's element, or null — for a test. */
+/** The open popover's element (the innermost's), or null — for a test. */
 export function openFlowPopover() {
-    return ACTIVE ? ACTIVE.el : null;
+    return OPEN.length ? OPEN[OPEN.length - 1].el : null;
 }
 
 /**
- * Put `content` in a popover under `anchor`.
+ * FlexDesk's popover (`openPopover` in `ui/components/popover.js`), wearing the
+ * kit's class and remembered so that an editor can close what it opened.
  *
- * @param {object} o
- * @param {HTMLElement} o.anchor     what opened it; focus returns here
- * @param {HTMLElement} o.content    the popover's body
- * @param {string} o.label           its accessible name (`role="dialog"`)
- * @param {string} [o.className]     an extra block class
- * @param {(reason: string) => void} [o.onClose]  after it is gone
- * @param {HTMLElement} [o.focus]    what takes focus on open
- * @returns {{el: HTMLElement, close: (reason?: string) => void, reposition: () => void, toggled: boolean}}
- *          `toggled` is true when the call only CLOSED the popover its anchor held.
+ * @param {object} o  What `openPopover` takes.
+ * @returns {{el: HTMLElement|null, close: (reason?: string) => void, reposition: () => void, toggled: boolean}}
+ *          `el` is null when nothing opened; `toggled` is true when the call only
+ *          CLOSED the popover its anchor held.
  */
-export function openPopover({ anchor, content, label, className = '', onClose = null, focus = null }) {
-    if (ACTIVE && anchor && ACTIVE.anchor === anchor) {
-        ACTIVE.close('toggle');
-        return { el: null, close() {}, reposition() {}, toggled: true };
-    }
-    ACTIVE?.close('replaced');
-
-    const pop = el('div', `twm-flow-popover${className ? ` ${className}` : ''}`);
-    pop.setAttribute('role', 'dialog');
-    pop.setAttribute('aria-label', label || '');
-    pop.tabIndex = -1;
-    pop.appendChild(content);
-    (modalHost() || document.body).appendChild(pop);
-
-    let closed = false;
-    const place = () => {
-        if (closed) return;
-        // The CLIENT width: a page scrollbar is not room to draw in.
-        const view = { w: document.documentElement.clientWidth || window.innerWidth || 1024,
-                       h: document.documentElement.clientHeight || window.innerHeight || 768 };
-        const a = anchor?.getBoundingClientRect?.() || { left: 0, top: 0, bottom: 0, right: 0 };
-        const box = pop.getBoundingClientRect();
-        // Under the anchor, its left edge on the anchor's; an anchor near the
-        // right edge gets the popover's RIGHT edge on its own instead.
-        let left = a.left;
-        if (left + box.width > view.w - EDGE && a.right - box.width >= EDGE) left = a.right - box.width;
-        let top = a.bottom + GAP;
-        if (top + box.height > view.h - EDGE && a.top - GAP - box.height >= EDGE) top = a.top - GAP - box.height;
-        left = Math.max(EDGE, Math.min(left, view.w - box.width - EDGE));
-        top = Math.max(EDGE, Math.min(top, view.h - box.height - EDGE));
-        pop.style.left = `${Math.round(left)}px`;
-        pop.style.top = `${Math.round(top)}px`;
-    };
-
-    const onPress = (ev) => {
-        if (pop.contains(ev.target)) return;
-        if (anchor && anchor.contains?.(ev.target)) return;   // the anchor's own click toggles
-        handle.close('outside');
-    };
-    const onKey = (ev) => {
-        if (ev.key !== 'Escape') return;
-        ev.preventDefault();
-        ev.stopPropagation();
-        handle.close('escape');
-    };
-    const onResize = () => place();
-    // Placed before its content is drawn — a picker fills its list after this
-    // returns — so it is placed again whenever its size changes, or it would
-    // run past the window's edge.
-    const sized = typeof ResizeObserver === 'function' ? new ResizeObserver(() => place()) : null;
-
-    const handle = {
-        el: pop,
-        anchor,
-        toggled: false,
-        reposition: place,
-        close(reason = 'closed') {
-            if (closed) return;
-            closed = true;
-            const held = pop.contains(document.activeElement) || document.activeElement === document.body;
-            document.removeEventListener('pointerdown', onPress, true);
-            document.removeEventListener('mousedown', onPress, true);
-            pop.removeEventListener('keydown', onKey);
-            window.removeEventListener('resize', onResize);
-            sized?.disconnect();
-            pop.remove();
-            if (ACTIVE === handle) ACTIVE = null;
-            // Focus that LEFT the popover (a Tab out of it) is going somewhere the
-            // reader sent it; taking it back to the anchor would fight that move.
-            if (held && reason !== 'blur' && anchor?.isConnected) anchor.focus?.({ preventScroll: true });
+export function openPopover({ className = '', onClose = null, ...rest }) {
+    const handle = openAnchoredPopover({
+        ...rest,
+        className: `twm-flow-popover${className ? ` ${className}` : ''}`,
+        onClose(reason) {
+            OPEN.splice(OPEN.indexOf(handle), 1);
             onClose?.(reason);
         },
-    };
-    ACTIVE = handle;
-    // The press that OPENED it is still being dispatched; listen from the next turn.
-    setTimeout(() => {
-        if (closed) return;
-        document.addEventListener('pointerdown', onPress, true);
-        document.addEventListener('mousedown', onPress, true);
-    }, 0);
-    pop.addEventListener('keydown', onKey);
-    window.addEventListener('resize', onResize);
-    sized?.observe(pop);
-    place();
-    (focus || pop).focus?.({ preventScroll: true });
+    });
+    if (handle.el) OPEN.push(handle);
     return handle;
 }
 

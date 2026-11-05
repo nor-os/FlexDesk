@@ -231,7 +231,7 @@ export function openValuePicker({ anchor, groups = [], note = null, onPick = nul
         anchor, content: root, label: title ?? say(S, 'insertValue'), className: 'twm-flow-popover--values',
         focus: search, onClose: () => settle(result),
     });
-    if (handle.toggled) settle(null);
+    if (!handle.el) settle(null);
     else paint();
     done.close = () => handle.close('closed');
     return done;

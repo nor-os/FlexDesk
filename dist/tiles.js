@@ -16,14 +16,11 @@ import {
 } from "./chunk-UKP22RUG.js";
 import {
   ActionDropdown
-} from "./chunk-J3HM52GP.js";
+} from "./chunk-PAI2ZUWV.js";
 import {
+  openModal,
   showContextMenu
-} from "./chunk-LTCDCEJS.js";
-import {
-  modalHost,
-  openModal
-} from "./chunk-5EARWQU6.js";
+} from "./chunk-ZZADQH74.js";
 import {
   buildHistogramTrace,
   buildLegendLayout,
@@ -38,14 +35,18 @@ import {
   purge,
   resize,
   strideDownsampleShared
-} from "./chunk-LLVHIWQB.js";
-import "./chunk-XWOMYOUI.js";
+} from "./chunk-SBOLBZCF.js";
+import "./chunk-EPYIQCQN.js";
 import "./chunk-VLOAI3HS.js";
 import {
   isHexColor
-} from "./chunk-WQIGN7L3.js";
+} from "./chunk-YBOAWSRA.js";
+import {
+  modalHost
+} from "./chunk-Q7BALEPX.js";
 import "./chunk-HNU6MM2B.js";
-import "./chunk-WUFLGETN.js";
+import "./chunk-WVFGV5FT.js";
+import "./chunk-QXAOTGCC.js";
 import {
   __toCommonJS
 } from "./chunk-JYWURG5T.js";

@@ -5,25 +5,25 @@ import {
 import {
   TAB_LEVELS,
   createTabs
-} from "./chunk-REJ5HLIM.js";
+} from "./chunk-HYJYYEPK.js";
 import {
+  openForm,
   showContextMenu
-} from "./chunk-LTCDCEJS.js";
-import {
-  openForm
-} from "./chunk-5EARWQU6.js";
+} from "./chunk-ZZADQH74.js";
 import {
   isRowActivation
 } from "./chunk-VLOAI3HS.js";
 import {
   ManagedWindow
-} from "./chunk-WQIGN7L3.js";
+} from "./chunk-YBOAWSRA.js";
+import "./chunk-Q7BALEPX.js";
 import "./chunk-HNU6MM2B.js";
 import {
   NotebookTabBar
-} from "./chunk-7U4IB65H.js";
+} from "./chunk-LLBJ2SJH.js";
 import "./chunk-N7HC3ADV.js";
-import "./chunk-WUFLGETN.js";
+import "./chunk-WVFGV5FT.js";
+import "./chunk-QXAOTGCC.js";
 import "./chunk-JYWURG5T.js";
 
 // src/tiling/bottom_panel_tabs.js

@@ -3,11 +3,13 @@ import {
   wheelStripSideways
 } from "./chunk-N7HC3ADV.js";
 import {
-  DragReorder,
+  DragReorder
+} from "./chunk-WVFGV5FT.js";
+import {
   focusMenuItem,
   moveMenuFocus,
   placeMenuInViewport
-} from "./chunk-WUFLGETN.js";
+} from "./chunk-QXAOTGCC.js";
 
 // src/editor/notebook_tab_bar.js
 var DEFAULT_TAB_DRAG_MIME = "application/x-flexdesk-tab";
@@ -474,4 +476,4 @@ export {
   getTabDragMime,
   NotebookTabBar
 };
-//# sourceMappingURL=chunk-7U4IB65H.js.map
+//# sourceMappingURL=chunk-LLBJ2SJH.js.map

@@ -309,3 +309,84 @@ The Add button is FlexDesk's `twm-btn twm-btn--primary`; everything else is
 styled from the tokens (`tests/category_picker.test.mjs` checks there is no
 colour literal in its rules, and that base.css and flexdesk.css carry the same
 block).
+
+## A rich popover: `openPopover` (0.18.0)
+
+`openPopover` hangs a panel of your own content off the element that opened it. It
+is not a menu: it holds a form, a list, anything.
+
+```js
+import { openPopover } from '@flexdesk/widgets';
+
+button.addEventListener('click', () => {
+    const pop = openPopover({
+        anchor: button,
+        content: shareForm,
+        label: 'Share',
+        focus: shareForm.querySelector('input'),
+        onClose: (reason) => saveDraft(),
+    });
+    // pop.close(), pop.reposition(), await pop.closed
+});
+```
+
+| Option | What it does |
+| --- | --- |
+| `anchor`, `content` | What it hangs from, and its body |
+| `label`, `className` | Its accessible name (`role="dialog"`), and extra classes on `.twm-popover` |
+| `focus` | What takes focus on open; else the panel. On close, focus held inside it goes back to the anchor |
+| `align` | `'start'` or `'end'`: which anchor edge it lines up with first |
+| `inside` | A selector for floating panels of your own: a press in one is not "outside" |
+| `onClose(reason)` | After it is gone: `'outside'`, `'escape'`, `'toggle'`, `'replaced'`, `'parent'`, `'detached'`, or what you passed to `close` |
+
+It closes on a press outside it, on Escape and when its anchor leaves the page. While open
+the anchor carries `.twm-is-open` and `aria-expanded="true"`. Opening one from the anchor
+that holds an open one closes it: `toggled` is then true and `el` null, so a click handler
+needs no state. Opening one anywhere else closes the open one, unless it owns the new
+anchor (see [layers](#an-anchored-layer-positionanchored-openanchoredlayer-0180)). An anchor that
+is not on the page opens nothing: `el` is null, `toggled` false, `onClose` is not called and
+`closed` is already resolved.
+
+**Tab stays inside**, going round the panel's controls, as in a modal or a `CategoryPicker`.
+The panel is mounted at the end of the page, so past its edge lies whatever comes next in the
+document, and over a modal that is behind the modal. Escape is the way out. A modal's own focus trap
+leaves focus in a layer alone. This is new for the flow kit's popover, whose pickers used
+to close when Tab took focus out of them.
+
+The flow kit's popover is this one with the class `.twm-flow-popover`. It used to place
+itself and now scrolls inside when it fits neither above nor below its anchor, where it used to be
+clamped to the window. `@flexdesk/flow` still exports its own `openPopover`, `closeFlowPopovers`
+and `openFlowPopover`.
+
+## An anchored layer: `positionAnchored`, `openAnchoredLayer` (0.18.0)
+
+There is one placement. `positionAnchored(anchor, panel, { align, gap, margin, matchWidth })`
+is what `ActionDropdown.position` calls, and `CategoryPicker`, a tile's menu, `openPopover`,
+`createSelect` and `createCombobox` place through it: `position: fixed`, under the anchor when it fits there (else
+above it when it fits there, else on the side with more room, scrolling inside), `margin` inside
+the window. `gap` is 8 by default, as it was for `ActionDropdown`.
+
+`openAnchoredLayer({ anchor, el, align, gap, matchWidth, inside, returnFocus, onClose })` is the
+behaviour around it, for a floating panel of your own. It answers `{ el, anchor, place, owns(node), close(reason) }`,
+or `null` when the anchor is not on the page: nothing opened and `onClose` will not be called.
+
+- `el` is mounted on `modalHost()` or the anchor's `document.body`, and taken off on
+  close, so a closed layer leaves nothing on the page.
+- It is placed again on a window resize, on a scroll outside it and when its size
+  changes. An anchor gone from the page closes it.
+- **Layers stack.** What a layer owns is one answer, for a press and for an anchor: its panel,
+  the layers above it, an `ActionDropdown` menu, a `CategoryPicker`, a context menu, a modal window
+  shown after it opened (a dialog its content opened), and what `inside` names. Opening a layer
+  closes every layer that does not own its anchor. A press on what a layer owns, or on its anchor,
+  is not outside it. Closing a layer closes those above it.
+  So a select in a popover works, a press in the select's list does not close the popover,
+  and neither does a list opening in a dialog the popover opened.
+- **Escape goes to the top layer and to nothing else**, so the `ManagedWindow` around the field stays
+  open. From inside the panel it is heard as it bubbles out, so that the panel's content
+  can answer first, by stopping it or preventing its default.
+- An open menu or picker, and a modal shown after the layer opened, have Escape first. A modal
+  already showing when the layer opened is under it, however long the chain of layers between them,
+  and hears Escape only when the layers are gone.
+- `isInAnchoredLayer(node)` says whether a node is in an open layer, for a focus trap of your own.
+
+`tests/select_combobox_popover.test.mjs` covers these in jsdom.

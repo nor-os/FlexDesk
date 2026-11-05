@@ -4,7 +4,7 @@ import {
 } from "./chunk-N7HC3ADV.js";
 import {
   DragReorder
-} from "./chunk-WUFLGETN.js";
+} from "./chunk-WVFGV5FT.js";
 
 // src/ui/components/tabs.js
 var TAB_LEVELS = Object.freeze(["info", "warning", "alert"]);
@@ -372,4 +372,4 @@ export {
   TAB_LEVELS,
   createTabs
 };
-//# sourceMappingURL=chunk-REJ5HLIM.js.map
+//# sourceMappingURL=chunk-HYJYYEPK.js.map

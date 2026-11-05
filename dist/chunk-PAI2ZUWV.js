@@ -1,6 +1,8 @@
+import {
+  positionAnchored
+} from "./chunk-Q7BALEPX.js";
+
 // src/ui/components/action_dropdown.js
-var EDGE_MARGIN = 8;
-var GAP = 8;
 var ActionDropdown = class _ActionDropdown {
   /**
    * @param {Object} config
@@ -236,11 +238,8 @@ var ActionDropdown = class _ActionDropdown {
   // STATIC — shared auto-positioning for any trigger + menu pair
   // =========================================================================
   /**
-   * Position a dropdown menu relative to a trigger element.
-   * Uses `position: fixed` to avoid overflow clipping.
-   * Picks above/below based on available space, aligns left/right edge,
-   * and applies `max-height` + `overflow-y: auto` when the menu is taller
-   * than the available space.
+   * Position a dropdown menu relative to a trigger element: `positionAnchored`
+   * (`anchored_layer.js`), the one placement every floating panel uses.
    *
    * @param {HTMLElement} trigger - The element the dropdown opens from
    * @param {HTMLElement} menu - The dropdown menu element to position
@@ -251,60 +250,11 @@ var ActionDropdown = class _ActionDropdown {
    */
   static position(trigger, menu, { align = "start" } = {}) {
     if (!trigger || !menu) return;
-    Object.assign(menu.style, {
-      position: "fixed",
-      top: "auto",
-      bottom: "auto",
-      left: "auto",
-      right: "auto",
-      maxHeight: "",
-      overflowY: ""
-    });
-    const triggerRect = trigger.getBoundingClientRect();
-    const menuRect = menu.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const spaceBelow = vh - triggerRect.bottom - GAP - EDGE_MARGIN;
-    const spaceAbove = triggerRect.top - GAP - EDGE_MARGIN;
-    let top;
-    let maxHeight;
-    if (menuRect.height <= spaceBelow) {
-      top = triggerRect.bottom + GAP;
-      maxHeight = spaceBelow;
-    } else if (menuRect.height <= spaceAbove) {
-      top = triggerRect.top - GAP - menuRect.height;
-      maxHeight = spaceAbove;
-    } else if (spaceBelow >= spaceAbove) {
-      top = triggerRect.bottom + GAP;
-      maxHeight = spaceBelow;
-    } else {
-      maxHeight = spaceAbove;
-      top = EDGE_MARGIN;
-    }
-    let left;
-    if (align === "end") {
-      left = triggerRect.right - menuRect.width;
-      if (left < EDGE_MARGIN) {
-        left = triggerRect.left;
-      }
-    } else {
-      left = triggerRect.left;
-      if (left + menuRect.width > vw - EDGE_MARGIN) {
-        left = triggerRect.right - menuRect.width;
-      }
-    }
-    left = Math.max(EDGE_MARGIN, Math.min(left, vw - menuRect.width - EDGE_MARGIN));
-    Object.assign(menu.style, {
-      position: "fixed",
-      top: `${Math.round(top)}px`,
-      left: `${Math.round(left)}px`,
-      maxHeight: `${Math.round(maxHeight)}px`,
-      overflowY: "auto"
-    });
+    positionAnchored(trigger, menu, { align });
   }
 };
 
 export {
   ActionDropdown
 };
-//# sourceMappingURL=chunk-J3HM52GP.js.map
+//# sourceMappingURL=chunk-PAI2ZUWV.js.map

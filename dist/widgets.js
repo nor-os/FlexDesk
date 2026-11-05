@@ -1,4 +1,7 @@
 import {
+  openPopover
+} from "./chunk-DNJ3N4T4.js";
+import {
   PROGRESS_ITEM_STATES,
   PROGRESS_STATES,
   ProgressBar,
@@ -20,7 +23,7 @@ import {
   toastInfo,
   toastSuccess,
   toastWarn
-} from "./chunk-NFAWPZYK.js";
+} from "./chunk-BCDLSL5N.js";
 import {
   StateMachine
 } from "./chunk-3PHCPZHT.js";
@@ -40,27 +43,26 @@ import {
 import {
   TAB_LEVELS,
   createTabs
-} from "./chunk-REJ5HLIM.js";
+} from "./chunk-HYJYYEPK.js";
 import {
   ComponentBase,
   SlideOutPanel
 } from "./chunk-UKP22RUG.js";
 import {
   ActionDropdown
-} from "./chunk-J3HM52GP.js";
-import {
-  hideContextMenu,
-  showContextMenu
-} from "./chunk-LTCDCEJS.js";
+} from "./chunk-PAI2ZUWV.js";
 import {
   ColorListField,
   SortableList,
-  modalHost,
+  attachInputOptions,
+  createCombobox,
+  createOptionList,
+  hideContextMenu,
   openConfirm,
   openForm,
   openModal,
-  setModalHost
-} from "./chunk-5EARWQU6.js";
+  showContextMenu
+} from "./chunk-ZZADQH74.js";
 import {
   ACTIONS,
   AutocompleteField,
@@ -107,7 +109,7 @@ import {
   resolvePaging,
   toTSV,
   tsvCell
-} from "./chunk-XWOMYOUI.js";
+} from "./chunk-EPYIQCQN.js";
 import {
   ROW_CONTROL_SELECTOR,
   endsTextSelection,
@@ -121,10 +123,21 @@ import {
   ManagedWindow,
   ToggleField,
   isHexColor,
-  normalizeHex,
+  normalizeHex
+} from "./chunk-YBOAWSRA.js";
+import {
+  choiceSections,
+  filterSections,
+  findChoice,
+  flatChoices,
+  isInAnchoredLayer,
+  modalHost,
+  openAnchoredLayer,
+  positionAnchored,
   selectBox,
+  setModalHost,
   shownValue
-} from "./chunk-WQIGN7L3.js";
+} from "./chunk-Q7BALEPX.js";
 import {
   getSetting
 } from "./chunk-HNU6MM2B.js";
@@ -134,7 +147,8 @@ import {
 } from "./chunk-N7HC3ADV.js";
 import {
   DragReorder
-} from "./chunk-WUFLGETN.js";
+} from "./chunk-WVFGV5FT.js";
+import "./chunk-QXAOTGCC.js";
 import "./chunk-JYWURG5T.js";
 
 // src/ui/base/controller_base.js
@@ -1303,11 +1317,11 @@ function mountAttributeListEditor(hostEl, options = {}) {
     const populate = (opts) => {
       while (el3.childNodes.length > 1) el3.removeChild(el3.lastChild);
       for (const o of opts) {
-        const node = document.createElement("option");
-        node.value = o.id;
-        node.textContent = o.label;
-        if (o.id === item[field]) node.selected = true;
-        el3.appendChild(node);
+        const node2 = document.createElement("option");
+        node2.value = o.id;
+        node2.textContent = o.label;
+        if (o.id === item[field]) node2.selected = true;
+        el3.appendChild(node2);
       }
     };
     if (refsCache.has(target)) {
@@ -2771,10 +2785,10 @@ function parseFilter(text) {
   }
   return expr;
 }
-function countConditions(node) {
-  if (!node) return 0;
-  if (node.kind !== "group") return 1;
-  return (node.children || []).reduce((n, child) => n + countConditions(child), 0);
+function countConditions(node2) {
+  if (!node2) return 0;
+  if (node2.kind !== "group") return 1;
+  return (node2.children || []).reduce((n, child) => n + countConditions(child), 0);
 }
 function filterOptions(field) {
   return (field?.options || []).map((o) => {
@@ -2832,42 +2846,42 @@ var FROM_TREE_OPERATOR = Object.freeze({
   is_blank: "is_empty",
   is_not_blank: "is_not_empty"
 });
-var isBareNode = (node) => node !== null && typeof node === "object";
-function toConditionTree(node) {
-  if (!isBareNode(node)) return node;
-  if (node.kind === "clause") {
-    const { kind: _kind2, field, op: op2, ...rest2 } = node;
+var isBareNode = (node2) => node2 !== null && typeof node2 === "object";
+function toConditionTree(node2) {
+  if (!isBareNode(node2)) return node2;
+  if (node2.kind === "clause") {
+    const { kind: _kind2, field, op: op2, ...rest2 } = node2;
     return { column: field, operator: TO_TREE_OPERATOR[op2] ?? op2, ...rest2 };
   }
-  if (node.kind !== "group") return node.kind === "opaque" ? node.node : node;
-  const { kind: _kind, op, negate, children, ...rest } = node;
+  if (node2.kind !== "group") return node2.kind === "opaque" ? node2.node : node2;
+  const { kind: _kind, op, negate, children, ...rest } = node2;
   const list = (children || []).map(toConditionTree);
   const treeOp = String(op).toLowerCase();
   if (!negate) return { op: treeOp, children: list, ...rest };
   return { op: "not", children: [list.length === 1 ? list[0] : { op: treeOp, children: list }], ...rest };
 }
-function fromConditionTree(node) {
-  if (node === null || node === void 0) return emptyFilter();
-  if (!isBareNode(node)) return { kind: "opaque", node };
-  const op = String(node.op ?? "").toLowerCase();
-  if (!node.op && "column" in node) {
-    const { column, operator, ...rest } = node;
+function fromConditionTree(node2) {
+  if (node2 === null || node2 === void 0) return emptyFilter();
+  if (!isBareNode(node2)) return { kind: "opaque", node: node2 };
+  const op = String(node2.op ?? "").toLowerCase();
+  if (!node2.op && "column" in node2) {
+    const { column, operator, ...rest } = node2;
     const id = String(operator ?? "eq").toLowerCase();
     return { kind: "clause", field: column, op: FROM_TREE_OPERATOR[id] ?? id, ...rest };
   }
-  if ((op === "and" || op === "or") && Array.isArray(node.children ?? [])) {
-    const { op: _op, children, ...rest } = node;
+  if ((op === "and" || op === "or") && Array.isArray(node2.children ?? [])) {
+    const { op: _op, children, ...rest } = node2;
     return { kind: "group", op: op.toUpperCase(), children: (children || []).map(fromConditionTree), ...rest };
   }
-  if (op === "not" && Array.isArray(node.children) && node.children.length === 1) {
-    const { op: _op, children, ...rest } = node;
+  if (op === "not" && Array.isArray(node2.children) && node2.children.length === 1) {
+    const { op: _op, children, ...rest } = node2;
     const inner = fromConditionTree(children[0]);
     if (inner.kind === "group" && !inner.negate && inner.children.length !== 1) {
       return { ...inner, negate: true, ...rest };
     }
     return { kind: "group", op: "AND", negate: true, children: [inner], ...rest };
   }
-  return { kind: "opaque", node };
+  return { kind: "opaque", node: node2 };
 }
 var CACHE_MAX = 200;
 function createFilterModel({
@@ -3063,20 +3077,20 @@ function createFilterModel({
     return () => false;
   }
   const emptyMatches = (group) => String(group?.op).toUpperCase() !== "OR" || emptyOr === "everything";
-  function compile(node) {
-    if (!node) return () => true;
-    if (node.kind === "clause") return compileClause(node);
-    if (node.kind !== "group") {
-      console.warn("[FilterModel] cannot run a node of kind", node.kind);
+  function compile(node2) {
+    if (!node2) return () => true;
+    if (node2.kind === "clause") return compileClause(node2);
+    if (node2.kind !== "group") {
+      console.warn("[FilterModel] cannot run a node of kind", node2.kind);
       return () => false;
     }
-    const children = (Array.isArray(node.children) ? node.children : []).map(compile);
-    const negate = !!node.negate;
+    const children = (Array.isArray(node2.children) ? node2.children : []).map(compile);
+    const negate = !!node2.negate;
     if (!children.length) {
-      const result = emptyMatches(node) !== negate;
+      const result = emptyMatches(node2) !== negate;
       return () => result;
     }
-    const test = String(node.op || "AND").toUpperCase() === "OR" ? (row) => children.some((c) => c(row)) : (row) => children.every((c) => c(row));
+    const test = String(node2.op || "AND").toUpperCase() === "OR" ? (row) => children.some((c) => c(row)) : (row) => children.every((c) => c(row));
     return negate ? (row) => !test(row) : test;
   }
   const cache = /* @__PURE__ */ new Map();
@@ -3100,21 +3114,21 @@ function createFilterModel({
     }
     return shown(first(value));
   }
-  function describeNode(node, depth, format) {
-    if (!node) return "";
-    if (node.kind === "clause") {
-      const field = byKey.get(node.field);
-      if (!field) return `\u26A0 unknown field \u201C${unknownName(String(node.field ?? ""))}\u201D`;
-      const op = catalogue.get(node.op);
-      if (!op) return `${field.label} ${node.op ?? ""}`.trim();
-      const val = describeValue(field, op, node.value, format);
+  function describeNode(node2, depth, format) {
+    if (!node2) return "";
+    if (node2.kind === "clause") {
+      const field = byKey.get(node2.field);
+      if (!field) return `\u26A0 unknown field \u201C${unknownName(String(node2.field ?? ""))}\u201D`;
+      const op = catalogue.get(node2.op);
+      if (!op) return `${field.label} ${node2.op ?? ""}`.trim();
+      const val = describeValue(field, op, node2.value, format);
       return val ? `${field.label} ${op.label} ${val}` : `${field.label} ${op.label}`;
     }
-    if (node.kind !== "group") return `\u26A0 ${JSON.stringify(node.node ?? node)}`;
-    const parts = (Array.isArray(node.children) ? node.children : []).map((c) => describeNode(c, depth + 1, format)).filter(Boolean);
-    if (!parts.length) return emptyMatches(node) !== !!node.negate ? "everything" : "nothing";
-    const joined = parts.join(String(node.op || "AND").toUpperCase() === "OR" ? " OR " : " AND ");
-    if (node.negate) return `NOT (${joined})`;
+    if (node2.kind !== "group") return `\u26A0 ${JSON.stringify(node2.node ?? node2)}`;
+    const parts = (Array.isArray(node2.children) ? node2.children : []).map((c) => describeNode(c, depth + 1, format)).filter(Boolean);
+    if (!parts.length) return emptyMatches(node2) !== !!node2.negate ? "everything" : "nothing";
+    const joined = parts.join(String(node2.op || "AND").toUpperCase() === "OR" ? " OR " : " AND ");
+    if (node2.negate) return `NOT (${joined})`;
     return depth > 0 && parts.length > 1 ? `(${joined})` : joined;
   }
   const describeFilter = (expr, { formatValue = null } = {}) => describeNode(expr, 0, formatValue);
@@ -3131,24 +3145,24 @@ function createFilterModel({
     walk(expr);
     return [...out];
   }
-  function validateClause(node, errors, path) {
-    const field = byKey.get(node.field);
+  function validateClause(node2, errors, path) {
+    const field = byKey.get(node2.field);
     if (!field) {
-      errors.push(`${path}: unknown field "${unknownName(String(node.field ?? ""))}"`);
+      errors.push(`${path}: unknown field "${unknownName(String(node2.field ?? ""))}"`);
       return;
     }
-    const op = operatorsFor(field.key).find((o) => o.id === node.op);
+    const op = operatorsFor(field.key).find((o) => o.id === node2.op);
     if (!op) {
-      errors.push(`${field.label}: "${node.op}" is not a valid operator`);
+      errors.push(`${field.label}: "${node2.op}" is not a valid operator`);
       return;
     }
     if (op.arity === 0) return;
     const say = (what) => errors.push(`${field.label} ${op.label}: ${what}`);
     if (op.multi) {
-      if (!Array.isArray(node.value) || node.value.length === 0) say("pick at least one value");
+      if (!Array.isArray(node2.value) || node2.value.length === 0) say("pick at least one value");
       return;
     }
-    const values = op.arity === 2 ? arr(node.value).slice(0, 2) : [first(node.value)];
+    const values = op.arity === 2 ? arr(node2.value).slice(0, 2) : [first(node2.value)];
     const needed = op.arity === 2 ? 2 : 1;
     if (values.length < needed || values.some(isBlank)) {
       say(needed === 2 ? "needs two values" : "needs a value");
@@ -3165,20 +3179,20 @@ function createFilterModel({
       }
     }
   }
-  function validateNode(node, errors, path) {
-    if (!node || typeof node !== "object") {
+  function validateNode(node2, errors, path) {
+    if (!node2 || typeof node2 !== "object") {
       errors.push(`${path}: not an expression node`);
-    } else if (node.kind === "group") {
-      if (node.op !== "AND" && node.op !== "OR") errors.push(`${path}: group op must be AND or OR`);
-      if (!Array.isArray(node.children)) {
+    } else if (node2.kind === "group") {
+      if (node2.op !== "AND" && node2.op !== "OR") errors.push(`${path}: group op must be AND or OR`);
+      if (!Array.isArray(node2.children)) {
         errors.push(`${path}: group children must be an array`);
         return;
       }
-      node.children.forEach((c, i) => validateNode(c, errors, `${path}/${i}`));
-    } else if (node.kind === "clause") {
-      validateClause(node, errors, path);
+      node2.children.forEach((c, i) => validateNode(c, errors, `${path}/${i}`));
+    } else if (node2.kind === "clause") {
+      validateClause(node2, errors, path);
     } else {
-      errors.push(`${path}: unknown node kind "${node.kind}"`);
+      errors.push(`${path}: unknown node kind "${node2.kind}"`);
     }
   }
   function validateFilter(expr) {
@@ -3186,19 +3200,19 @@ function createFilterModel({
     validateNode(expr, errors, "expr");
     return { ok: errors.length === 0, errors };
   }
-  function prune(node) {
-    if (!node || typeof node !== "object") return null;
-    if (node.kind === "clause") {
-      const op = catalogue.get(node.op);
-      if (!op || !byKey.has(node.field) || op.arity === 0) return node;
-      const blank = Array.isArray(node.value) ? node.value.every(isBlank) : isBlank(node.value);
-      return blank ? null : node;
+  function prune(node2) {
+    if (!node2 || typeof node2 !== "object") return null;
+    if (node2.kind === "clause") {
+      const op = catalogue.get(node2.op);
+      if (!op || !byKey.has(node2.field) || op.arity === 0) return node2;
+      const blank = Array.isArray(node2.value) ? node2.value.every(isBlank) : isBlank(node2.value);
+      return blank ? null : node2;
     }
-    if (node.kind !== "group") return node;
-    const children = (node.children || []).map(prune).filter(Boolean);
+    if (node2.kind !== "group") return node2;
+    const children = (node2.children || []).map(prune).filter(Boolean);
     if (!children.length) return null;
-    if (children.length === 1 && children[0].kind === "group" && !node.negate) return children[0];
-    return { ...node, children };
+    if (children.length === 1 && children[0].kind === "group" && !node2.negate) return children[0];
+    return { ...node2, children };
   }
   const pruneFilter = (expr) => prune(cloneFilter(expr));
   return Object.freeze({
@@ -3221,7 +3235,7 @@ function createFilterModel({
 }
 
 // src/ui/components/tag_input.js
-var normalise = (list) => (Array.isArray(list) ? list : []).map((v) => v == null ? "" : String(v).trim()).filter((v) => v !== "");
+var optionValue = (o) => o !== null && typeof o === "object" ? o.value : o;
 function createTagInput(host, options = {}) {
   if (!host || typeof host.appendChild !== "function") {
     throw new Error("[TagInput] host must be an HTMLElement");
@@ -3229,7 +3243,12 @@ function createTagInput(host, options = {}) {
   const readOnly = !!options.readOnly;
   const allowDuplicates = !!options.allowDuplicates;
   const removeLabel = typeof options.removeLabel === "function" ? options.removeLabel : (tag) => `Remove ${tag}`;
-  let tags = normalise(options.value);
+  const spell = typeof options.normalise === "function" ? (text) => String(options.normalise(text.trim()) ?? "").trim() : (text) => text.trim();
+  const cleaned = (list) => {
+    const out = (Array.isArray(list) ? list : []).map((v) => v == null ? "" : spell(String(v))).filter((v) => v !== "");
+    return allowDuplicates ? out : [...new Set(out)];
+  };
+  let tags = cleaned(options.value);
   let disposed = false;
   const root = document.createElement("div");
   root.className = ["twm-tag-input", readOnly ? "twm-tag-input--readonly" : "", options.className || ""].join(" ").replace(/\s+/g, " ").trim();
@@ -3290,7 +3309,7 @@ function createTagInput(host, options = {}) {
     if (disposed || readOnly) return false;
     const next = [...tags];
     for (const piece of String(text).split(",")) {
-      const tag = piece.trim();
+      const tag = spell(piece);
       if (tag === "") continue;
       if (!allowDuplicates && next.includes(tag)) continue;
       next.push(tag);
@@ -3302,16 +3321,54 @@ function createTagInput(host, options = {}) {
     changed();
     return true;
   };
+  const offered = (list) => {
+    const seen = /* @__PURE__ */ new Set();
+    const rows = [];
+    for (const o of list || []) {
+      const tag = spell(shownValue(optionValue(o)));
+      if (tag === "" || seen.has(tag) || !allowDuplicates && tags.includes(tag)) continue;
+      seen.add(tag);
+      rows.push(o !== null && typeof o === "object" ? { ...o, value: tag } : tag);
+    }
+    return rows;
+  };
+  const rankedFor = () => {
+    const needle = spell(input.value).toLowerCase();
+    const word = (o) => shownValue(optionValue(o));
+    const at = (o) => word(o).toLowerCase().indexOf(needle);
+    return offered(options.suggestions).filter((o) => at(o) >= 0).sort((x, y) => at(x) - at(y) || word(x).localeCompare(word(y)));
+  };
+  const askedFor = (_query, ctx) => {
+    const answer = options.suggestions(input.value, ctx);
+    return typeof answer?.then === "function" ? answer.then(offered) : offered(answer);
+  };
+  const asking = typeof options.suggestions === "function";
+  const menu = input && options.suggestions ? attachInputOptions(input, {
+    options: asking ? askedFor : rankedFor,
+    anchor: root,
+    normalise: spell,
+    openOnFocus: true,
+    passEnter: true,
+    debounce: asking ? void 0 : 0,
+    onPick(option) {
+      input.value = "";
+      commitText(shownValue(option.value));
+      input.focus();
+    }
+  }) : null;
   const commitInput = () => {
     if (!input) return;
     const text = input.value;
     input.value = "";
+    menu?.close();
     commitText(text);
   };
   if (input) {
     input.addEventListener("keydown", (ev) => {
       if (ev.isComposing) return;
-      if (ev.key === "Enter" || ev.key === ",") {
+      if (ev.key === "," && menu?.takeActive()) {
+        ev.preventDefault();
+      } else if (ev.key === "Enter" || ev.key === ",") {
         ev.preventDefault();
         commitInput();
       } else if (ev.key === "Backspace" && input.value === "" && tags.length) {
@@ -3349,7 +3406,7 @@ function createTagInput(host, options = {}) {
     /** Replaces the list. Does not call `onChange`. */
     setValue(list) {
       if (disposed) return;
-      tags = normalise(list);
+      tags = cleaned(list);
       paint();
     },
     focus() {
@@ -3358,6 +3415,7 @@ function createTagInput(host, options = {}) {
     dispose() {
       if (disposed) return;
       disposed = true;
+      menu?.destroy();
       root.remove();
     }
   };
@@ -3369,18 +3427,18 @@ var ICON_COLUMNS = 8;
 var SUBMIT = "submit";
 var CLEAR = "clear";
 function el(tag, className, text) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== void 0 && text !== null) node.textContent = String(text);
-  return node;
+  const node2 = document.createElement(tag);
+  if (className) node2.className = className;
+  if (text !== void 0 && text !== null) node2.textContent = String(text);
+  return node2;
 }
 function button(className, text, onClick, { title, label } = {}) {
-  const node = el("button", className, text);
-  node.type = "button";
-  if (title) node.title = title;
-  if (label) node.setAttribute("aria-label", label);
-  node.addEventListener("click", onClick);
-  return node;
+  const node2 = el("button", className, text);
+  node2.type = "button";
+  if (title) node2.title = title;
+  if (label) node2.setAttribute("aria-label", label);
+  node2.addEventListener("click", onClick);
+  return node2;
 }
 var SELECT_CLASS = "twm-filter-builder__input twm-filter-builder__select";
 var INPUT_CLASS = "twm-filter-builder__input";
@@ -3399,9 +3457,9 @@ function createFilterBuilder(host, { model, value = null, onChange = null } = {}
   let controls = /* @__PURE__ */ new WeakMap();
   const cells = /* @__PURE__ */ new Set();
   const changed = () => onChange?.(cloneFilter(root));
-  const register = (node, role, control) => {
-    if (!controls.has(node)) controls.set(node, {});
-    controls.get(node)[role] = control;
+  const register = (node2, role, control) => {
+    if (!controls.has(node2)) controls.set(node2, {});
+    controls.get(node2)[role] = control;
   };
   function redraw(focusNode = null, focusRole = null) {
     for (const cell of cells) cell.dispose();
@@ -3415,8 +3473,8 @@ function createFilterBuilder(host, { model, value = null, onChange = null } = {}
     redraw(focusNode, focusRole);
     changed();
   }
-  function removeNode(node) {
-    let gone = node;
+  function removeNode(node2) {
+    let gone = node2;
     for (; ; ) {
       const parent = parents.get(gone);
       parent.children.splice(parent.children.indexOf(gone), 1);
@@ -3424,8 +3482,8 @@ function createFilterBuilder(host, { model, value = null, onChange = null } = {}
       gone = parent;
     }
   }
-  const removeButton = (node, label) => button(REMOVE_BUTTON, "\xD7", () => {
-    restructure(removeNode(node), "addClause");
+  const removeButton = (node2, label) => button(REMOVE_BUTTON, "\xD7", () => {
+    restructure(removeNode(node2), "addClause");
   }, { title: label, label });
   function groupEl(group, isRoot) {
     if (!Array.isArray(group.children)) group.children = [];
@@ -3474,10 +3532,10 @@ function createFilterBuilder(host, { model, value = null, onChange = null } = {}
     box.appendChild(children);
     const foot = el("div", "twm-filter-builder__group-foot");
     const add = (factory, focusRole) => {
-      const node = factory();
-      if (!node) return;
-      group.children.push(node);
-      restructure(node, focusRole);
+      const node2 = factory();
+      if (!node2) return;
+      group.children.push(node2);
+      restructure(node2, focusRole);
     };
     const offerable = !!model.newClause();
     const addClause = button(SMALL_BUTTON, "+ Condition", () => add(() => model.newClause(), "field"));
@@ -3492,11 +3550,11 @@ function createFilterBuilder(host, { model, value = null, onChange = null } = {}
     box.appendChild(foot);
     return box;
   }
-  function carriedEl(node) {
+  function carriedEl(node2) {
     const row = el("div", "twm-filter-builder__row twm-filter-builder__row--carried");
-    const text = el("span", "twm-filter-builder__carried", model.describeFilter(node));
+    const text = el("span", "twm-filter-builder__carried", model.describeFilter(node2));
     text.title = "This editor cannot draw this condition. It is kept exactly as it is; remove it to drop it.";
-    row.append(text, removeButton(node, "Remove condition"));
+    row.append(text, removeButton(node2, "Remove condition"));
     return row;
   }
   function fieldChoices(current) {
@@ -4674,9 +4732,9 @@ var NotificationCenter = class _NotificationCenter extends ComponentBase {
     if (more.title !== tip) more.title = tip;
     return more;
   }
-  static #setText(node, text) {
+  static #setText(node2, text) {
     const t = text == null ? "" : String(text);
-    if (node.textContent !== t) node.textContent = t;
+    if (node2.textContent !== t) node2.textContent = t;
   }
   /** Build one toast's element; `#patchItem` then fills what can change. */
   #buildItem(notification) {
@@ -5905,6 +5963,275 @@ function createSectionStack(container, { sections = [], stateStore = null, key =
   };
 }
 
+// src/ui/components/select.js
+var SEARCH_ABOVE = 7;
+var TYPEAHEAD_MS = 500;
+function node(tag, className, text) {
+  const n = document.createElement(tag);
+  if (className) n.className = className;
+  if (text !== void 0) n.textContent = String(text);
+  return n;
+}
+function glyphNode(className, text = "") {
+  const n = node("span", `material-symbols-outlined ${className}`.trim(), text);
+  n.setAttribute("aria-hidden", "true");
+  return n;
+}
+var isEmptyValue = (v) => v === null || v === void 0 || v === "";
+function createSelect({
+  options = [],
+  value = null,
+  onChange = null,
+  className = "",
+  panelClassName = "",
+  placeholder = "Choose\u2026",
+  title = "",
+  ariaLabel = "",
+  disabled = false,
+  showIcon = true,
+  search = void 0,
+  allowNew = false,
+  newLabel = (typed) => `Use \u201C${typed}\u201D`,
+  notFound = (v) => v,
+  emptyText = (typed) => typed ? `Nothing matches \u201C${typed}\u201D.` : "Nothing to choose from.",
+  loose = false,
+  name = null,
+  carrier = null,
+  align = "start"
+} = {}) {
+  let source = options;
+  let current = value;
+  let emptyLabel = placeholder;
+  let layer = null;
+  let typedKeys = "";
+  let typedTimer = null;
+  const given = () => (typeof source === "function" ? source() : source) || [];
+  const trigger = node("button", `twm-select${className ? ` ${className}` : ""}`);
+  trigger.type = "button";
+  trigger.setAttribute("role", "combobox");
+  trigger.setAttribute("aria-haspopup", "listbox");
+  trigger.setAttribute("aria-expanded", "false");
+  if (ariaLabel) trigger.setAttribute("aria-label", ariaLabel);
+  const icon2 = glyphNode("twm-select__icon");
+  const label = node("span", "twm-select__label");
+  trigger.append(icon2, label, glyphNode("twm-select__caret", "expand_more"));
+  let root = trigger;
+  let hidden = carrier;
+  if (name && !hidden) {
+    hidden = node("input");
+    hidden.type = "hidden";
+    hidden.name = name;
+  }
+  if (hidden) {
+    root = node("div", "twm-select-field");
+    root.append(trigger, hidden);
+  }
+  let focusHolder = trigger;
+  const list = createOptionList({
+    onPick: (option) => choose(option),
+    onActive: (id) => {
+      if (id) focusHolder.setAttribute("aria-activedescendant", id);
+      else focusHolder.removeAttribute("aria-activedescendant");
+    }
+  });
+  trigger.setAttribute("aria-controls", list.id);
+  const panel = node("div", `twm-option-panel${panelClassName ? ` ${panelClassName}` : ""}`);
+  const searchRow = node("div", "twm-option-panel__search");
+  searchRow.appendChild(glyphNode("", "search"));
+  const searchInput = node("input", "twm-option-panel__search-input");
+  searchInput.type = "text";
+  searchInput.autocomplete = "off";
+  searchInput.spellcheck = false;
+  searchInput.setAttribute("role", "combobox");
+  searchInput.setAttribute("aria-expanded", "true");
+  searchInput.setAttribute("aria-autocomplete", "list");
+  searchInput.setAttribute("aria-controls", list.id);
+  searchRow.appendChild(searchInput);
+  panel.append(searchRow, list.el);
+  const hasSearch = () => search === void 0 ? allowNew || flatChoices(given()).length > SEARCH_ABOVE : !!search;
+  function paint() {
+    const flat = flatChoices(given());
+    const chosen = findChoice(flat, current, loose);
+    const none = !chosen && isEmptyValue(current);
+    label.textContent = chosen ? chosen.label : none ? emptyLabel : notFound(shownValue(current));
+    trigger.classList.toggle("twm-select--empty", none);
+    trigger.title = title || label.textContent;
+    const glyph2 = showIcon ? chosen?.icon || "" : "";
+    icon2.textContent = glyph2;
+    icon2.hidden = !glyph2;
+    if (hidden) hidden.value = isEmptyValue(current) ? "" : shownValue(current);
+  }
+  function draw(typed) {
+    const text = typed.trim();
+    const all = choiceSections(given());
+    const flat = all.flatMap((s) => s.items);
+    const taken = (o) => [o.value, o.label].some((v) => shownValue(v).toLowerCase() === text.toLowerCase());
+    const shown = filterSections(all, text);
+    if (allowNew && text !== "" && !flat.some(taken)) {
+      shown.push({ heading: null, items: [{
+        value: text,
+        label: newLabel(text),
+        icon: "add",
+        description: null,
+        hint: null,
+        disabled: false,
+        reason: null,
+        keywords: null,
+        source: null
+      }] });
+    }
+    const chosen = findChoice(flat, current, loose);
+    if (shown.length) {
+      list.setRows(shown, { mark: text, isCurrent: (o) => o === chosen });
+      const at = list.options().indexOf(chosen);
+      if (at >= 0 && !chosen.disabled) list.setActive(at);
+      else list.moveToEnd(1);
+    } else {
+      list.setMessage(emptyText(text));
+    }
+    layer?.place();
+  }
+  function choose(option) {
+    const changed = !(option.value === current || loose && String(option.value) === String(current));
+    current = option.value;
+    paint();
+    layer?.close("pick");
+    if (!changed) return;
+    hidden?.dispatchEvent(new Event("change", { bubbles: true }));
+    onChange?.(current, option.source);
+  }
+  function open() {
+    if (layer || trigger.disabled) return;
+    const searching = hasSearch();
+    searchRow.hidden = !searching;
+    focusHolder = searching ? searchInput : trigger;
+    if (searching) {
+      const word = typeof search === "object" && search?.placeholder || (allowNew ? "Search, or type a new one\u2026" : "Search\u2026");
+      searchInput.placeholder = word;
+      searchInput.setAttribute("aria-label", word);
+      searchInput.value = "";
+    }
+    panel.style.width = "";
+    layer = openAnchoredLayer({
+      anchor: trigger,
+      el: panel,
+      align,
+      gap: 4,
+      matchWidth: true,
+      onClose() {
+        layer = null;
+        trigger.classList.remove("twm-is-open");
+        trigger.setAttribute("aria-expanded", "false");
+        focusHolder.removeAttribute("aria-activedescendant");
+      }
+    });
+    if (!layer) return;
+    trigger.classList.add("twm-is-open");
+    trigger.setAttribute("aria-expanded", "true");
+    draw("");
+    if (searching) {
+      const width = Math.round(panel.getBoundingClientRect().width);
+      if (width > 0) panel.style.width = `${width}px`;
+      searchInput.focus({ preventScroll: true });
+    }
+  }
+  const close = () => layer?.close("closed");
+  function typeAhead(ch) {
+    clearTimeout(typedTimer);
+    typedTimer = setTimeout(() => {
+      typedKeys = "";
+    }, TYPEAHEAD_MS);
+    typedKeys += ch.toLowerCase();
+    const at = list.options().findIndex((o) => !o.disabled && o.label.toLowerCase().startsWith(typedKeys));
+    if (at >= 0) list.setActive(at);
+  }
+  function onKey(ev) {
+    if (ev.isComposing) return;
+    const inSearch = ev.target === searchInput;
+    if (!layer) {
+      if (ev.key === "ArrowDown" || ev.key === "ArrowUp" || ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        open();
+      }
+      return;
+    }
+    if (ev.key === "Tab") {
+      layer.close("tab");
+      return;
+    }
+    if (ev.key === "ArrowDown") list.move(1);
+    else if (ev.key === "ArrowUp") list.move(-1);
+    else if (ev.key === "Home" && !inSearch) list.moveToEnd(1);
+    else if (ev.key === "End" && !inSearch) list.moveToEnd(-1);
+    else if (ev.key === "Enter" || ev.key === " " && !inSearch) {
+      const option = list.activeOption();
+      if (option) choose(option);
+      else if (!inSearch) close();
+    } else if (!inSearch && ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+      typeAhead(ev.key);
+    } else {
+      return;
+    }
+    ev.preventDefault();
+    ev.stopPropagation();
+  }
+  trigger.addEventListener("click", () => {
+    if (layer) close();
+    else open();
+  });
+  trigger.addEventListener("keydown", onKey);
+  trigger.addEventListener("keyup", (ev) => {
+    if (ev.key === " ") ev.preventDefault();
+  });
+  searchInput.addEventListener("keydown", onKey);
+  searchInput.addEventListener("input", () => draw(searchInput.value));
+  function setDisabled(off) {
+    trigger.disabled = !!off;
+    if (off) close();
+  }
+  paint();
+  setDisabled(disabled);
+  return {
+    el: root,
+    /** The hidden input carrying the value, when there is one. */
+    input: hidden,
+    get value() {
+      return current;
+    },
+    set value(next) {
+      current = next;
+      paint();
+    },
+    get isOpen() {
+      return !!layer;
+    },
+    /** Replace the list. Pass `nextValue` to change the value as well; left out, it stays. */
+    setOptions(nextOptions, nextValue) {
+      source = nextOptions;
+      if (arguments.length > 1) current = nextValue;
+      paint();
+      if (layer) draw(searchInput.value);
+    },
+    /** The text shown while nothing is chosen: "Loading…", the failure, "Choose…". */
+    setPlaceholder(text) {
+      emptyLabel = text;
+      paint();
+    },
+    setDisabled,
+    open,
+    close,
+    focus() {
+      trigger.focus();
+    },
+    /** Closes the list and takes the control off the page. */
+    destroy() {
+      clearTimeout(typedTimer);
+      close();
+      root.remove();
+    }
+  };
+}
+
 // src/ui/components/settings_view.js
 var SETTINGS_TEXT_DEBOUNCE_MS = 300;
 function el2(tag, className, text) {
@@ -6939,13 +7266,13 @@ function createTreeCategory(options) {
     expanded = false,
     readonly = false
   } = options;
-  const node = document.createElement("div");
-  node.className = "twm-collapsible-box twm-tree-category";
-  node.dataset.categoryId = id;
-  node.dataset.collapsibleId = `tree-category-${id}`;
-  node.dataset.collapsibleDefault = expanded ? "expanded" : "collapsed";
-  if (readonly) node.dataset.readonly = "true";
-  node.innerHTML = `
+  const node2 = document.createElement("div");
+  node2.className = "twm-collapsible-box twm-tree-category";
+  node2.dataset.categoryId = id;
+  node2.dataset.collapsibleId = `tree-category-${id}`;
+  node2.dataset.collapsibleDefault = expanded ? "expanded" : "collapsed";
+  if (readonly) node2.dataset.readonly = "true";
+  node2.innerHTML = `
         <div class="twm-collapsible-header" data-collapsible-header="true">
             <button class="twm-arrow-toggle" type="button">
                 <span class="twm-collapsible-arrow material-symbols-outlined${expanded ? "" : " collapsed"}">expand_more</span>
@@ -6958,8 +7285,8 @@ function createTreeCategory(options) {
         </div>
         <div class="twm-collapsible-content${expanded ? " visible" : ""}" data-collapsible-content="true"></div>
     `;
-  setText(node, ".twm-tree-category__label", label);
-  return node;
+  setText(node2, ".twm-tree-category__label", label);
+  return node2;
 }
 function createTreeNode(options) {
   const {
@@ -6971,12 +7298,12 @@ function createTreeNode(options) {
     readonly = false,
     actions = null
   } = options;
-  const node = document.createElement("div");
-  node.className = `twm-tree-node${readonly ? " readonly" : ""}`;
-  node.dataset.nodeId = id;
+  const node2 = document.createElement("div");
+  node2.className = `twm-tree-node${readonly ? " readonly" : ""}`;
+  node2.dataset.nodeId = id;
   const iconHtml = icon2 ? `<span class="twm-tree-node__icon"><span class="material-symbols-outlined">${icon2}</span></span>` : "";
   const actionsHtml = actions ? '<span class="twm-tree-node__actions"></span>' : "";
-  node.innerHTML = `
+  node2.innerHTML = `
         <div class="twm-tree-node__header">
             <span class="twm-tree-node__toggle">
                 <span class="material-symbols-outlined">${expanded ? "expand_more" : "chevron_right"}</span>
@@ -6988,9 +7315,9 @@ function createTreeNode(options) {
         </div>
         <div class="twm-tree-node__children" style="display: ${expanded ? "block" : "none"};"></div>
     `;
-  setText(node, ".twm-tree-node__label", label);
-  if (actions) appendActionButtons(node.querySelector(".twm-tree-node__actions"), id, actions);
-  return node;
+  setText(node2, ".twm-tree-node__label", label);
+  if (actions) appendActionButtons(node2.querySelector(".twm-tree-node__actions"), id, actions);
+  return node2;
 }
 function appendActionButtons(actionsEl, id, actions) {
   Object.entries(actions).forEach(([actionId, actionConfig]) => {
@@ -7104,10 +7431,10 @@ function filterTree(container, filter, options = {}) {
     if (matches) visibleItems.add(item);
   });
   const hasVisibleItem = (el3) => !normalizedFilter || [...el3.querySelectorAll(".twm-tree-item")].some((item) => visibleItems.has(item));
-  container.querySelectorAll(".twm-tree-node").forEach((node) => {
-    const visible = hasVisibleItem(node);
-    node.style.display = visible ? "" : "none";
-    if (expandMatches && visible && normalizedFilter) toggleNode(node, true);
+  container.querySelectorAll(".twm-tree-node").forEach((node2) => {
+    const visible = hasVisibleItem(node2);
+    node2.style.display = visible ? "" : "none";
+    if (expandMatches && visible && normalizedFilter) toggleNode(node2, true);
   });
   container.querySelectorAll(".twm-tree-category").forEach((category) => {
     const visible = hasVisibleItem(category);
@@ -7127,8 +7454,8 @@ function selectItem(container, itemId, options = {}) {
     let parent = item.parentElement;
     while (parent && parent !== container) {
       if (parent.classList.contains("twm-tree-node__children")) {
-        const node = parent.closest(".twm-tree-node");
-        if (node) toggleNode(node, true);
+        const node2 = parent.closest(".twm-tree-node");
+        if (node2) toggleNode(node2, true);
       }
       if (parent.classList.contains("twm-collapsible-content")) {
         const category = parent.closest(".twm-tree-category");
@@ -7172,10 +7499,10 @@ var TreeView = class {
     }
     const nodeHeader = e.target.closest(".twm-tree-node__header");
     if (nodeHeader) {
-      const node = nodeHeader.closest(".twm-tree-node");
-      if (node) {
-        toggleNode(node);
-        this.options.onNodeToggle?.(node.dataset.nodeId, node);
+      const node2 = nodeHeader.closest(".twm-tree-node");
+      if (node2) {
+        toggleNode(node2);
+        this.options.onNodeToggle?.(node2.dataset.nodeId, node2);
       }
       return;
     }
@@ -7200,13 +7527,13 @@ var TreeView = class {
     const category = this.container.querySelector(`.twm-tree-category[data-category-id="${attrValue(categoryId)}"]`);
     const content = category?.querySelector(".twm-collapsible-content");
     if (!content) return null;
-    const node = createTreeNode(options);
-    content.appendChild(node);
-    return node;
+    const node2 = createTreeNode(options);
+    content.appendChild(node2);
+    return node2;
   }
   addItem(nodeId, options) {
-    const node = this.container.querySelector(`.twm-tree-node[data-node-id="${attrValue(nodeId)}"]`);
-    const children = node?.querySelector(".twm-tree-node__children");
+    const node2 = this.container.querySelector(`.twm-tree-node[data-node-id="${attrValue(nodeId)}"]`);
+    const children = node2?.querySelector(".twm-tree-node__children");
     if (!children) return null;
     const item = createTreeItem(options);
     children.appendChild(item);
@@ -7880,27 +8207,27 @@ var PANEL_EDGE = 8;
 var OVER_LIFT = 3;
 var nextUid = 0;
 function part(tag, className, text = null) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text != null) node.textContent = text;
-  return node;
+  const node2 = document.createElement(tag);
+  if (className) node2.className = className;
+  if (text != null) node2.textContent = text;
+  return node2;
 }
 function glyph(name, className = "") {
-  const node = part("span", `material-symbols-outlined ${className}`.trim(), name);
-  node.setAttribute("aria-hidden", "true");
-  return node;
+  const node2 = part("span", `material-symbols-outlined ${className}`.trim(), name);
+  node2.setAttribute("aria-hidden", "true");
+  return node2;
 }
-function setText2(node, text) {
+function setText2(node2, text) {
   const value = String(text ?? "");
-  if (node.textContent !== value) node.textContent = value;
+  if (node2.textContent !== value) node2.textContent = value;
 }
-function show(node, shown) {
-  node.hidden = !shown;
+function show(node2, shown) {
+  node2.hidden = !shown;
 }
 function button2(className) {
-  const node = part("button", className);
-  node.type = "button";
-  return node;
+  const node2 = part("button", className);
+  node2.type = "button";
+  return node2;
 }
 function keyedChildren(container, build, update) {
   let drawn = /* @__PURE__ */ new Map();
@@ -7917,9 +8244,9 @@ function keyedChildren(container, build, update) {
       if (!next.has(key)) entry.node.remove();
     }
     drawn = next;
-    nodes.forEach((node, index) => {
-      if (container.children[index] !== node) {
-        container.insertBefore(node, container.children[index] || null);
+    nodes.forEach((node2, index) => {
+      if (container.children[index] !== node2) {
+        container.insertBefore(node2, container.children[index] || null);
       }
     });
     return drawn;
@@ -8160,9 +8487,9 @@ function createPickerSwitcher({
   foot.append(footStart, footStatus, footEnd, footKeys);
   panel.append(searchRow, head, scroller, cardEl, foot);
   function buildRow() {
-    const node = part("div", "twm-wspicker__row");
-    node.id = `${uid}-row-${++nextEntryId}`;
-    node.setAttribute("role", "option");
+    const node2 = part("div", "twm-wspicker__row");
+    node2.id = `${uid}-row-${++nextEntryId}`;
+    node2.setAttribute("role", "option");
     const icon2 = glyph("", "twm-wspicker__row-icon");
     const text = part("span", "twm-wspicker__row-text");
     const name = part("span", "twm-wspicker__row-name");
@@ -8173,9 +8500,9 @@ function createPickerSwitcher({
     const bin = button2("twm-wspicker__row-remove");
     bin.tabIndex = -1;
     bin.append(glyph("delete"));
-    node.append(icon2, text, badge, check, bin);
-    const entry = { node, icon: icon2, name, detail, badge, check, bin, run: null, remove: null };
-    node.addEventListener("click", () => entry.run?.());
+    node2.append(icon2, text, badge, check, bin);
+    const entry = { node: node2, icon: icon2, name, detail, badge, check, bin, run: null, remove: null };
+    node2.addEventListener("click", () => entry.run?.());
     bin.addEventListener("click", (event) => {
       event.stopPropagation();
       entry.remove?.();
@@ -8236,13 +8563,13 @@ function createPickerSwitcher({
   }
   function buildVerb(hook) {
     return () => {
-      const node = button2(`twm-btn ${hook}`);
+      const node2 = button2(`twm-btn ${hook}`);
       const icon2 = glyph("");
       const text = part("span", "");
       const trailing = glyph("");
-      node.append(icon2, text, trailing);
-      const entry = { node, icon: icon2, text, trailing, run: null };
-      node.addEventListener("click", () => entry.run?.());
+      node2.append(icon2, text, trailing);
+      const entry = { node: node2, icon: icon2, text, trailing, run: null };
+      node2.addEventListener("click", () => entry.run?.());
       return entry;
     };
   }
@@ -10041,12 +10368,12 @@ function installCollapsibleScrollbars(root = document.body) {
         }
         continue;
       }
-      for (const node of mutation.addedNodes) {
-        if (node.nodeType !== 1) continue;
-        if (node.classList?.contains("twm-collapsible-content") && node.classList?.contains("visible")) {
-          installOnElement(node);
+      for (const node2 of mutation.addedNodes) {
+        if (node2.nodeType !== 1) continue;
+        if (node2.classList?.contains("twm-collapsible-content") && node2.classList?.contains("visible")) {
+          installOnElement(node2);
         }
-        node.querySelectorAll?.(".twm-collapsible-content.visible")?.forEach(installOnElement);
+        node2.querySelectorAll?.(".twm-collapsible-content.visible")?.forEach(installOnElement);
       }
     }
   });
@@ -10078,15 +10405,15 @@ function installTabsScrollbars(selectors = [".tabs"]) {
   document.querySelectorAll(selector).forEach(installOnElement);
   const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
-      for (const node of mutation.addedNodes) {
-        if (node.nodeType !== 1) continue;
-        if (matches(node)) installOnElement(node);
-        node.querySelectorAll?.(selector)?.forEach(installOnElement);
+      for (const node2 of mutation.addedNodes) {
+        if (node2.nodeType !== 1) continue;
+        if (matches(node2)) installOnElement(node2);
+        node2.querySelectorAll?.(selector)?.forEach(installOnElement);
       }
-      for (const node of mutation.removedNodes) {
-        if (node.nodeType !== 1) continue;
-        if (matches(node)) cleanupElement(node);
-        node.querySelectorAll?.(selector)?.forEach(cleanupElement);
+      for (const node2 of mutation.removedNodes) {
+        if (node2.nodeType !== 1) continue;
+        if (matches(node2)) cleanupElement(node2);
+        node2.querySelectorAll?.(selector)?.forEach(cleanupElement);
       }
     }
   });
@@ -10478,6 +10805,7 @@ export {
   Wizard,
   ago,
   attachInlineRenamer,
+  attachInputOptions,
   barCovered,
   cloneFilter,
   coerceFilterValue,
@@ -10486,6 +10814,7 @@ export {
   createBoolEditor,
   createChipsFilter,
   createChoiceEditor,
+  createCombobox,
   createDateTimeEditor,
   createDetailHeader,
   createDocumentOutline,
@@ -10501,6 +10830,7 @@ export {
   createRecordList,
   createScrollLock,
   createSectionStack,
+  createSelect,
   createTableStateStore,
   createTabs,
   createTagInput,
@@ -10537,6 +10867,7 @@ export {
   installTabsScrollbars,
   installWorkspaceScrollbars,
   isHexColor,
+  isInAnchoredLayer,
   isRowActivation,
   isRowControl,
   localSource,
@@ -10553,10 +10884,12 @@ export {
   normalizeOptions,
   notificationText,
   numberSeparators,
+  openAnchoredLayer,
   openConfirm,
   openFilterDialog,
   openForm,
   openModal,
+  openPopover,
   parseBool,
   parseChoice,
   parseDatePeriod,
@@ -10565,6 +10898,7 @@ export {
   parseDuration,
   parseFilter,
   parseNumber,
+  positionAnchored,
   projectSeries,
   refTypesFor,
   renderMarkdown,

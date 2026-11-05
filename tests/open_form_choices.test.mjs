@@ -113,6 +113,15 @@ async function open(opts) {
              settled: () => settled };
 }
 
+/** What a combobox field offers: its list opened by a click, read, and closed by a blur. */
+function suggested(f, name) {
+    const box = f.field(name);
+    box.click();
+    const rows = [...document.querySelectorAll('.twm-option-panel .twm-option-list__label')].map((r) => r.textContent);
+    box.dispatchEvent(new Event('blur'));
+    return rows;
+}
+
 /** A hook that only keeps hold of the api, so a test can drive it. */
 function grab() {
     const box = { api: null, calls: [] };
@@ -180,12 +189,10 @@ section('§1 setOptions replaces the options while the form is open');
     g.api.setOptions('size', ['xl']);
     check('…and has none when it does not', g.api.get('size'), null);
     g.api.setOptions('kind', ['x', 'y']);
-    check('a combobox\'s suggestions are replaced',
-          [...f.q('[data-datalist-for="kind"]').options].map((o) => o.value), ['x', 'y']);
+    check('a combobox\'s suggestions are replaced', suggested(f, 'kind'), ['x', 'y']);
     f.type('kind', 'y');
     ok('…and a value from the new list is not announced as new',
-       f.q('.twm-combobox__hint[data-for="kind"]') === null
-       || f.q('.twm-combobox__hint[data-for="kind"]').hidden);
+       f.q('[data-field-row="kind"] .twm-combobox__hint').hidden);
     await f.cancel();
 }
 
@@ -287,8 +294,7 @@ section('§2 a disabled option shows its reason and is never the submitted value
         fields: [{ name: 'who', label: 'Who', type: 'select', create: true, options: [
             'ann', { value: 'bob', label: 'bob', disabled: true, reason: 'left' }] }],
     });
-    check('a combobox does not suggest a disabled option',
-          [...f.q('datalist').options].map((o) => o.value), ['ann']);
+    check('a combobox does not suggest a disabled option', suggested(f, 'who'), ['ann']);
     f.type('who', 'bob');
     await f.submit();
     ok('typing it is refused on the field', !f.settled() && (f.fieldError('who') || '').includes('left'));
@@ -623,7 +629,7 @@ section('§7 one implementation: the flow kit\'s controls');
           [kitIndex.shownValue('a'), kitIndex.shownValue(2), kitIndex.shownValue(undefined)], ['a', '2', '']);
     ok('widgets.js does not pass shownValue through', !/export \{\s*shownValue\s*\}/.test(kit));
     check('choice_controls exports only what its consumers use', Object.keys(controls).sort(),
-          ['choiceList', 'findChoice', 'flatChoices', 'selectBox', 'shownValue', 'toggleChips']);
+          ['choiceList', 'choiceSections', 'filterSections', 'findChoice', 'flatChoices', 'optionMatches', 'selectBox', 'shownValue', 'toggleChips']);
     ok('a toggle and a choice field are mounted through one slot',
        /data-control-slot/.test(modal) && !/data-(toggle|choice)-slot/.test(modal));
 }

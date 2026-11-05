@@ -202,7 +202,7 @@ export function openStepPicker({ anchor, entries = [], categories = [], where = 
         anchor, content: root, label: title ?? say(S, 'addStep'), className: 'twm-flow-popover--picker',
         focus: search, onClose: () => settle(result),
     });
-    if (handle.toggled) settle(null);
+    if (!handle.el) settle(null);
     else filter();
     done.close = () => handle.close('closed');
     return done;

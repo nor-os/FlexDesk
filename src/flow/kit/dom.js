@@ -88,8 +88,9 @@ export function openFlowPopover() {
  * kit's class and remembered so that an editor can close what it opened.
  *
  * @param {object} o  What `openPopover` takes.
- * @returns {{el: HTMLElement, close: (reason?: string) => void, reposition: () => void, toggled: boolean}}
- *          `toggled` is true when the call only CLOSED the popover its anchor held.
+ * @returns {{el: HTMLElement|null, close: (reason?: string) => void, reposition: () => void, toggled: boolean}}
+ *          `el` is null when nothing opened; `toggled` is true when the call only
+ *          CLOSED the popover its anchor held.
  */
 export function openPopover({ className = '', onClose = null, ...rest }) {
     const handle = openAnchoredPopover({
@@ -100,7 +101,7 @@ export function openPopover({ className = '', onClose = null, ...rest }) {
             onClose?.(reason);
         },
     });
-    if (!handle.toggled) OPEN.push(handle);
+    if (handle.el) OPEN.push(handle);
     return handle;
 }
 

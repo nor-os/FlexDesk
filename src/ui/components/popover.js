@@ -4,13 +4,38 @@
  * `role="dialog"`, on an anchored layer (`anchored_layer.js`, which says how it is
  * placed and what closes it). Focus moves into it on open and comes back to the
  * anchor on close. Opening one from the anchor that holds an open one closes it,
- * a toggle; opening one anywhere else closes the open one, unless that one holds
- * the new anchor.
+ * a toggle; opening one anywhere else closes the open one, unless that one owns
+ * the new anchor (`anchored_layer.js`).
+ *
+ * TAB STAYS INSIDE, cycling the panel's controls, as a modal's and a `CategoryPicker`'s
+ * do. The panel is mounted at the end of the page, so past its edge lies whatever comes
+ * next in the document, which is not the anchor's neighbour and, over a modal, is behind
+ * it. Escape is the way out.
  */
 import { openAnchoredLayer } from './anchored_layer.js';
+import { collectFocusable } from '../utils/focusable.js';
 
 /** The open popovers, to find the one an anchor holds. */
 const OPEN = new Set();
+
+/** What a call answers when nothing opened. */
+const nothingOpened = (toggled) => ({ el: null, close() {}, closed: Promise.resolve(), reposition() {}, toggled });
+
+/** Tab at the panel's edge goes round to the other edge. */
+function keepTabInside(el) {
+    el.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Tab' || ev.defaultPrevented) return;
+        const controls = collectFocusable(el);
+        if (!controls.length) { ev.preventDefault(); return; }
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        const active = el.ownerDocument.activeElement;
+        if (ev.shiftKey ? (active === first || active === el) : active === last) {
+            ev.preventDefault();
+            (ev.shiftKey ? last : first).focus();
+        }
+    });
+}
 
 /**
  * @param {object} o
@@ -25,15 +50,16 @@ const OPEN = new Set();
  * @param {(reason: string) => void} [o.onClose]  After it is gone.
  * @returns {{el: HTMLElement|null, close: (reason?: string) => void, closed: Promise<void>,
  *            reposition: () => void, toggled: boolean}}
- *          `toggled` is true when the call only CLOSED the popover its anchor held;
- *          `el` is null then.
+ *          `el` is null when nothing opened, and `onClose` is not called for it: `toggled`
+ *          is true when the call only CLOSED the popover its anchor held, false when
+ *          the anchor has left the document.
  */
 export function openPopover({ anchor, content, label = '', className = '', focus = null, align = 'start',
                               inside = null, onClose = null }) {
     for (const open of OPEN) {
         if (anchor && open.anchor === anchor) {
             open.close('toggle');
-            return { el: null, close() {}, closed: Promise.resolve(), reposition() {}, toggled: true };
+            return nothingOpened(true);
         }
     }
 
@@ -43,6 +69,7 @@ export function openPopover({ anchor, content, label = '', className = '', focus
     if (label) el.setAttribute('aria-label', label);
     el.tabIndex = -1;
     el.appendChild(content);
+    keepTabInside(el);
 
     let settle;
     const closed = new Promise((resolve) => { settle = resolve; });
@@ -56,6 +83,7 @@ export function openPopover({ anchor, content, label = '', className = '', focus
             settle();
         },
     });
+    if (!layer) return nothingOpened(false);
     const handle = { el, anchor, closed, toggled: false, close: layer.close, reposition: layer.place };
     OPEN.add(handle);
     anchor?.classList?.add('twm-is-open');

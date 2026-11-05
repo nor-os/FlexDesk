@@ -9,6 +9,8 @@
  *   §5  createCombobox: async options, stale answers, loading and failure
  *   §6  openPopover: focus, toggle, one at a time, outside press, nesting, Escape
  *   §7  a layer inside a window: Escape closes the list, not the window
+ *   §7b chains of layers and modals: Escape, what a layer owns, Tab
+ *   §7c an anchor that is not on the page; a carrier of your own
  *   §8  createTagInput: suggestions and normalise
  *   §9  openForm: a `create` select is a combobox
  *   §10 the barrel and the stylesheet
@@ -30,6 +32,8 @@ const { ActionDropdown } = await import('../src/ui/components/action_dropdown.js
 const { createTagInput } = await import('../src/ui/components/tag_input.js');
 const { openForm, setModalHost } = await import('../src/ui/components/modal.js');
 const { ManagedWindow } = await import('../src/ui/components/managed_window.js');
+const { openPopover: openFlowKitPopover, openFlowPopover } = await import('../src/flow/kit/dom.js');
+const { openStepPicker } = await import('../src/flow/kit/step_picker.js');
 
 const panel = () => document.querySelector('.twm-option-panel');
 const rows = () => [...document.querySelectorAll('.twm-option-panel [role="option"]')];
@@ -592,6 +596,179 @@ section('§7 in a window');
     win.close({ force: true });
 }
 
+section('§7b chains of layers and modals');
+{
+    const settled = (promise) => {
+        const state = { done: false };
+        promise.then(() => { state.done = true; });
+        return state;
+    };
+    const lastForm = () => [...document.querySelectorAll('.twm-modal__form')].at(-1);
+    const seen = (el) => { box(el, { left: 10, right: 110, top: 10, bottom: 30 }); return el; };
+
+    // A popover anchored in a form, a select and a combobox inside the popover.
+    for (const make of [
+        () => { const c = createSelect({ options: ['a', 'b'] }); return { c, press: c.el, keyAt: c.el }; },
+        () => { const c = createCombobox({ options: ['a', 'b'] }); return { c, press: c.input, keyAt: c.input }; },
+    ]) {
+        const form = settled(openForm({ fields: [{ name: 'f', label: 'F', type: 'text' }] }));
+        await tick();
+        const field = lastForm().querySelector('[name="f"]');
+        const { c, press, keyAt } = make();
+        const body = document.createElement('div');
+        body.appendChild(c.el);
+        const pop = openPopover({ anchor: field, content: body });
+        await tick();
+        click(press);
+        ok('a list in a popover in a form opens', c.isOpen);
+        key(keyAt, 'Escape');
+        await tick();
+        check('Escape: the list closes, the popover and the form stay',
+              [c.isOpen, pop.el.isConnected, form.done], [false, true, false]);
+        key(pop.el, 'Escape');
+        await tick();
+        check('Escape again: the popover, and the form stays', [pop.el.isConnected, form.done], [false, false]);
+        key(field, 'Escape');
+        await tick();
+        check('Escape again: the form', form.done, true);
+    }
+
+    // Two modals: a list in the top one.
+    const lower = new ManagedWindow({ id: 'w-lower', title: 'L', content: document.createElement('div'), modal: true });
+    lower.show();
+    const upperBody = document.createElement('div');
+    const upperSelect = createSelect({ options: ['a', 'b'] });
+    upperBody.appendChild(upperSelect.el);
+    let upperClosed = 0;
+    const upper = new ManagedWindow({ id: 'w-upper', title: 'U', content: upperBody, modal: true, onClose: () => { upperClosed += 1; } });
+    upper.show();
+    click(upperSelect.el);
+    key(upperSelect.el, 'Escape');
+    check('a list in a modal over a modal: Escape closes the list', [upperSelect.isOpen, upperClosed], [false, 0]);
+    upper.close({ force: true });
+    lower.close({ force: true });
+
+    // A dialog the popover's content opened, and a list inside the dialog.
+    const anchor = button();
+    const closes = [];
+    const pop = openPopover({ anchor, content: document.createElement('div'), onClose: (r) => closes.push(r) });
+    await tick();
+    const form = settled(openForm({
+        fields: [{ name: 'k', label: 'K', type: 'select', options: ['a', 'b'], create: { onCreate: async (v) => v } }],
+    }));
+    await tick();
+    const kind = lastForm().querySelector('[name="k"]');
+    mouse('mousedown', kind);
+    ok('a press in a dialog the popover opened is not outside it', pop.el.isConnected);
+    click(kind);
+    check('a list opening in that dialog leaves the popover', [!!panel(), pop.el.isConnected, closes], [true, true, []]);
+    key(kind, 'Escape');
+    check('Escape closes the list', [panel(), form.done, pop.el.isConnected], [null, false, true]);
+    key(kind, 'Escape');
+    await tick();
+    check('Escape again: the dialog, not the popover under it', [form.done, pop.el.isConnected], [true, true]);
+    key(document.body, 'Escape');
+    ok('Escape again: the popover', !pop.el.isConnected);
+
+    // `inside`: the same rule for an anchor as for a press.
+    const float = put(document.createElement('div'));
+    float.className = 'my-float';
+    const inFloat = createSelect({ options: ['a', 'b'] });
+    float.appendChild(inFloat.el);
+    const popFloat = openPopover({ anchor, content: document.createElement('div'), inside: '.my-float' });
+    await tick();
+    click(inFloat.el);
+    ok('a select in a float named by `inside` leaves the popover', inFloat.isOpen && popFloat.el.isConnected);
+    inFloat.close();
+    popFloat.close();
+    float.remove();
+
+    // Reopening on the anchor of an open layer still replaces it.
+    const r1 = openAnchoredLayer({ anchor, el: document.createElement('div') });
+    const r2 = openAnchoredLayer({ anchor, el: document.createElement('div') });
+    ok('a second layer on one anchor replaces the first', !r1.el.isConnected && r2.el.isConnected);
+    r2.close();
+
+    // Tab in a popover opened from a modal.
+    const tabForm = settled(openForm({ fields: [{ name: 't', label: 'T', type: 'text' }] }));
+    await tick();
+    const tabField = lastForm().querySelector('[name="t"]');
+    const tabBody = document.createElement('div');
+    const one = seen(tabBody.appendChild(document.createElement('input')));
+    const two = seen(tabBody.appendChild(document.createElement('input')));
+    const tabPop = openPopover({ anchor: tabField, content: tabBody, focus: one });
+    check('focus is in the popover', document.activeElement, one);
+    check('Tab between its controls is the browser\'s', key(one, 'Tab'), true);
+    check('…and focus was not pulled back to the modal', document.activeElement, one);
+    two.focus();
+    check('Tab off the last control is taken', key(two, 'Tab'), false);
+    check('…and goes round to the first', document.activeElement, one);
+    check('Shift+Tab off the first is taken', key(one, 'Tab', { shiftKey: true }), false);
+    check('…and goes round to the last', document.activeElement, two);
+    tabPop.close();
+    check('closed, focus is back in the modal', document.activeElement, tabField);
+    key(tabField, 'Escape');
+    await tick();
+    ok('the form closes', tabForm.done);
+}
+
+section('§7c an anchor that is not on the page; a carrier of your own');
+{
+    const loose = document.createElement('button');
+    const other = button();
+    const stays = openAnchoredLayer({ anchor: other, el: document.createElement('div') });
+    check('openAnchoredLayer on it answers null', openAnchoredLayer({ anchor: loose, el: document.createElement('div') }), null);
+    ok('…and closes nothing', stays.el.isConnected);
+    stays.close();
+
+    let told = 0;
+    const h = openPopover({ anchor: loose, content: document.createElement('div'), onClose: () => { told += 1; } });
+    check('openPopover opens nothing and does not throw', [h.el, h.toggled, told], [null, false, 0]);
+    await h.closed;
+    check('…no marks on the anchor', loose.getAttribute('aria-expanded'), null);
+
+    const f = openFlowKitPopover({ anchor: loose, content: document.createElement('div') });
+    check('the flow kit\'s neither, and it does not remember it', [f.el, openFlowPopover()], [null, null]);
+    check('a picker on it answers null', await openStepPicker({ anchor: loose, entries: [] }), null);
+
+    const select = createSelect({ options: ['a', 'b'] });
+    select.open();
+    check('select.open() off the page: not open', [select.isOpen, select.el.getAttribute('aria-expanded'), panel()], [false, 'false', null]);
+    put(select.el);
+    click(select.el);
+    ok('…and it works once it is mounted', select.isOpen && panel());
+    select.destroy();
+
+    const combo = createCombobox({ options: ['a', 'b'] });
+    combo.open();
+    check('combobox.open() off the page: not open', [combo.isOpen, combo.input.getAttribute('aria-expanded'), panel()], [false, 'false', null]);
+    put(combo.el);
+    click(combo.input);
+    ok('…and it works once it is mounted', combo.isOpen && panel());
+    combo.destroy();
+
+    // A form template's field, kept as the carrier.
+    const field = document.createElement('input');
+    field.type = 'hidden';
+    field.dataset.f = 'kind';
+    field.id = 'kind-field';
+    const changes = [];
+    const held = createSelect({ options: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }], value: 'a', carrier: field });
+    const host = put(document.createElement('div'));
+    host.addEventListener('change', (ev) => changes.push(ev.target));
+    host.appendChild(held.el);
+    check('the handle\'s input is yours', held.input, field);
+    check('it is in the control, with its attributes and the value', [held.el.contains(field), field.id, field.getAttribute('name'), host.querySelector('[data-f="kind"]').value],
+          [true, 'kind-field', null, 'a']);
+    click(held.el.querySelector('.twm-select'));
+    click(rows()[1]);
+    check('a pick writes to it and fires change on it', [field.value, changes], ['b', [field]]);
+    held.value = 'a';
+    check('…as does setting the value, without the event', [field.value, changes.length], ['a', 1]);
+    held.destroy();
+    host.remove();
+}
+
 section('§8 createTagInput: suggestions and normalise');
 {
     const host = put(document.createElement('div'));
@@ -603,7 +780,7 @@ section('§8 createTagInput: suggestions and normalise');
     });
     const { input } = t;
     input.dispatchEvent(new window.Event('focus'));
-    check('focus shows what exists, less what is already chosen', labels(), ['path-finding', 'find', 'Refined']);
+    check('focus shows what exists, less what is already chosen, in alphabetical order', labels(), ['find', 'path-finding', 'Refined']);
     type(input, 'fin');
     check('the earliest match first', labels(), ['find', 'Refined', 'path-finding']);
     check('nothing is active: Enter commits the text', activeLabel(), null);
@@ -651,6 +828,45 @@ section('§8 createTagInput: suggestions and normalise');
     n.setValue(['X Y', 'x-y']);
     check('…through setValue', n.getValue(), ['x-y']);
     n.dispose();
+
+    const spelledRows = createTagInput(host2, {
+        value: ['done'],
+        suggestions: ['Path Finding', 'path-finding', 'Done', { value: 'Two Words', label: 'Two words', description: 'kept' }, 'beta', 'alpha'],
+        normalise: spelled,
+    });
+    spelledRows.input.dispatchEvent(new window.Event('focus'));
+    check('a suggestion is in the one spelling, once, and not a tag already there; alphabetical',
+          labels(), ['alpha', 'beta', 'path-finding', 'Two words']);
+    type(spelledRows.input, 'T');
+    check('earliest match first, a tie alphabetical', labels(), ['Two words', 'beta', 'path-finding']);
+    type(spelledRows.input, 'path f');
+    check('what is typed is compared and marked in the one spelling', [labels(), panel().querySelector('mark').textContent], [['path-finding'], 'path-f']);
+    type(spelledRows.input, 'al');
+    key(spelledRows.input, 'ArrowDown');
+    check('a comma on an active row takes the row', [activeLabel(), key(spelledRows.input, ',')], ['alpha', false]);
+    check('…not what was typed', [spelledRows.getValue(), spelledRows.input.value, panel()], [['done', 'alpha'], '', null]);
+    type(spelledRows.input, 'tw');
+    key(spelledRows.input, 'ArrowDown');
+    key(spelledRows.input, 'Enter');
+    check('a row taken has the one spelling', spelledRows.getValue().at(-1), 'two-words');
+    type(spelledRows.input, 'b');
+    key(spelledRows.input, 'Escape');
+    check('Escape closes it', panel(), null);
+    key(spelledRows.input, 'ArrowDown');
+    check('an arrow reopens it for what is in the box', labels(), ['beta']);
+    key(spelledRows.input, 'Escape');
+    spelledRows.input.value = '';
+    type(spelledRows.input, 'a,  b c ,d');
+    check('each piece is trimmed before it is spelled', spelledRows.getValue().slice(-3), ['a', 'b-c', 'd']);
+    spelledRows.dispose();
+
+    const answered = createTagInput(host2, {
+        suggestions: () => ['Z Z', 'z-z', 'A A'],
+        normalise: spelled,
+    });
+    answered.input.dispatchEvent(new window.Event('focus'));
+    check('a function keeps its order, in the one spelling, once', labels(), ['z-z', 'a-a']);
+    answered.dispose();
 
     const asked = [];
     const a = createTagInput(host2, {

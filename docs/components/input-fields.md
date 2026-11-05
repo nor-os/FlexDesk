@@ -86,16 +86,17 @@ createTagInput(host, {
 ```
 
 - **`suggestions`** offers known tags under the text box: strings, or
-  `{ value, label?, description?, icon?, hint? }`. Focus shows them, typing
-  narrows them, and the tags already in the list are left out. An array is
-  filtered here with the earliest match first. A function answers for itself and may
+  `{ value, label?, description?, icon?, hint? }`. Focus shows them and typing
+  narrows them. Whatever their source, a row is in the one spelling, says a tag once and is not
+  a tag already in the list. An array is filtered here with the earliest match first and then
+  alphabetically. A function is asked with what is in the box, keeps its own order and may
   return a promise, as in [`createCombobox`](#a-text-box-that-also-offers-a-list-createcombobox-0180).
-- The arrow keys walk the rows and **Enter** takes the active one. With no row
-  active, which is how it starts, Enter still commits what was typed, and so do a comma and a blur:
+- The arrow keys walk the rows, and **Enter** or a **comma** takes the active one. With no row
+  active, which is how it starts, both still commit what was typed, and so does a blur:
   a list of known tags never stops you adding a new one.
-- **`normalise(text)`** is the one spelling of a tag, applied to the value it
-  opens with, to what is typed and to `setValue`. With it `Path Finding` and
-  `path-finding` cannot both exist.
+- **`normalise(text)`** is the one spelling of a tag, handed the trimmed text and applied to the
+  value it opens with, to what is typed, to the suggestions and to `setValue`. With it
+  `Path Finding` and `path-finding` cannot both exist.
 
 Since 0.18.0 the list a tag input opens with, and `setValue`'s, drop a repeat
 unless `allowDuplicates` is set, as typing always did.
@@ -137,6 +138,7 @@ toolbar.appendChild(phase.el);
 | `loose` | A stored `'2'` names option `2` |
 | `showIcon` | Draw the chosen option's glyph on the trigger too. On by default |
 | `name` | A hidden input of this name carries the value as text, for a surrounding form, and fires a bubbling `change` when the reader chooses. `el` is then a wrapper round the trigger and the input |
+| `carrier` | That hidden input, yours, instead of `name`: a form template's field that something finds by `[data-f]` or an id. Its attributes are left as they are |
 | `className`, `panelClassName`, `title`, `ariaLabel`, `disabled`, `align` | Extra classes on the trigger and on the list's panel, its tooltip and name, whether it is disabled, and which trigger edge the list lines up with |
 | `emptyText(typed)` | What a list with no rows says |
 
@@ -228,6 +230,8 @@ fires a bubbling `change` on the input, for a form around it.
 `createCombobox` and the tag input's suggestions are this. It takes `options`,
 `onPick(option)` (the entry you gave is `option.source`), `anchor`, `isCurrent`, `autoHighlight`,
 `isCandidate`, `normalise`, `openOnFocus`, `passEnter`, `loadingText`, `errorText`, `debounce`,
-`panelClassName` and `onSettle`, and answers `{ isOpen, open, close, setOptions, destroy }`.
+`panelClassName` and `onSettle`, and answers `{ isOpen, open, close, takeActive, setOptions, destroy }`.
+`takeActive()` chooses the active row and says whether there was one, for a key of your own that
+also means "this one", such as the tag input's comma.
 
 `tests/select_combobox_popover.test.mjs` covers these and the tag input's options in jsdom.

@@ -73,19 +73,21 @@ const isEmptyValue = (v) => v === null || v === undefined || v === '';
  * @param {boolean} [config.loose]       A stored value names an option of the same text.
  * @param {string} [config.name]         A hidden input of this name carries the value
  *     as text, for a surrounding form; it fires a bubbling `change` when the reader chooses.
+ * @param {HTMLInputElement} [config.carrier]  That hidden input, yours, for a field something
+ *     finds by more than a name (`[data-f]`, an id). Instead of `name`; its attributes are left as they are.
  * @param {'start'|'end'} [config.align]
  * @returns {{el: HTMLElement, input: HTMLInputElement|null, value: *, isOpen: boolean,
  *            setOptions: Function, setPlaceholder: Function, setDisabled: Function,
  *            open: Function, close: Function, focus: Function, destroy: Function}}
  *     `el` is the control to put in your layout: the trigger, or a wrapper round it
- *     and the hidden input when there is a `name`.
+ *     and the hidden input when there is a `name` or a `carrier`.
  */
 export function createSelect({
     options = [], value = null, onChange = null, className = '', panelClassName = '', placeholder = 'Choose…',
     title = '', ariaLabel = '', disabled = false, showIcon = true, search = undefined, allowNew = false,
     newLabel = (typed) => `Use “${typed}”`, notFound = (v) => v,
     emptyText = (typed) => (typed ? `Nothing matches “${typed}”.` : 'Nothing to choose from.'),
-    loose = false, name = null, align = 'start',
+    loose = false, name = null, carrier = null, align = 'start',
 } = {}) {
     let source = options;
     let current = value;
@@ -107,13 +109,15 @@ export function createSelect({
     trigger.append(icon, label, glyphNode('twm-select__caret', 'expand_more'));
 
     let root = trigger;
-    let carrier = null;
-    if (name) {
+    let hidden = carrier;
+    if (name && !hidden) {
+        hidden = node('input');
+        hidden.type = 'hidden';
+        hidden.name = name;
+    }
+    if (hidden) {
         root = node('div', 'twm-select-field');
-        carrier = node('input');
-        carrier.type = 'hidden';
-        carrier.name = name;
-        root.append(trigger, carrier);
+        root.append(trigger, hidden);
     }
 
     // Whichever holds focus names the active row.
@@ -155,7 +159,7 @@ export function createSelect({
         const glyph = showIcon ? (chosen?.icon || '') : '';
         icon.textContent = glyph;
         icon.hidden = !glyph;
-        if (carrier) carrier.value = isEmptyValue(current) ? '' : shownValue(current);
+        if (hidden) hidden.value = isEmptyValue(current) ? '' : shownValue(current);
     }
 
     /** The rows for what is typed, a new-value row after them when it is offered. */
@@ -189,7 +193,7 @@ export function createSelect({
         paint();
         layer?.close('pick');
         if (!changed) return;
-        carrier?.dispatchEvent(new Event('change', { bubbles: true }));
+        hidden?.dispatchEvent(new Event('change', { bubbles: true }));
         onChange?.(current, option.source);
     }
 
@@ -215,6 +219,7 @@ export function createSelect({
                 focusHolder.removeAttribute('aria-activedescendant');
             },
         });
+        if (!layer) return;      // the trigger is not on the page
         trigger.classList.add('twm-is-open');
         trigger.setAttribute('aria-expanded', 'true');
         // Once it is on the page: the current value has to scroll into view.
@@ -288,8 +293,8 @@ export function createSelect({
 
     return {
         el: root,
-        /** The hidden input carrying the value, when there is a `name`. */
-        input: carrier,
+        /** The hidden input carrying the value, when there is one. */
+        input: hidden,
         get value() { return current; },
         set value(next) { current = next; paint(); },
         get isOpen() { return !!layer; },

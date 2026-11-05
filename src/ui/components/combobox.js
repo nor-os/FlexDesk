@@ -70,7 +70,10 @@ let SEQ = 0;
  * @param {number} [o.debounce]
  * @param {string} [o.panelClassName]
  * @param {() => void} [o.onSettle]  Enter with no row active, or Tab: the text stays as typed.
- * @returns {{isOpen: boolean, open: Function, close: Function, setOptions: Function, destroy: Function}}
+ * @returns {{isOpen: boolean, open: Function, close: Function, takeActive: () => boolean,
+ *            setOptions: Function, destroy: Function}}
+ *     `takeActive` chooses the active row and says whether there was one, for a key of
+ *     your own that also means "this one" (the tag input's comma).
  */
 export function attachInputOptions(input, {
     options = [], onPick, anchor = null, isCurrent = null, autoHighlight = false, isCandidate = null,
@@ -118,6 +121,8 @@ export function attachInputOptions(input, {
                 input.removeAttribute('aria-activedescendant');
             },
         });
+        // The box is not on the page: there is no list, and nothing to come back to.
+        if (!layer) { wanted = false; return; }
         input.setAttribute('aria-expanded', 'true');
     };
 
@@ -155,7 +160,7 @@ export function attachInputOptions(input, {
             return;
         }
         const text = query ?? '';
-        list.setRows(sections, { mark: text.trim(), isCurrent });
+        list.setRows(sections, { mark: normalise(text.trim()), isCurrent });
         show();
         highlight(text);
     }
@@ -200,6 +205,14 @@ export function attachInputOptions(input, {
         picking = false;
     }
 
+    /** The active row is chosen, if the list is open and has one. */
+    function takeActive() {
+        const option = layer && list.activeOption();
+        if (!option) return false;
+        take(option);
+        return true;
+    }
+
     const openFor = (text) => { query = text; wanted = true; refresh(); };
 
     const onInput = () => openFor(input.value);
@@ -217,11 +230,9 @@ export function attachInputOptions(input, {
         }
         if (ev.key === 'Enter') {
             if (!layer) return;                     // the dialog's Enter, untouched
-            const option = list.activeOption();
-            if (option) {
+            if (takeActive()) {
                 ev.preventDefault();
                 ev.stopImmediatePropagation();
-                take(option);
                 return;
             }
             close();
@@ -248,6 +259,7 @@ export function attachInputOptions(input, {
         /** Open it showing everything, or for `text`. */
         open(text = null) { openFor(text); },
         close,
+        takeActive,
         /** Replace the options; an open list redraws. */
         setOptions(next) {
             source = next;

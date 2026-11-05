@@ -21,9 +21,9 @@
  * a popover is a layer whose anchor is inside the popover; that gives every rule
  * below one answer:
  *
- *  - OPENING a layer closes every open layer that does not contain its anchor (so
+ *  - OPENING a layer closes every open layer that does not own its anchor (so
  *    there is one popover at a time, and a popover's select does not close it);
- *  - A PRESS in a layer is inside every layer under it;
+ *  - A PRESS on what a layer owns is not outside it, and neither is one on its anchor;
  *  - ESCAPE goes to the top layer alone and to nothing else, or the `ManagedWindow`
  *    around the field would close too and take a half-filled form with it. From
  *    inside the panel it is heard as it bubbles out, so that the panel's content
@@ -31,12 +31,17 @@
  *    way in;
  *  - CLOSING a layer closes the layers above it first.
  *
- * Other floating things are not layers and are named here instead: a press in an
- * `ActionDropdown` menu, a `CategoryPicker` or a context menu that a layer's
- * content opened is not "outside", and neither is a press in a modal window that
- * does not hold the anchor (a dialog the layer's content opened). Those also get
- * Escape first, while open. A consumer's own floating panel is named with
- * `inside`, a selector, or is itself opened with `openAnchoredLayer`.
+ * WHAT A LAYER OWNS is one question with one answer, for a press and for an anchor
+ * alike: the panel; every layer above it; and what floats without being a layer, which
+ * is named here: an `ActionDropdown` menu, a `CategoryPicker`, a context menu, a modal
+ * window shown after the layer opened (a dialog its content opened), and whatever the
+ * caller's `inside` selector names. A modal already showing when the layer opened is
+ * UNDER it, however far down the chain of layers it was opened from: it owns none of
+ * that and takes no key from it. An open menu or picker, and a modal over the layer,
+ * get Escape first.
+ *
+ * An anchor that has left the document has nothing to hang a panel from: opening on
+ * one opens nothing and closes nothing, and answers `null`.
  */
 import { modalHost } from '../utils/modal_host.js';
 
@@ -139,8 +144,10 @@ const LAYERS = [];
 
 const holds = (node, target) => !!node && typeof node.contains === 'function' && node.contains(target);
 
-/** Is `win` a modal window over a layer on `anchor`: shown, and not holding the anchor? */
-const modalOver = (win, anchor) => !!win && win.style.display !== 'none' && !holds(win, anchor);
+const shownModals = (doc) => [...doc.querySelectorAll(MODAL_WINDOW)].filter((win) => win.style.display !== 'none');
+
+/** Is `node` in an open layer? A modal's focus trap leaves such focus alone: the panel is outside the modal's frame. */
+export const isInAnchoredLayer = (node) => LAYERS.some((layer) => holds(layer.el, node));
 
 /**
  * Open `el` as a layer against `anchor`.
@@ -159,16 +166,20 @@ const modalOver = (win, anchor) => !!win && win.style.display !== 'none' && !hol
  * @param {(reason: string) => void} [o.onClose]  After it is gone. The reasons are
  *     `'outside'`, `'escape'`, `'replaced'`, `'parent'`, `'detached'`, and whatever
  *     the caller passes to `close`.
- * @returns {{el: HTMLElement, anchor: HTMLElement|null, place: () => void,
- *            close: (reason?: string) => void}}
+ * @returns {{el: HTMLElement, anchor: HTMLElement|null, place: () => void, owns: (node: Node) => boolean,
+ *            close: (reason?: string) => void}|null}
+ *     `null` when `anchor` has left the document: nothing opened, `onClose` will not be called.
  */
 export function openAnchoredLayer({ anchor = null, el, align = 'start', gap = GAP, matchWidth = false, inside = null,
                                     returnFocus = true, onClose = null }) {
-    while (LAYERS.length && !holds(LAYERS[LAYERS.length - 1].el, anchor)) LAYERS[LAYERS.length - 1].close('replaced');
+    if (anchor && anchor.isConnected === false) return null;
+
+    while (LAYERS.length && !LAYERS[LAYERS.length - 1].owns(anchor)) LAYERS[LAYERS.length - 1].close('replaced');
 
     const doc = anchor?.ownerDocument || document;
     const view = doc.defaultView || window;
     (modalHost() || doc.body).appendChild(el);
+    const modalsUnder = new Set(shownModals(doc));
 
     let closed = false;
     const place = () => {
@@ -177,20 +188,22 @@ export function openAnchoredLayer({ anchor = null, el, align = 'start', gap = GA
         positionAnchored(anchor, el, { align, gap, matchWidth });
     };
 
-    const pressedInside = (target) => {
-        if (holds(el, target) || holds(anchor, target)) return true;
+    const owns = (target) => {
+        if (holds(el, target)) return true;
         for (let i = LAYERS.indexOf(layer) + 1; i < LAYERS.length; i += 1) if (holds(LAYERS[i].el, target)) return true;
         if (typeof target?.closest !== 'function') return false;
-        if (target.closest(FOREIGN_FLOATS) || modalOver(target.closest(MODAL_WINDOW), anchor)) return true;
+        if (target.closest(FOREIGN_FLOATS)) return true;
+        const modal = target.closest(MODAL_WINDOW);
+        if (modal && !modalsUnder.has(modal)) return true;
         return !!inside && !!target.closest(inside);
     };
-    const onPress = (ev) => { if (!pressedInside(ev.target)) layer.close('outside'); };
+    const onPress = (ev) => { if (!holds(anchor, ev.target) && !owns(ev.target)) layer.close('outside'); };
     const onDocKey = (ev) => { if (!holds(el, ev.target)) onKey(ev); };
     const onKey = (ev) => {
         if (ev.key !== 'Escape' || ev.isComposing || ev.defaultPrevented) return;
         if (LAYERS[LAYERS.length - 1] !== layer) return;
         if (doc.querySelector(FOREIGN_ESCAPE)) return;
-        if ([...doc.querySelectorAll(MODAL_WINDOW)].some((w) => modalOver(w, anchor))) return;
+        if (shownModals(doc).some((win) => !modalsUnder.has(win))) return;
         ev.preventDefault();
         ev.stopPropagation();
         layer.close('escape');
@@ -204,6 +217,7 @@ export function openAnchoredLayer({ anchor = null, el, align = 'start', gap = GA
         el,
         anchor,
         place,
+        owns,
         close(reason = 'closed') {
             if (closed) return;
             while (LAYERS[LAYERS.length - 1] !== layer) LAYERS[LAYERS.length - 1].close('parent');

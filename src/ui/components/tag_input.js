@@ -30,11 +30,13 @@
  *     tags.dispose();
  *
  * `suggestions` (0.18.0) offers known tags under the box, on `attachInputOptions`:
- * the arrow keys and Enter take a row, and with none active Enter still commits what
- * was typed. An array is filtered and ordered here, the tags already in the list left
- * out and the best match first; a function answers for itself, and may be async.
+ * the arrow keys walk the rows, and Enter or a comma takes the active one; with none
+ * active they commit what was typed. Whatever the list's source, a row is in the one
+ * spelling, says a tag once and is not a tag already in the list. An array is filtered
+ * and ordered here, the earliest match first and then alphabetically; a function
+ * answers for itself and keeps its own order, and may be async.
  * `normalise` (0.18.0) keeps one spelling of a tag: `Path Finding` and `path-finding`
- * cannot both exist, whichever way one arrives.
+ * cannot both exist, whichever way one arrives. It is handed the trimmed text.
  */
 import { attachInputOptions } from './combobox.js';
 import { shownValue } from './choice_controls.js';
@@ -69,7 +71,7 @@ export function createTagInput(host, options = {}) {
     const removeLabel = typeof options.removeLabel === 'function'
         ? options.removeLabel : (tag) => `Remove ${tag}`;
     const spell = typeof options.normalise === 'function'
-        ? (text) => String(options.normalise(text) ?? '').trim() : (text) => text.trim();
+        ? (text) => String(options.normalise(text.trim()) ?? '').trim() : (text) => text.trim();
 
     /** The list as spelled, the empty ones left out, and a repeat unless it is allowed. */
     const cleaned = (list) => {
@@ -167,23 +169,32 @@ export function createTagInput(host, options = {}) {
         return true;
     };
 
-    /** A tag that may still be offered: not already in the list. */
-    const offerable = (o) => {
-        const tag = spell(shownValue(optionValue(o)));
-        return tag !== '' && (allowDuplicates || !tags.includes(tag));
+    /** Known tags as rows: in the one spelling, each once, less those already in the list. */
+    const offered = (list) => {
+        const seen = new Set();
+        const rows = [];
+        for (const o of list || []) {
+            const tag = spell(shownValue(optionValue(o)));
+            if (tag === '' || seen.has(tag) || (!allowDuplicates && tags.includes(tag))) continue;
+            seen.add(tag);
+            rows.push(o !== null && typeof o === 'object' ? { ...o, value: tag } : tag);
+        }
+        return rows;
     };
-    /** An array of known tags for what is typed: those holding it, the earliest match first. */
-    const rankedFor = (query) => {
-        const needle = spell(query).toLowerCase();
-        const at = (o) => spell(shownValue(optionValue(o))).toLowerCase().indexOf(needle);
-        const open = options.suggestions.filter(offerable);
-        return needle ? open.filter((o) => at(o) >= 0).sort((a, b) => at(a) - at(b)) : open;
+    // What is typed is the query however the list opened: an arrow key or a click
+    // reopening it must not offer rows that have nothing to do with the text in the box.
+    /** An array of known tags: those holding what is typed, the earliest match first, then alphabetically. */
+    const rankedFor = () => {
+        const needle = spell(input.value).toLowerCase();
+        const word = (o) => shownValue(optionValue(o));
+        const at = (o) => word(o).toLowerCase().indexOf(needle);
+        return offered(options.suggestions).filter((o) => at(o) >= 0)
+            .sort((x, y) => at(x) - at(y) || word(x).localeCompare(word(y)));
     };
-    /** A function's answer, whenever it comes, without the tags already in the list. */
-    const askedFor = (query, ctx) => {
-        const answer = options.suggestions(query, ctx);
-        if (typeof answer?.then === 'function') return answer.then((list) => (list || []).filter(offerable));
-        return (answer || []).filter(offerable);
+    /** A function's answer, whenever it comes. */
+    const askedFor = (_query, ctx) => {
+        const answer = options.suggestions(input.value, ctx);
+        return typeof answer?.then === 'function' ? answer.then(offered) : offered(answer);
     };
     const asking = typeof options.suggestions === 'function';
 
@@ -192,6 +203,7 @@ export function createTagInput(host, options = {}) {
         ? attachInputOptions(input, {
             options: asking ? askedFor : rankedFor,
             anchor: root,
+            normalise: spell,
             openOnFocus: true,
             passEnter: true,
             debounce: asking ? undefined : 0,
@@ -214,7 +226,9 @@ export function createTagInput(host, options = {}) {
     if (input) {
         input.addEventListener('keydown', (ev) => {
             if (ev.isComposing) return;
-            if (ev.key === 'Enter' || ev.key === ',') {
+            if (ev.key === ',' && menu?.takeActive()) {
+                ev.preventDefault();
+            } else if (ev.key === 'Enter' || ev.key === ',') {
                 ev.preventDefault();
                 commitInput();
             } else if (ev.key === 'Backspace' && input.value === '' && tags.length) {

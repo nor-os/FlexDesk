@@ -150,5 +150,5 @@ export function openStepMenu({ anchor, label, items, strings = null, onClose = n
         anchor, content: root, label: label || '', className: 'twm-flow-popover--menu',
         focus: enabled(root)[0] || root, onClose: () => onClose?.(),
     });
-    return { el: root, close: () => handle.close('closed'), toggled: handle.toggled };
+    return { el: handle.el ? root : null, close: () => handle.close('closed'), toggled: handle.toggled };
 }

@@ -29,7 +29,7 @@ The chat fills its host. It needs `flexdesk.css`, and the Material Symbols font 
 
 | Option | Is |
 |---|---|
-| `transport` | **Required.** `{ send(request, emit), cancel?(request) }` |
+| `transport` | **Required.** `{ send(request, emit), cancel?(request) }`; `cancel` may answer a promise, see [below](#a-backend-with-no-run-id) |
 | `renderControls(el, message, chat)` | Fills the slot on an assistant message |
 | `markdown` | Options for [`renderMarkdown`](markdown-and-outline.md) (`highlight`, `math`, `inlineRules`, ...) |
 | `onChange(snapshot)` | Something worth keeping changed: a message arrived or finished, a conversation or its meta changed. Not called per text delta |
@@ -56,33 +56,55 @@ The chat fills its host. It needs `flexdesk.css`, and the Material Symbols font 
 | `{ type: 'message-end', text?, conversationId?, meta? }` | Ends the turn. `text` fills the reply only if nothing was streamed; `conversationId` is kept; `meta` is merged into the message's |
 | `{ type: 'error', message }` | Ends the turn with an error message in the transcript |
 
-Every `emit` belongs to its turn, and what it is handed after that turn ended or was cancelled is dropped. So a late chunk, or a backend's own report that it was cancelled, needs no filtering of yours. A `send` that throws, or answers a promise that rejects, is an `error` event. To tell the chat a backend id before the turn ends, call `setConversationId(request.tabId, id)`.
+Every `emit` belongs to its turn, and what it is handed after that turn ended or was cancelled is dropped. A `send` that throws, or answers a promise that rejects, is an `error` event. To tell the chat a backend id before the turn ends, call `setConversationId(request.tabId, id)`.
 
-A backend that pushes to a global is one small adapter:
+So a transport that gives each run its own callback, and calls that run's `emit`, needs no filtering of its own.
+
+#### A backend with no run id
+
+A backend that pushes to a global has one place to send a frame, and the frame does not say which run it is from. The adapter holds the latest `emit`, so the chat cannot tell an old run's chunk from the new reply's. Runs must therefore not overlap, and `cancel` is how: it answers a promise that settles when the cancelled run is over and the backend takes a new request. The next turn shows at once, with its typing dots, and its `send` is called when the promise settles. A promise that rejects is logged and counts as settled; one that never settles leaves the next turn waiting until the user stops it.
 
 ```js
 let emit = null;
+let runEnded = null;
+const ended = () => { runEnded?.(); runEnded = null; };
 window.myBridge = {
     onChunk: ({ chunk }) => emit?.({ type: 'text-delta', text: chunk }),
-    onDone: ({ text, id, changes }) => emit?.({ type: 'message-end', text, conversationId: id, meta: { changes } }),
-    onError: ({ error }) => emit?.({ type: 'error', message: error }),
+    onDone: ({ text, id, changes }) => {
+        emit?.({ type: 'message-end', text, conversationId: id, meta: { changes } });
+        ended();
+    },
+    onError: ({ error }) => {
+        emit?.({ type: 'error', message: error });
+        ended();
+    },
 };
 const transport = {
     async send(request, e) {
         emit = e;
-        const result = await api.ask(request);
-        if (!result.ok) throw new Error(result.error);
+        try {
+            const result = await api.ask(request);
+            if (!result.ok) throw new Error(result.error);
+        } catch (error) {
+            ended();
+            throw error;
+        }
     },
-    cancel: () => api.stop(),
+    cancel: () => new Promise((resolve) => {
+        runEnded = resolve;
+        api.stop();
+    }),
 };
 ```
+
+While the run winds down, `emit` is still the cancelled turn's, so its late chunks and its report that it was cancelled are dropped, with no check of yours. The promise must not settle before the backend would accept a request: if the backend sends its last frame and only then frees itself, have it send the end of the run after that, and settle on that instead. A `cancel` that answers no promise says there is nothing to wait for, and `send` is called at once.
 
 ### A turn
 
 The user's message goes in, then a streamed assistant message that shows the typing dots while it is empty. While the turn runs, Send is Cancel and Esc cancels, as in the conversation view, and the New and Clear buttons are disabled. A turn ends in one of three ways:
 
 - **`message-end`.** Running tools become `done`. The message gets its controls, its time and its copy button.
-- **Stop.** Cancel, Esc or `chat.cancel()`. What arrived stays, running tools become `stopped`, and `transport.cancel(request)` is called once. The chat can send again at once, whatever the backend does next.
+- **Stop.** Cancel, Esc or `chat.cancel()`. What arrived stays, running tools become `stopped`, and `transport.cancel(request)` is called once, unless the turn's `send` was still [waiting](#a-backend-with-no-run-id) and so never called. The chat can send again at once.
 - **`error`.** As Stop without `transport.cancel`, and an error message follows. While it is the last message it carries *Retry*, which sends the user message before it again.
 
 In all three, a reply left with no text, no tool call and no `meta` is taken out. `chat.isBusy()` answers at once.

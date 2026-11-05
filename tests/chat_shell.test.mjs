@@ -4,6 +4,7 @@
  *   §1  a turn: the request, typing dots, text deltas, Markdown, message-end
  *   §2  tool calls: listed, updated by id, finished by the end of the turn
  *   §3  stop: what arrived stays, an empty reply goes, a late chunk is dropped
+ *   §3b a backend with no run id: the next send waits for the cancelled run's end
  *   §4  errors: an error message with Retry while it is last; a throwing and a
  *       rejecting send; a late event of an old turn never lands in a new one
  *   §5  the footer: time and copy; copy feedback; formatTime
@@ -236,6 +237,119 @@ console.log('§3 stop');
     chat.send('five');
     ok('a transport with no cancel can stop', chat.cancel() === true);
     chat.destroy();
+}
+
+console.log('§3b a backend with no run id');
+{
+    // The adapter of docs/components/chat-shell.md, over a backend with one run at
+    // a time, whose frames carry no id and which refuses a request while it is busy.
+    const backend = {
+        busy: false,
+        asked: [],
+        stops: 0,
+        ask(request) {
+            if (backend.busy) return Promise.resolve({ ok: false, error: 'busy' });
+            backend.busy = true;
+            backend.asked.push(request.text);
+            return Promise.resolve({ ok: true });
+        },
+        stop() { backend.stops += 1; },
+        finish(frame) { backend.busy = false; frame(); },
+    };
+    let emit = null;
+    let runEnded = null;
+    const ended = () => { runEnded?.(); runEnded = null; };
+    const bridge = {
+        onChunk: ({ chunk }) => emit?.({ type: 'text-delta', text: chunk }),
+        onDone: ({ text }) => { emit?.({ type: 'message-end', text }); ended(); },
+        onError: ({ error }) => { emit?.({ type: 'error', message: error }); ended(); },
+    };
+    const transport = {
+        async send(request, e) {
+            emit = e;
+            try {
+                const result = await backend.ask(request);
+                if (!result.ok) throw new Error(result.error);
+            } catch (error) {
+                ended();
+                throw error;
+            }
+        },
+        cancel: () => new Promise((resolve) => {
+            runEnded = resolve;
+            backend.stop();
+        }),
+    };
+    const flush = () => new Promise((r) => setTimeout(r));
+
+    const ctx = mount({ transport });
+    const { chat } = ctx;
+    chat.send('old');
+    await flush();
+    bridge.onChunk({ chunk: 'kept' });
+    ok('cancel stops at once', chat.cancel() === true && !chat.isBusy() && backend.stops === 1);
+
+    ok('the chat can send again at once', chat.send('new') === true && chat.isBusy());
+    ok('the new turn shows', chat.messages().some((m) => m.text === 'new'));
+    await flush();
+    ok('its request waits for the old run', backend.asked.length === 1);
+    bridge.onChunk({ chunk: ' LATE-FROM-OLD-RUN' });
+    ok('a late chunk does not reach the new reply', chat.messages().at(-1).text === 'new' && !ctx.host.textContent.includes('LATE'));
+    backend.finish(() => bridge.onError({ error: 'cancelled' }));
+    ok("the old run's report ends nothing", chat.isBusy()
+        && !chat.messages().some((m) => m.role === 'error'));
+    await flush();
+    ok('then the request goes, and is accepted', backend.asked.join() === 'old,new' && chat.isBusy());
+    bridge.onChunk({ chunk: 'fresh' });
+    backend.finish(() => bridge.onDone({ text: 'fresh' }));
+    await flush();
+    ok("the new reply is the new run's only", chat.messages().at(-1).text === 'fresh'
+        && chat.messages().find((m) => m.text.startsWith('kept')).text === 'kept'
+        && !chat.isBusy());
+
+    chat.send('three');
+    await flush();
+    chat.cancel();
+    chat.send('waiting');
+    const stops = backend.stops;
+    await flush();
+    ok('stopping a turn still waiting tells the backend nothing', chat.cancel() === true && backend.stops === stops);
+    chat.send('after');
+    backend.finish(() => bridge.onError({ error: 'cancelled' }));
+    await flush();
+    ok('the stopped one is never asked, the next one is',
+        !backend.asked.includes('waiting') && backend.asked.at(-1) === 'after');
+    backend.finish(() => bridge.onDone({ text: 'done' }));
+    await flush();
+
+    chat.send('four');
+    await flush();
+    chat.cancel();
+    chat.send('five');
+    const asked = backend.asked.length;
+    chat.destroy();
+    backend.finish(() => bridge.onError({ error: 'cancelled' }));
+    await flush();
+    ok('destroy sends nothing that was waiting', backend.asked.length === asked);
+
+    const rejected = fakeTransport();
+    rejected.cancel = () => Promise.reject(new Error('backend gone'));
+    const r = mount({ transport: rejected });
+    r.chat.send('one');
+    r.chat.cancel();
+    r.chat.send('two');
+    ok('a send waits for a cancel that rejects', rejected.requests.length === 1);
+    await flush();
+    ok('and goes when it has', rejected.requests.at(-1)?.text === 'two');
+    r.chat.destroy();
+
+    const plain = fakeTransport();
+    const p = mount({ transport: plain });
+    p.chat.send('one');
+    p.chat.cancel();
+    p.chat.send('two');
+    ok('a cancel with no promise leaves send synchronous', plain.requests.at(-1)?.text === 'two');
+    p.chat.destroy();
 }
 
 console.log('§4 errors');

@@ -3315,6 +3315,7 @@ function mountChatShell(host, {
   };
   let destroyed = false;
   let turn = null;
+  let runEnding = null;
   const extras = /* @__PURE__ */ new Map();
   const copyTimers = /* @__PURE__ */ new Set();
   const modeIds = modes.map((m) => m.id);
@@ -3687,18 +3688,26 @@ function mountChatShell(host, {
       mode: machine.mode,
       model: currentModels.activeId ?? null
     };
-    turn = { token, replyId, request, started: false };
+    const current = { token, replyId, request, started: false, sent: false };
+    turn = current;
     machine.sendMessage(message, tab.conversationId);
     changed();
     const emit = (event) => {
       if (turn?.token === token) handle(event);
     };
     const fail = (error) => emit({ type: CHAT_TRANSPORT_EVENTS.ERROR, message: error?.message ?? String(error) });
-    try {
-      Promise.resolve(transport.send(request, emit)).catch(fail);
-    } catch (error) {
-      fail(error);
-    }
+    const start = () => {
+      current.sent = true;
+      try {
+        Promise.resolve(transport.send(request, emit)).catch(fail);
+      } catch (error) {
+        fail(error);
+      }
+    };
+    if (runEnding) runEnding.then(() => {
+      if (turn === current) start();
+    });
+    else start();
     return true;
   }
   function handle(event) {
@@ -3777,10 +3786,10 @@ function mountChatShell(host, {
   }
   function cancel() {
     if (!turn) return false;
-    const { request } = turn;
+    const { request, sent } = turn;
     closeReply("stopped");
     machine.cancel();
-    callCancel(request);
+    if (sent) callCancel(request);
     syncWelcome();
     changed();
     return true;
@@ -3788,7 +3797,12 @@ function mountChatShell(host, {
   function callCancel(request) {
     const failed = (error) => logger?.warn?.("chat-shell", "Cancel failed", { error });
     try {
-      Promise.resolve(transport.cancel?.(request)).catch(failed);
+      const ended = transport.cancel?.(request);
+      if (typeof ended?.then !== "function") return;
+      const ending = Promise.resolve(ended).catch(failed).then(() => {
+        if (runEnding === ending) runEnding = null;
+      });
+      runEnding = ending;
     } catch (error) {
       failed(error);
     }

@@ -31,10 +31,15 @@
  *     { type: 'error',       message }
  *
  * `message-end` and `error` finish the turn. Every `emit` belongs to its turn:
- * what it is handed once that turn has finished or been cancelled is dropped,
- * so a late chunk never lands in the next reply. A `send` that throws, or
- * answers a promise that rejects, is an `error` event. A `tool-use` with the id
- * of one already shown updates it.
+ * what it is handed once that turn has finished or been cancelled is dropped.
+ * A `send` that throws, or answers a promise that rejects, is an `error` event.
+ * A `tool-use` with the id of one already shown updates it.
+ *
+ * A backend whose frames carry no run id can only hand them to the latest
+ * `emit`, so runs must not overlap: `cancel` answers a promise that settles when
+ * the cancelled run is really over, and the next turn's `send` waits for it. That
+ * turn shows at once, and until then the old run's frames still reach the dead
+ * `emit`. Stopping a turn whose `send` is still waiting calls no `transport.cancel`.
  *
  * A TURN: the user's message goes in, then a streamed reply that shows the
  * typing dots while it is empty. Tool calls are listed under the body. The turn
@@ -43,7 +48,7 @@
  *   - `message-end`: `text` fills the reply only if nothing was streamed; `meta`
  *     is merged into the message's.
  *   - Stop (Cancel, Esc, or `cancel()`): what arrived stays, running tools become
- *     `stopped`, `transport.cancel` is called.
+ *     `stopped`, `transport.cancel` is called once `send` has been.
  *   - `error`: as Stop, without `transport.cancel`, and an error message follows.
  *     While it is the last message it carries Retry, which sends the user message
  *     before it again.
@@ -182,8 +187,10 @@ export function mountChatShell(host, {
     };
 
     let destroyed = false;
-    /** The exchange in flight: `{ token, replyId, request, started }`, or null. */
+    /** The exchange in flight: `{ token, replyId, request, started, sent }`, or null. */
     let turn = null;
+    /** Settles when the run `transport.cancel` stopped is over; null when none is ending. */
+    let runEnding = null;
     /** id → { at, tools, meta, toolsEl, controlsEl, footerEl }, for the messages on show. */
     const extras = new Map();
     const copyTimers = new Set();
@@ -595,17 +602,23 @@ export function mountChatShell(host, {
             mode: machine.mode,
             model: currentModels.activeId ?? null,
         };
-        turn = { token, replyId, request, started: false };
+        const current = { token, replyId, request, started: false, sent: false };
+        turn = current;
         machine.sendMessage(message, tab.conversationId);
         changed();
 
         const emit = (event) => { if (turn?.token === token) handle(event); };
         const fail = (error) => emit({ type: CHAT_TRANSPORT_EVENTS.ERROR, message: error?.message ?? String(error) });
-        try {
-            Promise.resolve(transport.send(request, emit)).catch(fail);
-        } catch (error) {
-            fail(error);
-        }
+        const start = () => {
+            current.sent = true;
+            try {
+                Promise.resolve(transport.send(request, emit)).catch(fail);
+            } catch (error) {
+                fail(error);
+            }
+        };
+        if (runEnding) runEnding.then(() => { if (turn === current) start(); });
+        else start();
         return true;
     }
 
@@ -690,13 +703,13 @@ export function mountChatShell(host, {
         changed();
     }
 
-    /** Stops the reply: the chat can send again at once, whatever the backend does next. */
+    /** Stops the reply: the chat can send again at once, and that send waits for `runEnding`. */
     function cancel() {
         if (!turn) return false;
-        const { request } = turn;
+        const { request, sent } = turn;
         closeReply('stopped');
         machine.cancel();
-        callCancel(request);
+        if (sent) callCancel(request);
         syncWelcome();
         changed();
         return true;
@@ -705,7 +718,12 @@ export function mountChatShell(host, {
     function callCancel(request) {
         const failed = (error) => logger?.warn?.('chat-shell', 'Cancel failed', { error });
         try {
-            Promise.resolve(transport.cancel?.(request)).catch(failed);
+            const ended = transport.cancel?.(request);
+            if (typeof ended?.then !== 'function') return;
+            const ending = Promise.resolve(ended).catch(failed).then(() => {
+                if (runEnding === ending) runEnding = null;
+            });
+            runEnding = ending;
         } catch (error) {
             failed(error);
         }

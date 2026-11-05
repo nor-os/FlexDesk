@@ -2,13 +2,14 @@
 
 > **Package:** `@flexdesk/wm` · **Next:** [Panels and desktops](panels-and-desktops.md), [Command palette](command-palette.md), [Keys, Back and tab layout](keymap.md) · [All docs](../README.md)
 
-`createShell` boots the tiling window manager into an element of your page: tiles that split and tab, the top navigation, dockable panels, virtual desktops and the command palette. It knows nothing about your domain. You give it a taxonomy of *kinds*, a content factory for each kind and a [host](../concepts/host-port.md), and it draws and persists the rest.
+`createShell` boots the tiling window manager into an element of your page: tiles that split and tab, the top navigation or a page rail, dockable panels, virtual desktops and the command palette. It knows nothing about your domain. You give it a taxonomy of *kinds*, a content factory for each kind and a [host](../concepts/host-port.md), and it draws and persists the rest.
 
 A complete first boot is in the [quickstart](../quickstart.md#hello-shell). This page covers what you can add to it: the opt-in shell features, kinds that exist only once, what happens when a link names a kind nobody registered, and what a pane can tell its own chrome.
 
 **On this page**
 
 - [Opt-in shell features](#opt-in-shell-features)
+- [The pages as a vertical rail: `chrome.rail` (0.18.0)](#the-pages-as-a-vertical-rail-chromerail-0180)
 - [A kind that exists once: `single` (0.17.0)](#a-kind-that-exists-once-single-0170)
 - [A kind that exists once per desktop: `single: 'desktop'` (0.17.17)](#a-kind-that-exists-once-per-desktop-single-desktop-01717)
 - [An open single instance takes new props: `navigate(props)` (0.17.2)](#an-open-single-instance-takes-new-props-navigateprops-0172)
@@ -35,6 +36,108 @@ await createShell({
     },
 });
 ```
+
+## The pages as a vertical rail: `chrome.rail` (0.18.0)
+
+`chrome.topNav` paints the pages as a strip in the top bar. `chrome.rail` paints
+them as a fixed-left icon bar instead. Give it the element, and put the element
+beside the window manager's host in a `.twm-workspace`:
+
+```html
+<body class="twm-body">
+    <div class="twm-global-top-bar">…</div>
+    <div class="twm-workspace">
+        <nav id="rail" aria-label="Sections"></nav>
+        <main id="root" class="twm-host"></main>
+    </div>
+    <div class="twm-global-bottom-bar">…</div>
+</body>
+```
+
+```js
+const taxonomy = createTaxonomy({
+    root: 'start',
+    kinds: {
+        start:    { label: 'Start', icon: 'apps' },
+        atlas:    { label: 'Atlas', icon: 'map', isTopNav: true, order: 10 },
+        log:      { label: 'Ship log', icon: 'article', isTopNav: true, order: 20 },
+        settings: { label: 'Settings', icon: 'settings', isTopNav: true, railPin: 'bottom' },
+    },
+});
+
+await createShell({
+    root: document.getElementById('root'),
+    taxonomy, entities, content,
+    chrome: { rail: document.getElementById('rail') },
+});
+```
+
+- **The look.** 50px wide, 44px items, 22px icons at weight 300. An item is grey
+  at rest and white on hover; the active one is white, with a white 2px bar at
+  its left on a transparent background; keyboard focus draws the accent outline.
+  A window too short for the items scrolls the bar, with no scrollbar. No
+  stylesheet of yours is needed.
+- **`railPin: 'bottom'`** on a top-nav kind holds it at the bottom of the bar.
+  Pinned kinds come after the rest, in their own `order`, and stay together.
+  A `railPin` of any other value, or on a kind that is not `isTopNav`, is a boot
+  error. The top strip ignores it. A kind such as a settings page can be
+  `isTopNav` and `appGlobal` at once.
+- **F1..F12 press the rail's buttons in the order they are drawn**, pinned ones
+  last, with no `navSelector`. `navSelector` remains for page buttons in markup
+  of your own.
+- **Tooltips open to the right** of the bar, flipping at the window's edge, with
+  no attribute or patch of yours. They name the kind's `label`, and so do the
+  buttons' `aria-label`s (a `shortLabel` is for the strip's chips). As for every
+  `twm-has-tooltip` element, `TooltipService` draws them, and it comes with
+  `@flexdesk/widgets`: a page that imports only `@flexdesk/wm` has the labels
+  and no tooltips.
+- **The layout.** `.twm-workspace` takes the host's place in `body.twm-body`'s
+  column, and a `.twm-host` inside it fills what the rail leaves, with the rule
+  a host directly under the body has. Outside `body.twm-body`, a `.twm-workspace`
+  needs a parent that gives it a height, as a host does.
+- **The element is yours.** It gains `.twm-fl-bar` and, if it has none, the
+  `aria-label` "Pages". `shell.chrome.railEl` hands it back. `shell.dispose()`
+  empties it and takes the listener off, so a rebuilt shell paints its own.
+- **One row of pages.** `chrome.rail` with `chrome.topNav` is a boot error.
+
+Retheme or resize it from `tokens.css`:
+
+| Token | Default | |
+|---|---|---|
+| `--twm-rail-bg` | `#333333` | the bar |
+| `--twm-rail-icon` | `#9e9e9e` | an item at rest |
+| `--twm-rail-icon-on` | `var(--text-bright)` | an item hovered, the active item and its bar |
+| `--twm-rail-width` | `50px` | the bar's width |
+| `--twm-rail-item-height` | `44px` | an item's height |
+| `--twm-rail-icon-size` | `22px` | the icon's size |
+
+If you supply your own token definitions instead of `tokens.css`, define these
+too: the rules that read them have no fallback.
+
+### Without `createShell`: `mountPageRail(el, { wm, activeKind?, decorate? })`
+
+`@flexdesk/wm` exports the painter, for an embedder that constructs its own
+`WindowManager`. It answers `{ el, sync(), dispose() }`; call `sync()` when the
+window manager changes (`onChange`, `wm:changed`), once after the first load, and
+`dispose()` when the rail goes. The keymap's default finds these buttons too.
+
+```js
+const rail = mountPageRail(document.getElementById('rail'), {
+    wm,
+    // Which page to light, or null for none. Default: the primary tile's page.
+    activeKind: (w) => pageOf(w),
+    // Once per button, with its topNavEntries() entry.
+    decorate: (btn, entry) => {
+        if (entry.kind === 'archive') btn.dataset.tooltip = 'Archive: shared by every crew';
+    },
+});
+```
+
+**What changed for existing markup.** `.twm-fl-bar` and `.twm-fl-item` had rules
+and no code that drew them. `.twm-fl-bar` now has the rail's width, background
+and overflow and no `height: 100%` (it stretches in its flex row), and
+`.twm-fl-item`'s grey comes from `--twm-rail-icon`. Nothing changes for a shell
+that uses `chrome.topNav`. `topNavEntries()` gains `railPin` (null unless set).
 
 ## A kind that exists once: `single` (0.17.0)
 

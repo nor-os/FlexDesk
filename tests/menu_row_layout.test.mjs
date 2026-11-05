@@ -64,7 +64,7 @@ const item = ruleBody(FLEX, ITEM);
 ok('body.twm-body places it', item);
 check('…as a fixed-size item of the column', decl(item, 'flex'), '0 0 auto');
 check('the host still takes the rest, so it shrinks by the row\'s height',
-      decl(ruleBody(FLEX, 'body.twm-body > .twm-host'), 'flex'), '1 1 auto');
+      decl(ruleBody(FLEX, 'body.twm-body > .twm-host, .twm-workspace > .twm-host'), 'flex'), '1 1 auto');
 check('the body is still a column', decl(ruleBody(FLEX, 'body.twm-body'), 'flex-direction'), 'column');
 check('base.css has the row rule, word for word', norm(ruleBody(BASE, ROW)), norm(row));
 check('overrides.css has the column rule, word for word', norm(ruleBody(OVER, ITEM)), norm(item));

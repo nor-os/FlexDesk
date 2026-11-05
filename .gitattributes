@@ -1,0 +1,5 @@
+# Git never converts to CRLF here, whatever a machine's core.autocrlf says: the
+# suite reads the docs and the CSS line by line, and the build's chunk hashes and
+# `build.mjs --check` depend on the bytes of the sources. A file already committed
+# with CRLF stays as it is.
+* text=auto eol=lf

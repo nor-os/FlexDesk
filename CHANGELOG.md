@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.18.0 (2026-11-05)
+
+A minor release. A new entry point, `@flexdesk/git`, and six new components for
+what the applications on FlexDesk each kept a copy of: a page rail, a workspace
+picker, a filter builder, a rich select, combobox and popover, and an assistant
+chat shell. The entries under "Changed behaviour" change what embedders see.
+
+A consumer on a caret range has to raise it: `^0.17.18` does not take 0.18.0.
+
+### Added
+
+- [`@flexdesk/git`, a tenth entry point](docs/concepts/packages-and-entry-points.md#ten-entry-points): [a source-control panel, `createGitPanel`](docs/components/git.md#the-panel-creategitpanel-0180), [a commit graph, `createGitGraph`](docs/components/git.md#the-commit-graph-creategitgraph-0180) and [a diff viewer, `createDiffViewer`](docs/components/git.md#the-diff-viewer-creatediffviewer-0180), with [`computeLineDiff`, the line diff without the viewer](docs/components/git.md#the-line-diff-without-the-viewer-0180) and [`openDiffWindow` and `openGitDiffWindow`](docs/components/git.md#a-diff-in-a-window-opendiffwindow-opengitdiffwindow-0180), over [a written adapter contract](docs/components/git.md#the-git-adapter-contract-0180). A consumer's import map needs `@flexdesk/git`.
+- [The pages as a vertical rail: `chrome.rail`](docs/components/shell.md#the-pages-as-a-vertical-rail-chromerail-0180): `createShell` paints the top-nav kinds as an icon rail, `mountPageRail` does it for a shell of your own, and a kind's `railPin: 'bottom'` holds it at the bottom of the bar. [F1..F12 press the rail's buttons](docs/components/keymap.md#f1f12-and-a-page-rail-0180) as they do the top nav's. `chrome.rail` with `chrome.topNav` is refused at boot.
+- [A workspace picker: `createWorkspacePicker`](docs/components/workspace-picker.md#a-field-and-a-switcher-createworkspacepicker-0180), from [the field, `mountPickerField`](docs/components/workspace-picker.md#the-field-mountpickerfield-0180) and [the switcher, `createPickerSwitcher`](docs/components/workspace-picker.md#the-switcher-createpickerswitcher-0180), and [a store of what was recently opened, `createRecentItems`](docs/components/workspace-picker.md#recently-opened-createrecentitems-0180).
+- A filter builder: [the model, `createFilterModel`](docs/components/filter-builder.md#the-model-createfiltermodel-0180) with [its condition tree](docs/components/filter-builder.md#the-condition-tree-0180), [the builder, `createFilterBuilder`](docs/components/filter-builder.md#the-builder-createfilterbuilder-0180) with [custom value editors](docs/components/filter-builder.md#a-custom-value-editor-0180), and [the dialog, `openFilterDialog`](docs/components/filter-builder.md#the-dialog-openfilterdialog-0180).
+- [A select drawn in the DOM: `createSelect`](docs/components/input-fields.md#a-select-drawn-in-the-dom-createselect-0180), [a text box that also offers a list: `createCombobox`](docs/components/input-fields.md#a-text-box-that-also-offers-a-list-createcombobox-0180) and [a rich popover: `openPopover`](docs/components/menus.md#a-rich-popover-openpopover-0180), on [one rule for an anchored layer: `positionAnchored`, `openAnchoredLayer`, `isInAnchoredLayer`](docs/components/menus.md#an-anchored-layer-positionanchored-openanchoredlayer-0180).
+- [An assistant chat: `mountChatShell`](docs/components/chat-shell.md#an-assistant-chat-mountchatshell-0180), a domain-free chat over the conversation view with its state machine (`ChatStateMachine`) and a transport of yours.
+- [Taking one message out of a conversation: `view.remove(id)`](docs/components/conversation.md#taking-one-message-out-remove-0180).
+- [Tag suggestions and one spelling for tags: `suggestions`, `normalise`](docs/components/input-fields.md#suggestions-and-one-spelling-for-tags-suggestions-normalise-0180) on the tag input.
+
+### Changed behaviour
+
+- **Tab stays inside a popover.** [`openPopover`](docs/components/menus.md#a-rich-popover-openpopover-0180) goes round its controls, as a modal and a `CategoryPicker` do, and Escape is the way out. The flow kit's popover is now this one, so the step picker and *Insert a value* no longer close when Tab leaves them.
+- **A modal's focus trap leaves focus in an anchored layer alone**, so a popover opened from a modal keeps its focus.
+- **The flow kit's popover: test `handle.el`, not `handle.toggled`.** `toggled` is true only when the call closed the popover its anchor held. An anchor that is not on the page now opens nothing and answers `el: null`, `toggled: false`, so a caller asking whether anything opened tests `!handle.el`. Two kit popovers can now be open when one owns the other's anchor, and the outline menu answers `el: null` when nothing opened.
+- **`taxonomy.topNavEntries()` entries carry `railPin`** (null unless set). A consumer's test that deep-compares an entry sees the new key. `railPin` of any other value, or on a kind that is not `isTopNav`, is a boot error.
+- `.twm-fl-bar` and `.twm-fl-item` had rules and no code that drew them. They are now the rail's: `.twm-fl-bar` has its width, background and overflow and no `height: 100%`, and `.twm-fl-item`'s grey comes from `--twm-rail-icon` ([details](docs/components/shell.md#the-pages-as-a-vertical-rail-chromerail-0180)).
+- [An `openForm` combobox field draws with `createCombobox`](docs/components/forms-and-dialogs.md#it-is-createcombobox-0180), not an `<input list>`: Enter with the list open closes the list and the next one submits, Escape closes the list and leaves the form open, there is no `<datalist>`, and `.twm-combobox__hint` has no `data-for`.
+- [The tag input](docs/components/input-fields.md#suggestions-and-one-spelling-for-tags-suggestions-normalise-0180): the list it opens with, and `setValue`'s, drop a repeat unless `allowDuplicates` is set, as typing always did.
+- `ActionDropdown` places its menu with `positionAnchored`, the one placement every floating panel uses.
+- `shell.dispose()` empties `chrome.topNav` and takes its click listener off. The element is the embedder's and outlives the shell, and a shell rebuilt on it left each dead shell opening pages too.
+- The DOM events FlexDesk fires (`managed-window-*`, `tile:*-request`, a select's, combobox's, colour field's and form field's `input` and `change`) are built by the target's own window. A bare constructor threw under jsdom on Node 19 or later, in the middle of a window's close, so a consumer's suite no longer needs to replace the global `CustomEvent` for them.
+
+### Removed files
+
+- `css/base.css` and `css/overrides.css` are gone from the package. They were the sources `css/flexdesk.css` was once generated from; the generator has left the repository, `exports` never mapped them and no consumer loaded them, and they lacked more than half of the library's rules. `flexdesk/css`, `flexdesk/css/tokens` and `flexdesk/css/reset` are unchanged. A rule that once went in both goes in `css/flexdesk.css` alone.
+
+### Removed or renamed exports
+
+None. Compared with 0.17.18 across every entry point. New:
+
+- `@flexdesk/git`: `createGitPanel`, `createGitGraph`, `createDiffViewer`, `openDiffWindow`, `openGitDiffWindow`, `computeGraphLanes`, `parseGitRefs`, `computeLineDiff`, `parseUnifiedDiff`, `splitLines`, `diffStats`, `LINE_DIFF_LIMIT`.
+- `@flexdesk/wm`: `mountPageRail`; the `chrome.rail` option, `shell.chrome.railEl` and `KindDef.railPin`.
+- `@flexdesk/widgets`:
+  - the select, combobox and layers: `createSelect`, `createCombobox`, `attachInputOptions`, `filterOptions`, `openPopover`, `positionAnchored`, `openAnchoredLayer`, `isInAnchoredLayer`;
+  - the picker: `createWorkspacePicker`, `mountPickerField`, `createPickerSwitcher`, `createRecentItems`;
+  - the filter: `createFilterModel`, `createFilterBuilder`, `openFilterDialog`, `emptyFilter`, `cloneFilter`, `parseFilter`, `serializeFilter`, `countConditions`, `coerceFilterValue`, `toConditionTree`, `fromConditionTree`, `FILTER_OPERATORS`, `FILTER_TYPE_OPERATORS`;
+  - the chat: `mountChatShell`, `ChatStateMachine`, `CHAT_STATES`, `CHAT_TRANSITIONS`, `CHAT_BUS_EVENTS`, `CHAT_TRANSPORT_EVENTS`, `CHAT_SHELL_LABELS`.
+- `view.remove(id)` on the conversation view; `createTagInput`'s `suggestions` and `normalise` options.
+- Custom properties in `tokens.css`: `--twm-diff-add-bg`, `--twm-diff-add-fg`, `--twm-diff-del-bg`, `--twm-diff-del-fg`, `--twm-git-lane-0` to `--twm-git-lane-7`, `--twm-rail-width`, `--twm-rail-item-height`, `--twm-rail-icon-size`, `--twm-rail-bg`, `--twm-rail-icon`, `--twm-rail-icon-on`.
+
 ## 0.17.18 (2026-10-27)
 
 A patch release. One additive menu bar option; one entry changes what

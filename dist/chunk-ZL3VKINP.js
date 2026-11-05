@@ -314,10 +314,14 @@ var ManagedWindow = class {
     this._clearTargetProperties();
     document.removeEventListener("keydown", this._boundOnKeyDown);
     this._teardownContainerResizeObserver();
-    window.dispatchEvent(new CustomEvent("managed-window-closed", {
-      detail: { id: this.id, container: this.container }
-    }));
+    this._announce("managed-window-closed", { id: this.id, container: this.container });
     this._release();
+  }
+  /** Every window event goes out on the page's window, and a window takes only
+   *  an event built by its own `CustomEvent`: Node's global one is refused
+   *  under jsdom, in the middle of the close that fired it. */
+  _announce(name, detail) {
+    window.dispatchEvent(new window.CustomEvent(name, { detail }));
   }
   /** BUG-0053. A closed window leaves the registry and lets go of what it
    *  held: its content, its DOM and every consumer callback (an `onClose`
@@ -363,14 +367,12 @@ var ManagedWindow = class {
     if (this.backdropElement) {
       this.backdropElement.style.display = "none";
     }
-    window.dispatchEvent(new CustomEvent("managed-window-minimized", {
-      detail: {
-        id: this.id,
-        title: this.title,
-        icon: this.icon,
-        container: this.container
-      }
-    }));
+    this._announce("managed-window-minimized", {
+      id: this.id,
+      title: this.title,
+      icon: this.icon,
+      container: this.container
+    });
     if (!this.element) return;
     this._cancelRestoreAnimation();
     if (!getSetting("window.animateMinimize", true)) {
@@ -471,9 +473,7 @@ var ManagedWindow = class {
     }
     this.isMinimized = false;
     this.bringToFront();
-    window.dispatchEvent(new CustomEvent("managed-window-restored", {
-      detail: { id: this.id, container: this.container }
-    }));
+    this._announce("managed-window-restored", { id: this.id, container: this.container });
   }
   /**
    * Toggle maximize state.
@@ -534,9 +534,7 @@ var ManagedWindow = class {
     this.element?.classList.toggle("twm-managed-window--maximized", this.isMaximized);
     this._applyPosition();
     this._saveCurrentState();
-    window.dispatchEvent(new CustomEvent("managed-window-maximized", {
-      detail: { id: this.id, maximized: this.isMaximized, container: this.container }
-    }));
+    this._announce("managed-window-maximized", { id: this.id, maximized: this.isMaximized, container: this.container });
   }
   /**
    * Find the taskbar button for this window.
@@ -851,9 +849,7 @@ var ManagedWindow = class {
       this.height = bounds.height;
     }
     this._applyPosition();
-    window.dispatchEvent(new CustomEvent("managed-window-moved", {
-      detail: { id: this.id, container }
-    }));
+    this._announce("managed-window-moved", { id: this.id, container });
     return true;
   }
   /** R1/R3. The container this drag started in, or null when the drag did
@@ -1230,9 +1226,7 @@ var ManagedWindow = class {
     this.height = rect.height;
     this._applyPosition();
     this.element?.classList.add("twm-managed-window--snapped");
-    window.dispatchEvent(new CustomEvent("managed-window-snapped", {
-      detail: { id: this.id, zone, container: this.container }
-    }));
+    this._announce("managed-window-snapped", { id: this.id, zone, container: this.container });
   }
   /** Restore the geometry a snap replaced. Called when a snapped window is
    *  picked up again, which is the gesture that means "un-snap". */
@@ -1539,6 +1533,12 @@ var ToggleField = class {
   }
 };
 
+// src/ui/utils/fire_event.js
+function fireEvent(target, type, init) {
+  const view = target.ownerDocument.defaultView;
+  target.dispatchEvent(new view.CustomEvent(type, init));
+}
+
 // src/ui/components/color_field.js
 var HEX_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 var RGB_RE = /^rgba?\(\s*([^)]*)\)$/i;
@@ -1686,8 +1686,8 @@ var ColorField = class {
   /** Put `text` in the box and fire the box's own events, as typing would. */
   #writeBox(text, commit) {
     this.hex.value = text;
-    this.hex.dispatchEvent(new Event("input", { bubbles: true }));
-    if (commit) this.hex.dispatchEvent(new Event("change", { bubbles: true }));
+    fireEvent(this.hex, "input", { bubbles: true });
+    if (commit) fireEvent(this.hex, "change", { bubbles: true });
   }
   /** Swatch and invalid mark follow the box; `commit === null` is silent. */
   #sync(commit) {
@@ -1703,8 +1703,9 @@ export {
   DEFAULT_MAX_SAVED_WINDOWS,
   ManagedWindow,
   ToggleField,
+  fireEvent,
   isHexColor,
   normalizeHex,
   ColorField
 };
-//# sourceMappingURL=chunk-YBOAWSRA.js.map
+//# sourceMappingURL=chunk-ZL3VKINP.js.map

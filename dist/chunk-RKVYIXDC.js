@@ -2,9 +2,10 @@ import {
   ColorField,
   ManagedWindow,
   ToggleField,
+  fireEvent,
   isHexColor,
   normalizeHex
-} from "./chunk-YBOAWSRA.js";
+} from "./chunk-ZL3VKINP.js";
 import {
   choiceList,
   choiceSections,
@@ -440,8 +441,8 @@ var ColorListField = class {
   #emit(commit) {
     this.#writeInput();
     if (this.input) {
-      this.input.dispatchEvent(new Event("input", { bubbles: true }));
-      if (commit) this.input.dispatchEvent(new Event("change", { bubbles: true }));
+      fireEvent(this.input, "input", { bubbles: true });
+      if (commit) fireEvent(this.input, "change", { bubbles: true });
     }
     this.onChange?.(this.getValue(), { commit });
   }
@@ -893,7 +894,7 @@ function createCombobox({
       report(option.value, option.source);
       settle();
       input.focus();
-      input.dispatchEvent(new Event("change", { bubbles: true }));
+      fireEvent(input, "change", { bubbles: true });
     }
   });
   input.addEventListener("blur", settle);
@@ -1684,7 +1685,7 @@ function _wirePicker(host, f) {
     const isPair = typeof picked === "object";
     hidden.value = String((isPair ? picked.value : picked) ?? "");
     display.value = isPair && picked.label != null ? String(picked.label) : _pickerLabel(f, hidden.value);
-    hidden.dispatchEvent(new Event("change", { bubbles: true }));
+    fireEvent(hidden, "change", { bubbles: true });
   };
   btn.addEventListener("click", open);
   display.addEventListener("click", open);
@@ -1882,4 +1883,4 @@ export {
   showContextMenu,
   hideContextMenu
 };
-//# sourceMappingURL=chunk-ZZADQH74.js.map
+//# sourceMappingURL=chunk-RKVYIXDC.js.map

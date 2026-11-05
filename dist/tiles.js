@@ -20,7 +20,7 @@ import {
 import {
   openModal,
   showContextMenu
-} from "./chunk-ZZADQH74.js";
+} from "./chunk-RKVYIXDC.js";
 import {
   buildHistogramTrace,
   buildLegendLayout,
@@ -35,12 +35,13 @@ import {
   purge,
   resize,
   strideDownsampleShared
-} from "./chunk-SBOLBZCF.js";
-import "./chunk-EPYIQCQN.js";
+} from "./chunk-P74F6I6P.js";
+import "./chunk-U5GKJUOC.js";
 import "./chunk-VLOAI3HS.js";
 import {
+  fireEvent,
   isHexColor
-} from "./chunk-YBOAWSRA.js";
+} from "./chunk-ZL3VKINP.js";
 import {
   modalHost
 } from "./chunk-Q7BALEPX.js";
@@ -815,7 +816,7 @@ var TileBase = class {
       config: this.config,
       schema: this.getConfigSchema()
     });
-    this.element?.dispatchEvent(new CustomEvent("tile:config-request", {
+    if (this.element) fireEvent(this.element, "tile:config-request", {
       bubbles: true,
       detail: {
         tileId: this.id,
@@ -823,7 +824,7 @@ var TileBase = class {
         config: this.config,
         schema: this.getConfigSchema()
       }
-    }));
+    });
   }
   /**
    * Handle remove button click.
@@ -832,13 +833,13 @@ var TileBase = class {
    */
   _onRemoveClick(event) {
     const removeBtn = this.element?.querySelector(".tile-remove-btn");
-    this.element?.dispatchEvent(new CustomEvent("tile:remove-request", {
+    if (this.element) fireEvent(this.element, "tile:remove-request", {
       bubbles: true,
       detail: {
         tileId: this.id,
         anchorElement: removeBtn
       }
-    }));
+    });
   }
   /**
    * Set the title displayed in the header.

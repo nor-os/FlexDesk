@@ -76,7 +76,7 @@
     /* ── Text ───────────────────────────────────────────────────── */
     --text-primary:   #e0e0e0;  /* primary body text */
     --text-secondary: #cccccc;  /* lighter secondary (e.g. tree-view rows) */
-    --text-body:      #d4d4d4;  /* base.css body default — between primary & secondary */
+    --text-body:      #d4d4d4;  /* the body default — between primary & secondary */
     --text-muted:     #888888;  /* de-facto canonical muted gray (268+ literal uses) */
     --text-dim:       #666666;
     --text-bright:    #ffffff;

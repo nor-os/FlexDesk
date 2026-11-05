@@ -23,7 +23,7 @@ import {
   toastInfo,
   toastSuccess,
   toastWarn
-} from "./chunk-BCDLSL5N.js";
+} from "./chunk-5W4EEKSK.js";
 import {
   StateMachine
 } from "./chunk-3PHCPZHT.js";
@@ -62,7 +62,7 @@ import {
   openForm,
   openModal,
   showContextMenu
-} from "./chunk-ZZADQH74.js";
+} from "./chunk-RKVYIXDC.js";
 import {
   ACTIONS,
   AutocompleteField,
@@ -109,7 +109,7 @@ import {
   resolvePaging,
   toTSV,
   tsvCell
-} from "./chunk-EPYIQCQN.js";
+} from "./chunk-U5GKJUOC.js";
 import {
   ROW_CONTROL_SELECTOR,
   endsTextSelection,
@@ -122,9 +122,10 @@ import {
   DEFAULT_WINDOW_STORAGE_KEY,
   ManagedWindow,
   ToggleField,
+  fireEvent,
   isHexColor,
   normalizeHex
-} from "./chunk-YBOAWSRA.js";
+} from "./chunk-ZL3VKINP.js";
 import {
   choiceSections,
   filterSections,
@@ -7050,7 +7051,7 @@ function createSelect({
     paint();
     layer?.close("pick");
     if (!changed) return;
-    hidden?.dispatchEvent(new Event("change", { bubbles: true }));
+    if (hidden) fireEvent(hidden, "change", { bubbles: true });
     onChange?.(current, option.source);
   }
   function open() {

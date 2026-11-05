@@ -9,13 +9,13 @@ import {
 import {
   openForm,
   showContextMenu
-} from "./chunk-ZZADQH74.js";
+} from "./chunk-RKVYIXDC.js";
 import {
   isRowActivation
 } from "./chunk-VLOAI3HS.js";
 import {
   ManagedWindow
-} from "./chunk-YBOAWSRA.js";
+} from "./chunk-ZL3VKINP.js";
 import "./chunk-Q7BALEPX.js";
 import "./chunk-HNU6MM2B.js";
 import {
@@ -4956,7 +4956,7 @@ var TileRenderer = class {
   /** The rectangle a release would fill.
    *
    *  IT IS THE WINDOW DROP'S OWN PREVIEW ELEMENT — same two classes, same
-   *  stylesheet rules (`css/base.css`, `.twm-snap-preview`) — so a tab drop
+   *  stylesheet rules (`css/flexdesk.css`, `.twm-snap-preview`) — so a tab drop
    *  and a window drop cannot come to disagree about what a drop looks like.
    *  `--viewport` is what makes `position: fixed` apply, and that is required
    *  rather than cosmetic: the rectangle came from `getBoundingClientRect` on
@@ -9792,7 +9792,8 @@ async function createShell({
   });
   const disposeKeymap = installKeymap({ wm, palette, navSelector, bindings, logger });
   const paletteBtn = mountPaletteButton(chrome.paletteButton, palette);
-  topNavEl = mountTopNav(chrome.topNav, taxonomy, wm);
+  const topNav = mountTopNav(chrome.topNav, taxonomy, wm);
+  topNavEl = topNav?.el ?? null;
   rail = chrome.rail ? mountPageRail(chrome.rail, { wm }) : null;
   desktopsEl = mountDesktopBar(chrome.desktops, wm, desktopBar || {});
   const zoom = mountZoomControl(chrome.zoom, { root, host });
@@ -9857,6 +9858,10 @@ async function createShell({
       } catch {
       }
       try {
+        topNav?.dispose();
+      } catch {
+      }
+      try {
         menuBar?.dispose();
       } catch {
       }
@@ -9880,12 +9885,19 @@ function mountTopNav(hostEl, taxonomy, wm) {
         `;
     hostEl.appendChild(btn);
   }
-  hostEl.addEventListener("click", (e) => {
+  const onClick = (e) => {
     const btn = e.target.closest("[data-kind]");
     if (!btn) return;
     wm.openInPrimary(btn.dataset.kind);
-  });
-  return hostEl;
+  };
+  hostEl.addEventListener("click", onClick);
+  return {
+    el: hostEl,
+    dispose: () => {
+      hostEl.removeEventListener("click", onClick);
+      hostEl.replaceChildren();
+    }
+  };
 }
 function activePageKind(wm) {
   const tree = wm.desktops.active().tree;

@@ -4004,7 +4004,8 @@ body.twm-window-maximized .twm-resize-handle {
    drawn as a search box, and a panel on --z-over-windows, over the top bar and
    the managed windows, that opens in the field's place, hangs from it, or stands
    centred over `.twm-wspicker-backdrop`. A panel waiting on an async remove steps
-   below managed windows, so the dialog that asks can be answered. */
+   below managed windows with its backdrop, so the dialog that asks can be
+   answered. */
 .twm-wspicker-field {
     display: flex;
     align-items: center;
@@ -4124,7 +4125,8 @@ body.twm-window-maximized .twm-resize-handle {
     width: min(640px, 90vw);
     transform: translateX(-50%);
 }
-.twm-wspicker--waiting {
+.twm-wspicker--waiting,
+.twm-wspicker-backdrop--waiting {
     z-index: var(--z-popover);
 }
 .twm-wspicker__search {

@@ -12,12 +12,13 @@
  *   §5  the keyboard: arrows wrap and step over disabled rows, Enter, Esc gives
  *       focus back, a press outside closes, Enter before the answer lands
  *   §6  remove: bin and Shift+Delete, the highlight moves on, an async remove
- *       holds the panel open and steps it below dialogs, false keeps the row,
- *       a rejection is shown
+ *       holds the panel open and steps it and its backdrop below dialogs, false
+ *       keeps the row, a rejection is shown
  *   §7  async: loading, error, stale answers dropped, the kept answer drawn at
  *       once per cacheKey, nodes kept across answers
  *   §8  remote search: debounce, Load more, a server ignoring the paging, Enter
- *       on the first of what was typed, heading, card, footer, status, select
+ *       on the first of what was typed, heading, card, footer, status, select;
+ *       the list scrolls only for the keyboard, never under a mouse
  *   §9  the chord: capture phase, modifiers exact, toggles, works with the field
  *       hidden, removed on destroy; two pickers live side by side
  *   §10 nothing about state in DOM attributes; CSS: every class styled, tokens,
@@ -497,6 +498,31 @@ section('§6 remove');
     await tick();
     ok('and it is back on top afterwards', eager.isOpen && !eager.panel.classList.contains('twm-wspicker--waiting'));
     eager.destroy();
+
+    // Centred, the dimmed page lies over the dialog unless it steps down too.
+    let answer;
+    const centred = createPickerSwitcher({
+        load: () => ITEMS(),
+        describe,
+        onRemove: () => new Promise((resolve) => { answer = resolve; }),
+    });
+    centred.open();
+    await tick();
+    const dim = document.querySelector('.twm-wspicker-backdrop');
+    ok('centred: the page is dimmed', !dim.hidden);
+    click(rows(centred.panel)[0].querySelector('.twm-wspicker__row-remove'));
+    ok('waiting: the backdrop steps down with the panel', dim.classList.contains('twm-wspicker-backdrop--waiting'));
+    mouse('mousedown', dim);
+    ok('a press on it does not close', centred.isOpen);
+    answer(false);
+    await tick();
+    ok('settled: the backdrop is back on top', !dim.classList.contains('twm-wspicker-backdrop--waiting'));
+    click(rows(centred.panel)[0].querySelector('.twm-wspicker__row-remove'));
+    centred.close();
+    ok('closed while waiting: nothing stays stepped down', !centred.panel.classList.contains('twm-wspicker--waiting') && !dim.classList.contains('twm-wspicker-backdrop--waiting'));
+    answer(false);
+    await tick();
+    centred.destroy();
 }
 
 section('§7 async');
@@ -740,6 +766,108 @@ section('§8 remote search');
     refreshing.destroy();
 }
 
+section('§8 the list scrolls only for the keyboard');
+{
+    const reveals = [];
+    window.HTMLElement.prototype.scrollIntoView = function reveal() { reveals.push(this); };
+    const ALL = Array.from({ length: 45 }, (_, i) => ({ id: `r${i}`, name: `Row ${i}` }));
+    const pages = ({ query, offset, limit }) => {
+        const hits = ALL.filter((r) => r.name.includes(query));
+        return Promise.resolve({ items: hits.slice(offset, offset + limit), total: hits.length });
+    };
+    const sw = createPickerSwitcher({ load: pages, describe, search: 'remote', debounceMs: 0, onRemove: () => {}, card: () => null });
+    const scroller = sw.panel.querySelector('.twm-wspicker__scroll');
+    const moreBtn = sw.panel.querySelector('.twm-wspicker__more');
+    sw.open();
+    await tick();
+    reveals.length = 0;
+
+    scroller.scrollTop = 596;
+    click(moreBtn);
+    check('Load more by the mouse: not during the load', scroller.scrollTop, 596);
+    await tick();
+    check('nor after it', [scroller.scrollTop, rows(sw.panel).length, reveals.length], [596, 40, 0]);
+    check('the highlight stayed where it was', activeText(sw.panel), 'Row 0');
+
+    sw.refresh();
+    check('refresh leaves the scroll', [scroller.scrollTop, reveals.length], [596, 0]);
+    sw.setCurrent(ALL[3]);
+    check('setCurrent leaves it', [scroller.scrollTop, reveals.length], [596, 0]);
+    sw.setCurrent(null);
+    sw.reload();
+    await tick();
+    check('so does asking the same thing again', [scroller.scrollTop, reveals.length], [596, 0]);
+
+    click(rows(sw.panel)[5].querySelector('.twm-wspicker__row-remove'));
+    await tick();
+    check('so does a bin clicked with the mouse', [scroller.scrollTop, reveals.length], [596, 0]);
+
+    keyIn(sw, 'ArrowDown');
+    check('the arrows bring the highlight into view', reveals.at(-1), active(sw.panel));
+
+    reveals.length = 0;
+    typeInto(sw.input, 'Row 1');
+    check('typing goes back to the top', [scroller.scrollTop, reveals.length], [0, 0]);
+    await new Promise((r) => setTimeout(r, 5));
+    scroller.scrollTop = 40;
+    typeInto(sw.input, 'Row 2');
+    scroller.scrollTop = 40;
+    await new Promise((r) => setTimeout(r, 5));
+    check('a new query\'s answer starts at the top', scroller.scrollTop, 0);
+    sw.close();
+
+    // Enter on Load more keeps the highlight in view, page after page.
+    const paged = createPickerSwitcher({ load: pages, describe, search: 'remote' });
+    paged.open();
+    await tick();
+    for (let i = 0; i < 20; i += 1) keyIn(paged, 'ArrowDown');
+    check('the arrows reach Load more', active(paged.panel) === paged.panel.querySelector('.twm-wspicker__more'), true);
+    reveals.length = 0;
+    keyIn(paged, 'Enter');
+    await tick();
+    check('Enter on it: it stays highlighted and in view', reveals.at(-1) === paged.panel.querySelector('.twm-wspicker__more'), true);
+    reveals.length = 0;
+    keyIn(paged, 'Enter');
+    await tick();
+    check('the last page: the highlight is on the first row it brought', activeText(paged.panel), 'Row 40');
+    check('and in view', reveals.at(-1) === active(paged.panel), true);
+    check('without a stop at the top on the way', reveals.includes(rows(paged.panel)[0]), false);
+    paged.close();
+
+    // The mouse on Load more while the highlight is on it.
+    paged.open();
+    await tick();
+    for (let i = 0; i < 20; i += 1) keyIn(paged, 'ArrowDown');
+    reveals.length = 0;
+    click(paged.panel.querySelector('.twm-wspicker__more'));
+    await tick();
+    check('clicked while highlighted: no scroll', reveals.length, 0);
+    paged.close();
+
+    // open({ select }) reaches a row out of view, and only then.
+    paged.open({ select: 'r15' });
+    await tick();
+    check('select brings its row into view', reveals.at(-1) === active(paged.panel), true);
+    check('that row', activeText(paged.panel), 'Row 15');
+    paged.close();
+
+    // The row the arrows chose goes away: the highlight is brought back into view.
+    let fewer = false;
+    const shrinking = createPickerSwitcher({ load: () => (fewer ? ALL.slice(0, 2) : ALL.slice(0, 10)), describe });
+    shrinking.open();
+    await tick();
+    for (let i = 0; i < 5; i += 1) keyIn(shrinking, 'ArrowDown');
+    reveals.length = 0;
+    fewer = true;
+    shrinking.reload();
+    await tick();
+    check('its highlight falls to the first row, shown', [activeText(shrinking.panel), reveals.at(-1) === active(shrinking.panel)], ['Row 0', true]);
+    shrinking.destroy();
+    paged.destroy();
+    sw.destroy();
+    delete window.HTMLElement.prototype.scrollIntoView;
+}
+
 section('§9 the chord, and two pickers');
 {
     const bar = host();
@@ -892,7 +1020,8 @@ section('§10 attributes, CSS, words, docs, barrel');
     for (const name of classesStyled) ok(`${name} is one it sets`, classesSet.has(name));
     ok('no hex literals', !/#[0-9a-fA-F]{3,8}\b/.test(rules));
     ok('over the top bar and managed windows', /z-index:\s*var\(--z-over-windows\)/.test(rules));
-    ok('a panel waiting on a dialog is below managed windows', /--waiting\s*\{\s*z-index:\s*var\(--z-popover\)/.test(rules));
+    ok('a panel waiting on a dialog is below managed windows, with its backdrop',
+        /\.twm-wspicker--waiting,\s*\.twm-wspicker-backdrop--waiting\s*\{\s*z-index:\s*var\(--z-popover\)/.test(rules));
 
     const docs = readFileSync(resolvePath(HERE, '../docs/components/workspace-picker.md'), 'utf8');
     const WORDS = /\b(ecosim|ecoagent|bugdesk|project|bug|tickets?|simulation|scenario|tables?\b(?=\.)|\.toml)\b/i;

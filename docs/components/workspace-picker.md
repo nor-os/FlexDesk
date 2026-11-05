@@ -96,7 +96,7 @@ A centred field's `hostEl` must be positioned. It measures again whenever `hostE
 
 | Option | |
 |---|---|
-| `onRemove(item)` | A bin on each row, and Shift+Delete on the highlighted one. May answer a promise: while it is unsettled the panel stays open and steps below managed windows, so a confirmation dialog can be answered. Answering `false` keeps the row, rejecting keeps it and shows the error, anything else drops it and asks `load` again. The highlight moves to the next row. |
+| `onRemove(item)` | A bin on each row, and Shift+Delete on the highlighted one. May answer a promise: while it is unsettled the panel stays open and it and its dimmed page step below managed windows, so a confirmation dialog can be answered with the mouse. Answering `false` keeps the row, rejecting keeps it and shows the error, anything else drops it and asks `load` again. The highlight moves to the next row. |
 | `actions({ query })` | Rows after the items: `{ id, label, detail?, icon?, always?, run({ query }) }`. Typing narrows them on their `label` unless `always`, which is how a row offering to create what was typed stays; when nothing else matches, it is what Enter takes. |
 | `heading({ query, shown, total })` | `{ title, count }` over the list. |
 | `card({ current, row })` | A panel under the list for the current item: `{ heading?, icon?, name, detail?, open?: { label, icon?, run }, columns?, tiles?: [{ id, label, icon?, run }] }`, or `null`. `row` is the current item as the list read it, when it has. |
@@ -138,7 +138,7 @@ recent.list();                  // frozen copies, most recent first
 |---|---|---|
 | `host`, `key` | required | The host, and the state key. |
 | `identity` | `entry.id` | Which two entries are the same one. |
-| `isValid` | `identity` answers something | Stored entries failing this are dropped on read. It runs first, so `identity` may assume its shape. |
+| `isValid` | `identity` answers something | Stored entries failing this are dropped on read, as is one that makes it, `identity` or `groupOf` throw, so `identity` may assume an entry's shape. |
 | `capacity` | 10 | The most entries kept, per group. |
 | `groupOf` | one group | Counted per group, so one busy kind of entry never pushes another out. |
 | `onChange` | | After every change, and after a read that replayed changes. |

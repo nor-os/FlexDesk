@@ -57,11 +57,16 @@
  * in place, and a node is created or removed only for a key that came or went.
  * Which node holds what lives in maps here, never in DOM attributes.
  *
+ * Nor is a list moved under one. The list scrolls to the highlight only when the
+ * keyboard moved the highlight, `open({ select })` asked for a row, or the row
+ * the arrows chose went away; typing and a new query's answer go back to the top.
+ * A redraw, Load more by the mouse and a removal leave the scroll where it is.
+ *
  * ══ AN ASYNC REMOVE MAY ASK ════════════════════════════════════════════════
  *
- * While the promise `onRemove` returned is unsettled the panel steps below
- * managed windows and does not close on a press outside, so a confirmation
- * dialog can be answered and the switcher is still there afterwards.
+ * While the promise `onRemove` returned is unsettled the panel and its backdrop
+ * step below managed windows and do not close on a press outside, so a
+ * confirmation dialog can be answered and the switcher is still there afterwards.
  */
 
 import { ActionDropdown } from './action_dropdown.js';
@@ -633,7 +638,7 @@ export function createPickerSwitcher({
             const entry = rowEntries.get(idOf(item));
             if (entry?.run) next.push({ key: `row:${idOf(item)}`, node: entry.node, run: entry.run, remove: entry.remove, primary: true });
         }
-        if (!more.hidden) next.push({ key: 'more', node: more, run: loadMore });
+        if (!more.hidden) next.push({ key: 'more', node: more, run: () => loadMore({ byKey: true }) });
         for (const [key, entry] of actionEntries) next.push({ key: `action:${key}`, node: entry.node, run: entry.run, primary: true });
         if (!cardEl.hidden) {
             if (!cardOpen.hidden) next.push({ key: 'card-open', node: cardOpen, run: () => cardOpenRun?.() });
@@ -650,20 +655,27 @@ export function createPickerSwitcher({
         activeNode?.classList.add('twm-wspicker__stop--active');
         if (activeNode?.id) input.setAttribute('aria-activedescendant', activeNode.id);
         else input.removeAttribute('aria-activedescendant');
+    }
+
+    function revealActive() {
         activeNode?.scrollIntoView?.({ block: 'nearest' });
     }
 
     function settleActive() {
+        let reveal = false;
         if (selectId != null && stops.some((s) => s.key === `row:${selectId}`)) {
             activeKey = `row:${selectId}`;
             moved = true;
             selectId = null;
+            reveal = true;
         }
         if (!moved || !stops.some((s) => s.key === activeKey)) {
+            reveal = moved;
             moved = false;
             activeKey = stops.find((s) => s.primary)?.key ?? null;
         }
         paintActive();
+        if (reveal) revealActive();
     }
 
     function move(step) {
@@ -673,6 +685,7 @@ export function createPickerSwitcher({
         activeKey = stops[next].key;
         moved = true;
         paintActive();
+        revealActive();
     }
 
     // ── drawing ─────────────────────────────────────────────────────────
@@ -749,10 +762,10 @@ export function createPickerSwitcher({
             items = unique(answer.items);
             total = answer.total;
             status = answer.status;
+            if (query !== answered) scroller.scrollTop = 0;
             answered = query;
             loading = false;
             if (!query) kept.set(cacheKey(), { items: [...items], total, status });
-            scroller.scrollTop = 0;
             renderEverything();
             if (placementNow() === 'below') place();
             if (pickFirst) {
@@ -772,7 +785,7 @@ export function createPickerSwitcher({
         }
     }
 
-    async function loadMore() {
+    async function loadMore({ byKey = false } = {}) {
         if (loading || loadingMore || total == null || items.length >= total) return;
         const mine = seq;
         loadingMore = true;
@@ -794,21 +807,25 @@ export function createPickerSwitcher({
         }
         loadingMore = false;
         // The highlight stays on Load more while there is more, else goes to
-        // the first row it brought.
+        // the first row it brought that can be chosen.
         const stayed = activeKey === 'more';
-        renderEverything();
-        if (stayed && more.hidden && added[0]) {
-            activeKey = `row:${idOf(added[0])}`;
-            moved = true;
-            paintActive();
+        if (stayed && items.length >= total) {
+            const first = added.find((item) => !modelOf(item).disabled);
+            if (first) {
+                activeKey = `row:${idOf(first)}`;
+                moved = true;
+            }
         }
+        renderEverything();
+        if (byKey && stayed) revealActive();
     }
 
     more.addEventListener('click', () => loadMore());
 
-    function settleRemove() {
-        busy = false;
-        panel.classList.remove('twm-wspicker--waiting');
+    function setBusy(waiting) {
+        busy = waiting;
+        panel.classList.toggle('twm-wspicker--waiting', waiting);
+        backdrop.classList.toggle('twm-wspicker-backdrop--waiting', waiting);
     }
 
     async function removeItem(item) {
@@ -818,13 +835,12 @@ export function createPickerSwitcher({
         const following = stops.slice(at + 1).find((s) => s.key.startsWith('row:'))
             ?? stops.slice(0, Math.max(at, 0)).reverse().find((s) => s.key.startsWith('row:'));
         // Before the call: a dialog it opens takes focus before it returns.
-        busy = true;
-        panel.classList.add('twm-wspicker--waiting');
+        setBusy(true);
         let outcome;
         try {
             outcome = await onRemove(item);
         } catch (err) {
-            settleRemove();
+            setBusy(false);
             if (isOpen) {
                 failure = labels.failedRemove(err);
                 render();
@@ -832,7 +848,7 @@ export function createPickerSwitcher({
             }
             return;
         }
-        settleRemove();
+        setBusy(false);
         if (!isOpen) return;
         if (outcome !== false) {
             items = items.filter((other) => idOf(other) !== idOf(item));
@@ -950,7 +966,7 @@ export function createPickerSwitcher({
         abort?.abort();
         loading = false;
         loadingMore = false;
-        settleRemove();
+        setBusy(false);
         panel.remove();
         backdrop.remove();
         document.removeEventListener('mousedown', onDocumentDown, true);
@@ -985,6 +1001,7 @@ export function createPickerSwitcher({
 
     input.addEventListener('input', () => {
         moved = false;
+        scroller.scrollTop = 0;
         if (remote) {
             clearTimeout(timer);
             const query = typed();

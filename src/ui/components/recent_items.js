@@ -32,7 +32,8 @@
  * @param {string} options.key - The state key the list is stored under
  * @param {(entry: object) => string} [options.identity] - Which entries are the same one
  * @param {(entry: unknown) => boolean} [options.isValid] - Stored entries that fail this
- *   are dropped on read. Runs before `identity`, so `identity` may assume its shape.
+ *   are dropped on read, as is one that makes it, `identity` or `groupOf` throw, so
+ *   `identity` may assume an entry's shape.
  * @param {number} [options.capacity=10] - The most entries kept, per group
  * @param {(entry: object) => string} [options.groupOf] - Groups the capacity counts within
  * @param {() => void} [options.onChange] - After every change, and after a read that
@@ -91,10 +92,24 @@ export function createRecentItems({
         writing = false;
     }
 
-    async function read() {
-        let saved;
+    /** A stored entry the list can hold: everything it goes through accepts it. */
+    const usable = (entry) => {
         try {
-            saved = await state.read(key);
+            if (!isValid(entry)) return false;
+            identity(entry);
+            groupOf(entry);
+            return true;
+        } catch (err) {
+            logger?.warn?.(`Dropped an unreadable entry of the recent list "${key}"`, err);
+            return false;
+        }
+    };
+
+    async function read() {
+        let stored;
+        try {
+            const saved = await state.read(key);
+            stored = Array.isArray(saved) ? capped(saved.filter(usable)) : [];
         } catch (err) {
             logger?.warn?.(`Could not read the recent list "${key}"; the stored list is left unchanged until it can be read`, err);
             return false;
@@ -102,7 +117,6 @@ export function createRecentItems({
         const replay = pending;
         pending = [];
         loaded = true;
-        const stored = Array.isArray(saved) ? capped(saved.filter(isValid)) : [];
         entries = replay.reduce((list, apply) => apply(list), stored);
         if (replay.length > 0) {
             onChange?.();

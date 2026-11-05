@@ -5,8 +5,9 @@
  *       `openedAt`; list() is frozen copies; every change is written and heard
  *   §2  capacity: over the whole list, or per group so one group never pushes
  *       another out
- *   §3  a stored list is read back; invalid entries are dropped; a non-array
- *       answer is an empty store
+ *   §3  a stored list is read back; invalid entries are dropped, also one that
+ *       makes `identity` throw, and the others survive; a non-array answer is
+ *       an empty store
  *   §4  A READ THAT FAILS IS NOT AN EMPTY LIST: nothing is written until a read
  *       succeeds; changes show at once, each asks for the read again, and they
  *       are replayed onto the stored list, which is then written once read
@@ -136,6 +137,52 @@ console.log('\n§3 reading back');
     const odd = createRecentItems({ host: memoryHost({ not: 'a list' }), key: 'k' });
     check('a non-array is a read', await odd.load(), true);
     check('of an empty store', names(odd), []);
+}
+
+console.log('\n§3 an entry that makes identity throw');
+{
+    const strays = [];
+    const onStray = (err) => strays.push(err);
+    process.on('unhandledRejection', onStray);
+    const identity = (e) => e.path.replace(/\\/g, '/');
+    const warned = [];
+    const logger = { warn: (words) => warned.push(words) };
+
+    // With the default isValid, which itself calls identity.
+    let host = memoryHost([{ name: 'x' }, null, 7, { path: 'C:/keep' }]);
+    let store = createRecentItems({ host, key: 'recent', identity, logger });
+    check('load answers true', await store.load(), true);
+    check('the entry that throws is dropped, the others kept', store.list().map((e) => e.path), ['C:/keep']);
+    ok('and it is reported', warned.length >= 1);
+    store.add({ path: 'C:/new' });
+    await tick();
+    check('a later write keeps what was stored', host.stored.map((e) => e.path), ['C:/new', 'C:/keep']);
+
+    // A change before the read: the read runs from inside it, unawaited.
+    host = memoryHost([{ name: 'x' }, { path: 'C:/keep' }]);
+    store = createRecentItems({ host, key: 'recent', identity });
+    store.add({ path: 'C:/new' });
+    await tick();
+    await tick();
+    check('replayed onto what was stored', host.stored.map((e) => e.path), ['C:/new', 'C:/keep']);
+
+    // An isValid that lets it through: identity would throw later, in add.
+    host = memoryHost([{ name: 'x' }, { path: 'C:/keep' }]);
+    store = createRecentItems({ host, key: 'recent', identity, isValid: (e) => !!e });
+    await store.load();
+    store.add({ path: 'C:/new' });
+    await tick();
+    check('a permissive isValid does not let it through', host.stored.map((e) => e.path), ['C:/new', 'C:/keep']);
+
+    // Nor a groupOf that throws.
+    host = memoryHost([{ id: 'a' }, { id: 'b', kind: 'k' }]);
+    store = createRecentItems({ host, key: 'recent', groupOf: (e) => e.kind.toUpperCase() });
+    await store.load();
+    check('a groupOf that throws drops the entry', names(store), ['b']);
+
+    await tick();
+    check('no unhandled rejection', strays.length, 0);
+    process.off('unhandledRejection', onStray);
 }
 
 console.log('\n§4 a failed read is not an empty list');

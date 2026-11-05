@@ -1,4 +1,7 @@
 import {
+  openPopover
+} from "./chunk-YGSXAKCK.js";
+import {
   StateMachine
 } from "./chunk-3PHCPZHT.js";
 import {
@@ -17,25 +20,30 @@ import {
 import {
   TAB_LEVELS,
   createTabs
-} from "./chunk-REJ5HLIM.js";
+} from "./chunk-HYJYYEPK.js";
 import {
   ActionDropdown,
   ComponentBase,
   SlideOutPanel
-} from "./chunk-MIW7D6WC.js";
-import {
-  hideContextMenu,
-  showContextMenu
-} from "./chunk-7JI7HHSY.js";
+} from "./chunk-RCHJ5M2O.js";
 import {
   ColorListField,
   SortableList,
-  modalHost,
+  attachInputOptions,
+  createCombobox,
+  createOptionList,
+  hideContextMenu,
   openConfirm,
   openForm,
   openModal,
+  showContextMenu
+} from "./chunk-R2LLV53N.js";
+import {
+  modalHost,
+  openAnchoredLayer,
+  positionAnchored,
   setModalHost
-} from "./chunk-XJNADRGR.js";
+} from "./chunk-TEEYVOUH.js";
 import {
   ACTIONS,
   AutocompleteField,
@@ -82,22 +90,28 @@ import {
   resolvePaging,
   toTSV,
   tsvCell
-} from "./chunk-2Z2ENHR3.js";
+} from "./chunk-4RIYTKVI.js";
 import {
   ColorField,
   DEFAULT_MAX_SAVED_WINDOWS,
   DEFAULT_WINDOW_STORAGE_KEY,
   ManagedWindow,
-  ROW_CONTROL_SELECTOR,
   ToggleField,
-  endsTextSelection,
   isHexColor,
+  normalizeHex
+} from "./chunk-MLSR3YEB.js";
+import {
+  ROW_CONTROL_SELECTOR,
+  choiceSections,
+  endsTextSelection,
+  filterSections,
+  findChoice,
+  flatChoices,
   isRowActivation,
   isRowControl,
-  normalizeHex,
   selectBox,
   shownValue
-} from "./chunk-PGZ4EHSE.js";
+} from "./chunk-NFGA4WJQ.js";
 import {
   getSetting
 } from "./chunk-HNU6MM2B.js";
@@ -107,7 +121,8 @@ import {
 } from "./chunk-N7HC3ADV.js";
 import {
   DragReorder
-} from "./chunk-WUFLGETN.js";
+} from "./chunk-WVFGV5FT.js";
+import "./chunk-QXAOTGCC.js";
 import "./chunk-JYWURG5T.js";
 
 // src/ui/base/controller_base.js
@@ -1276,11 +1291,11 @@ function mountAttributeListEditor(hostEl, options = {}) {
     const populate = (opts) => {
       while (el3.childNodes.length > 1) el3.removeChild(el3.lastChild);
       for (const o of opts) {
-        const node = document.createElement("option");
-        node.value = o.id;
-        node.textContent = o.label;
-        if (o.id === item[field]) node.selected = true;
-        el3.appendChild(node);
+        const node2 = document.createElement("option");
+        node2.value = o.id;
+        node2.textContent = o.label;
+        if (o.id === item[field]) node2.selected = true;
+        el3.appendChild(node2);
       }
     };
     if (refsCache.has(target)) {
@@ -1931,13 +1946,13 @@ function el(tag, className, text) {
   if (text !== void 0) n.textContent = text;
   return n;
 }
-function setText(node, text) {
+function setText(node2, text) {
   const t = text == null ? "" : String(text);
-  if (node.textContent !== t) node.textContent = t;
+  if (node2.textContent !== t) node2.textContent = t;
 }
-function setWidth(node, fraction) {
+function setWidth(node2, fraction) {
   const w = `${(clamp01(fraction) * 100).toFixed(2).replace(/\.?0+$/, "")}%`;
-  if (node.style.width !== w) node.style.width = w;
+  if (node2.style.width !== w) node2.style.width = w;
 }
 var ProgressBar = class {
   /**
@@ -4074,9 +4089,9 @@ var NotificationCenter = class _NotificationCenter extends ComponentBase {
     if (more.title !== tip) more.title = tip;
     return more;
   }
-  static #setText(node, text) {
+  static #setText(node2, text) {
     const t = text == null ? "" : String(text);
-    if (node.textContent !== t) node.textContent = t;
+    if (node2.textContent !== t) node2.textContent = t;
   }
   /** Build one toast's element; `#patchItem` then fills what can change. */
   #buildItem(notification) {
@@ -5190,6 +5205,271 @@ function createSectionStack(container, { sections = [], stateStore = null, key =
   };
 }
 
+// src/ui/components/select.js
+var SEARCH_ABOVE = 7;
+var TYPEAHEAD_MS = 500;
+function node(tag, className, text) {
+  const n = document.createElement(tag);
+  if (className) n.className = className;
+  if (text !== void 0) n.textContent = String(text);
+  return n;
+}
+function glyphNode(className, text = "") {
+  const n = node("span", `material-symbols-outlined ${className}`.trim(), text);
+  n.setAttribute("aria-hidden", "true");
+  return n;
+}
+var isEmptyValue = (v) => v === null || v === void 0 || v === "";
+function createSelect({
+  options = [],
+  value = null,
+  onChange = null,
+  className = "",
+  panelClassName = "",
+  placeholder = "Choose\u2026",
+  title = "",
+  ariaLabel = "",
+  disabled = false,
+  showIcon = true,
+  search = void 0,
+  allowNew = false,
+  newLabel = (typed) => `Use \u201C${typed}\u201D`,
+  notFound = (v) => v,
+  emptyText = (typed) => typed ? `Nothing matches \u201C${typed}\u201D.` : "Nothing to choose from.",
+  loose = false,
+  name = null,
+  align = "start"
+} = {}) {
+  let source = options;
+  let current = value;
+  let emptyLabel = placeholder;
+  let layer = null;
+  let typedKeys = "";
+  let typedTimer = null;
+  const given = () => (typeof source === "function" ? source() : source) || [];
+  const trigger = node("button", `twm-select${className ? ` ${className}` : ""}`);
+  trigger.type = "button";
+  trigger.setAttribute("role", "combobox");
+  trigger.setAttribute("aria-haspopup", "listbox");
+  trigger.setAttribute("aria-expanded", "false");
+  if (ariaLabel) trigger.setAttribute("aria-label", ariaLabel);
+  const icon2 = glyphNode("twm-select__icon");
+  const label = node("span", "twm-select__label");
+  trigger.append(icon2, label, glyphNode("twm-select__caret", "expand_more"));
+  let root = trigger;
+  let carrier = null;
+  if (name) {
+    root = node("div", "twm-select-field");
+    carrier = node("input");
+    carrier.type = "hidden";
+    carrier.name = name;
+    root.append(trigger, carrier);
+  }
+  let focusHolder = trigger;
+  const list = createOptionList({
+    onPick: (option) => choose(option),
+    onActive: (id) => {
+      if (id) focusHolder.setAttribute("aria-activedescendant", id);
+      else focusHolder.removeAttribute("aria-activedescendant");
+    }
+  });
+  trigger.setAttribute("aria-controls", list.id);
+  const panel = node("div", `twm-option-panel${panelClassName ? ` ${panelClassName}` : ""}`);
+  const searchRow = node("div", "twm-option-panel__search");
+  searchRow.appendChild(glyphNode("", "search"));
+  const searchInput = node("input", "twm-option-panel__search-input");
+  searchInput.type = "text";
+  searchInput.autocomplete = "off";
+  searchInput.spellcheck = false;
+  searchInput.setAttribute("role", "combobox");
+  searchInput.setAttribute("aria-expanded", "true");
+  searchInput.setAttribute("aria-autocomplete", "list");
+  searchInput.setAttribute("aria-controls", list.id);
+  searchRow.appendChild(searchInput);
+  panel.append(searchRow, list.el);
+  const hasSearch = () => search === void 0 ? allowNew || flatChoices(given()).length > SEARCH_ABOVE : !!search;
+  function paint() {
+    const flat = flatChoices(given());
+    const chosen = findChoice(flat, current, loose);
+    const none = !chosen && isEmptyValue(current);
+    label.textContent = chosen ? chosen.label : none ? emptyLabel : notFound(shownValue(current));
+    trigger.classList.toggle("twm-select--empty", none);
+    trigger.title = title || label.textContent;
+    const glyph = showIcon ? chosen?.icon || "" : "";
+    icon2.textContent = glyph;
+    icon2.hidden = !glyph;
+    if (carrier) carrier.value = isEmptyValue(current) ? "" : shownValue(current);
+  }
+  function draw(typed) {
+    const text = typed.trim();
+    const all = choiceSections(given());
+    const flat = all.flatMap((s) => s.items);
+    const taken = (o) => [o.value, o.label].some((v) => shownValue(v).toLowerCase() === text.toLowerCase());
+    const shown = filterSections(all, text);
+    if (allowNew && text !== "" && !flat.some(taken)) {
+      shown.push({ heading: null, items: [{
+        value: text,
+        label: newLabel(text),
+        icon: "add",
+        description: null,
+        hint: null,
+        disabled: false,
+        reason: null,
+        keywords: null,
+        source: null
+      }] });
+    }
+    const chosen = findChoice(flat, current, loose);
+    if (shown.length) {
+      list.setRows(shown, { mark: text, isCurrent: (o) => o === chosen });
+      const at = list.options().indexOf(chosen);
+      if (at >= 0 && !chosen.disabled) list.setActive(at);
+      else list.moveToEnd(1);
+    } else {
+      list.setMessage(emptyText(text));
+    }
+    layer?.place();
+  }
+  function choose(option) {
+    const changed = !(option.value === current || loose && String(option.value) === String(current));
+    current = option.value;
+    paint();
+    layer?.close("pick");
+    if (!changed) return;
+    carrier?.dispatchEvent(new Event("change", { bubbles: true }));
+    onChange?.(current, option.source);
+  }
+  function open() {
+    if (layer || trigger.disabled) return;
+    const searching = hasSearch();
+    searchRow.hidden = !searching;
+    focusHolder = searching ? searchInput : trigger;
+    if (searching) {
+      const word = typeof search === "object" && search?.placeholder || (allowNew ? "Search, or type a new one\u2026" : "Search\u2026");
+      searchInput.placeholder = word;
+      searchInput.setAttribute("aria-label", word);
+      searchInput.value = "";
+    }
+    panel.style.width = "";
+    layer = openAnchoredLayer({
+      anchor: trigger,
+      el: panel,
+      align,
+      gap: 4,
+      matchWidth: true,
+      onClose() {
+        layer = null;
+        trigger.classList.remove("twm-is-open");
+        trigger.setAttribute("aria-expanded", "false");
+        focusHolder.removeAttribute("aria-activedescendant");
+      }
+    });
+    trigger.classList.add("twm-is-open");
+    trigger.setAttribute("aria-expanded", "true");
+    draw("");
+    if (searching) {
+      const width = Math.round(panel.getBoundingClientRect().width);
+      if (width > 0) panel.style.width = `${width}px`;
+      searchInput.focus({ preventScroll: true });
+    }
+  }
+  const close = () => layer?.close("closed");
+  function typeAhead(ch) {
+    clearTimeout(typedTimer);
+    typedTimer = setTimeout(() => {
+      typedKeys = "";
+    }, TYPEAHEAD_MS);
+    typedKeys += ch.toLowerCase();
+    const at = list.options().findIndex((o) => !o.disabled && o.label.toLowerCase().startsWith(typedKeys));
+    if (at >= 0) list.setActive(at);
+  }
+  function onKey(ev) {
+    if (ev.isComposing) return;
+    const inSearch = ev.target === searchInput;
+    if (!layer) {
+      if (ev.key === "ArrowDown" || ev.key === "ArrowUp" || ev.key === "Enter" || ev.key === " ") {
+        ev.preventDefault();
+        open();
+      }
+      return;
+    }
+    if (ev.key === "Tab") {
+      layer.close("tab");
+      return;
+    }
+    if (ev.key === "ArrowDown") list.move(1);
+    else if (ev.key === "ArrowUp") list.move(-1);
+    else if (ev.key === "Home" && !inSearch) list.moveToEnd(1);
+    else if (ev.key === "End" && !inSearch) list.moveToEnd(-1);
+    else if (ev.key === "Enter" || ev.key === " " && !inSearch) {
+      const option = list.activeOption();
+      if (option) choose(option);
+      else if (!inSearch) close();
+    } else if (!inSearch && ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+      typeAhead(ev.key);
+    } else {
+      return;
+    }
+    ev.preventDefault();
+    ev.stopPropagation();
+  }
+  trigger.addEventListener("click", () => {
+    if (layer) close();
+    else open();
+  });
+  trigger.addEventListener("keydown", onKey);
+  trigger.addEventListener("keyup", (ev) => {
+    if (ev.key === " ") ev.preventDefault();
+  });
+  searchInput.addEventListener("keydown", onKey);
+  searchInput.addEventListener("input", () => draw(searchInput.value));
+  function setDisabled(off) {
+    trigger.disabled = !!off;
+    if (off) close();
+  }
+  paint();
+  setDisabled(disabled);
+  return {
+    el: root,
+    /** The hidden input carrying the value, when there is a `name`. */
+    input: carrier,
+    get value() {
+      return current;
+    },
+    set value(next) {
+      current = next;
+      paint();
+    },
+    get isOpen() {
+      return !!layer;
+    },
+    /** Replace the list. Pass `nextValue` to change the value as well; left out, it stays. */
+    setOptions(nextOptions, nextValue) {
+      source = nextOptions;
+      if (arguments.length > 1) current = nextValue;
+      paint();
+      if (layer) draw(searchInput.value);
+    },
+    /** The text shown while nothing is chosen: "Loading…", the failure, "Choose…". */
+    setPlaceholder(text) {
+      emptyLabel = text;
+      paint();
+    },
+    setDisabled,
+    open,
+    close,
+    focus() {
+      trigger.focus();
+    },
+    /** Closes the list and takes the control off the page. */
+    destroy() {
+      clearTimeout(typedTimer);
+      close();
+      root.remove();
+    }
+  };
+}
+
 // src/ui/components/settings_view.js
 var SETTINGS_TEXT_DEBOUNCE_MS = 300;
 function el2(tag, className, text) {
@@ -6207,7 +6487,7 @@ function createTableStateStore({ host, key, logger = console, debounceMs = 500 }
 }
 
 // src/ui/components/tag_input.js
-var normalise = (list) => (Array.isArray(list) ? list : []).map((v) => v == null ? "" : String(v).trim()).filter((v) => v !== "");
+var optionValue = (o) => o !== null && typeof o === "object" ? o.value : o;
 function createTagInput(host, options = {}) {
   if (!host || typeof host.appendChild !== "function") {
     throw new Error("[TagInput] host must be an HTMLElement");
@@ -6215,7 +6495,12 @@ function createTagInput(host, options = {}) {
   const readOnly = !!options.readOnly;
   const allowDuplicates = !!options.allowDuplicates;
   const removeLabel = typeof options.removeLabel === "function" ? options.removeLabel : (tag) => `Remove ${tag}`;
-  let tags = normalise(options.value);
+  const spell = typeof options.normalise === "function" ? (text) => String(options.normalise(text) ?? "").trim() : (text) => text.trim();
+  const cleaned = (list) => {
+    const out = (Array.isArray(list) ? list : []).map((v) => v == null ? "" : spell(String(v))).filter((v) => v !== "");
+    return allowDuplicates ? out : [...new Set(out)];
+  };
+  let tags = cleaned(options.value);
   let disposed = false;
   const root = document.createElement("div");
   root.className = ["twm-tag-input", readOnly ? "twm-tag-input--readonly" : "", options.className || ""].join(" ").replace(/\s+/g, " ").trim();
@@ -6276,7 +6561,7 @@ function createTagInput(host, options = {}) {
     if (disposed || readOnly) return false;
     const next = [...tags];
     for (const piece of String(text).split(",")) {
-      const tag = piece.trim();
+      const tag = spell(piece);
       if (tag === "") continue;
       if (!allowDuplicates && next.includes(tag)) continue;
       next.push(tag);
@@ -6288,10 +6573,39 @@ function createTagInput(host, options = {}) {
     changed();
     return true;
   };
+  const offerable = (o) => {
+    const tag = spell(shownValue(optionValue(o)));
+    return tag !== "" && (allowDuplicates || !tags.includes(tag));
+  };
+  const rankedFor = (query) => {
+    const needle = spell(query).toLowerCase();
+    const at = (o) => spell(shownValue(optionValue(o))).toLowerCase().indexOf(needle);
+    const open = options.suggestions.filter(offerable);
+    return needle ? open.filter((o) => at(o) >= 0).sort((a, b) => at(a) - at(b)) : open;
+  };
+  const askedFor = (query, ctx) => {
+    const answer = options.suggestions(query, ctx);
+    if (typeof answer?.then === "function") return answer.then((list) => (list || []).filter(offerable));
+    return (answer || []).filter(offerable);
+  };
+  const asking = typeof options.suggestions === "function";
+  const menu = input && options.suggestions ? attachInputOptions(input, {
+    options: asking ? askedFor : rankedFor,
+    anchor: root,
+    openOnFocus: true,
+    passEnter: true,
+    debounce: asking ? void 0 : 0,
+    onPick(option) {
+      input.value = "";
+      commitText(shownValue(option.value));
+      input.focus();
+    }
+  }) : null;
   const commitInput = () => {
     if (!input) return;
     const text = input.value;
     input.value = "";
+    menu?.close();
     commitText(text);
   };
   if (input) {
@@ -6335,7 +6649,7 @@ function createTagInput(host, options = {}) {
     /** Replaces the list. Does not call `onChange`. */
     setValue(list) {
       if (disposed) return;
-      tags = normalise(list);
+      tags = cleaned(list);
       paint();
     },
     focus() {
@@ -6344,6 +6658,7 @@ function createTagInput(host, options = {}) {
     dispose() {
       if (disposed) return;
       disposed = true;
+      menu?.destroy();
       root.remove();
     }
   };
@@ -6367,13 +6682,13 @@ function createTreeCategory(options) {
     expanded = false,
     readonly = false
   } = options;
-  const node = document.createElement("div");
-  node.className = "twm-collapsible-box twm-tree-category";
-  node.dataset.categoryId = id;
-  node.dataset.collapsibleId = `tree-category-${id}`;
-  node.dataset.collapsibleDefault = expanded ? "expanded" : "collapsed";
-  if (readonly) node.dataset.readonly = "true";
-  node.innerHTML = `
+  const node2 = document.createElement("div");
+  node2.className = "twm-collapsible-box twm-tree-category";
+  node2.dataset.categoryId = id;
+  node2.dataset.collapsibleId = `tree-category-${id}`;
+  node2.dataset.collapsibleDefault = expanded ? "expanded" : "collapsed";
+  if (readonly) node2.dataset.readonly = "true";
+  node2.innerHTML = `
         <div class="twm-collapsible-header" data-collapsible-header="true">
             <button class="twm-arrow-toggle" type="button">
                 <span class="twm-collapsible-arrow material-symbols-outlined${expanded ? "" : " collapsed"}">expand_more</span>
@@ -6386,8 +6701,8 @@ function createTreeCategory(options) {
         </div>
         <div class="twm-collapsible-content${expanded ? " visible" : ""}" data-collapsible-content="true"></div>
     `;
-  setText2(node, ".twm-tree-category__label", label);
-  return node;
+  setText2(node2, ".twm-tree-category__label", label);
+  return node2;
 }
 function createTreeNode(options) {
   const {
@@ -6399,12 +6714,12 @@ function createTreeNode(options) {
     readonly = false,
     actions = null
   } = options;
-  const node = document.createElement("div");
-  node.className = `twm-tree-node${readonly ? " readonly" : ""}`;
-  node.dataset.nodeId = id;
+  const node2 = document.createElement("div");
+  node2.className = `twm-tree-node${readonly ? " readonly" : ""}`;
+  node2.dataset.nodeId = id;
   const iconHtml = icon2 ? `<span class="twm-tree-node__icon"><span class="material-symbols-outlined">${icon2}</span></span>` : "";
   const actionsHtml = actions ? '<span class="twm-tree-node__actions"></span>' : "";
-  node.innerHTML = `
+  node2.innerHTML = `
         <div class="twm-tree-node__header">
             <span class="twm-tree-node__toggle">
                 <span class="material-symbols-outlined">${expanded ? "expand_more" : "chevron_right"}</span>
@@ -6416,9 +6731,9 @@ function createTreeNode(options) {
         </div>
         <div class="twm-tree-node__children" style="display: ${expanded ? "block" : "none"};"></div>
     `;
-  setText2(node, ".twm-tree-node__label", label);
-  if (actions) appendActionButtons(node.querySelector(".twm-tree-node__actions"), id, actions);
-  return node;
+  setText2(node2, ".twm-tree-node__label", label);
+  if (actions) appendActionButtons(node2.querySelector(".twm-tree-node__actions"), id, actions);
+  return node2;
 }
 function appendActionButtons(actionsEl, id, actions) {
   Object.entries(actions).forEach(([actionId, actionConfig]) => {
@@ -6532,10 +6847,10 @@ function filterTree(container, filter, options = {}) {
     if (matches) visibleItems.add(item);
   });
   const hasVisibleItem = (el3) => !normalizedFilter || [...el3.querySelectorAll(".twm-tree-item")].some((item) => visibleItems.has(item));
-  container.querySelectorAll(".twm-tree-node").forEach((node) => {
-    const visible = hasVisibleItem(node);
-    node.style.display = visible ? "" : "none";
-    if (expandMatches && visible && normalizedFilter) toggleNode(node, true);
+  container.querySelectorAll(".twm-tree-node").forEach((node2) => {
+    const visible = hasVisibleItem(node2);
+    node2.style.display = visible ? "" : "none";
+    if (expandMatches && visible && normalizedFilter) toggleNode(node2, true);
   });
   container.querySelectorAll(".twm-tree-category").forEach((category) => {
     const visible = hasVisibleItem(category);
@@ -6555,8 +6870,8 @@ function selectItem(container, itemId, options = {}) {
     let parent = item.parentElement;
     while (parent && parent !== container) {
       if (parent.classList.contains("twm-tree-node__children")) {
-        const node = parent.closest(".twm-tree-node");
-        if (node) toggleNode(node, true);
+        const node2 = parent.closest(".twm-tree-node");
+        if (node2) toggleNode(node2, true);
       }
       if (parent.classList.contains("twm-collapsible-content")) {
         const category = parent.closest(".twm-tree-category");
@@ -6600,10 +6915,10 @@ var TreeView = class {
     }
     const nodeHeader = e.target.closest(".twm-tree-node__header");
     if (nodeHeader) {
-      const node = nodeHeader.closest(".twm-tree-node");
-      if (node) {
-        toggleNode(node);
-        this.options.onNodeToggle?.(node.dataset.nodeId, node);
+      const node2 = nodeHeader.closest(".twm-tree-node");
+      if (node2) {
+        toggleNode(node2);
+        this.options.onNodeToggle?.(node2.dataset.nodeId, node2);
       }
       return;
     }
@@ -6628,13 +6943,13 @@ var TreeView = class {
     const category = this.container.querySelector(`.twm-tree-category[data-category-id="${attrValue(categoryId)}"]`);
     const content = category?.querySelector(".twm-collapsible-content");
     if (!content) return null;
-    const node = createTreeNode(options);
-    content.appendChild(node);
-    return node;
+    const node2 = createTreeNode(options);
+    content.appendChild(node2);
+    return node2;
   }
   addItem(nodeId, options) {
-    const node = this.container.querySelector(`.twm-tree-node[data-node-id="${attrValue(nodeId)}"]`);
-    const children = node?.querySelector(".twm-tree-node__children");
+    const node2 = this.container.querySelector(`.twm-tree-node[data-node-id="${attrValue(nodeId)}"]`);
+    const children = node2?.querySelector(".twm-tree-node__children");
     if (!children) return null;
     const item = createTreeItem(options);
     children.appendChild(item);
@@ -8575,12 +8890,12 @@ function installCollapsibleScrollbars(root = document.body) {
         }
         continue;
       }
-      for (const node of mutation.addedNodes) {
-        if (node.nodeType !== 1) continue;
-        if (node.classList?.contains("twm-collapsible-content") && node.classList?.contains("visible")) {
-          installOnElement(node);
+      for (const node2 of mutation.addedNodes) {
+        if (node2.nodeType !== 1) continue;
+        if (node2.classList?.contains("twm-collapsible-content") && node2.classList?.contains("visible")) {
+          installOnElement(node2);
         }
-        node.querySelectorAll?.(".twm-collapsible-content.visible")?.forEach(installOnElement);
+        node2.querySelectorAll?.(".twm-collapsible-content.visible")?.forEach(installOnElement);
       }
     }
   });
@@ -8612,15 +8927,15 @@ function installTabsScrollbars(selectors = [".tabs"]) {
   document.querySelectorAll(selector).forEach(installOnElement);
   const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
-      for (const node of mutation.addedNodes) {
-        if (node.nodeType !== 1) continue;
-        if (matches(node)) installOnElement(node);
-        node.querySelectorAll?.(selector)?.forEach(installOnElement);
+      for (const node2 of mutation.addedNodes) {
+        if (node2.nodeType !== 1) continue;
+        if (matches(node2)) installOnElement(node2);
+        node2.querySelectorAll?.(selector)?.forEach(installOnElement);
       }
-      for (const node of mutation.removedNodes) {
-        if (node.nodeType !== 1) continue;
-        if (matches(node)) cleanupElement(node);
-        node.querySelectorAll?.(selector)?.forEach(cleanupElement);
+      for (const node2 of mutation.removedNodes) {
+        if (node2.nodeType !== 1) continue;
+        if (matches(node2)) cleanupElement(node2);
+        node2.querySelectorAll?.(selector)?.forEach(cleanupElement);
       }
     }
   });
@@ -9010,11 +9325,13 @@ export {
   Wizard,
   ago,
   attachInlineRenamer,
+  attachInputOptions,
   barCovered,
   createAlertLog,
   createBoolEditor,
   createChipsFilter,
   createChoiceEditor,
+  createCombobox,
   createDateTimeEditor,
   createDetailHeader,
   createDocumentOutline,
@@ -9026,6 +9343,7 @@ export {
   createRecordList,
   createScrollLock,
   createSectionStack,
+  createSelect,
   createTableStateStore,
   createTabs,
   createTagInput,
@@ -9073,9 +9391,11 @@ export {
   normalizeOptions,
   notificationText,
   numberSeparators,
+  openAnchoredLayer,
   openConfirm,
   openForm,
   openModal,
+  openPopover,
   parseBool,
   parseChoice,
   parseDatePeriod,
@@ -9083,6 +9403,7 @@ export {
   parseDateValue,
   parseDuration,
   parseNumber,
+  positionAnchored,
   projectSeries,
   refTypesFor,
   renderMarkdown,

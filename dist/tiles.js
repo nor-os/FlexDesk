@@ -14,14 +14,14 @@ import {
 import {
   ActionDropdown,
   SlideOutPanel
-} from "./chunk-MIW7D6WC.js";
+} from "./chunk-RCHJ5M2O.js";
 import {
+  openModal,
   showContextMenu
-} from "./chunk-7JI7HHSY.js";
+} from "./chunk-R2LLV53N.js";
 import {
-  modalHost,
-  openModal
-} from "./chunk-XJNADRGR.js";
+  modalHost
+} from "./chunk-TEEYVOUH.js";
 import {
   buildHistogramTrace,
   buildLegendLayout,
@@ -36,13 +36,15 @@ import {
   purge,
   resize,
   strideDownsampleShared
-} from "./chunk-7OL6F2AM.js";
-import "./chunk-2Z2ENHR3.js";
+} from "./chunk-HIKJGQ3D.js";
+import "./chunk-4RIYTKVI.js";
 import {
   isHexColor
-} from "./chunk-PGZ4EHSE.js";
+} from "./chunk-MLSR3YEB.js";
+import "./chunk-NFGA4WJQ.js";
 import "./chunk-HNU6MM2B.js";
-import "./chunk-WUFLGETN.js";
+import "./chunk-WVFGV5FT.js";
+import "./chunk-QXAOTGCC.js";
 import {
   __toCommonJS
 } from "./chunk-JYWURG5T.js";

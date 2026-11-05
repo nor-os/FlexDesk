@@ -1,17 +1,17 @@
 import {
-  modalHost
-} from "./chunk-XJNADRGR.js";
+  openPopover
+} from "./chunk-YGSXAKCK.js";
+import "./chunk-TEEYVOUH.js";
 import {
   DataTable
-} from "./chunk-2Z2ENHR3.js";
+} from "./chunk-4RIYTKVI.js";
 import {
   choiceList,
   selectBox,
   shownValue,
   toggleChips
-} from "./chunk-PGZ4EHSE.js";
-import "./chunk-HNU6MM2B.js";
-import "./chunk-WUFLGETN.js";
+} from "./chunk-NFGA4WJQ.js";
+import "./chunk-QXAOTGCC.js";
 import {
   CONNECTOR_STRINGS,
   CanvasAdapter,
@@ -161,91 +161,23 @@ function uid(stem = "flow") {
   SEQ += 1;
   return `twm-uid-${stem}-${SEQ}`;
 }
-var EDGE = 8;
-var GAP = 4;
-var ACTIVE = null;
+var OPEN = [];
 function closeFlowPopovers() {
-  ACTIVE?.close("closed");
+  OPEN[0]?.close("closed");
 }
 function openFlowPopover() {
-  return ACTIVE ? ACTIVE.el : null;
+  return OPEN.length ? OPEN[OPEN.length - 1].el : null;
 }
-function openPopover({ anchor, content, label, className = "", onClose = null, focus = null }) {
-  if (ACTIVE && anchor && ACTIVE.anchor === anchor) {
-    ACTIVE.close("toggle");
-    return { el: null, close() {
-    }, reposition() {
-    }, toggled: true };
-  }
-  ACTIVE?.close("replaced");
-  const pop = el("div", `twm-flow-popover${className ? ` ${className}` : ""}`);
-  pop.setAttribute("role", "dialog");
-  pop.setAttribute("aria-label", label || "");
-  pop.tabIndex = -1;
-  pop.appendChild(content);
-  (modalHost() || document.body).appendChild(pop);
-  let closed = false;
-  const place = () => {
-    if (closed) return;
-    const view = {
-      w: document.documentElement.clientWidth || window.innerWidth || 1024,
-      h: document.documentElement.clientHeight || window.innerHeight || 768
-    };
-    const a = anchor?.getBoundingClientRect?.() || { left: 0, top: 0, bottom: 0, right: 0 };
-    const box = pop.getBoundingClientRect();
-    let left = a.left;
-    if (left + box.width > view.w - EDGE && a.right - box.width >= EDGE) left = a.right - box.width;
-    let top = a.bottom + GAP;
-    if (top + box.height > view.h - EDGE && a.top - GAP - box.height >= EDGE) top = a.top - GAP - box.height;
-    left = Math.max(EDGE, Math.min(left, view.w - box.width - EDGE));
-    top = Math.max(EDGE, Math.min(top, view.h - box.height - EDGE));
-    pop.style.left = `${Math.round(left)}px`;
-    pop.style.top = `${Math.round(top)}px`;
-  };
-  const onPress = (ev) => {
-    if (pop.contains(ev.target)) return;
-    if (anchor && anchor.contains?.(ev.target)) return;
-    handle.close("outside");
-  };
-  const onKey = (ev) => {
-    if (ev.key !== "Escape") return;
-    ev.preventDefault();
-    ev.stopPropagation();
-    handle.close("escape");
-  };
-  const onResize = () => place();
-  const sized = typeof ResizeObserver === "function" ? new ResizeObserver(() => place()) : null;
-  const handle = {
-    el: pop,
-    anchor,
-    toggled: false,
-    reposition: place,
-    close(reason = "closed") {
-      if (closed) return;
-      closed = true;
-      const held = pop.contains(document.activeElement) || document.activeElement === document.body;
-      document.removeEventListener("pointerdown", onPress, true);
-      document.removeEventListener("mousedown", onPress, true);
-      pop.removeEventListener("keydown", onKey);
-      window.removeEventListener("resize", onResize);
-      sized?.disconnect();
-      pop.remove();
-      if (ACTIVE === handle) ACTIVE = null;
-      if (held && reason !== "blur" && anchor?.isConnected) anchor.focus?.({ preventScroll: true });
+function openPopover2({ className = "", onClose = null, ...rest }) {
+  const handle = openPopover({
+    ...rest,
+    className: `twm-flow-popover${className ? ` ${className}` : ""}`,
+    onClose(reason) {
+      OPEN.splice(OPEN.indexOf(handle), 1);
       onClose?.(reason);
     }
-  };
-  ACTIVE = handle;
-  setTimeout(() => {
-    if (closed) return;
-    document.addEventListener("pointerdown", onPress, true);
-    document.addEventListener("mousedown", onPress, true);
-  }, 0);
-  pop.addEventListener("keydown", onKey);
-  window.addEventListener("resize", onResize);
-  sized?.observe(pop);
-  place();
-  (focus || pop).focus?.({ preventScroll: true });
+  });
+  if (!handle.toggled) OPEN.push(handle);
   return handle;
 }
 function nextOption(listbox, current, step) {
@@ -2128,7 +2060,7 @@ function openValuePicker({
     const to = ev.relatedTarget;
     if (to && !root.contains(to) && to !== anchor) handle.close("blur");
   });
-  const handle = openPopover({
+  const handle = openPopover2({
     anchor,
     content: root,
     label: title ?? say(S, "insertValue"),
@@ -2739,7 +2671,7 @@ function openStepPicker({
     const to = ev.relatedTarget;
     if (to && !root.contains(to) && to !== anchor) handle.close("blur");
   });
-  const handle = openPopover({
+  const handle = openPopover2({
     anchor,
     content: root,
     label: title ?? say(S, "addStep"),
@@ -8377,7 +8309,7 @@ function openStepMenu({ anchor, label, items, strings = null, onClose = null }) 
         break;
     }
   });
-  const handle = openPopover({
+  const handle = openPopover2({
     anchor,
     content: root,
     label: label || "",
@@ -9990,7 +9922,7 @@ var LANE_GEOMETRY = Object.freeze({
 });
 var CW = LANE_GEOMETRY.regular.width;
 var CH = LANE_GEOMETRY.regular.height;
-var GAP2 = LANE_GEOMETRY.regular.gap;
+var GAP = LANE_GEOMETRY.regular.gap;
 var LANE_PAD = LANE_GEOMETRY.regular.lanePad;
 var LANE_GAP = LANE_GEOMETRY.regular.laneGap;
 var LAYOUT_STRINGS = Object.freeze({
@@ -12088,7 +12020,7 @@ function createLaneEditor(host, options = {}) {
       [...params.querySelectorAll("[data-parameter]")].find((c) => c.dataset.parameter === next)?.focus({ preventScroll: true });
       return void 0;
     });
-    handle = openPopover({
+    handle = openPopover2({
       anchor,
       content: form,
       label: editing ? say(S, "parameterTitle") : say(S, "addParameter"),
@@ -12159,7 +12091,7 @@ function createLaneEditor(host, options = {}) {
       const next = items[(at + (ev.key === "ArrowDown" ? 1 : -1) + items.length) % items.length];
       next?.focus();
     });
-    handle = openPopover({
+    handle = openPopover2({
       anchor,
       content: menu,
       label: say(S, "stepMenu", titleOf2(id)),
@@ -12415,7 +12347,7 @@ export {
   ID_OK,
   LANE_ACTIONS,
   CH as LANE_CH,
-  GAP2 as LANE_COLUMN_GAP,
+  GAP as LANE_COLUMN_GAP,
   CW as LANE_CW,
   LANE_GAP,
   LANE_GEOMETRY,
@@ -12499,7 +12431,7 @@ export {
   normalisePipeline,
   openFlowPopover,
   openStepMenu as openOutlineStepMenu,
-  openPopover,
+  openPopover2 as openPopover,
   openStepPicker,
   openValuePicker,
   flatRunOrder as outlineFlatOrder,

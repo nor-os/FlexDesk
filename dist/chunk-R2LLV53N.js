@@ -1,18 +1,32 @@
 import {
+  modalHost,
+  openAnchoredLayer
+} from "./chunk-TEEYVOUH.js";
+import {
   ColorField,
   ManagedWindow,
   ToggleField,
+  isHexColor,
+  normalizeHex
+} from "./chunk-MLSR3YEB.js";
+import {
   choiceList,
+  choiceSections,
+  filterSections,
   findChoice,
   flatChoices,
-  isHexColor,
-  normalizeHex,
   selectBox,
+  shownValue,
   toggleChips
-} from "./chunk-PGZ4EHSE.js";
+} from "./chunk-NFGA4WJQ.js";
 import {
   DragReorder
-} from "./chunk-WUFLGETN.js";
+} from "./chunk-WVFGV5FT.js";
+import {
+  focusMenuItem,
+  moveMenuFocus,
+  placeMenuInViewport
+} from "./chunk-QXAOTGCC.js";
 
 // src/ui/components/sortable_list.js
 var ROW_CLASS = "twm-sortable-list__row";
@@ -435,14 +449,482 @@ var ColorListField = class {
   }
 };
 
+// src/ui/components/option_list.js
+var SEQ = 0;
+function node(tag, className, text) {
+  const n = document.createElement(tag);
+  if (className) n.className = className;
+  if (text !== void 0 && text !== null) n.textContent = String(text);
+  return n;
+}
+function marked(target, text, needle) {
+  const at = needle ? text.toLowerCase().indexOf(needle.toLowerCase()) : -1;
+  if (at < 0) {
+    target.textContent = text;
+    return;
+  }
+  target.append(
+    text.slice(0, at),
+    node("mark", "twm-option-list__match", text.slice(at, at + needle.length)),
+    text.slice(at + needle.length)
+  );
+}
+function createOptionList({ onPick, onActive = null }) {
+  const id = `twm-option-list-${++SEQ}`;
+  const el = node("div", "twm-option-list");
+  el.id = id;
+  el.setAttribute("role", "listbox");
+  let rows = [];
+  let active = -1;
+  const paintActive = () => {
+    rows.forEach(({ row: row2 }, i) => row2.classList.toggle("twm-option-list__row--active", i === active));
+    const row = rows[active]?.row;
+    row?.scrollIntoView?.({ block: "nearest" });
+    onActive?.(row ? row.id : null);
+  };
+  const rowFor = (option, { glyphs, mark, isCurrent }) => {
+    const row = node("div", "twm-option-list__row");
+    row.id = `${id}-${rows.length}`;
+    row.setAttribute("role", "option");
+    row.setAttribute("aria-selected", String(!!isCurrent?.(option)));
+    if (option.disabled) row.setAttribute("aria-disabled", "true");
+    row.title = option.description ? `${option.label} \u2014 ${option.description}` : option.label;
+    if (glyphs) {
+      const glyph = node("span", "twm-option-list__glyph material-symbols-outlined", option.icon || "");
+      glyph.setAttribute("aria-hidden", "true");
+      row.appendChild(glyph);
+    }
+    const words = node("span", "twm-option-list__words");
+    const label = node("span", "twm-option-list__label");
+    marked(label, option.label, mark);
+    words.appendChild(label);
+    if (option.description) words.appendChild(node("span", "twm-option-list__description", option.description));
+    if (option.disabled && option.reason) words.appendChild(node("span", "twm-choice__reason", option.reason));
+    row.appendChild(words);
+    if (option.hint) row.appendChild(node("span", "twm-option-list__hint", option.hint));
+    return row;
+  };
+  const enabled = () => rows.map((r, i) => r.option.disabled ? -1 : i).filter((i) => i >= 0);
+  el.addEventListener("mousedown", (ev) => ev.preventDefault());
+  el.addEventListener("click", (ev) => {
+    const row = ev.target.closest?.('[role="option"]');
+    const hit = rows.find((r) => r.row === row);
+    if (hit && !hit.option.disabled) onPick(hit.option);
+  });
+  return {
+    el,
+    id,
+    /**
+     * Draw `sections` (`[{ heading, items }]`, as `choiceSections` gives them).
+     * @param {object} [opts]
+     * @param {string} [opts.mark]  The text to mark in each label.
+     * @param {(option: object) => boolean} [opts.isCurrent]  Is this the current value?
+     */
+    setRows(sections, { mark = "", isCurrent = null } = {}) {
+      rows = [];
+      active = -1;
+      el.replaceChildren();
+      const glyphs = sections.some((s) => s.items.some((o) => o.icon));
+      for (const { heading, items } of sections) {
+        let parent = el;
+        if (heading != null) {
+          parent = node("div", "twm-option-list__section");
+          parent.setAttribute("role", "group");
+          parent.setAttribute("aria-label", heading);
+          const title = node("div", "twm-choice__group", heading);
+          title.setAttribute("aria-hidden", "true");
+          parent.appendChild(title);
+          el.appendChild(parent);
+        }
+        for (const option of items) {
+          const row = rowFor(option, { glyphs, mark, isCurrent });
+          rows.push({ option, row });
+          parent.appendChild(row);
+        }
+      }
+      paintActive();
+    },
+    /** One line of text in place of the rows: nothing matched, still loading, a failure. */
+    setMessage(text) {
+      rows = [];
+      active = -1;
+      el.replaceChildren(node("div", "twm-option-list__message", text));
+      paintActive();
+    },
+    /** How many rows are drawn. */
+    get size() {
+      return rows.length;
+    },
+    /** The drawn options, in order. */
+    options: () => rows.map((r) => r.option),
+    /** The active row's option, or null. */
+    activeOption: () => rows[active]?.option ?? null,
+    /** Make row `index` active; -1, or a row that is disabled, makes none active. */
+    setActive(index) {
+      active = rows[index] && !rows[index].option.disabled ? index : -1;
+      paintActive();
+    },
+    /** The next row that may be chosen, by `step`, wrapping. From none: the first or the last. */
+    move(step) {
+      const stops = enabled();
+      if (!stops.length) return;
+      const at = stops.indexOf(active);
+      const next = at < 0 ? step > 0 ? 0 : stops.length - 1 : (at + step + stops.length) % stops.length;
+      active = stops[next];
+      paintActive();
+    },
+    /** The first (`step` 1) or last (`step` -1) row that may be chosen. */
+    moveToEnd(step) {
+      const stops = enabled();
+      active = stops.length ? stops[step > 0 ? 0 : stops.length - 1] : -1;
+      paintActive();
+    }
+  };
+}
+
+// src/ui/components/combobox.js
+var DEBOUNCE_MS = 150;
+var SEQ2 = 0;
+function attachInputOptions(input, {
+  options = [],
+  onPick,
+  anchor = null,
+  isCurrent = null,
+  autoHighlight = false,
+  isCandidate = null,
+  normalise = (text) => text,
+  openOnFocus = false,
+  passEnter = false,
+  loadingText = "Loading\u2026",
+  errorText = "Could not load the options.",
+  debounce = DEBOUNCE_MS,
+  panelClassName = "",
+  onSettle = null
+} = {}) {
+  let source = options;
+  let layer = null;
+  let wanted = false;
+  let query = null;
+  let asked = 0;
+  let timer = null;
+  let controller = null;
+  let picking = false;
+  const list = createOptionList({
+    onPick: (option) => take(option),
+    onActive: (id) => {
+      if (id) input.setAttribute("aria-activedescendant", id);
+      else input.removeAttribute("aria-activedescendant");
+    }
+  });
+  const panel = document.createElement("div");
+  panel.className = `twm-option-panel${panelClassName ? ` ${panelClassName}` : ""}`;
+  panel.appendChild(list.el);
+  input.setAttribute("autocomplete", "off");
+  input.setAttribute("role", "combobox");
+  input.setAttribute("aria-autocomplete", "list");
+  input.setAttribute("aria-expanded", "false");
+  input.setAttribute("aria-controls", list.id);
+  const show = () => {
+    if (layer) {
+      layer.place();
+      return;
+    }
+    layer = openAnchoredLayer({
+      anchor: anchor || input,
+      el: panel,
+      gap: 4,
+      matchWidth: true,
+      returnFocus: false,
+      onClose() {
+        layer = null;
+        wanted = false;
+        input.setAttribute("aria-expanded", "false");
+        input.removeAttribute("aria-activedescendant");
+      }
+    });
+    input.setAttribute("aria-expanded", "true");
+  };
+  function forget() {
+    clearTimeout(timer);
+    asked += 1;
+    controller?.abort();
+    controller = null;
+  }
+  function close(reason = "closed") {
+    wanted = false;
+    forget();
+    layer?.close(reason);
+  }
+  function highlight(typed) {
+    const text = normalise(typed.trim());
+    if (!autoHighlight || !text) {
+      list.setActive(-1);
+      return;
+    }
+    const exact = list.options().findIndex((o) => normalise(shownValue(o.value)) === text);
+    if (exact >= 0) list.setActive(exact);
+    else if (isCandidate?.(text)) list.setActive(-1);
+    else list.moveToEnd(1);
+  }
+  function drawRows(sections) {
+    if (!wanted) return;
+    if (!sections.length) {
+      layer?.close("empty");
+      wanted = true;
+      return;
+    }
+    const text = query ?? "";
+    list.setRows(sections, { mark: text.trim(), isCurrent });
+    show();
+    highlight(text);
+  }
+  function ask(text) {
+    controller = new AbortController();
+    const token = asked;
+    const failed = (err) => {
+      if (token !== asked) return;
+      console.warn("[createCombobox] options failed", err);
+      if (!wanted) return;
+      list.setMessage(errorText);
+      show();
+    };
+    let answer;
+    try {
+      answer = source(text, { signal: controller.signal });
+    } catch (err) {
+      failed(err);
+      return;
+    }
+    if (typeof answer?.then !== "function") {
+      drawRows(choiceSections(answer));
+      return;
+    }
+    if (!list.size && wanted) {
+      list.setMessage(loadingText);
+      show();
+    }
+    answer.then((rows) => {
+      if (token === asked) drawRows(choiceSections(rows));
+    }, failed);
+  }
+  function refresh() {
+    forget();
+    if (typeof source !== "function") {
+      const all = choiceSections(source);
+      drawRows(query === null ? all : filterSections(all, query));
+      return;
+    }
+    const text = query ?? "";
+    if (query === null || debounce <= 0) {
+      ask(text);
+      return;
+    }
+    const token = asked;
+    timer = setTimeout(() => {
+      if (token === asked) ask(text);
+    }, debounce);
+  }
+  function take(option) {
+    close("pick");
+    picking = true;
+    onPick?.(option);
+    picking = false;
+  }
+  const openFor = (text) => {
+    query = text;
+    wanted = true;
+    refresh();
+  };
+  const onInput = () => openFor(input.value);
+  const onClick = () => openFor(null);
+  const onFocus = () => {
+    if (openOnFocus && !layer && !picking) openFor(input.value || null);
+  };
+  const onBlur = () => close("blur");
+  const onKey = (ev) => {
+    if (ev.isComposing) return;
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (!layer) openFor(null);
+      list.move(ev.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
+    if (ev.key === "Enter") {
+      if (!layer) return;
+      const option = list.activeOption();
+      if (option) {
+        ev.preventDefault();
+        ev.stopImmediatePropagation();
+        take(option);
+        return;
+      }
+      close();
+      if (passEnter) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      onSettle?.();
+      return;
+    }
+    if (ev.key === "Tab") {
+      close("blur");
+      onSettle?.();
+    }
+  };
+  input.addEventListener("input", onInput);
+  input.addEventListener("click", onClick);
+  input.addEventListener("focus", onFocus);
+  input.addEventListener("blur", onBlur);
+  input.addEventListener("keydown", onKey);
+  return {
+    get isOpen() {
+      return !!layer;
+    },
+    /** Open it showing everything, or for `text`. */
+    open(text = null) {
+      openFor(text);
+    },
+    close,
+    /** Replace the options; an open list redraws. */
+    setOptions(next) {
+      source = next;
+      if (wanted) refresh();
+    },
+    destroy() {
+      close();
+      input.removeEventListener("input", onInput);
+      input.removeEventListener("click", onClick);
+      input.removeEventListener("focus", onFocus);
+      input.removeEventListener("blur", onBlur);
+      input.removeEventListener("keydown", onKey);
+    }
+  };
+}
+function createCombobox({
+  options = [],
+  value = "",
+  onChange = null,
+  className = "",
+  panelClassName = "",
+  placeholder = "",
+  title = "",
+  ariaLabel = "",
+  name = null,
+  disabled = false,
+  normalise = (text) => text,
+  autoHighlight = true,
+  isCandidate = null,
+  validate = null,
+  loadingText,
+  errorText,
+  debounce
+} = {}) {
+  const handed = String(value ?? "");
+  let current = normalise(handed);
+  const el = document.createElement("div");
+  el.className = `twm-combobox${className ? ` ${className}` : ""}`;
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "twm-combobox__input";
+  input.spellcheck = false;
+  input.value = current;
+  input.disabled = !!disabled;
+  if (name) input.name = name;
+  if (placeholder) input.placeholder = placeholder;
+  if (title) input.title = title;
+  if (ariaLabel) input.setAttribute("aria-label", ariaLabel);
+  const error = document.createElement("p");
+  error.className = "twm-combobox__error";
+  error.hidden = true;
+  error.id = `twm-combobox-error-${++SEQ2}`;
+  el.append(input, error);
+  function report(next, option) {
+    const settled = normalise(String(next ?? ""));
+    if (settled === current) return;
+    current = settled;
+    onChange?.(current, option ?? null);
+  }
+  const clearValidity = () => {
+    error.hidden = true;
+    error.textContent = "";
+    input.removeAttribute("aria-invalid");
+    input.removeAttribute("aria-describedby");
+  };
+  function paintValidity() {
+    const message = validate && current ? validate(current) || null : null;
+    if (!message) {
+      clearValidity();
+      return;
+    }
+    error.textContent = message;
+    error.hidden = false;
+    input.setAttribute("aria-invalid", "true");
+    input.setAttribute("aria-describedby", error.id);
+  }
+  function settle() {
+    report(input.value, null);
+    if (input.value !== current) input.value = current;
+    paintValidity();
+  }
+  input.addEventListener("input", () => {
+    report(input.value, null);
+    clearValidity();
+  });
+  const menu = attachInputOptions(input, {
+    options,
+    autoHighlight,
+    isCandidate,
+    normalise,
+    panelClassName,
+    loadingText,
+    errorText,
+    debounce,
+    isCurrent: (o) => normalise(shownValue(o.value)) === current,
+    onSettle: settle,
+    onPick(option) {
+      input.value = shownValue(option.value);
+      report(option.value, option.source);
+      settle();
+      input.focus();
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  });
+  input.addEventListener("blur", settle);
+  paintValidity();
+  if (onChange && current !== handed) onChange(current, null);
+  return {
+    el,
+    input,
+    get value() {
+      return current;
+    },
+    set value(next) {
+      current = normalise(String(next ?? ""));
+      input.value = current;
+      paintValidity();
+    },
+    /** The complaint on screen, or `null`. A caller that wants to refuse Save has this. */
+    get error() {
+      return error.hidden ? null : error.textContent;
+    },
+    get isOpen() {
+      return menu.isOpen;
+    },
+    setOptions: menu.setOptions,
+    /** Open the list showing everything, or for `text`. */
+    open: menu.open,
+    close: () => menu.close(),
+    focus() {
+      input.focus();
+    },
+    destroy() {
+      menu.destroy();
+      el.remove();
+    }
+  };
+}
+
 // src/ui/components/modal.js
-var _modalHost = null;
-function setModalHost(el) {
-  _modalHost = el || null;
-}
-function modalHost() {
-  return _modalHost;
-}
 var _modalSeq = 1;
 function openForm({ title, fields = [], defaults = {}, submitLabel = "OK", onFieldChange = null } = {}) {
   return new Promise((resolve) => {
@@ -461,7 +943,7 @@ function openForm({ title, fields = [], defaults = {}, submitLabel = "OK", onFie
             </form>
         `;
     const win = new ManagedWindow({
-      container: _modalHost,
+      container: modalHost(),
       id: `twm-modal-${_modalSeq++}`,
       title: title || "Dialog",
       icon: "edit_note",
@@ -501,12 +983,7 @@ function openForm({ title, fields = [], defaults = {}, submitLabel = "OK", onFie
     body.querySelector('[data-action="cancel"]')?.addEventListener("click", () => close(null));
     const formFields = _formFields(fields);
     const optionsOf = new Map(formFields.map((f) => [f.name, f.options]));
-    const comboHints = /* @__PURE__ */ new Map();
     for (const f of formFields) {
-      if (f.type === "select" && f.create) {
-        const update = _wireComboboxHint(body, f, () => optionsOf.get(f.name));
-        if (update) comboHints.set(f.name, update);
-      }
       if (f.type === "picker") _wirePicker(body, f);
     }
     const rowHidden = (name) => !!body.querySelector(`[data-field-row="${name}"]`)?.hidden;
@@ -540,13 +1017,7 @@ function openForm({ title, fields = [], defaults = {}, submitLabel = "OK", onFie
     }
     win.show();
     const comboOption = (f, text) => findChoice(flatChoices(optionsOf.get(f.name)), text, true);
-    const unavailable = (f, value) => {
-      const c = controls.get(f.name);
-      if (c) return c.unavailable();
-      if (f.type !== "select" || !f.create || value == null || value === "") return null;
-      const o = comboOption(f, value);
-      return o?.disabled ? o.reason || "" : null;
-    };
+    const unavailable = (f) => controls.get(f.name)?.unavailable() ?? null;
     for (const f of formFields) {
       const el = body.querySelector(`[name="${f.name}"]`);
       el?.addEventListener("input", () => clearFieldError(f.name));
@@ -592,11 +1063,6 @@ function openForm({ title, fields = [], defaults = {}, submitLabel = "OK", onFie
           const el = body.querySelector(`[name="${name}"]`);
           if (!el) return void 0;
           if (el.type === "checkbox") return !!el.checked;
-          const f = fieldOf(name);
-          if (f?.type === "select" && f.create) {
-            const match = comboOption(f, el.value);
-            return match ? match.value : el.value;
-          }
           return el.value;
         },
         set(name, value) {
@@ -611,28 +1077,17 @@ function openForm({ title, fields = [], defaults = {}, submitLabel = "OK", onFie
             return;
           }
           const f = fieldOf(name);
-          const shut = f?.type === "select" && f.create && comboOption(f, value)?.disabled;
-          el.value = value == null || shut ? "" : String(value);
-          comboHints.get(name)?.();
+          el.value = value == null ? "" : String(value);
           if (f?.type === "picker") {
             const display = body.querySelector(`[data-picker-display="${name}"]`);
             if (display) display.value = _pickerLabel(f, el.value);
           }
         },
         setOptions(name, options) {
-          const f = fieldOf(name);
-          if (!f) return;
           const c = controls.get(name);
-          if (c?.setOptions) {
-            optionsOf.set(name, options);
-            c.setOptions(options);
-            return;
-          }
-          if (f.type !== "select" || !f.create) return;
+          if (!c?.setOptions) return;
           optionsOf.set(name, options);
-          const list = body.querySelector(`[data-datalist-for="${name}"]`);
-          if (list) list.innerHTML = _datalistOptions(options);
-          comboHints.get(name)?.();
+          c.setOptions(options);
         }
       };
       const fire = (name) => {
@@ -701,14 +1156,14 @@ function openForm({ title, fields = [], defaults = {}, submitLabel = "OK", onFie
       for (const f of formFields) {
         clearFieldError(f.name);
         if (rowHidden(f.name)) {
-          if (unavailable(f, data[f.name]) != null) data[f.name] = f.type === "radio" ? null : "";
+          if (unavailable(f) != null) data[f.name] = f.type === "radio" ? null : "";
           continue;
         }
         const v = data[f.name];
         let msg = f.required && _missing(f, v) ? "Required." : null;
         if (!msg && _outOfRange(f, v)) msg = _rangeMessage(f);
         if (!msg) {
-          const reason = unavailable(f, v);
+          const reason = unavailable(f);
           if (reason != null) msg = reason ? `Not available: ${reason}` : "Not available.";
         }
         if (!msg) msg = controls.get(f.name)?.error?.() ?? null;
@@ -767,7 +1222,7 @@ function openConfirm({
     body.append(messageEl, actionsEl);
     let _resolved = false;
     const win = new ManagedWindow({
-      container: _modalHost,
+      container: modalHost(),
       id: `twm-confirm-${_modalSeq++}`,
       title: title || "Confirm",
       icon: icon || (danger ? "warning" : "help"),
@@ -861,7 +1316,7 @@ function openModal({
       _onMax = null;
     };
     const win = new ManagedWindow({
-      container: _modalHost,
+      container: modalHost(),
       id: `twm-modal-${_modalSeq++}`,
       title,
       icon,
@@ -1023,8 +1478,54 @@ function _rangeMessage(f) {
 function _offered(options) {
   return flatChoices(options).filter((o) => !o.disabled);
 }
-function _datalistOptions(options) {
-  return _offered(options).map((o) => `<option value="${_esc(o.value)}"></option>`).join("");
+function _mountCombobox(slot, f, value) {
+  let options = f.options;
+  const named = (text) => findChoice(flatChoices(options), text, true);
+  const shown = (v) => v == null || named(v)?.disabled ? "" : String(v);
+  const hint = document.createElement("span");
+  hint.className = "twm-combobox__hint";
+  hint.hidden = true;
+  const noun = f.create === true ? null : _createSpec(f).hint || "new entry";
+  const updateHint = () => {
+    const v = c.value.trim();
+    const isNew = noun && v && !flatChoices(options).some((o) => String(o.value) === v);
+    if (isNew) hint.textContent = `\u21B3 will create ${noun} \u201C${v}\u201D`;
+    hint.hidden = !isNew;
+  };
+  const c = createCombobox({
+    options: _offered(options),
+    value: shown(value),
+    name: f.name,
+    placeholder: f.placeholder ?? "type to pick or create\u2026",
+    // Enter keeps what was typed: this field exists to accept a value nobody listed.
+    autoHighlight: false,
+    onChange: () => updateHint()
+  });
+  if (f.required) c.input.required = true;
+  c.el.appendChild(hint);
+  slot.replaceWith(c.el);
+  updateHint();
+  return {
+    read() {
+      const o = named(c.value);
+      return o ? o.value : c.value;
+    },
+    write(v) {
+      c.value = shown(v);
+      updateHint();
+    },
+    focus: c.focus,
+    unavailable() {
+      const o = c.value === "" ? void 0 : named(c.value);
+      return o?.disabled ? o.reason || "" : null;
+    },
+    setOptions(next) {
+      options = next;
+      c.setOptions(_offered(next));
+      updateHint();
+    },
+    dispose: c.destroy
+  };
 }
 function _mountControl(host, f, value, onChange) {
   const slot = host.querySelector(`[data-control-slot="${f.name}"]`);
@@ -1067,6 +1568,7 @@ function _mountControl(host, f, value, onChange) {
       dispose: () => c2.dispose()
     };
   }
+  if (f.type === "select" && f.create) return _mountCombobox(slot, f, value);
   const common = { keepMissing: false, loose: true };
   const disabledReason = (entry) => entry?.disabled ? entry.reason || "" : null;
   if (f.type === "select") {
@@ -1178,26 +1680,6 @@ function _wirePicker(host, f) {
   btn.addEventListener("click", open);
   display.addEventListener("click", open);
 }
-function _wireComboboxHint(host, f, optionsOf) {
-  const input = host.querySelector(`input[name="${f.name}"]`);
-  const hintEl = host.querySelector(`.twm-combobox__hint[data-for="${f.name}"]`);
-  if (!input || !hintEl) return;
-  if (f.create === true) return;
-  const label = _createSpec(f).hint || "new entry";
-  const update = () => {
-    const v = input.value.trim();
-    const known = new Set(flatChoices(optionsOf()).map((o) => String(o.value)));
-    if (v && !known.has(v)) {
-      hintEl.textContent = `\u21B3 will create ${label} \u201C${v}\u201D`;
-      hintEl.hidden = false;
-    } else {
-      hintEl.hidden = true;
-    }
-  };
-  input.addEventListener("input", update);
-  update();
-  return update;
-}
 function _renderEntry(f, defaults) {
   if (f && f.section != null) {
     const attr = f.name ? ` data-field-row="${f.name}"` : "";
@@ -1273,21 +1755,6 @@ function _renderField(f, value) {
             </div>
         `);
   }
-  if (f.type === "select" && f.create) {
-    const shown = findChoice(flatChoices(f.options), value, true)?.disabled ? "" : v;
-    const dlId = `ea-dl-${f.name}-${_modalSeq}`;
-    const opts = _datalistOptions(f.options);
-    const placeholder2 = f.placeholder ? `placeholder="${_esc(f.placeholder)}"` : 'placeholder="type to pick or create\u2026"';
-    return wrap(`
-            <div class="twm-combobox">
-                <input name="${f.name}" type="text" list="${dlId}"
-                       value="${_esc(shown)}" ${placeholder2} ${required}
-                       autocomplete="off">
-                <datalist id="${dlId}" data-datalist-for="${f.name}">${opts}</datalist>
-                <span class="twm-combobox__hint" data-for="${f.name}" hidden></span>
-            </div>
-        `);
-  }
   if (f.type === "select") return wrap(slot);
   const step = f.step != null ? `step="${f.step}"` : "";
   const placeholder = f.placeholder ? `placeholder="${_esc(f.placeholder)}"` : "";
@@ -1301,13 +1768,109 @@ function _esc(s) {
   return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+// src/ui/components/context_menu.js
+var _activeMenu = null;
+var _returnFocusTo = null;
+function showContextMenu(x, y, items, onAction) {
+  hideContextMenu();
+  _returnFocusTo = document.activeElement;
+  const menu = document.createElement("div");
+  menu.className = "twm-context-menu ea-context-menu";
+  menu.setAttribute("role", "menu");
+  for (const it of items) {
+    if (it.separator) {
+      const sep = document.createElement("div");
+      sep.className = "twm-context-menu__separator";
+      sep.setAttribute("role", "separator");
+      menu.appendChild(sep);
+      continue;
+    }
+    const row = document.createElement("button");
+    row.type = "button";
+    row.setAttribute("role", "menuitem");
+    let cls = "twm-context-menu-item";
+    if (it.danger) cls += " twm-delete-node";
+    if (it.disabled) cls += " disabled";
+    row.className = cls;
+    if (it.disabled) {
+      row.disabled = true;
+      row.setAttribute("aria-disabled", "true");
+    }
+    if (it.title) row.title = it.title;
+    row.innerHTML = `
+            <span class="material-symbols-outlined">${it.icon || ""}</span>
+            <span>${escapeHtml(it.label)}</span>
+        `;
+    if (!it.disabled) {
+      row.addEventListener("click", (e) => {
+        e.stopPropagation();
+        hideContextMenu();
+        onAction?.(it.action);
+      });
+    }
+    menu.appendChild(row);
+  }
+  (modalHost() || document.body).appendChild(menu);
+  menu.style.display = "block";
+  _activeMenu = menu;
+  placeMenuInViewport(menu, x, y);
+  setTimeout(() => {
+    document.addEventListener("mousedown", _outsideHandler, { once: true, capture: true });
+  }, 0);
+  document.addEventListener("keydown", _keyHandler);
+  window.addEventListener("scroll", _scrollHandler, { capture: true });
+  focusMenuItem(_enabledItems(menu)[0]);
+}
+function hideContextMenu() {
+  if (!_activeMenu) return;
+  const returnTo = _returnFocusTo;
+  const held = _activeMenu.contains(document.activeElement);
+  _activeMenu.remove();
+  _activeMenu = null;
+  _returnFocusTo = null;
+  document.removeEventListener("keydown", _keyHandler);
+  window.removeEventListener("scroll", _scrollHandler, { capture: true });
+  if (held && returnTo?.isConnected) returnTo.focus?.({ preventScroll: true });
+}
+function _enabledItems(menu) {
+  return [...menu.querySelectorAll(".twm-context-menu-item:not(.disabled)")];
+}
+function _keyHandler(e) {
+  if (!_activeMenu) return;
+  if (e.key === "Escape") {
+    e.preventDefault();
+    hideContextMenu();
+    return;
+  }
+  moveMenuFocus(e, _enabledItems(_activeMenu));
+}
+function _scrollHandler(e) {
+  if (_activeMenu && e.target?.nodeType && _activeMenu.contains(e.target)) return;
+  hideContextMenu();
+}
+function _outsideHandler(e) {
+  if (_activeMenu && !_activeMenu.contains(e.target)) hideContextMenu();
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[c]);
+}
+
 export {
   SortableList,
   ColorListField,
-  setModalHost,
-  modalHost,
+  createOptionList,
+  attachInputOptions,
+  createCombobox,
   openForm,
   openConfirm,
-  openModal
+  openModal,
+  showContextMenu,
+  hideContextMenu
 };
-//# sourceMappingURL=chunk-XJNADRGR.js.map
+//# sourceMappingURL=chunk-R2LLV53N.js.map

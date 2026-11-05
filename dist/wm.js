@@ -2395,11 +2395,11 @@ var DesktopManager = class _DesktopManager {
    * nothing, and an app can put almost anything in a title.
    *
    * And strict is not hostile to an old blob. A key the loader has always given
-   * a default may be absent: a desktop's `id`, `label` and `panels`, the keys
-   * later releases added (`panelShares`, `group`, `fixed`), and a leaf's `tabs`
-   * and `pageTabs`. What `serialize()` has always written and the loader cannot
-   * do without (`desktops`, a desktop's `tree`, a split's `dir`, `children` and
-   * `sizes`) may not.
+   * a default may be absent: a desktop's `id`, `label`, `tree` and `panels`, the
+   * keys later releases added (`panelShares`, `group`, `fixed`), and a leaf's
+   * `tabs` and `pageTabs`. What `serialize()` has always written and the loader
+   * cannot do without (`desktops`, a split's `dir`, `children` and `sizes`) may
+   * not.
    */
   static deserialize(blob, { seed, panelDefaults = null } = {}) {
     const m = new _DesktopManager({ seed, panelDefaults });
@@ -2414,7 +2414,7 @@ var DesktopManager = class _DesktopManager {
       const at = `desktops[${i}]`;
       _expect2(_isRecord2(raw), at, "a desktop, an object", raw);
       _expect2(
-        raw.tree === null || _isRecord2(raw.tree) && _isRecord2(raw.tree.root),
+        raw.tree == null || _isRecord2(raw.tree) && _isRecord2(raw.tree.root),
         `${at}.tree`,
         "{ root }, or null for an empty desktop",
         raw.tree

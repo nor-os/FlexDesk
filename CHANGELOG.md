@@ -23,6 +23,7 @@ A consumer on a caret range has to raise it: `^0.17.18` does not take 0.18.0.
 
 ### Changed behaviour
 
+- **[A saved desktop with no `tree` is an empty desktop](docs/components/panels-and-desktops.md#a-desktop-with-no-tree-is-an-empty-desktop-0180).** It loads, seeded with the root kind, and its siblings load with it. **Upgrade warning for a host that composes the layout blob:** from 0.17.14 to 0.17.18 a desktop with no `tree` key set the whole layout aside, and the next layout change overwrote the user's saved desktops for good. Go straight to 0.18.0, or write `tree: null` on those releases. A layout that is still unreadable is still set aside whole and overwritten at the next save.
 - **Tab stays inside a popover.** [`openPopover`](docs/components/menus.md#a-rich-popover-openpopover-0180) goes round its controls, as a modal and a `CategoryPicker` do, and Escape is the way out. The flow kit's popover is now this one, so the step picker and *Insert a value* no longer close when Tab leaves them.
 - **A modal's focus trap leaves focus in an anchored layer alone**, so a popover opened from a modal keeps its focus.
 - **The flow kit's popover: test `handle.el`, not `handle.toggled`.** `toggled` is true only when the call closed the popover its anchor held. An anchor that is not on the page now opens nothing and answers `el: null`, `toggled: false`, so a caller asking whether anything opened tests `!handle.el`. Two kit popovers can now be open when one owns the other's anchor, and the outline menu answers `el: null` when nothing opened.

@@ -217,11 +217,11 @@ export class DesktopManager {
      * nothing, and an app can put almost anything in a title.
      *
      * And strict is not hostile to an old blob. A key the loader has always given
-     * a default may be absent: a desktop's `id`, `label` and `panels`, the keys
-     * later releases added (`panelShares`, `group`, `fixed`), and a leaf's `tabs`
-     * and `pageTabs`. What `serialize()` has always written and the loader cannot
-     * do without (`desktops`, a desktop's `tree`, a split's `dir`, `children` and
-     * `sizes`) may not.
+     * a default may be absent: a desktop's `id`, `label`, `tree` and `panels`, the
+     * keys later releases added (`panelShares`, `group`, `fixed`), and a leaf's
+     * `tabs` and `pageTabs`. What `serialize()` has always written and the loader
+     * cannot do without (`desktops`, a split's `dir`, `children` and `sizes`) may
+     * not.
      */
     static deserialize(blob, { seed, panelDefaults = null } = {}) {
         const m = new DesktopManager({ seed, panelDefaults });
@@ -231,9 +231,11 @@ export class DesktopManager {
         m.desktops = blob.desktops.map((raw, i) => {
             const at = `desktops[${i}]`;
             _expect(_isRecord(raw), at, 'a desktop, an object', raw);
-            // `null` is a desktop with nothing on it (serialize() writes that);
-            // a desktop with no `tree` key at all is not one serialize() writes.
-            _expect(raw.tree === null || (_isRecord(raw.tree) && _isRecord(raw.tree.root)),
+            // `null` (serialize() writes that) and no `tree` key at all (a host
+            // that composes the blob writes that) are a desktop with nothing on
+            // it, which is seeded below. Refusing one would set its siblings
+            // aside with it, and the next save would overwrite them.
+            _expect(raw.tree == null || (_isRecord(raw.tree) && _isRecord(raw.tree.root)),
                 `${at}.tree`, '{ root }, or null for an empty desktop', raw.tree);
             _expect(raw.panels == null || _isRecord(raw.panels), `${at}.panels`, 'an object', raw.panels);
             // The VALUES of `panels` and `panelShares` are not checked: the loader

@@ -157,8 +157,7 @@ Text that is not JSON was always handled: the host logs `[host] bad JSON for
 state key desktops` and answers `null`. A layout that is valid JSON but not a
 layout (a split whose `sizes` is a number, a `null` desktop, a split with no
 `children`) used to make `createShell` throw, on every start, until the file was
-deleted by hand, so an app had to vet the file before booting. Others were let
-through half understood: a desktop with no `tree` came back as an empty one.
+deleted by hand, so an app had to vet the file before booting.
 
 Now such a layout is ignored. `createShell` resolves, the shell opens its
 default layout exactly as it does when nothing was saved, and one warning names
@@ -181,10 +180,8 @@ loggers) records that line as the message, with the key and the cause in it.
   (any change to it) that save replaces the file, and until then every start
   warns again.
 - **What is unreadable** is a shape `serialize()` could not have written:
-  `desktops` not a non-empty array; a desktop that is not an object, or has no
-  `tree` (a `tree` of `null` is a desktop with nothing on it, and is fine, and it
-  is what a host that composes the blob itself must write for a desktop it wants
-  the shell to seed); a
+  `desktops` not a non-empty array; a desktop that is not an object, or whose
+  `tree` is something other than `{ root }`, `null` or absent; a
   `panels` or `panelShares` that is not an object; a node that is not a `leaf`
   or a `split`; a split without a `dir` of `h` or `v`, without children, or
   whose `sizes` are not one non-negative number per child; a tab without a
@@ -195,13 +192,25 @@ loggers) records that line as the message, with the key and the cause in it.
   `group` and `fixed`, a panel's flag, a tab's props. A layout saved by an
   earlier release loads too: the keys that came later (`panelShares`, `group`,
   `fixed`, a leaf's `pageTabs`) may be missing, and so may a desktop's `id`,
-  `label` and `panels`, and a leaf's `tabs`. Keys it does not know are ignored, a
+  `label`, `tree` and `panels`, and a leaf's `tabs`. Keys it does not know are ignored, a
   tab of a kind with no factory registered is the usual placeholder tile, and an
   `activeIdx` past the last desktop is clamped.
 
 `DESKTOPS_KEY` (`'desktops'`) names the key, and `DesktopManager.deserialize`
 throws the `TypeError` above for a blob that cannot be read, which is what
 `wm.load()` catches; `wm.load()` itself does not throw for one.
+
+### A desktop with no `tree` is an empty desktop (0.18.0)
+
+A desktop whose `tree` is `null` or absent has nothing on it. It loads, its
+siblings load with it, and the shell seeds it with the root kind. A host that
+composes the blob can leave the key out: one that rebuilds a desktop per page on
+every boot, say, and keeps only the desktops the user made.
+
+From 0.17.14 to 0.17.18 an absent `tree` counted as unreadable. All or nothing
+then set the user's desktops aside with it, and the next layout change saved the
+default layout over them for good. A host like that must not ship on those
+releases unless it writes `tree: null`.
 
 `tests/saved_layout_unreadable.test.mjs` boots a real shell over each of 78
 shapes of broken layout and over the readable ones.

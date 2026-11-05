@@ -317,11 +317,11 @@ await section('§1 a saved layout with the wrong shape no longer stops createShe
            f.said === `desktops[0].tree.root.children[1].sizes: expected 2 non-negative numbers, one per child, found ${JSON.stringify(sizes)}`);
     }
 
-    // The report's second step: a desktop's `tree` removed.
+    // One desktop damaged, the other fine.
     const blob = good();
-    delete D1(blob).tree;
+    D1(blob).tree = 'root';
     const f = await facts(blob, { where: 'desktops[1].tree' });
-    check('a desktop with its tree removed: the default layout, one warning, the whole layout set aside',
+    check('a desktop whose tree is not one: the default layout, one warning, the whole layout set aside',
           verdict(f), HEALTHY);
     check('  (the first desktop was fine and is not kept: a half-trusted layout is no layout)',
           f.b.wm.desktops.desktops.length, 1);
@@ -360,7 +360,6 @@ const BROKEN = [
     ['a desktop is a number', (b) => { b.desktops[0] = 3; }, 'desktops[0]'],
     ['a desktop is a string', (b) => { b.desktops[1] = 'd2'; }, 'desktops[1]'],
     ['a desktop is an array', (b) => { b.desktops[0] = []; }, 'desktops[0]'],
-    ['a desktop has no tree', (b) => { delete D0(b).tree; }, 'desktops[0].tree'],
     ['a desktop tree is a string', (b) => { D1(b).tree = 'root'; }, 'desktops[1].tree'],
     ['a desktop tree is a number', (b) => { D0(b).tree = 1; }, 'desktops[0].tree'],
     ['a desktop tree is an array', (b) => { D0(b).tree = []; }, 'desktops[0].tree'],
@@ -505,6 +504,9 @@ await section('§3 a readable layout is restored, with no warning', async () => 
     await restored('an empty desktop (tree: null, which is how the shell saves one)',
         { activeIdx: 0, desktops: [{ id: 'e', label: '1', tree: null, panels: { left: false, right: false, bottom: false } }] },
         ['home']);
+    await restored('an empty desktop (no tree key, which is how a host that composes the blob writes one)',
+        { activeIdx: 0, desktops: [{ id: 'e', label: '1', panels: { left: false, right: false, bottom: false } }] },
+        ['home']);
     await restored('a tab of a kind nobody registered',
         { desktops: [desktop(leaf('ghost'), { panels: { left: false, right: false, bottom: false } })] },
         ['ghost']);
@@ -563,8 +565,8 @@ await section('§4 DesktopManager.deserialize and TileTree.deserialize', async (
           tryRead((() => { const b = good(); ROOT(b).sizes = Array(40).fill('x'); return b; })())?.message
               .endsWith('found ["x","x","x","x","x","x","x","x","x",...'), true);
     check('a missing value is "nothing", not "undefined"',
-          tryRead((() => { const b = good(); delete D1(b).tree; return b; })())?.message,
-          'desktops[1].tree: expected { root }, or null for an empty desktop, found nothing');
+          tryRead((() => { const b = good(); delete b.desktops; return b; })())?.message,
+          'desktops: expected a non-empty array of desktops, found nothing');
 
     // Reading never writes to what it reads: a frozen blob reads, and a frozen
     // broken blob still fails with the TypeError that names the damage, not
@@ -622,10 +624,40 @@ await section('§5 the bad blob stays until the shell saves', async () => {
     s2.shell.dispose();
 });
 
+// ── §5b A host composes the blob: nothing the user arranged is lost ────
+await section('§5b a desktop with no tree sets nothing aside and costs nothing at the next save', async () => {
+    // A host that keeps some desktops itself (a page each, rebuilt on every boot)
+    // writes them with no `tree`, beside the ones the user arranged. From 0.17.14
+    // to 0.17.18 that one absent key set the whole layout aside, and the next
+    // layout change saved the default layout over the user's desktop for good.
+    const mine = desktop(split('h', [leaf('docs'), leaf('home')]), { id: 'mine', label: 'Mine' });
+    const store = makeStore({ activeIdx: 0, desktops: [{ label: 'Page', group: 'Pages', fixed: true }, mine] });
+    const tiles = (d) => d.tree.leaves().map((l) => l.content?.kind).filter((k) => !k?.startsWith('panel:'));
+
+    const s1 = await boot(store);
+    check('no warning, and both desktops are there',
+          [s1.threw, s1.warns.length, s1.errors.length, s1.wm.desktops.desktops.map((d) => [d.label, d.group, d.fixed])],
+          [null, 0, 0, [['Page', 'Pages', true], ['Mine', null, false]]]);
+    check('the desktop with no tree is seeded with the root kind', tiles(s1.wm.desktops.desktops[0]), ['home']);
+    check('the user\'s desktop came back as it was', tiles(s1.wm.desktops.desktops[1]), ['docs', 'home']);
+
+    s1.wm.newTab();
+    await sleep(SETTLE_MS);
+    const written = JSON.parse(store.files.get(DESKTOPS_KEY));
+    check('the next layout change saves the user\'s desktop, not the default layout',
+          [store.writes, written.desktops.map((d) => d.label), written.desktops[1].id], [1, ['Page', 'Mine'], 'mine']);
+    s1.shell.dispose();
+
+    const s2 = await boot(store);
+    check('and the boot after that restores it, silently',
+          [s2.threw, s2.warns.length, tiles(s2.wm.desktops.desktops[1])], [null, 0, ['docs', 'home']]);
+    s2.shell.dispose();
+});
+
 // ── §6 Where the warning goes; the rest of the load path ───────────────
 await section('§6 the logger, and the paths that were already safe', async () => {
     const bad = good();
-    delete D0(bad).tree;
+    D0(bad).tree = 'root';
 
     // `logger` is createShell's own option: told instead of the console.
     const told = [];

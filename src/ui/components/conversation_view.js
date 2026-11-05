@@ -18,8 +18,8 @@
  *
  * MESSAGES are `{ id?, role, text, meta? }`. `id` is assigned when absent;
  * `role` becomes a modifier class (`twm-chat__msg--<role>`); `meta` is the
- * caller's and is handed back untouched. `append`, `replaceAll` and `clear`
- * change the list; `messages()` reads it. An id already in the transcript (or
+ * caller's and is handed back untouched. `append`, `remove`, `replaceAll` and
+ * `clear` change the list; `messages()` reads it. An id already in the transcript (or
  * repeated within one `replaceAll`) is refused with a throw, and a refused
  * call changes nothing. Each message has an EXTRA SLOT
  * (`slot(id)`), an element below the body the caller fills with whatever
@@ -279,6 +279,20 @@ export function mountConversationView(host, {
         return entry.message.id;
     }
 
+    /**
+     * Takes one message out and leaves every other one, with its slot, as it is.
+     * An open stream on that message is over. False for an unknown id.
+     */
+    function remove(id) {
+        const entry = entries.get(id);
+        if (!entry) return false;
+        if (streamId === id) streamId = null;
+        entries.delete(id);
+        entry.row.remove();
+        settle();
+        return true;
+    }
+
     /** All or nothing: a repeated id throws before the transcript is touched. No list (undefined or null) empties it. */
     function replaceAll(messages) {
         const list = [...(messages ?? [])];
@@ -396,6 +410,7 @@ export function mountConversationView(host, {
     return {
         root,
         append,
+        remove,
         replaceAll,
         clear,
         beginStream,

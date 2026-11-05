@@ -2070,6 +2070,199 @@ function showComputingWindow({
   };
 }
 
+// src/ui/components/chat_state_machine.js
+var CHAT_STATES = Object.freeze({
+  IDLE: "idle",
+  WAITING: "waiting",
+  STREAMING: "streaming",
+  ERROR: "error"
+});
+var CHAT_TRANSITIONS = Object.freeze({
+  SEND: "chat:message:send",
+  STREAM_START: "chat:stream:start",
+  STREAM_COMPLETE: "chat:stream:complete",
+  CANCEL: "chat:cancel",
+  ERROR: "chat:error",
+  RESET: "chat:reset"
+});
+var CHAT_BUS_EVENTS = Object.freeze({
+  STATE_CHANGED: "chat:state:changed",
+  MESSAGE_SENT: "chat:message:sent",
+  STREAM_COMPLETE: "chat:stream:completed",
+  MODE_CHANGED: "chat:mode:changed",
+  CONVERSATION_NEW: "chat:conversation:new",
+  CONVERSATION_LOADED: "chat:conversation:loaded",
+  ERROR: "chat:error:raised"
+});
+var ChatStateMachine = class {
+  #machine;
+  #eventBus;
+  #onChange;
+  #queue = Promise.resolve();
+  #conversationId = null;
+  #mode;
+  #lastError = null;
+  /**
+   * @param {object}   [deps]
+   * @param {object}   [deps.eventBus]  gets `CHAT_BUS_EVENTS`
+   * @param {object}   [deps.logger]
+   * @param {?string}  [deps.mode]      the mode to start in
+   * @param {Function} [deps.onChange]  `({ state, conversationId, mode })` on every state entered
+   */
+  constructor({ eventBus = null, logger = null, mode = null, onChange = null } = {}) {
+    this.#eventBus = eventBus;
+    this.#onChange = onChange;
+    this.#mode = mode;
+    const entered = () => this.#entered();
+    const send = {
+      target: CHAT_STATES.WAITING,
+      guard: (ctx) => !!ctx.payload?.message,
+      action: (ctx) => this.#messageSent(ctx.payload)
+    };
+    const inFlight = {
+      [CHAT_TRANSITIONS.STREAM_COMPLETE]: {
+        target: CHAT_STATES.IDLE,
+        action: (ctx) => this.#emit(CHAT_BUS_EVENTS.STREAM_COMPLETE, {
+          conversationId: this.#conversationId,
+          ...ctx.payload
+        })
+      },
+      [CHAT_TRANSITIONS.CANCEL]: { target: CHAT_STATES.IDLE },
+      [CHAT_TRANSITIONS.ERROR]: {
+        target: CHAT_STATES.ERROR,
+        action: (ctx) => this.#failed(ctx.payload)
+      },
+      [CHAT_TRANSITIONS.RESET]: { target: CHAT_STATES.IDLE }
+    };
+    this.#machine = new StateMachine({
+      name: "chat",
+      initialState: CHAT_STATES.IDLE,
+      eventBus,
+      logger,
+      states: {
+        [CHAT_STATES.IDLE]: {
+          onEnter: () => {
+            this.#lastError = null;
+            entered();
+          },
+          transitions: { [CHAT_TRANSITIONS.SEND]: send }
+        },
+        [CHAT_STATES.WAITING]: {
+          onEnter: entered,
+          transitions: {
+            [CHAT_TRANSITIONS.STREAM_START]: { target: CHAT_STATES.STREAMING },
+            ...inFlight
+          }
+        },
+        [CHAT_STATES.STREAMING]: { onEnter: entered, transitions: inFlight },
+        [CHAT_STATES.ERROR]: {
+          onEnter: entered,
+          transitions: {
+            [CHAT_TRANSITIONS.RESET]: { target: CHAT_STATES.IDLE },
+            [CHAT_TRANSITIONS.SEND]: send
+          }
+        }
+      }
+    });
+  }
+  getState() {
+    return this.#machine.getState();
+  }
+  get conversationId() {
+    return this.#conversationId;
+  }
+  set conversationId(id) {
+    this.#conversationId = id ?? null;
+  }
+  get mode() {
+    return this.#mode;
+  }
+  get lastError() {
+    return this.#lastError;
+  }
+  setMode(mode) {
+    this.#mode = mode;
+    this.#emit(CHAT_BUS_EVENTS.MODE_CHANGED, { mode });
+  }
+  /** Resolves when every call so far has taken effect. */
+  settled() {
+    return this.#queue;
+  }
+  sendMessage(message, conversationId = this.#conversationId) {
+    this.#conversationId = conversationId ?? null;
+    return this.#transition(CHAT_TRANSITIONS.SEND, { message });
+  }
+  streamStart() {
+    return this.#transition(CHAT_TRANSITIONS.STREAM_START);
+  }
+  /** @param {object} [payload] goes out with `CHAT_BUS_EVENTS.STREAM_COMPLETE` */
+  streamComplete(payload = {}) {
+    return this.#transition(CHAT_TRANSITIONS.STREAM_COMPLETE, payload);
+  }
+  cancel() {
+    return this.#transition(CHAT_TRANSITIONS.CANCEL);
+  }
+  error(message, detail = null) {
+    return this.#transition(CHAT_TRANSITIONS.ERROR, { message, detail });
+  }
+  reset() {
+    return this.#transition(CHAT_TRANSITIONS.RESET);
+  }
+  /** Back to idle with no conversation, whatever the state. */
+  newConversation() {
+    this.#conversationId = null;
+    return this.#enqueue(async () => {
+      await this.#machine.reset(CHAT_STATES.IDLE);
+      this.#emit(CHAT_BUS_EVENTS.CONVERSATION_NEW, {});
+    });
+  }
+  /** Back to idle on a kept conversation, whatever the state. */
+  loadConversation(conversationId) {
+    this.#conversationId = conversationId ?? null;
+    return this.#enqueue(async () => {
+      await this.#machine.reset(CHAT_STATES.IDLE);
+      this.#emit(CHAT_BUS_EVENTS.CONVERSATION_LOADED, { conversationId });
+    });
+  }
+  canSend() {
+    const state = this.getState();
+    return state === CHAT_STATES.IDLE || state === CHAT_STATES.ERROR;
+  }
+  isProcessing() {
+    const state = this.getState();
+    return state === CHAT_STATES.WAITING || state === CHAT_STATES.STREAMING;
+  }
+  #transition(event, payload) {
+    return this.#enqueue(() => this.#machine.transition(event, payload));
+  }
+  /** One step after the last; a step that fails rejects its own promise and not the next one's. */
+  #enqueue(step) {
+    const run = this.#queue.then(step);
+    this.#queue = run.then(() => void 0, () => void 0);
+    return run;
+  }
+  #messageSent({ message }) {
+    this.#lastError = null;
+    this.#emit(CHAT_BUS_EVENTS.MESSAGE_SENT, {
+      conversationId: this.#conversationId,
+      text: message,
+      mode: this.#mode
+    });
+  }
+  #failed({ message, detail }) {
+    this.#lastError = message;
+    this.#emit(CHAT_BUS_EVENTS.ERROR, { conversationId: this.#conversationId, message, detail });
+  }
+  #entered() {
+    const change = { state: this.getState(), conversationId: this.#conversationId, mode: this.#mode };
+    this.#onChange?.(change);
+    this.#emit(CHAT_BUS_EVENTS.STATE_CHANGED, change);
+  }
+  #emit(name, payload) {
+    this.#eventBus?.emit(name, payload);
+  }
+};
+
 // src/ui/components/conversation_view.js
 var CONVERSATION_PIN_WITHIN_PX = 32;
 var AT_END_PX = 1;
@@ -2233,6 +2426,15 @@ function mountConversationView(host, {
     settle();
     return entry.message.id;
   }
+  function remove(id) {
+    const entry = entries.get(id);
+    if (!entry) return false;
+    if (streamId === id) streamId = null;
+    entries.delete(id);
+    entry.row.remove();
+    settle();
+    return true;
+  }
   function replaceAll(messages) {
     const list = [...messages ?? []];
     const given = /* @__PURE__ */ new Set();
@@ -2325,6 +2527,7 @@ function mountConversationView(host, {
   return {
     root,
     append,
+    remove,
     replaceAll,
     clear,
     beginStream,
@@ -2369,6 +2572,756 @@ function mountConversationView(host, {
       root.remove();
     }
   };
+}
+
+// src/ui/components/chat_shell.js
+var CHAT_TRANSPORT_EVENTS = Object.freeze({
+  TEXT_DELTA: "text-delta",
+  TOOL_USE: "tool-use",
+  MESSAGE_END: "message-end",
+  ERROR: "error"
+});
+var CHAT_SHELL_LABELS = Object.freeze({
+  send: "Send",
+  cancel: "Cancel",
+  jump: "Jump to latest",
+  input: "Message",
+  conversations: "Conversations",
+  newConversation: "New chat",
+  add: "New conversation",
+  clear: "Clear conversation",
+  clearTitle: "Clear conversation",
+  clearMessage: "Clear this conversation? This cannot be undone.",
+  clearOk: "Clear",
+  clearCancel: "Cancel",
+  rename: "Conversation name",
+  modes: "Mode",
+  selectModel: "Select model...",
+  typing: "The assistant is replying",
+  copy: "Copy message",
+  retry: "Retry",
+  retryTitle: "Send the message again",
+  unknownError: "Unknown error"
+});
+var TITLE_CHARS = 30;
+var COPIED_MS = 1500;
+var TOOL_ICONS = Object.freeze({ running: "build", done: "check", error: "error", stopped: "block" });
+var defaultTitle = (text) => text.length > TITLE_CHARS ? `${text.slice(0, TITLE_CHARS)}...` : text;
+function defaultTime(at) {
+  const date = new Date(at);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+function mountChatShell(host, {
+  transport,
+  renderControls = null,
+  markdown = {},
+  onChange = null,
+  onConversationChange = null,
+  modes = [],
+  mode = null,
+  onModeChange = null,
+  models = null,
+  onModelSelect = null,
+  onModelAction = null,
+  conversations = null,
+  titleFrom = defaultTitle,
+  formatTime = defaultTime,
+  placeholder = "",
+  welcome = null,
+  labels = {},
+  eventBus = null,
+  logger = null
+} = {}) {
+  if (typeof transport?.send !== "function") {
+    throw new TypeError("mountChatShell: a transport with send(request, emit) is required");
+  }
+  const text = { ...CHAT_SHELL_LABELS, ...labels };
+  const doc = host.ownerDocument;
+  const el3 = (tag, cls, content) => {
+    const n = doc.createElement(tag);
+    if (cls) n.className = cls;
+    if (content !== void 0) n.textContent = content;
+    return n;
+  };
+  const icon2 = (name, cls = "") => {
+    const i = el3("span", `material-symbols-outlined ${cls}`.trim(), name);
+    i.setAttribute("aria-hidden", "true");
+    return i;
+  };
+  const button3 = (cls, title) => {
+    const b = el3("button", cls);
+    b.type = "button";
+    b.title = title;
+    b.setAttribute("aria-label", title);
+    return b;
+  };
+  const safely = (fn, ...args) => {
+    try {
+      return fn?.(...args);
+    } catch (error) {
+      logger?.error?.("chat-shell", "A callback threw", { error });
+      return void 0;
+    }
+  };
+  let destroyed = false;
+  let turn = null;
+  let runEnding = null;
+  const extras = /* @__PURE__ */ new Map();
+  const copyTimers = /* @__PURE__ */ new Set();
+  const modeIds = modes.map((m) => m.id);
+  const machine = new ChatStateMachine({
+    eventBus,
+    logger,
+    mode: modeIds.includes(mode) ? mode : modeIds[0] ?? null,
+    onChange: ({ state }) => {
+      if (!destroyed) showState(state);
+    }
+  });
+  const root = el3("div", "twm-chat-shell");
+  const tabBar = el3("div", "twm-chat-shell__tab-bar");
+  const tabsHost = el3("div", "twm-chat-shell__tabs");
+  const addBtn = button3("twm-chat-shell__tab-btn", text.add);
+  addBtn.append(icon2("add"));
+  const clearBtn = button3("twm-chat-shell__tab-btn twm-chat-shell__tab-btn--clear", text.clear);
+  clearBtn.append(icon2("delete_sweep"));
+  tabBar.append(tabsHost, addBtn, clearBtn);
+  const conversationHost = el3("div", "twm-chat-shell__conversation");
+  const bar = el3("div", "twm-chat-shell__bar");
+  root.append(tabBar, conversationHost, bar);
+  host.append(root);
+  const view = mountConversationView(conversationHost, {
+    render: drawBody,
+    onSubmit: (value) => send(value),
+    onCancel: () => cancel(),
+    onRenderError: (error, message) => logger?.error?.("chat-shell", "Could not draw a message", { error, message }),
+    placeholder,
+    labels: { send: text.send, cancel: text.cancel, jump: text.jump, input: text.input }
+  });
+  const welcomeEl = welcome ? el3("div", "twm-chat-shell__welcome") : null;
+  if (welcomeEl) {
+    if (welcome.icon) welcomeEl.append(icon2(welcome.icon, "twm-chat-shell__welcome-icon"));
+    welcomeEl.append(el3("p", "twm-chat-shell__welcome-text", welcome.text ?? ""));
+    view.root.querySelector(".twm-chat__viewport").prepend(welcomeEl);
+  }
+  const syncWelcome = () => {
+    if (welcomeEl) welcomeEl.hidden = view.messages().length > 0;
+  };
+  function showState(state) {
+    const busy = state === CHAT_STATES.WAITING || state === CHAT_STATES.STREAMING;
+    view.setBusy(busy);
+    addBtn.disabled = busy;
+    clearBtn.disabled = busy;
+  }
+  function drawBody(message, body, { streaming }) {
+    if (message.role !== "assistant") {
+      body.textContent = message.text;
+      return;
+    }
+    if (streaming && !message.text) {
+      const dots = el3("span", "twm-chat-shell__typing");
+      dots.setAttribute("role", "img");
+      dots.setAttribute("aria-label", text.typing);
+      dots.append(el3("span"), el3("span"), el3("span"));
+      body.append(dots);
+      return;
+    }
+    body.innerHTML = renderMarkdown(message.text, markdown);
+  }
+  const viewMessage = (id) => view.messages().find((m) => m.id === id) ?? null;
+  function kept({ id, role, text: body }) {
+    const { at, tools, meta } = extras.get(id) ?? {};
+    const message = { id, role, text: body };
+    if (at) message.at = at;
+    if (tools?.length) message.tools = tools.map((t) => ({ ...t }));
+    if (meta !== void 0) message.meta = meta;
+    return message;
+  }
+  function keptMessages() {
+    const streaming = view.streamingId();
+    return view.messages().filter((m) => m.id !== streaming || m.text || extras.get(m.id)?.tools.length).map(kept);
+  }
+  function register(id, { at, tools = [], meta }) {
+    const entry = {
+      at,
+      tools,
+      meta,
+      toolsEl: el3("div", "twm-chat-shell__tools"),
+      controlsEl: el3("div", "twm-chat-shell__controls"),
+      footerEl: el3("div", "twm-chat-shell__footer")
+    };
+    extras.set(id, entry);
+    view.slot(id).append(entry.toolsEl, entry.controlsEl, entry.footerEl);
+    return entry;
+  }
+  function drawTools(id) {
+    const entry = extras.get(id);
+    entry.toolsEl.replaceChildren(...entry.tools.map((tool) => {
+      const row = el3("div", `twm-chat-shell__tool twm-chat-shell__tool--${tool.status}`);
+      row.append(
+        icon2(TOOL_ICONS[tool.status], "twm-chat-shell__tool-icon"),
+        el3("span", "twm-chat-shell__tool-label", tool.label ?? tool.name)
+      );
+      return row;
+    }));
+  }
+  function drawControls(id) {
+    const message = viewMessage(id);
+    const entry = extras.get(id);
+    if (!renderControls || !message || !entry) return;
+    if (message.role !== "assistant" || id === view.streamingId()) return;
+    entry.controlsEl.replaceChildren();
+    safely(renderControls, entry.controlsEl, kept(message), chat);
+  }
+  function copyButton(id) {
+    const copy = button3("twm-chat-shell__copy", text.copy);
+    const glyph2 = icon2("content_copy");
+    copy.append(glyph2);
+    copy.addEventListener("click", () => {
+      Promise.resolve().then(() => doc.defaultView.navigator.clipboard.writeText(viewMessage(id)?.text ?? "")).then(() => {
+        copy.classList.add("twm-chat-shell__copy--done");
+        glyph2.textContent = "check";
+        const timer = setTimeout(() => {
+          copyTimers.delete(timer);
+          copy.classList.remove("twm-chat-shell__copy--done");
+          glyph2.textContent = "content_copy";
+        }, COPIED_MS);
+        copyTimers.add(timer);
+      }).catch((error) => logger?.warn?.("chat-shell", "Could not copy a message", { error }));
+    });
+    return copy;
+  }
+  function retryable(id, list) {
+    const last = list.at(-1);
+    if (last?.id !== id || last.role !== "error") return null;
+    return list.slice(0, -1).reverse().find((m) => m.role === "user") ?? null;
+  }
+  function drawFooter(id, list = view.messages()) {
+    const entry = extras.get(id);
+    entry.footerEl.replaceChildren();
+    if (id === view.streamingId()) return;
+    const user = retryable(id, list);
+    if (user) {
+      const retry = el3("button", "twm-chat-shell__retry");
+      retry.type = "button";
+      retry.title = text.retryTitle;
+      retry.append(icon2("refresh"), doc.createTextNode(text.retry));
+      retry.addEventListener("click", () => send(user.text));
+      entry.footerEl.append(retry);
+    }
+    const message = list.find((m) => m.id === id);
+    const time = entry.at ? safely(formatTime, entry.at, kept(message)) : "";
+    if (time) entry.footerEl.append(el3("span", "twm-chat-shell__time", time));
+    entry.footerEl.append(copyButton(id));
+  }
+  const follow = () => {
+    if (view.isPinned()) view.scrollToBottom();
+  };
+  function redrawFailures() {
+    const list = view.messages();
+    for (const { id, role } of list) if (role === "error") drawFooter(id, list);
+  }
+  function appendMessage(role, body) {
+    const id = view.append({ role, text: body });
+    register(id, { at: (/* @__PURE__ */ new Date()).toISOString() });
+    redrawFailures();
+    drawFooter(id);
+    follow();
+    return id;
+  }
+  const newTab = (id) => ({
+    id,
+    title: text.newConversation,
+    conversationId: null,
+    messages: [],
+    scrollTop: null
+  });
+  const tabs = [];
+  let activeId = null;
+  let nextTab = 1;
+  const tabOf = (id) => tabs.find((t) => t.id === String(id)) ?? null;
+  const activeTab = () => tabOf(activeId);
+  function freshTab() {
+    let id;
+    do
+      id = `chat-${nextTab++}`;
+    while (tabOf(id));
+    const tab = newTab(id);
+    tabs.push(tab);
+    return tab;
+  }
+  function restored(messages) {
+    return (messages ?? []).filter((m) => m && typeof m.role === "string").map((m) => {
+      const tools = m.tools?.map((t) => t.status === "running" ? { ...t, status: "stopped" } : { ...t });
+      return tools ? { ...m, tools } : { ...m };
+    });
+  }
+  const strip = createTabs(tabsHost, {
+    items: [],
+    compact: true,
+    label: text.conversations,
+    onSelect: (id) => {
+      if (id == null || id === activeId) return;
+      switchTo(id);
+      if (strip.active() !== activeId) strip.update(tabItems(), activeId);
+    },
+    onClose: (id) => close(id)
+  });
+  function tabItems() {
+    const closable = tabs.length > 1;
+    return tabs.map(({ id, title }) => ({ id, label: title, title, closable }));
+  }
+  const drawTabs = () => strip.update(tabItems(), activeId);
+  function beginRename(id, tabEl) {
+    if (tabBar.querySelector(".twm-chat-shell__rename")) return;
+    const original = tabOf(id)?.title ?? "";
+    const barRect = tabBar.getBoundingClientRect();
+    const tabRect = tabEl.getBoundingClientRect();
+    const input = el3("input", "twm-chat-shell__rename");
+    input.type = "text";
+    input.value = original;
+    input.spellcheck = false;
+    input.setAttribute("aria-label", text.rename);
+    input.style.left = `${Math.max(0, tabRect.left - barRect.left)}px`;
+    input.style.width = `${Math.max(tabRect.width, 120)}px`;
+    tabBar.append(input);
+    input.focus();
+    input.select();
+    let done = false;
+    const finish = (commit) => {
+      if (done) return;
+      done = true;
+      input.remove();
+      const name = input.value.trim();
+      if (commit && name && name !== original) rename(id, name);
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      finish(e.key === "Enter");
+    });
+    input.addEventListener("blur", () => finish(true));
+  }
+  const renameTarget = (e) => {
+    const tab = e.target.closest?.(".twm-tabs__tab");
+    if (tab) beginRename(tab.dataset.tabId, tab);
+  };
+  strip.root.addEventListener("dblclick", renameTarget);
+  strip.root.addEventListener("keydown", (e) => {
+    if (e.key === "F2") renameTarget(e);
+  });
+  function stash() {
+    const tab = activeTab();
+    tab.messages = keptMessages();
+    tab.scrollTop = view.getScrollTop();
+  }
+  function showTab(tab) {
+    const messages = restored(tab.messages);
+    extras.clear();
+    view.replaceAll(messages.map(({ id, role, text: body }) => ({ id, role, text: body })));
+    const list = view.messages();
+    list.forEach(({ id }, i) => {
+      const { at, tools, meta } = messages[i];
+      register(id, { at, tools: tools ?? [], meta });
+      drawTools(id);
+      drawControls(id);
+      drawFooter(id, list);
+    });
+    if (tab.scrollTop !== null) view.setScrollTop(tab.scrollTop);
+    else view.scrollToBottom();
+    syncWelcome();
+  }
+  function snapshot() {
+    stash();
+    return {
+      activeId,
+      tabs: tabs.map(({ id, title, conversationId, messages }) => ({
+        id,
+        title,
+        conversationId,
+        messages: messages.map((m) => ({ ...m }))
+      }))
+    };
+  }
+  const changed = () => {
+    if (onChange) safely(onChange, snapshot());
+  };
+  function bringToFront(tab, reason) {
+    activeId = tab.id;
+    if (tab.conversationId) machine.loadConversation(tab.conversationId);
+    else machine.newConversation();
+    showTab(tab);
+    drawTabs();
+    const { id, title, conversationId } = tab;
+    safely(onConversationChange, { id, title, conversationId, messages: restored(tab.messages) }, reason);
+    changed();
+  }
+  function newConversation() {
+    if (turn) return null;
+    stash();
+    const tab = freshTab();
+    bringToFront(tab, "new");
+    return tab.id;
+  }
+  function switchTo(id) {
+    const tab = tabOf(id);
+    if (turn || !tab || tab.id === activeId) return false;
+    stash();
+    bringToFront(tab, "switch");
+    return true;
+  }
+  function close(id) {
+    const tab = tabOf(id);
+    if (!tab || tabs.length <= 1 || turn && tab.id === activeId) return false;
+    const wasActive = tab.id === activeId;
+    tabs.splice(tabs.indexOf(tab), 1);
+    if (wasActive) {
+      bringToFront(tabs[0], "close");
+    } else {
+      drawTabs();
+      changed();
+    }
+    return true;
+  }
+  function rename(id, title) {
+    const tab = tabOf(id);
+    const name = String(title ?? "").trim();
+    if (!tab || !name) return false;
+    tab.title = name;
+    drawTabs();
+    changed();
+    return true;
+  }
+  function reset() {
+    if (turn) return false;
+    const tab = activeTab();
+    Object.assign(tab, { title: text.newConversation, conversationId: null, messages: [], scrollTop: null });
+    bringToFront(tab, "reset");
+    return true;
+  }
+  addBtn.addEventListener("click", () => newConversation());
+  clearBtn.addEventListener("click", async () => {
+    if (view.messages().length > 0) {
+      const confirmed = await showConfirmDialog({
+        title: text.clearTitle,
+        message: text.clearMessage,
+        icon: "delete_sweep",
+        okLabel: text.clearOk,
+        cancelLabel: text.clearCancel,
+        okVariant: "danger"
+      });
+      if (!confirmed || destroyed) return;
+    }
+    reset();
+  });
+  function send(value) {
+    const message = String(value ?? "").trim();
+    if (!message || turn) return false;
+    const tab = activeTab();
+    appendMessage("user", message);
+    if (tab.title === text.newConversation) {
+      const title = safely(titleFrom, message);
+      if (title) {
+        tab.title = String(title);
+        drawTabs();
+      }
+    }
+    const replyId = view.beginStream({ role: "assistant" });
+    register(replyId, { at: (/* @__PURE__ */ new Date()).toISOString() });
+    redrawFailures();
+    syncWelcome();
+    const token = {};
+    const request = {
+      text: message,
+      tabId: tab.id,
+      conversationId: tab.conversationId,
+      mode: machine.mode,
+      model: currentModels.activeId ?? null
+    };
+    const current = { token, replyId, request, started: false, sent: false };
+    turn = current;
+    machine.sendMessage(message, tab.conversationId);
+    changed();
+    const emit = (event) => {
+      if (turn?.token === token) handle(event);
+    };
+    const fail = (error) => emit({ type: CHAT_TRANSPORT_EVENTS.ERROR, message: error?.message ?? String(error) });
+    const start = () => {
+      current.sent = true;
+      try {
+        Promise.resolve(transport.send(request, emit)).catch(fail);
+      } catch (error) {
+        fail(error);
+      }
+    };
+    if (runEnding) runEnding.then(() => {
+      if (turn === current) start();
+    });
+    else start();
+    return true;
+  }
+  function handle(event) {
+    switch (event?.type) {
+      case CHAT_TRANSPORT_EVENTS.TEXT_DELTA:
+        if (!event.text) return;
+        markStarted();
+        view.appendChunk(event.text);
+        return;
+      case CHAT_TRANSPORT_EVENTS.TOOL_USE:
+        markStarted();
+        useTool(event);
+        return;
+      case CHAT_TRANSPORT_EVENTS.MESSAGE_END:
+        endMessage(event);
+        return;
+      case CHAT_TRANSPORT_EVENTS.ERROR:
+        failTurn(event);
+        return;
+      default:
+        logger?.warn?.("chat-shell", "Unknown transport event", { event });
+    }
+  }
+  function markStarted() {
+    if (turn.started) return;
+    turn.started = true;
+    machine.streamStart();
+  }
+  function useTool({ id, name, label, status = "running" }) {
+    const entry = extras.get(turn.replyId);
+    const known = status in TOOL_ICONS ? status : "running";
+    const tool = id != null ? entry.tools.find((t) => t.id === id) : null;
+    if (tool) {
+      Object.assign(tool, { status: known, name: name ?? tool.name, label: label ?? tool.label });
+    } else {
+      entry.tools.push({ id: id ?? `tool-${entry.tools.length + 1}`, name, label, status: known });
+    }
+    drawTools(turn.replyId);
+    follow();
+  }
+  function closeReply(toolStatus) {
+    const id = turn.replyId;
+    turn = null;
+    const entry = extras.get(id);
+    for (const tool of entry.tools) if (tool.status === "running") tool.status = toolStatus;
+    if (!viewMessage(id).text && !entry.tools.length && entry.meta === void 0) {
+      view.remove(id);
+      extras.delete(id);
+      return;
+    }
+    view.endStream();
+    drawTools(id);
+    drawControls(id);
+    drawFooter(id);
+    follow();
+  }
+  function endMessage({ text: final, conversationId, meta }) {
+    const id = turn.replyId;
+    const entry = extras.get(id);
+    if (final && !viewMessage(id).text) view.appendChunk(final);
+    if (meta !== void 0) entry.meta = { ...entry.meta ?? {}, ...meta };
+    if (conversationId) setConversationId(activeId, conversationId);
+    const reply = viewMessage(id).text;
+    closeReply("done");
+    machine.streamComplete({ text: reply, meta: entry.meta });
+    syncWelcome();
+    changed();
+  }
+  function failTurn({ message }) {
+    const body = message || text.unknownError;
+    closeReply("stopped");
+    machine.error(body);
+    appendMessage("error", body);
+    syncWelcome();
+    changed();
+  }
+  function cancel() {
+    if (!turn) return false;
+    const { request, sent } = turn;
+    closeReply("stopped");
+    machine.cancel();
+    if (sent) callCancel(request);
+    syncWelcome();
+    changed();
+    return true;
+  }
+  function callCancel(request) {
+    const failed = (error) => logger?.warn?.("chat-shell", "Cancel failed", { error });
+    try {
+      const ended = transport.cancel?.(request);
+      if (typeof ended?.then !== "function") return;
+      const ending = Promise.resolve(ended).catch(failed).then(() => {
+        if (runEnding === ending) runEnding = null;
+      });
+      runEnding = ending;
+    } catch (error) {
+      failed(error);
+    }
+  }
+  function setConversationId(tabId, conversationId) {
+    const tab = tabOf(tabId);
+    if (!tab) return false;
+    tab.conversationId = conversationId ?? null;
+    if (tab.id === activeId) machine.conversationId = tab.conversationId;
+    return true;
+  }
+  function setMessages(tabId, messages) {
+    const tab = tabOf(tabId);
+    if (!tab || turn && tab.id === activeId) return false;
+    tab.messages = restored(messages);
+    tab.scrollTop = null;
+    if (tab.id === activeId) showTab(tab);
+    changed();
+    return true;
+  }
+  const modeButtons = /* @__PURE__ */ new Map();
+  if (modes.length) {
+    const group = el3("div", "twm-chat-shell__modes");
+    group.setAttribute("role", "group");
+    group.setAttribute("aria-label", text.modes);
+    for (const { id, label, title } of modes) {
+      const b = el3("button", "twm-chat-shell__mode", label);
+      b.type = "button";
+      if (title) b.title = title;
+      b.addEventListener("click", () => {
+        if (id === machine.mode) return;
+        setMode(id);
+        safely(onModeChange, id);
+      });
+      modeButtons.set(id, b);
+      group.append(b);
+    }
+    bar.append(group);
+  }
+  function drawMode() {
+    for (const [id, b] of modeButtons) {
+      const on = id === machine.mode;
+      b.classList.toggle("twm-chat-shell__mode--on", on);
+      b.setAttribute("aria-pressed", String(on));
+    }
+  }
+  function setMode(id) {
+    if (!modeButtons.has(id)) return false;
+    machine.setMode(id);
+    drawMode();
+    return true;
+  }
+  drawMode();
+  bar.append(el3("div", "twm-chat-shell__bar-spacer"));
+  let currentModels = { items: [], activeId: null, label: null, status: null };
+  const modelBtn = el3("button", "twm-chat-shell__model-btn");
+  modelBtn.type = "button";
+  modelBtn.setAttribute("aria-haspopup", "menu");
+  const modelDot = el3("span", "twm-chat-shell__status");
+  const modelLabel = el3("span", "twm-chat-shell__model-label");
+  modelBtn.append(modelDot, modelLabel, icon2("expand_more", "twm-chat-shell__model-chevron"));
+  bar.append(modelBtn);
+  const asMarkup = (value) => {
+    const span = el3("span");
+    span.textContent = String(value ?? "");
+    return span.innerHTML;
+  };
+  const modelMenu = new ActionDropdown({
+    trigger: modelBtn,
+    options: [],
+    className: "twm-chat-shell__model-menu",
+    onSelect: ({ item }) => {
+      if (item.action !== void 0) safely(onModelAction, item.action, item);
+      else safely(onModelSelect, item);
+    }
+  });
+  function setModels(patch = {}) {
+    currentModels = { ...currentModels, ...patch };
+    const { items, activeId: active, label, status } = currentModels;
+    modelMenu.setOptions(items.map((item) => {
+      if (item.separator) return { separator: true };
+      const isAction = item.action !== void 0;
+      const radio = item.id === active ? "radio_button_checked" : "radio_button_unchecked";
+      return {
+        type: isAction ? "action" : "model",
+        item,
+        label: asMarkup(item.label),
+        icon: item.icon ?? (isAction ? void 0 : radio),
+        description: item.description ? asMarkup(item.description) : void 0
+      };
+    }));
+    modelLabel.textContent = label ?? items.find((i) => !i.separator && i.id === active)?.label ?? text.selectModel;
+    modelDot.className = status?.state ? `twm-chat-shell__status twm-chat-shell__status--${status.state}` : "twm-chat-shell__status";
+    modelDot.title = status?.label ?? "";
+    modelDot.hidden = !status;
+    modelBtn.hidden = !items.length && !label;
+    bar.hidden = modelBtn.hidden && !modes.length;
+  }
+  setModels(models ?? {});
+  const chat = {
+    root,
+    /** Sends as the user would; false when a turn is running or the text is blank. */
+    send,
+    /** Stops the running reply; false when there is none. */
+    cancel,
+    /** A turn is running. Answers at once, where `stateMachine` follows in microtasks. */
+    isBusy: () => turn !== null,
+    stateMachine: machine,
+    /** The messages of the conversation in front. */
+    messages: keptMessages,
+    /** Merges into a message's `meta`, redraws its controls, and reports a change. */
+    updateMeta(id, patch) {
+      const entry = extras.get(id);
+      if (!entry) return false;
+      entry.meta = { ...entry.meta ?? {}, ...patch };
+      drawControls(id);
+      changed();
+      return true;
+    },
+    refreshControls: (id) => drawControls(id),
+    /** The element holding a message's controls, or null. */
+    controlsSlot: (id) => extras.get(id)?.controlsEl ?? null,
+    snapshot,
+    activeConversation: () => activeId,
+    newConversation,
+    switchTo,
+    close,
+    rename,
+    reset,
+    setConversationId,
+    setMessages,
+    mode: () => machine.mode,
+    setMode,
+    setModels,
+    getText: () => view.getText(),
+    setText: (value) => view.setText(value),
+    focus: () => view.focus(),
+    destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      if (turn) {
+        const { request } = turn;
+        turn = null;
+        callCancel(request);
+      }
+      for (const timer of copyTimers) clearTimeout(timer);
+      copyTimers.clear();
+      extras.clear();
+      modelMenu.destroy();
+      strip.destroy();
+      view.destroy();
+      root.remove();
+    }
+  };
+  for (const saved of conversations?.tabs ?? []) {
+    tabs.push({
+      ...newTab(String(saved.id)),
+      title: saved.title || text.newConversation,
+      conversationId: saved.conversationId ?? null,
+      messages: restored(saved.messages)
+    });
+  }
+  const first2 = tabOf(conversations?.activeId) ?? tabs[0] ?? freshTab();
+  activeId = first2.id;
+  if (first2.conversationId) machine.loadConversation(first2.conversationId);
+  showTab(first2);
+  drawTabs();
+  return chat;
 }
 
 // src/ui/components/detail_header.js
@@ -10748,12 +11701,18 @@ export {
   ActionDropdown,
   AutocompleteField,
   CELL_EDITORS,
+  CHAT_BUS_EVENTS,
+  CHAT_SHELL_LABELS,
+  CHAT_STATES,
+  CHAT_TRANSITIONS,
+  CHAT_TRANSPORT_EVENTS,
   COLUMN_FIT,
   CONVERSATION_COMPOSER_MAX_PX,
   CONVERSATION_PIN_WITHIN_PX,
   CategoryPicker,
   CellEditorHost,
   CellSelection,
+  ChatStateMachine,
   ColorField,
   ColorListField,
   ComponentBase,
@@ -10876,6 +11835,7 @@ export {
   modalHost,
   mountAlertsPane,
   mountAttributeListEditor,
+  mountChatShell,
   mountConversationView,
   mountGalleryPicker,
   mountPickerField,

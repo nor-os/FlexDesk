@@ -26,6 +26,7 @@ view.setBusy(false);
 | Method | Does |
 |---|---|
 | `append({ id?, role, text, meta? })` → id | Adds a message; `role` becomes `twm-chat__msg--<role>` |
+| `remove(id)` → bool | Takes one message out ([below](#taking-one-message-out-remove-0180)) |
 | `replaceAll(messages)`, `clear()` | Restores a transcript (and scrolls to its end), or empties it |
 | `beginStream(message?)` → id, `appendChunk(text)`, `endStream()` | A message that grows; each chunk re-renders that message's body and nothing else |
 | `slot(id)` | The element below a message's body, yours to fill (tool output, buttons); a re-render leaves it alone |
@@ -70,3 +71,12 @@ view.setBusy(false);
 
 `tests/conversation_view.test.mjs` drives all of it in jsdom with a fake
 scroll geometry.
+
+## Taking one message out: `remove` (0.18.0)
+
+`view.remove(id)` takes one message out and answers `true`, or `false` for an
+unknown id. Every other message keeps its row and its slot, so it costs no
+re-render and moves no reader, where `replaceAll` of the rest redrew all of them
+and scrolled to the end. An open stream on that message is over: `streamingId()`
+is `null` and later chunks go nowhere. It is how the
+[assistant chat shell](chat-shell.md) takes out a reply that ended empty.

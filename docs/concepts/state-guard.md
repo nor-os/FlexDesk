@@ -40,7 +40,7 @@ global; choose strict mode in your own code.
 write, so the shell, dialogs, forms, tooltips, tiles and flow editors run under
 `mode: 'strict'` with no violation. The list also carries keys that FlexDesk
 itself does not write, and it has not been audited key by key
-([what 0.18.0 took out and what stayed](#thirteen-application-keys-leave-the-defaults-0180)).
+([what 0.17.14 took out and what stayed](#thirteen-application-keys-leave-the-defaults-01714)).
 A key that names your application's concepts is yours to add, on top:
 
 ```js
@@ -59,13 +59,13 @@ capital letter becomes `-` plus its lower-case form. So `rowID` is `row-i-d`
 Before 0.17.0 a camelCase entry never matched, and some entries named keys no
 element carries.
 
-### Thirteen application keys leave the defaults (0.18.0)
+### Thirteen application keys leave the defaults (0.17.14)
 
 **Breaking for an application that writes one of these keys under a strict
 guard.** `DEFAULT_STATE_GUARD_CONFIG.allowedDatasetKeys` no longer lists
 thirteen keys that belonged to one embedding application, not to FlexDesk. No
 FlexDesk widget writes any of them, so nothing FlexDesk draws changes; what
-changes is that a write of one is now on no allow-list. Before 0.18.0 the
+changes is that a write of one is now on no allow-list. Before 0.17.14 the
 defaults let it through silently, for every application that used them.
 
 | Group, as the list labelled it | Keys removed |

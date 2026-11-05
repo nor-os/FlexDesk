@@ -497,8 +497,8 @@ section('§5 thirteen application keys leave the defaults (BUG-0029)');
     {
         const page = readFileSync(resolvePath(HERE, '../docs/concepts/state-guard.md'), 'utf8');
         const lines = page.split('\n');
-        const at = lines.findIndex((l) => /^#{2,4} .*\(0\.18\.0\)\s*$/.test(l));
-        ok('state-guard.md has a section headed "(0.18.0)"', at >= 0);
+        const at = lines.findIndex((l) => /^#{2,4} .*\(0\.17\.14\)\s*$/.test(l));
+        ok('state-guard.md has a section headed "(0.17.14)"', at >= 0);
         const end = lines.findIndex((l, i) => i > at && /^#{1,4} /.test(l));
         const body = at < 0 ? [] : lines.slice(at + 1, end < 0 ? undefined : end);
         const listed = body.filter((l) => l.startsWith('|'))
@@ -511,7 +511,7 @@ section('§5 thirteen application keys leave the defaults (BUG-0029)');
         // best-practices.md item 15 links to that heading by its slug.
         const slug = (h = '') => h.replace(/^#+\s*/, '').toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/\s/g, '-');
         const bp = readFileSync(resolvePath(HERE, '../docs/best-practices.md'), 'utf8');
-        const target = bp.match(/state-guard\.md#([a-z0-9-]*0180)\)/)?.[1];
+        const target = bp.match(/state-guard\.md#([a-z0-9-]*01714)\)/)?.[1];
         ok('best-practices.md links to that section, and the anchor resolves',
            !!target && target === slug(lines[at]), `link: ${target}, heading: ${slug(lines[at])}`);
         ok('…and so does the 0.17.0 section\'s link to it, on the same page',
@@ -548,15 +548,15 @@ section('§5 thirteen application keys leave the defaults (BUG-0029)');
         ok('…nor does the comment above the list', comment.length > 0 && claims(comment),
            comment.replace(/\s+/g, ' ').match(OVERCLAIM)?.[0]);
 
-        // The docs paragraph, in the (0.18.0) section.
+        // The docs paragraph, in the (0.17.14) section.
         const lines = page.split('\n');
-        const at = lines.findIndex((l) => /^#{2,4} .*\(0\.18\.0\)\s*$/.test(l));
+        const at = lines.findIndex((l) => /^#{2,4} .*\(0\.17\.14\)\s*$/.test(l));
         const end = lines.findIndex((l, i) => i > at && /^#{1,4} /.test(l));
         const body = at < 0 ? [] : lines.slice(at + 1, end < 0 ? undefined : end);
         const lead = body.findIndex((l) => /^\*\*What stays\b/.test(l));
         const para = [];
         for (let i = lead; lead >= 0 && i < body.length && body[i].trim() !== ''; i += 1) para.push(body[i]);
-        ok('the (0.18.0) section has a paragraph on what stays although FlexDesk does not write it', lead >= 0);
+        ok('the (0.17.14) section has a paragraph on what stays although FlexDesk does not write it', lead >= 0);
         ok('…which says the list has not been audited key by key',
            /has not been audited key by\s+key/.test(para.join(' ')));
         ok('…and that a strict guard built from the defaults lets a write of such a key through',

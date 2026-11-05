@@ -9,20 +9,20 @@ manager, and neither of them should drag in a plotting engine or a code editor.
 
 | Entry | Size | What is in it |
 |---|---|---|
-| `@flexdesk/core` | 30 kB | Event bus, settings store, logging, state machine, state guard |
-| `@flexdesk/host` | 5 kB | The [host port](host-port.md) |
-| `@flexdesk/wm` | 166 kB | Tiling window manager: tabs, splits, desktops, command palette, taxonomy, `createShell()` |
-| `@flexdesk/widgets` | 192 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus, menu bars, a document outline, progress, a conversation view, an assistant chat shell, a rich select, a combobox, a popover, a filter builder, a workspace picker |
-| `@flexdesk/charts` | 26 kB | Plotly wrapper, chart types, subplot layouts, downsampling, a plot grid, a plot-config editor, plot windows, injected series transforms |
-| `@flexdesk/tiles` | 67 kB | Draggable/resizable widget grid, tile base class, widget registry, layout persistence, figure, chart and KPI tiles |
-| `@flexdesk/editor` | 62 kB | Monaco loader + factory, multi-file tab bar, search, split panes, undo manager |
-| `@flexdesk/canvas` | 14 kB | The canvas kernel: a pannable, zoomable surface, the edge router, a generic graph layer ([Flow editors](../components/flow-editors.md#flow-editors)) |
-| `@flexdesk/flow` | 381 kB | The flow-editor kit and the canvas, outline and lane editors ([Flow editors](../components/flow-editors.md#flow-editors)) |
-| `@flexdesk/git` | 46 kB | A source-control panel, an SVG commit graph and a diff viewer, over a written adapter contract ([Git panel](../components/git.md)) |
+| `@flexdesk/core` | 32 kB | Event bus, settings store, logging, state machine, state guard |
+| `@flexdesk/host` | 18 kB | The [host port](host-port.md) |
+| `@flexdesk/wm` | 403 kB | Tiling window manager: tabs, splits, desktops, command palette, taxonomy, `createShell()` |
+| `@flexdesk/widgets` | 413 kB | DataTable, modals, managed windows, toasts, trees, panels, context menus, menu bars, a document outline, progress, a conversation view, an assistant chat shell, a rich select, a combobox, a popover, a filter builder, a workspace picker |
+| `@flexdesk/charts` | 49 kB | Plotly wrapper, chart types, subplot layouts, downsampling, a plot grid, a plot-config editor, plot windows, injected series transforms |
+| `@flexdesk/tiles` | 133 kB | Draggable/resizable widget grid, tile base class, widget registry, layout persistence, figure, chart and KPI tiles |
+| `@flexdesk/editor` | 49 kB | Monaco loader + factory, multi-file tab bar, search, split panes, undo manager |
+| `@flexdesk/canvas` | 5 kB | The canvas kernel: a pannable, zoomable surface, the edge router, a generic graph layer ([Flow editors](../components/flow-editors.md#flow-editors)) |
+| `@flexdesk/flow` | 480 kB | The flow-editor kit and the canvas, outline and lane editors ([Flow editors](../components/flow-editors.md#flow-editors)) |
+| `@flexdesk/git` | 47 kB | A source-control panel, an SVG commit graph and a diff viewer, over a written adapter contract ([Git panel](../components/git.md)) |
 
-The sizes of `@flexdesk/canvas` and `@flexdesk/flow` are the entry files as
-`node build.mjs` reported them for the flow editors' integration build; like
-every entry they also import shared chunks. The other rows are older figures.
+The sizes are the entry files as `node build.mjs` reports them for 0.18.0,
+unminified. Every entry also imports shared chunks, which load once however many
+entries use them; the build prints their total.
 
 They share code through chunks, so importing two of them does **not** give you two
 event buses — and therefore not two copies of every module-level singleton. A test

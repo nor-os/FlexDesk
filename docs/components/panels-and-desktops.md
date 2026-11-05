@@ -182,7 +182,9 @@ loggers) records that line as the message, with the key and the cause in it.
   warns again.
 - **What is unreadable** is a shape `serialize()` could not have written:
   `desktops` not a non-empty array; a desktop that is not an object, or has no
-  `tree` (a `tree` of `null` is a desktop with nothing on it, and is fine); a
+  `tree` (a `tree` of `null` is a desktop with nothing on it, and is fine, and it
+  is what a host that composes the blob itself must write for a desktop it wants
+  the shell to seed); a
   `panels` or `panelShares` that is not an object; a node that is not a `leaf`
   or a `split`; a split without a `dir` of `h` or `v`, without children, or
   whose `sizes` are not one non-negative number per child; a tab without a

@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FlexDesk — workspace picker</title>
+    <!-- The workspace picker in a real browser. It loads the SOURCE, so it needs
+         no dist/ build; serve the repository and open this page.
+
+         The top bar holds a centred field with a chord (Ctrl+P); the bar under it
+         two inline fields, the second's list depending on the first's choice, with
+         paging, a card and a footer. Drag the window narrow to watch the centred
+         field narrow, lose its key hint, and step aside. -->
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />
+    <link href="../css/tokens.css" rel="stylesheet" />
+    <link href="../css/reset.css" rel="stylesheet" />
+    <link href="../css/flexdesk.css" rel="stylesheet" />
+    <style>
+        html, body { height: 100%; margin: 0; }
+        body { background: var(--surface-0); color: var(--text-body); font-family: var(--font-family-sans); font-size: var(--font-size-sm); }
+        .bar { position: relative; display: flex; justify-content: space-between; align-items: center; height: 35px; padding: 0 var(--space-md); background: var(--surface-2); }
+        .bar--inline { justify-content: flex-start; gap: var(--space-md); background: var(--surface-1); }
+        .bar--inline > button { width: 200px; }
+        .chips, .tools { display: flex; gap: var(--space-xs); }
+        .chip { padding: var(--space-xxs) var(--space-md); background: var(--surface-3); border-radius: var(--radius-sm); white-space: nowrap; }
+    </style>
+</head>
+<body>
+    <div class="bar" id="top">
+        <div class="chips"><span class="chip">Home</span><span class="chip">Reports</span><span class="chip">Dashboards</span></div>
+        <div class="tools"><span class="chip">Search</span><span class="chip">Account</span></div>
+    </div>
+    <div class="bar bar--inline" id="inline"></div>
+    <script type="module">
+        import { createWorkspacePicker, createRecentItems, openConfirm } from '../widgets.js';
+
+        const memory = new Map();
+        const host = { state: { read: async (key) => memory.get(key) ?? null, write: async (key, value) => { memory.set(key, value); } } };
+
+        const recent = createRecentItems({ host, key: 'recent', identity: (entry) => entry.path });
+        await recent.load();
+        ['C:/work/delta', 'C:/work/gamma', 'C:/work/beta', 'C:/work/alpha'].forEach((path) => {
+            recent.add({ path, name: path.split('/').pop() });
+        });
+
+        const main = createWorkspacePicker(document.getElementById('top'), {
+            field: { layout: 'centered', avoid: '.chips > *, .tools > *', icon: 'folder', placeholder: 'Nothing open', tooltip: 'Click or Ctrl+P to switch workspace' },
+            chord: 'Ctrl+P',
+            label: 'Switch workspace',
+            placeholder: 'Switch workspace: type to filter, Enter to open',
+            glyph: 'folder_open',
+            load: () => recent.list(),
+            describe: (entry, { current }) => ({
+                id: entry.path, name: entry.name, detail: entry.path,
+                icon: current ? 'folder_open' : 'folder', badge: current ? 'current' : '',
+            }),
+            onPick: (entry) => { recent.add(entry); main.setCurrent(entry); },
+            onRemove: async (entry) => {
+                const yes = await openConfirm({ title: 'Remove', message: `Take ${entry.name} off the list?`, confirmLabel: 'Remove', danger: true });
+                if (!yes) return false;
+                recent.remove(entry);
+                return true;
+            },
+            actions: ({ query }) => [
+                { id: 'new', label: query ? `New workspace “${query}”…` : 'New workspace…', icon: 'add', always: true, run: () => {} },
+                { id: 'open', label: 'Open…', icon: 'folder_open', run: () => {} },
+            ],
+            footer: () => ({ keys: [{ keys: ['Enter'], label: 'open' }, { keys: ['Shift', 'Del'], label: 'remove' }, { keys: ['Esc'], label: 'close' }] }),
+        });
+        main.setCurrent(recent.list()[1]);
+
+        const TEAMS = Array.from({ length: 64 }, (_, i) => ({ id: `t${i}`, name: `Team ${i + 1}`, meta: `${(i * 7) % 23} members` }));
+        const page = async ({ query, offset, limit }) => {
+            await new Promise((resolve) => setTimeout(resolve, 150));
+            const hits = TEAMS.filter((team) => team.name.toLowerCase().includes(query.toLowerCase()));
+            return { items: hits.slice(offset, offset + limit), total: hits.length };
+        };
+        const inlineBar = document.getElementById('inline');
+        const counted = (noun) => ({ query, shown, total }) => ({
+            title: query ? `Matching “${query}”` : noun,
+            count: total == null ? '' : shown < total ? `${shown} of ${total}` : `${total} ${noun.toLowerCase()}`,
+        });
+        const teams = createWorkspacePicker(inlineBar, {
+            field: { caret: true, placeholder: 'No team', icon: 'groups' },
+            placement: 'below', minWidth: 380, visibleRows: 5, search: 'remote',
+            label: 'Choose a team', placeholder: 'Find a team…',
+            heading: counted('Teams'),
+            load: page,
+            describe: (team) => ({ id: team.id, name: team.name, detail: team.meta, icon: 'groups' }),
+            onPick: (team) => { teams.setCurrent(team); boards.setCurrent(null); },
+            card: ({ current }) => (current ? {
+                heading: 'Manage team', icon: 'groups', name: current.name, detail: current.meta,
+                open: { label: 'Open', icon: 'open_in_new', run: () => {} },
+                tiles: [{ id: 'people', label: 'People', icon: 'group', run: () => {} }, { id: 'access', label: 'Access', icon: 'lock', run: () => {} }],
+            } : null),
+            footer: () => ({
+                start: [{ id: 'new', label: 'New team', icon: 'add', primary: true, run: () => {} }],
+                end: [{ id: 'all', label: 'All teams', trailing: 'arrow_forward', run: () => {} }],
+            }),
+        });
+        const boards = createWorkspacePicker(inlineBar, {
+            field: { caret: true, placeholder: 'No board', icon: 'dashboard' },
+            placement: 'below', minWidth: 320,
+            label: 'Choose a board', placeholder: 'Find a board…',
+            cacheKey: () => teams.current?.id ?? '',
+            load: async () => { throw new Error('This one always fails, to show the error state.'); },
+            describe: (board) => board,
+        });
+        teams.setCurrent(TEAMS[2]);
+        window.pickers = { main, teams, boards };
+    </script>
+</body>
+</html>

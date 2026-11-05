@@ -50,6 +50,7 @@ FlexDesk is nine entry points that share their code, so you load only what you u
 - [Wizard](components/wizard.md): a multi-step flow, inline or in a window.
 - [Input fields: slider and tags](components/input-fields.md): `SliderField` and `createTagInput`.
 - [Menus](components/menus.md): `createMenuBar`, `ActionDropdown` and `CategoryPicker`.
+- [Workspace picker](components/workspace-picker.md): the top-bar field, its switcher and the recent-items store.
 
 ### Layout, content and feedback
 

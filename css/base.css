@@ -4031,6 +4031,424 @@ body.twm-window-maximized .twm-resize-handle {
     align-self: flex-end;
 }
 /* ══ end CATEGORY PICKER ══ */
+/* ══ WORKSPACE PICKER ══════════════════════════════════════════════════
+   `mountPickerField` and `createPickerSwitcher` (workspace_picker.js): a field
+   drawn as a search box, and a panel on --z-over-windows, over the top bar and
+   the managed windows, that opens in the field's place, hangs from it, or stands
+   centred over `.twm-wspicker-backdrop`. A panel waiting on an async remove steps
+   below managed windows with its backdrop, so the dialog that asks can be
+   answered. */
+.twm-wspicker-field {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    box-sizing: border-box;
+    width: 100%;
+    height: 24px;
+    padding: 0 var(--space-sm) 0 10px;
+    background: var(--state-hover);
+    border: 1px solid color-mix(in srgb, var(--text-bright) 9%, transparent);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+.twm-wspicker-field--centered {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: auto;
+    transform: translate(-50%, -50%);
+}
+.twm-wspicker-field--hidden {
+    display: none;
+}
+.twm-wspicker-field:hover {
+    background: var(--state-active);
+    border-color: color-mix(in srgb, var(--text-bright) 16%, transparent);
+    color: var(--text-bright);
+}
+.twm-wspicker-field:focus-visible,
+.twm-wspicker-field--open {
+    outline: none;
+    background: var(--state-active);
+    border-color: var(--accent-bright);
+}
+.twm-wspicker-field [hidden] {
+    display: none;
+}
+.twm-wspicker-field__icon.material-symbols-outlined {
+    flex: none;
+    color: var(--accent-bright);
+    font-size: 15px;
+    opacity: 0.85;
+}
+.twm-wspicker-field__name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    font-weight: var(--font-weight-medium);
+    letter-spacing: 0.02em;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.twm-wspicker-field--muted .twm-wspicker-field__name {
+    font-style: italic;
+    opacity: 0.55;
+}
+.twm-wspicker-field--muted .twm-wspicker-field__icon.material-symbols-outlined {
+    color: var(--text-muted);
+}
+.twm-wspicker-field__key {
+    flex: none;
+    padding: 1px 5px;
+    background: color-mix(in srgb, var(--surface-well) 40%, transparent);
+    border: 1px solid var(--state-active);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-family: var(--font-family-mono);
+    font-size: 10px;
+}
+.twm-wspicker-field--tight .twm-wspicker-field__key {
+    display: none;
+}
+.twm-wspicker-field__caret.material-symbols-outlined {
+    flex: none;
+    color: var(--text-muted);
+    font-size: 16px;
+}
+.twm-wspicker-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-over-windows);
+    background: rgba(0, 0, 0, 0.55);
+}
+.twm-wspicker-backdrop[hidden] {
+    display: none;
+}
+.twm-wspicker {
+    position: fixed;
+    z-index: var(--z-over-windows);
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    max-height: min(70vh, 520px);
+    overflow: hidden;
+    background: var(--surface-1);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+}
+.twm-wspicker [hidden] {
+    display: none;
+}
+/* Over the field it is the field grown open: its accent border carries on. */
+.twm-wspicker--over {
+    border-color: var(--accent-bright);
+}
+.twm-wspicker--centered {
+    top: 12vh;
+    left: 50%;
+    width: min(640px, 90vw);
+    transform: translateX(-50%);
+}
+.twm-wspicker--waiting,
+.twm-wspicker-backdrop--waiting {
+    z-index: var(--z-popover);
+}
+.twm-wspicker__search {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-xs) 10px;
+    border-bottom: 1px solid var(--border-subtle);
+}
+.twm-wspicker__glyph.material-symbols-outlined {
+    flex: none;
+    color: var(--text-muted);
+    font-size: 16px;
+}
+.twm-wspicker__input {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: var(--font-size-sm);
+}
+.twm-wspicker__head {
+    flex: none;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-md);
+    padding: var(--space-sm) 10px var(--space-xxs);
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+}
+.twm-wspicker__title {
+    min-width: 0;
+    overflow: hidden;
+    font-weight: var(--font-weight-medium);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.twm-wspicker__count {
+    flex: none;
+}
+.twm-wspicker__scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+}
+/* A two-line row is 38px, so a capped box shows that many rows and no sliver of
+   the next. */
+.twm-wspicker__scroll--capped {
+    flex: none;
+    max-height: calc(var(--twm-wspicker-rows) * 38px);
+}
+.twm-wspicker__scroll--capped .twm-wspicker__row {
+    height: 38px;
+    padding-block: 0;
+}
+.twm-wspicker__list {
+    min-width: 0;
+}
+.twm-wspicker__row {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) auto auto auto;
+    align-items: center;
+    gap: var(--space-sm);
+    box-sizing: border-box;
+    min-height: 26px;
+    padding: 5px 10px;
+    cursor: pointer;
+}
+.twm-wspicker__row:hover,
+.twm-wspicker__row.twm-wspicker__stop--active {
+    background: var(--state-selected);
+    color: var(--text-bright);
+}
+.twm-wspicker__row--disabled {
+    color: var(--text-dim);
+    cursor: default;
+}
+.twm-wspicker__row--disabled:hover {
+    background: transparent;
+    color: var(--text-dim);
+}
+.twm-wspicker__row-icon.material-symbols-outlined {
+    color: var(--text-muted);
+    font-size: 16px;
+}
+.twm-wspicker__row-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+.twm-wspicker__row-name,
+.twm-wspicker__row-detail {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.twm-wspicker__row-detail {
+    color: var(--text-muted);
+    font-size: 10px;
+}
+.twm-wspicker__row--current .twm-wspicker__row-name {
+    color: var(--accent-light);
+}
+.twm-wspicker__row-badge {
+    color: var(--text-dim);
+    font-size: 10px;
+    white-space: nowrap;
+}
+.twm-wspicker__row-check.material-symbols-outlined {
+    color: var(--accent-light);
+    font-size: 15px;
+}
+.twm-wspicker__row-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    color: var(--text-dim);
+    cursor: pointer;
+    opacity: 0;
+}
+.twm-wspicker__row-remove .material-symbols-outlined {
+    font-size: 15px;
+}
+.twm-wspicker__row:hover > .twm-wspicker__row-remove,
+.twm-wspicker__stop--active > .twm-wspicker__row-remove {
+    opacity: 1;
+}
+.twm-wspicker__row-remove:hover {
+    border-color: var(--border-strong);
+    color: var(--color-danger);
+}
+.twm-wspicker__note {
+    margin: 0;
+    padding: var(--space-md) 10px;
+    color: var(--text-muted);
+}
+.twm-wspicker__note--error,
+.twm-wspicker__status--error {
+    color: var(--color-danger);
+}
+.twm-wspicker__more {
+    display: flex;
+    box-sizing: border-box;
+    width: calc(100% - 2 * var(--space-md));
+    margin: var(--space-xs) var(--space-md);
+}
+.twm-wspicker__more-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.twm-wspicker__actions:not(:empty) {
+    border-top: 1px solid var(--border-subtle);
+}
+.twm-wspicker__card {
+    flex: none;
+    padding: var(--space-md) 10px;
+    background: var(--surface-0);
+    border-top: 1px solid var(--border-subtle);
+}
+.twm-wspicker__card-heading {
+    margin: 0 0 var(--space-xs);
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+}
+.twm-wspicker__card-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+}
+.twm-wspicker__card-icon.material-symbols-outlined {
+    flex: none;
+    color: var(--accent-light);
+    font-size: 18px;
+}
+.twm-wspicker__card-text {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.twm-wspicker__card-name,
+.twm-wspicker__card-detail {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.twm-wspicker__card-name {
+    color: var(--text-primary);
+    font-weight: var(--font-weight-medium);
+}
+.twm-wspicker__card-detail {
+    color: var(--text-muted);
+    font-size: 10px;
+}
+.twm-wspicker__card-open {
+    flex: none;
+}
+.twm-wspicker__tiles {
+    display: grid;
+    grid-template-columns: repeat(var(--twm-wspicker-columns), minmax(0, 1fr));
+    gap: var(--space-xs);
+    margin-top: var(--space-sm);
+}
+.twm-wspicker__tiles:empty {
+    display: none;
+}
+.twm-wspicker__tile {
+    justify-content: flex-start;
+    min-width: 0;
+}
+.twm-wspicker__foot {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-xs) 10px;
+    background: var(--surface-0);
+    border-top: 1px solid var(--border-subtle);
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+}
+.twm-wspicker__status {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.twm-wspicker__foot-group {
+    display: flex;
+    flex: none;
+    gap: var(--space-xs);
+}
+.twm-wspicker__foot-group:empty {
+    display: none;
+}
+.twm-wspicker__foot-group:last-of-type {
+    margin-left: auto;
+}
+.twm-wspicker__foot-btn .material-symbols-outlined,
+.twm-wspicker__tile .material-symbols-outlined,
+.twm-wspicker__card-open .material-symbols-outlined,
+.twm-wspicker__more .material-symbols-outlined {
+    font-size: 15px;
+}
+/* A verb with no icon, or no trailing one, keeps no gap for it. */
+.twm-wspicker .twm-btn .material-symbols-outlined:empty {
+    display: none;
+}
+.twm-wspicker__stop--active.twm-btn {
+    border-color: var(--accent-bright);
+}
+.twm-wspicker__keys {
+    display: none;
+    flex: none;
+    gap: var(--space-lg);
+    margin-left: auto;
+}
+.twm-wspicker--centered .twm-wspicker__keys {
+    display: flex;
+}
+.twm-wspicker__key-hint {
+    white-space: nowrap;
+}
+.twm-wspicker__keys kbd {
+    display: inline-block;
+    margin: 0 1px;
+    padding: 1px var(--space-xs);
+    background: var(--surface-2);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-family-mono);
+    font-size: 10px;
+}
+/* ══ end WORKSPACE PICKER ══ */
 
 /* ── from code.css ───────────────────────── */
 /* Code language tabs */

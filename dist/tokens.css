@@ -109,6 +109,20 @@
     --color-danger-hover:   #d85858;
     --color-info:           #2196f3;
 
+    /* ── Diff viewer and commit graph (@flexdesk/git) ──────────── */
+    --twm-diff-add-bg: rgb(137 209 133 / 9%);
+    --twm-diff-add-fg: #89d185;
+    --twm-diff-del-bg: rgb(244 135 113 / 9%);
+    --twm-diff-del-fg: #f48771;
+    --twm-git-lane-0:  var(--accent-bright);
+    --twm-git-lane-1:  #73c991;
+    --twm-git-lane-2:  #e2b93d;
+    --twm-git-lane-3:  #cc6633;
+    --twm-git-lane-4:  #c586c0;
+    --twm-git-lane-5:  #f14c4c;
+    --twm-git-lane-6:  #4ec9b0;
+    --twm-git-lane-7:  #569cd6;
+
     /* ── Surface state overlays ────────────────────────────────── */
     --state-hover:    rgba(255, 255, 255, 0.05);
     --state-active:   rgba(255, 255, 255, 0.08);

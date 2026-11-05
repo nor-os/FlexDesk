@@ -8,14 +8,16 @@ import {
 } from "./chunk-REJ5HLIM.js";
 import {
   showContextMenu
-} from "./chunk-7JI7HHSY.js";
+} from "./chunk-FC55ZOAL.js";
 import {
   openForm
-} from "./chunk-XJNADRGR.js";
+} from "./chunk-YSKQQDHC.js";
 import {
-  ManagedWindow,
   isRowActivation
-} from "./chunk-PGZ4EHSE.js";
+} from "./chunk-VLOAI3HS.js";
+import {
+  ManagedWindow
+} from "./chunk-WQIGN7L3.js";
 import "./chunk-HNU6MM2B.js";
 import {
   NotebookTabBar

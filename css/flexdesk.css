@@ -3347,7 +3347,7 @@ body.twm-window-maximized .twm-resize-handle {
 }
 .twm-data-series-plot-config__columns {
     max-height: 200px;
-    overflow-y: auto;
+    overflow: hidden auto;
     display: flex;
     flex-direction: column;
     gap: var(--space-xxs);
@@ -5283,6 +5283,329 @@ body.twm-window-maximized .twm-resize-handle {
     font-size: 10px;
 }
 /* ══ end WORKSPACE PICKER ══ */
+
+/* ══ FILTER BUILDER ═════════════════════════════════════════════════════
+   createFilterBuilder and openFilterDialog (filter_builder.js). A row keeps its
+   remove button on its own line: the selects shrink, and the value cell wraps. */
+.twm-filter-builder {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    min-width: 0;
+    font-size: var(--font-size-sm);
+    color: var(--text-body);
+}
+.twm-filter-builder__group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    background: var(--surface-1);
+}
+.twm-filter-builder__group--root {
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+.twm-filter-builder__group-head,
+.twm-filter-builder__group-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+    min-width: 0;
+}
+.twm-filter-builder__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    min-width: 0;
+}
+.twm-filter-builder__children {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    min-width: 0;
+}
+.twm-filter-builder__seg {
+    display: inline-flex;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+.twm-filter-builder__seg-btn,
+.twm-filter-builder__not {
+    padding: var(--space-xxs) var(--space-md);
+    border: 0;
+    background: var(--surface-2);
+    color: var(--text-muted);
+    font: inherit;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    cursor: pointer;
+}
+.twm-filter-builder__not {
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+}
+.twm-filter-builder__seg-btn:hover,
+.twm-filter-builder__not:hover {
+    color: var(--text-primary);
+}
+.twm-filter-builder__seg-btn:focus-visible,
+.twm-filter-builder__not:focus-visible,
+.twm-filter-builder__chip-remove:focus-visible,
+.twm-filter-dialog__icon-option:focus-visible {
+    outline: 1px solid var(--accent-bright);
+    outline-offset: -1px;
+}
+.twm-filter-builder__seg-btn--on {
+    background: var(--accent);
+    color: var(--text-bright);
+}
+.twm-filter-builder__not--on {
+    border-color: var(--color-danger);
+    background: var(--color-danger);
+    color: var(--text-bright);
+}
+.twm-filter-builder__hint {
+    flex: 1 1 auto;
+    color: var(--text-dim);
+    font-size: var(--font-size-xs);
+}
+.twm-filter-builder__empty {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+}
+.twm-filter-builder__input {
+    min-height: 22px;
+    min-width: 0;
+    padding: var(--space-xxs) var(--space-sm);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    background: var(--surface-well);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: var(--font-size-sm);
+    box-sizing: border-box;
+}
+.twm-filter-builder__input:focus {
+    outline: none;
+    border-color: var(--accent-bright);
+}
+.twm-filter-builder__select {
+    max-width: 100%;
+}
+.twm-filter-builder__select--field {
+    flex: 0 1 140px;
+}
+.twm-filter-builder__select--op {
+    flex: 0 1 120px;
+}
+.twm-filter-builder__select--add {
+    width: auto;
+}
+.twm-filter-builder__select--value {
+    flex: 1 1 80px;
+}
+.twm-filter-builder__value {
+    display: flex;
+    flex: 1 1 0;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+    min-width: 0;
+}
+.twm-filter-builder__value > input.twm-filter-builder__input {
+    flex: 1 1 60px;
+}
+.twm-filter-builder .twm-filter-builder__tags {
+    flex: 1 1 80px;
+    border-color: var(--border-strong);
+    background: var(--surface-well);
+}
+.twm-filter-builder__and {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+}
+.twm-filter-builder__row--carried {
+    min-height: 22px;
+}
+.twm-filter-builder__carried {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--color-warning);
+    font-size: var(--font-size-xs);
+    overflow-wrap: anywhere;
+}
+.twm-filter-builder__remove {
+    flex: 0 0 auto;
+}
+.twm-filter-builder__add {
+    font-size: var(--font-size-xs);
+}
+.twm-filter-builder__chosen {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+.twm-filter-builder__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: 0 var(--space-sm);
+    border-radius: var(--radius-pill);
+    background: var(--state-selected);
+    font-size: var(--font-size-xs);
+}
+.twm-filter-builder__chip-remove {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-muted);
+    font: inherit;
+    cursor: pointer;
+}
+.twm-filter-builder__chip-remove:hover {
+    color: var(--text-bright);
+}
+.twm-filter-dialog {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+    min-height: 100%;
+    box-sizing: border-box;
+    padding: var(--space-lg);
+    font-size: var(--font-size-sm);
+    color: var(--text-body);
+}
+.twm-filter-dialog__identity {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+}
+.twm-filter-dialog__name {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: var(--space-md);
+    min-width: 0;
+}
+.twm-filter-dialog__name .twm-filter-builder__input {
+    flex: 1 1 auto;
+}
+.twm-filter-dialog__name-label {
+    color: var(--text-muted);
+}
+.twm-filter-dialog__icon {
+    position: relative;
+}
+.twm-filter-dialog__icon-trigger .material-symbols-outlined {
+    font-size: var(--font-size-xl);
+}
+.twm-filter-dialog__icon-pop {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: var(--z-dropdown);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    margin-top: var(--space-xs);
+    padding: var(--space-md);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    box-shadow: var(--shadow-md);
+}
+.twm-filter-dialog__icon-pop[hidden],
+.twm-filter-dialog__icon-none[hidden] {
+    display: none;
+}
+.twm-filter-dialog__icon-search {
+    width: 100%;
+}
+.twm-filter-dialog__icon-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 28px);
+    gap: var(--space-xxs);
+    max-height: 200px;
+    overflow-y: auto;
+}
+.twm-filter-dialog__icon-option {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-secondary);
+    overflow: hidden;
+    cursor: pointer;
+}
+.twm-filter-dialog__icon-option .material-symbols-outlined {
+    font-size: var(--font-size-xl);
+}
+.twm-filter-dialog__icon-option:hover {
+    background: var(--state-hover);
+}
+.twm-filter-dialog__icon-option--on {
+    background: var(--state-selected);
+    color: var(--text-bright);
+}
+.twm-filter-dialog__icon-none {
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+}
+.twm-filter-dialog__columns {
+    display: flex;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: var(--space-xl);
+    min-height: 0;
+}
+.twm-filter-dialog__pane {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    min-width: 0;
+}
+.twm-filter-dialog__pane--build {
+    flex: 3 1 420px;
+}
+.twm-filter-dialog__pane--preview {
+    flex: 2 1 260px;
+}
+.twm-filter-dialog__sentence {
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+}
+.twm-filter-dialog__preview {
+    min-width: 0;
+}
+.twm-filter-dialog__preview[hidden],
+.twm-filter-dialog__errors[hidden],
+.twm-filter-dialog__failure[hidden] {
+    display: none;
+}
+.twm-filter-dialog__errors {
+    margin: 0;
+    padding-left: var(--space-xl);
+    color: var(--color-warning);
+    font-size: var(--font-size-xs);
+}
+.twm-filter-dialog__failure {
+    color: var(--color-danger-hover);
+    font-size: var(--font-size-xs);
+}
+/* ══ end FILTER BUILDER ══ */
 
 /* ── from code.css ───────────────────────── */
 /* Code language tabs */

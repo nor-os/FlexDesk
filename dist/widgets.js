@@ -20,7 +20,7 @@ import {
   toastInfo,
   toastSuccess,
   toastWarn
-} from "./chunk-Y2JHFPBT.js";
+} from "./chunk-NFAWPZYK.js";
 import {
   StateMachine
 } from "./chunk-3PHCPZHT.js";
@@ -51,7 +51,7 @@ import {
 import {
   hideContextMenu,
   showContextMenu
-} from "./chunk-FC55ZOAL.js";
+} from "./chunk-LTCDCEJS.js";
 import {
   ColorListField,
   SortableList,
@@ -60,7 +60,7 @@ import {
   openForm,
   openModal,
   setModalHost
-} from "./chunk-YSKQQDHC.js";
+} from "./chunk-5EARWQU6.js";
 import {
   ACTIONS,
   AutocompleteField,
@@ -637,65 +637,65 @@ function mountAlertsPane(host, {
   empty = {}
 } = {}) {
   const doc = host.ownerDocument;
-  const el2 = (tag, cls, text) => {
+  const el3 = (tag, cls, text) => {
     const n = doc.createElement(tag);
     if (cls) n.className = cls;
     if (text !== void 0) n.textContent = text;
     return n;
   };
-  const icon2 = (name) => el2("span", "material-symbols-outlined", name);
+  const icon2 = (name) => el3("span", "material-symbols-outlined", name);
   let level = "all";
   let rule = null;
   let q = "";
   let pointerDown = false;
   let pending = false;
   let destroyed = false;
-  const root = el2("div", "twm-alerts");
+  const root = el3("div", "twm-alerts");
   let ruleList = null;
   if (rules) {
-    const side = el2("div", "twm-alerts__rules");
-    const head = el2("div", "twm-alerts__head");
-    head.append(el2("span", "twm-alerts__caps", "RULES"), el2("span", "twm-alerts__spacer"));
+    const side = el3("div", "twm-alerts__rules");
+    const head = el3("div", "twm-alerts__head");
+    head.append(el3("span", "twm-alerts__caps", "RULES"), el3("span", "twm-alerts__spacer"));
     if (rules.onEdit) {
-      const edit = el2("button", "twm-alerts__link", "Edit rules");
+      const edit = el3("button", "twm-alerts__link", "Edit rules");
       edit.type = "button";
       edit.dataset.act = "edit-rules";
       head.append(edit);
     }
-    ruleList = el2("div", "twm-alerts__rulelist");
+    ruleList = el3("div", "twm-alerts__rulelist");
     side.append(head, ruleList);
-    if (rules.foot) side.append(el2("div", "twm-alerts__foot", rules.foot));
+    if (rules.foot) side.append(el3("div", "twm-alerts__foot", rules.foot));
     root.append(side);
   }
-  const main = el2("div", "twm-alerts__main");
-  const bar = el2("div", "twm-alerts__bar");
-  const chips = el2("div", "twm-alerts__chips");
+  const main = el3("div", "twm-alerts__main");
+  const bar = el3("div", "twm-alerts__bar");
+  const chips = el3("div", "twm-alerts__chips");
   chips.setAttribute("role", "group");
   chips.setAttribute("aria-label", "Level");
   const chipEls = /* @__PURE__ */ new Map();
   for (const [key, label] of CHIPS) {
-    const chip = el2("button", "twm-alerts__chip");
+    const chip = el3("button", "twm-alerts__chip");
     chip.type = "button";
     chip.dataset.level = key;
-    chip.append(doc.createTextNode(`${label} `), el2("span", "twm-alerts__count", "0"));
+    chip.append(doc.createTextNode(`${label} `), el3("span", "twm-alerts__count", "0"));
     chips.append(chip);
     chipEls.set(key, chip);
   }
-  const input = el2("input", "twm-alerts__q");
+  const input = el3("input", "twm-alerts__q");
   input.type = "text";
   input.autocomplete = "off";
   input.spellcheck = false;
   input.placeholder = "Filter";
   input.setAttribute("aria-label", "Filter alerts");
-  const readAll = el2("button", "twm-btn twm-alerts__btn", "Mark all read");
+  const readAll = el3("button", "twm-btn twm-alerts__btn", "Mark all read");
   readAll.type = "button";
   readAll.dataset.act = "read-all";
-  const clear = el2("button", "twm-btn twm-alerts__btn", "Clear");
+  const clear = el3("button", "twm-btn twm-alerts__btn", "Clear");
   clear.type = "button";
   clear.dataset.act = "clear";
-  bar.append(chips, input, el2("span", "twm-alerts__spacer"), readAll, clear);
-  const list = el2("div", "twm-alerts__log");
-  const foot = el2("div", "twm-alerts__status", status);
+  bar.append(chips, input, el3("span", "twm-alerts__spacer"), readAll, clear);
+  const list = el3("div", "twm-alerts__log");
+  const foot = el3("div", "twm-alerts__status", status);
   foot.hidden = !status;
   main.append(bar, list, foot);
   root.append(main);
@@ -707,23 +707,23 @@ function mountAlertsPane(host, {
   };
   function row(entry, now) {
     const lv = ALERT_LEVELS[normalizeLevel(entry.level)];
-    const r = el2("div", `twm-alerts__row twm-alerts__row--${entry.level}${entry.read ? "" : " twm-alerts__row--unread"}`);
+    const r = el3("div", `twm-alerts__row twm-alerts__row--${entry.level}${entry.read ? "" : " twm-alerts__row--unread"}`);
     r.dataset.id = entry.id;
-    const mark = el2("span", "twm-alerts__unread");
+    const mark = el3("span", "twm-alerts__unread");
     mark.setAttribute("aria-label", entry.read ? "Read" : "Unread");
     const ic = icon2(lv.icon);
     ic.classList.add("twm-alerts__icon");
     ic.title = lv.label;
-    const time = el2("span", "twm-alerts__time", ago(entry.at, now));
+    const time = el3("span", "twm-alerts__time", ago(entry.at, now));
     time.title = entry.at.toLocaleString();
-    const text = el2("span", "twm-alerts__text");
-    text.append(el2("span", "twm-alerts__title", entry.title));
-    if (entry.body) text.append(el2("span", "twm-alerts__body", entry.body));
+    const text = el3("span", "twm-alerts__text");
+    text.append(el3("span", "twm-alerts__title", entry.title));
+    if (entry.body) text.append(el3("span", "twm-alerts__body", entry.body));
     const cells = [mark, ic, time];
-    if (rules) cells.push(el2("span", "twm-alerts__rule", entry.rule ?? ""));
+    if (rules) cells.push(el3("span", "twm-alerts__rule", entry.rule ?? ""));
     const tag = describe?.(entry);
-    cells.push(el2("span", tag ? "twm-alerts__tag" : "twm-alerts__tag twm-alerts__tag--none", tag ?? ""));
-    const ref = el2(entry.ref && onOpen ? "button" : "span", "twm-alerts__ref", entry.ref ?? "");
+    cells.push(el3("span", tag ? "twm-alerts__tag" : "twm-alerts__tag twm-alerts__tag--none", tag ?? ""));
+    const ref = el3(entry.ref && onOpen ? "button" : "span", "twm-alerts__ref", entry.ref ?? "");
     if (ref.tagName === "BUTTON") {
       ref.type = "button";
       ref.dataset.open = entry.id;
@@ -731,15 +731,15 @@ function mountAlertsPane(host, {
     cells.push(ref, text);
     if (stillMatches) {
       const still = stillMatches(entry);
-      cells.push(el2(
+      cells.push(el3(
         "span",
         `twm-alerts__state${still === false ? " twm-alerts__state--gone" : ""}`,
         still === true ? "still matches" : still === false ? "no longer matches" : ""
       ));
     }
-    const acts = el2("span", "twm-alerts__acts");
+    const acts = el3("span", "twm-alerts__acts");
     if (onOpen) {
-      const open = el2("button", "twm-alerts__icon-btn");
+      const open = el3("button", "twm-alerts__icon-btn");
       open.type = "button";
       open.dataset.open = entry.id;
       open.title = "Open";
@@ -748,7 +748,7 @@ function mountAlertsPane(host, {
       acts.append(open);
     }
     if (log.canDismiss()) {
-      const dis = el2("button", "twm-alerts__icon-btn");
+      const dis = el3("button", "twm-alerts__icon-btn");
       dis.type = "button";
       dis.dataset.dismiss = entry.id;
       dis.title = "Dismiss";
@@ -783,14 +783,14 @@ function mountAlertsPane(host, {
       const items = [{ id: null, name: "All alerts", meta: String(all.length) }, ...rules.list?.() ?? []];
       ruleList.replaceChildren(...items.map((r) => {
         const key = r.id === null ? null : String(r.id);
-        const b = el2("button", `twm-alerts__rulebtn${rule === key ? " twm-alerts__rulebtn--on" : ""}${r.off ? " twm-alerts__rulebtn--off" : ""}`);
+        const b = el3("button", `twm-alerts__rulebtn${rule === key ? " twm-alerts__rulebtn--on" : ""}${r.off ? " twm-alerts__rulebtn--off" : ""}`);
         b.type = "button";
         b.dataset.rule = key ?? "";
         b.setAttribute("aria-pressed", String(rule === key));
         b.append(
-          el2("span", `twm-alerts__dot${r.level ? ` twm-alerts__dot--${normalizeLevel(r.level)}` : ""}`),
-          el2("span", "twm-alerts__rulename", r.name || "Unnamed rule"),
-          el2("span", "twm-alerts__meta", r.meta ?? "")
+          el3("span", `twm-alerts__dot${r.level ? ` twm-alerts__dot--${normalizeLevel(r.level)}` : ""}`),
+          el3("span", "twm-alerts__rulename", r.name || "Unnamed rule"),
+          el3("span", "twm-alerts__meta", r.meta ?? "")
         );
         return b;
       }));
@@ -798,16 +798,16 @@ function mountAlertsPane(host, {
     const rows = [];
     let lastDay = "";
     for (const entry of shown()) {
-      const day = dayLabel(entry.at, now);
-      if (day !== lastDay) rows.push(el2("div", "twm-alerts__day", day));
-      lastDay = day;
+      const day2 = dayLabel(entry.at, now);
+      if (day2 !== lastDay) rows.push(el3("div", "twm-alerts__day", day2));
+      lastDay = day2;
       rows.push(row(entry, now));
     }
     if (!rows.length) {
-      rows.push(el2("div", "twm-alerts__none", !log.loaded() ? "Loading\u2026" : all.length ? empty.filtered ?? "No alerts match." : empty.none ?? "Nothing yet."));
+      rows.push(el3("div", "twm-alerts__none", !log.loaded() ? "Loading\u2026" : all.length ? empty.filtered ?? "No alerts match." : empty.none ?? "Nothing yet."));
     }
     if (log.hasMore()) {
-      const older = el2("button", "twm-btn twm-alerts__more", "Load older");
+      const older = el3("button", "twm-btn twm-alerts__more", "Load older");
       older.type = "button";
       older.dataset.act = "more";
       rows.push(older);
@@ -1096,15 +1096,15 @@ function mountAttributeListEditor(hostEl, options = {}) {
     if (variationMode && flagSource.force === true) {
       contentEl.querySelectorAll(
         'input:not([type="checkbox"]), select, textarea'
-      ).forEach((el2) => {
-        el2.disabled = true;
+      ).forEach((el3) => {
+        el3.disabled = true;
       });
     }
     if (variationMode) {
       contentEl.querySelectorAll(
         'input[type="checkbox"].ea-attr-editor__cell--flag'
-      ).forEach((el2) => {
-        el2.disabled = true;
+      ).forEach((el3) => {
+        el3.disabled = true;
       });
     }
     void FLAG_COLS;
@@ -1151,73 +1151,73 @@ function mountAttributeListEditor(hostEl, options = {}) {
     return stub;
   };
   const renderNumericCell = (item, field, callbacks) => {
-    const el2 = document.createElement("input");
-    el2.type = "number";
-    el2.className = "twm-sortable-list__input twm-attr-editor__cell";
-    el2.step = "any";
-    el2.value = item[field] === null || item[field] === void 0 ? "" : String(item[field]);
-    el2.placeholder = "\u2014";
-    el2.addEventListener("input", () => {
-      const v = el2.value === "" ? null : Number(el2.value);
+    const el3 = document.createElement("input");
+    el3.type = "number";
+    el3.className = "twm-sortable-list__input twm-attr-editor__cell";
+    el3.step = "any";
+    el3.value = item[field] === null || item[field] === void 0 ? "" : String(item[field]);
+    el3.placeholder = "\u2014";
+    el3.addEventListener("input", () => {
+      const v = el3.value === "" ? null : Number(el3.value);
       callbacks.update({ [field]: v });
     });
-    el2.addEventListener("blur", () => onFlush());
-    return el2;
+    el3.addEventListener("blur", () => onFlush());
+    return el3;
   };
   const renderDistributionCell = (item, callbacks) => {
-    const el2 = document.createElement("select");
-    el2.className = "twm-attr-editor__cell";
+    const el3 = document.createElement("select");
+    el3.className = "twm-attr-editor__cell";
     for (const d of DISTRIBUTION_OPTIONS) {
       const o = document.createElement("option");
       o.value = d;
       o.textContent = d || "(none)";
       if ((item.distribution || "") === d) o.selected = true;
-      el2.appendChild(o);
+      el3.appendChild(o);
     }
-    el2.addEventListener("change", () => {
-      callbacks.update({ distribution: el2.value || null });
+    el3.addEventListener("change", () => {
+      callbacks.update({ distribution: el3.value || null });
       onFlush();
     });
-    return el2;
+    return el3;
   };
   const renderTextCell = (item, field, callbacks, placeholder) => {
-    const el2 = document.createElement("input");
-    el2.type = "text";
-    el2.className = "twm-sortable-list__input twm-attr-editor__cell";
-    el2.value = item[field] ?? "";
-    el2.placeholder = placeholder;
-    el2.addEventListener("input", () => {
-      callbacks.update({ [field]: el2.value });
+    const el3 = document.createElement("input");
+    el3.type = "text";
+    el3.className = "twm-sortable-list__input twm-attr-editor__cell";
+    el3.value = item[field] ?? "";
+    el3.placeholder = placeholder;
+    el3.addEventListener("input", () => {
+      callbacks.update({ [field]: el3.value });
     });
-    el2.addEventListener("blur", () => onFlush());
-    return el2;
+    el3.addEventListener("blur", () => onFlush());
+    return el3;
   };
   const renderBoolCell = (item, field, callbacks) => {
-    const el2 = document.createElement("input");
-    el2.type = "checkbox";
-    el2.className = "twm-attr-editor__cell";
-    el2.checked = !!item[field];
-    el2.addEventListener("change", () => {
-      callbacks.update({ [field]: el2.checked });
+    const el3 = document.createElement("input");
+    el3.type = "checkbox";
+    el3.className = "twm-attr-editor__cell";
+    el3.checked = !!item[field];
+    el3.addEventListener("change", () => {
+      callbacks.update({ [field]: el3.checked });
       onFlush();
     });
-    return el2;
+    return el3;
   };
   const renderFlagCell = (item, field, callbacks, defaultIfMissing) => {
-    const el2 = document.createElement("input");
-    el2.type = "checkbox";
-    el2.className = "twm-attr-editor__cell ea-attr-editor__cell--flag";
+    const el3 = document.createElement("input");
+    el3.type = "checkbox";
+    el3.className = "twm-attr-editor__cell ea-attr-editor__cell--flag";
     const cur = item[field];
-    el2.checked = cur === void 0 || cur === null ? !!defaultIfMissing : !!cur;
-    el2.addEventListener("change", () => {
-      callbacks.update({ [field]: el2.checked });
+    el3.checked = cur === void 0 || cur === null ? !!defaultIfMissing : !!cur;
+    el3.addEventListener("change", () => {
+      callbacks.update({ [field]: el3.checked });
       onFlush();
     });
-    return el2;
+    return el3;
   };
   const renderTypeCell = (item, callbacks) => {
-    const el2 = document.createElement("select");
-    el2.className = "twm-attr-editor__cell";
+    const el3 = document.createElement("select");
+    el3.className = "twm-attr-editor__cell";
     const seen = /* @__PURE__ */ new Set();
     const addOpts = (label, optList) => {
       if (optList.length === 0) return;
@@ -1231,7 +1231,7 @@ function mountAttributeListEditor(hostEl, options = {}) {
         grp.appendChild(o);
         seen.add(t);
       }
-      el2.appendChild(grp);
+      el3.appendChild(grp);
     };
     addOpts("scalar", types.filter((t) => SCALAR_TYPES.includes(t)));
     addOpts("expression", types.filter((t) => t === "expression"));
@@ -1241,12 +1241,12 @@ function mountAttributeListEditor(hostEl, options = {}) {
       types.filter((t) => t.startsWith("list[ref:"))
     );
     addOpts("other", types.filter((t) => !seen.has(t)));
-    el2.addEventListener("change", () => {
-      callbacks.update({ type: el2.value });
+    el3.addEventListener("change", () => {
+      callbacks.update({ type: el3.value });
       onFlush();
       list?.setItems(currentItems());
     });
-    return el2;
+    return el3;
   };
   const renderTypedValueCell = (field, item, callbacks) => {
     const t = item.type || "string";
@@ -1254,24 +1254,24 @@ function mountAttributeListEditor(hostEl, options = {}) {
       return renderBoolCell(item, field, callbacks);
     }
     if (t === "integer" || t === "number") {
-      const el3 = document.createElement("input");
-      el3.type = "number";
-      el3.className = "twm-sortable-list__input twm-attr-editor__cell";
-      el3.step = t === "integer" ? "1" : "any";
-      el3.value = item[field] === null || item[field] === void 0 ? "" : item[field];
-      el3.placeholder = field;
-      el3.addEventListener("input", () => {
-        const v = el3.value === "" ? null : t === "integer" ? parseInt(el3.value, 10) : Number(el3.value);
+      const el4 = document.createElement("input");
+      el4.type = "number";
+      el4.className = "twm-sortable-list__input twm-attr-editor__cell";
+      el4.step = t === "integer" ? "1" : "any";
+      el4.value = item[field] === null || item[field] === void 0 ? "" : item[field];
+      el4.placeholder = field;
+      el4.addEventListener("input", () => {
+        const v = el4.value === "" ? null : t === "integer" ? parseInt(el4.value, 10) : Number(el4.value);
         callbacks.update({ [field]: v });
       });
-      el3.addEventListener("blur", () => onFlush());
-      return el3;
+      el4.addEventListener("blur", () => onFlush());
+      return el4;
     }
     if (t === "expression") {
-      const el3 = document.createElement("span");
-      el3.className = "twm-attr-editor__cell twm-attr-editor__cell--readonly";
-      el3.textContent = item.expression ? `\u2192 ${item.expression}` : "\u2014 (engine-evaluated)";
-      return el3;
+      const el4 = document.createElement("span");
+      el4.className = "twm-attr-editor__cell twm-attr-editor__cell--readonly";
+      el4.textContent = item.expression ? `\u2192 ${item.expression}` : "\u2014 (engine-evaluated)";
+      return el4;
     }
     if (t.startsWith("ref:")) {
       return renderRefCell(t.slice(4), field, item, callbacks);
@@ -1282,32 +1282,32 @@ function mountAttributeListEditor(hostEl, options = {}) {
     if (Array.isArray(item.options) && item.options.length > 0) {
       return renderEnumCell(item.options, field, item, callbacks);
     }
-    const el2 = document.createElement("input");
-    el2.type = "text";
-    el2.className = "twm-sortable-list__input twm-attr-editor__cell";
-    el2.value = item[field] ?? "";
-    el2.placeholder = field;
-    el2.addEventListener("input", () => {
-      callbacks.update({ [field]: el2.value });
+    const el3 = document.createElement("input");
+    el3.type = "text";
+    el3.className = "twm-sortable-list__input twm-attr-editor__cell";
+    el3.value = item[field] ?? "";
+    el3.placeholder = field;
+    el3.addEventListener("input", () => {
+      callbacks.update({ [field]: el3.value });
     });
-    el2.addEventListener("blur", () => onFlush());
-    return el2;
+    el3.addEventListener("blur", () => onFlush());
+    return el3;
   };
   const renderRefCell = (target, field, item, callbacks) => {
-    const el2 = document.createElement("select");
-    el2.className = "twm-attr-editor__cell";
+    const el3 = document.createElement("select");
+    el3.className = "twm-attr-editor__cell";
     const placeholder = document.createElement("option");
     placeholder.value = "";
     placeholder.textContent = `\u2014 pick ${target} \u2014`;
-    el2.appendChild(placeholder);
+    el3.appendChild(placeholder);
     const populate = (opts) => {
-      while (el2.childNodes.length > 1) el2.removeChild(el2.lastChild);
+      while (el3.childNodes.length > 1) el3.removeChild(el3.lastChild);
       for (const o of opts) {
         const node = document.createElement("option");
         node.value = o.id;
         node.textContent = o.label;
         if (o.id === item[field]) node.selected = true;
-        el2.appendChild(node);
+        el3.appendChild(node);
       }
     };
     if (refsCache.has(target)) {
@@ -1315,36 +1315,36 @@ function mountAttributeListEditor(hostEl, options = {}) {
     } else {
       resolveRefOptions(target).then(populate);
     }
-    el2.addEventListener("change", () => {
-      callbacks.update({ [field]: el2.value || null });
+    el3.addEventListener("change", () => {
+      callbacks.update({ [field]: el3.value || null });
       onFlush();
     });
-    return el2;
+    return el3;
   };
   const renderListRefCell = (target, field, item, callbacks) => {
-    const el2 = document.createElement("input");
-    el2.type = "text";
-    el2.className = "twm-sortable-list__input twm-attr-editor__cell";
-    const arr = Array.isArray(item[field]) ? item[field] : [];
-    el2.value = arr.join(", ");
-    el2.placeholder = `${target}, ${target}, \u2026`;
-    el2.addEventListener("input", () => {
-      const next = el2.value.split(",").map((s) => s.trim()).filter(Boolean);
+    const el3 = document.createElement("input");
+    el3.type = "text";
+    el3.className = "twm-sortable-list__input twm-attr-editor__cell";
+    const arr2 = Array.isArray(item[field]) ? item[field] : [];
+    el3.value = arr2.join(", ");
+    el3.placeholder = `${target}, ${target}, \u2026`;
+    el3.addEventListener("input", () => {
+      const next = el3.value.split(",").map((s) => s.trim()).filter(Boolean);
       callbacks.update({ [field]: next });
     });
-    el2.addEventListener("blur", () => onFlush());
-    return el2;
+    el3.addEventListener("blur", () => onFlush());
+    return el3;
   };
   const renderEnumCell = (options2, field, item, callbacks) => {
-    const el2 = document.createElement("select");
-    el2.className = "twm-attr-editor__cell";
+    const el3 = document.createElement("select");
+    el3.className = "twm-attr-editor__cell";
     const blank = document.createElement("option");
     blank.value = "";
     blank.textContent = "\u2014";
     if (item[field] === null || item[field] === void 0 || item[field] === "") {
       blank.selected = true;
     }
-    el2.appendChild(blank);
+    el3.appendChild(blank);
     for (const opt of options2) {
       const o = document.createElement("option");
       if (opt !== null && typeof opt === "object") {
@@ -1355,13 +1355,13 @@ function mountAttributeListEditor(hostEl, options = {}) {
         o.textContent = String(opt);
       }
       if (o.value === String(item[field] ?? "")) o.selected = true;
-      el2.appendChild(o);
+      el3.appendChild(o);
     }
-    el2.addEventListener("change", () => {
-      callbacks.update({ [field]: el2.value === "" ? null : el2.value });
+    el3.addEventListener("change", () => {
+      callbacks.update({ [field]: el3.value === "" ? null : el3.value });
       onFlush();
     });
-    return el2;
+    return el3;
   };
   const itemsCopy = (src) => (src || []).map((it) => ({ ...it }));
   const currentItems = () => list?.getItems?.() || itemsCopy(items);
@@ -1685,8 +1685,8 @@ var CategoryPicker = class {
   _chooseCategory(c) {
     if (c < 0 || c >= this.categories.length) return;
     if (_terms(this._query).length) {
-      const first = this._rows.find((r) => r.c === c);
-      if (first) this._highlight(first);
+      const first2 = this._rows.find((r) => r.c === c);
+      if (first2) this._highlight(first2);
       return;
     }
     this._activeCat = c;
@@ -1900,10 +1900,10 @@ function fitColumns(columns, avail) {
     [short, (i) => Math.min(cols[i].typical, SHORT_FLOOR)],
     [text, () => FLOOR * 2]
   ];
-  for (const [idxs, low] of steps) {
+  for (const [idxs, low2] of steps) {
     const over = total() - avail;
     if (over <= 1e-6) break;
-    lowerTo(widths, idxs, low, over);
+    lowerTo(widths, idxs, low2, over);
   }
   return widths;
 }
@@ -1918,8 +1918,8 @@ function raise(widths, idxs, target, slack) {
   });
   return slack - give;
 }
-function lowerTo(widths, idxs, low, over) {
-  const floorOf = (i) => Math.min(widths[i], Math.max(0, low(i)));
+function lowerTo(widths, idxs, low2, over) {
+  const floorOf = (i) => Math.min(widths[i], Math.max(0, low2(i)));
   const cand = idxs.filter((i) => widths[i] > floorOf(i));
   if (!cand.length || over <= 0) return;
   const floors = new Map(cand.map((i) => [i, floorOf(i)]));
@@ -2078,14 +2078,14 @@ function mountConversationView(host, {
     ...labels
   };
   const doc = host.ownerDocument;
-  const el2 = (tag, cls, content) => {
+  const el3 = (tag, cls, content) => {
     const n = doc.createElement(tag);
     if (cls) n.className = cls;
     if (content !== void 0) n.textContent = content;
     return n;
   };
   const icon2 = (name) => {
-    const i = el2("span", "material-symbols-outlined", name);
+    const i = el3("span", "material-symbols-outlined", name);
     i.setAttribute("aria-hidden", "true");
     return i;
   };
@@ -2097,22 +2097,22 @@ function mountConversationView(host, {
   let busy = false;
   let cancelled = false;
   let destroyed = false;
-  const root = el2("div", "twm-chat");
-  const viewport = el2("div", "twm-chat__viewport");
-  const log = el2("div", "twm-chat__log");
+  const root = el3("div", "twm-chat");
+  const viewport = el3("div", "twm-chat__viewport");
+  const log = el3("div", "twm-chat__log");
   log.setAttribute("role", "log");
   log.setAttribute("aria-live", "polite");
-  const jump = el2("button", "twm-chat__jump");
+  const jump = el3("button", "twm-chat__jump");
   jump.type = "button";
   jump.append(icon2("arrow_downward"), doc.createTextNode(` ${text.jump}`));
   jump.hidden = true;
   viewport.append(log, jump);
-  const composer = el2("div", "twm-chat__composer");
-  const input = el2("textarea", "twm-chat__input");
+  const composer = el3("div", "twm-chat__composer");
+  const input = el3("textarea", "twm-chat__input");
   input.rows = 1;
   input.placeholder = placeholder;
   input.setAttribute("aria-label", text.input);
-  const send = el2("button", "twm-chat__send");
+  const send = el3("button", "twm-chat__send");
   send.type = "button";
   composer.append(input, send);
   root.append(viewport, composer);
@@ -2203,10 +2203,10 @@ function mountConversationView(host, {
       text: String(spec?.text ?? "")
     };
     if (into.has(message.id)) throw duplicate(message.id);
-    const row = el2("div", `twm-chat__msg twm-chat__msg--${roleClass(message.role)}`);
+    const row = el3("div", `twm-chat__msg twm-chat__msg--${roleClass(message.role)}`);
     if (streaming) row.classList.add("twm-chat__msg--streaming");
-    const body = el2("div", "twm-chat__body");
-    const extra = el2("div", "twm-chat__extra");
+    const body = el3("div", "twm-chat__body");
+    const extra = el3("div", "twm-chat__extra");
     row.append(body, extra);
     const entry = { message, row, body, extra };
     into.set(message.id, entry);
@@ -2665,10 +2665,10 @@ function statusOf(r, hasBefore, hasAfter) {
   }
   return "changed";
 }
-function appendContent(el2, content) {
+function appendContent(el3, content) {
   if (content === null || content === void 0) return;
   if (isNode(content)) {
-    el2.appendChild(content);
+    el3.appendChild(content);
     return;
   }
   let text;
@@ -2681,7 +2681,1325 @@ function appendContent(el2, content) {
   } else {
     text = String(content);
   }
-  el2.appendChild(document.createTextNode(text));
+  el3.appendChild(document.createTextNode(text));
+}
+
+// src/ui/components/filter_model.js
+var OPERATOR_LIST = [
+  { id: "is", label: "is", arity: 1 },
+  { id: "is_not", label: "is not", arity: 1 },
+  { id: "contains", label: "contains", arity: 1 },
+  { id: "not_contains", label: "does not contain", arity: 1 },
+  { id: "starts_with", label: "starts with", arity: 1 },
+  { id: "ends_with", label: "ends with", arity: 1 },
+  { id: "gt", label: ">", arity: 1 },
+  { id: "lt", label: "<", arity: 1 },
+  { id: "gte", label: ">=", arity: 1 },
+  { id: "lte", label: "<=", arity: 1 },
+  { id: "between", label: "between", arity: 2 },
+  { id: "before", label: "before", arity: 1 },
+  { id: "after", label: "after", arity: 1 },
+  { id: "in_last_days", label: "in the last N days", arity: 1, input: "days" },
+  { id: "one_of", label: "one of", arity: 1, multi: true },
+  { id: "none_of", label: "none of", arity: 1, multi: true },
+  { id: "all_of", label: "all of", arity: 1, multi: true },
+  { id: "is_empty", label: "is empty", arity: 0 },
+  { id: "is_not_empty", label: "is not empty", arity: 0 },
+  { id: "is_null", label: "has no value", arity: 0 },
+  { id: "is_not_null", label: "has a value", arity: 0 },
+  { id: "is_true", label: "is true", arity: 0 },
+  { id: "is_false", label: "is false", arity: 0 }
+];
+var FILTER_OPERATORS = Object.freeze(
+  Object.fromEntries(OPERATOR_LIST.map((o) => [o.id, Object.freeze(o)]))
+);
+var FILTER_TYPE_OPERATORS = Object.freeze({
+  enum: Object.freeze(["is", "is_not", "one_of", "none_of", "is_empty", "is_not_empty"]),
+  text: Object.freeze([
+    "is",
+    "is_not",
+    "contains",
+    "not_contains",
+    "starts_with",
+    "ends_with",
+    "one_of",
+    "none_of",
+    "is_empty",
+    "is_not_empty"
+  ]),
+  number: Object.freeze([
+    "is",
+    "is_not",
+    "gt",
+    "lt",
+    "gte",
+    "lte",
+    "between",
+    "one_of",
+    "none_of",
+    "is_empty",
+    "is_not_empty"
+  ]),
+  date: Object.freeze([
+    "is",
+    "is_not",
+    "before",
+    "after",
+    "between",
+    "in_last_days",
+    "is_empty",
+    "is_not_empty"
+  ]),
+  set: Object.freeze([
+    "contains",
+    "not_contains",
+    "one_of",
+    "none_of",
+    "all_of",
+    "is_empty",
+    "is_not_empty"
+  ]),
+  bool: Object.freeze(["is_true", "is_false", "is_empty"])
+});
+var emptyFilter = () => ({ kind: "group", op: "AND", children: [] });
+var cloneFilter = (expr) => expr == null ? expr : JSON.parse(JSON.stringify(expr));
+var serializeFilter = (expr) => JSON.stringify(expr);
+function parseFilter(text) {
+  const expr = JSON.parse(text);
+  if (!expr || typeof expr !== "object" || Array.isArray(expr) || !expr.kind) {
+    throw new Error("[FilterModel] not a filter expression");
+  }
+  return expr;
+}
+function countConditions(node) {
+  if (!node) return 0;
+  if (node.kind !== "group") return 1;
+  return (node.children || []).reduce((n, child) => n + countConditions(child), 0);
+}
+function filterOptions(field) {
+  return (field?.options || []).map((o) => {
+    if (o === null || typeof o !== "object") return { value: o, label: String(o ?? "") };
+    const value = o.value ?? o.id ?? "";
+    return { value, label: String(o.label ?? value) };
+  });
+}
+var EXACT_DIGITS = 15;
+function significantDigits(text) {
+  const [whole, fraction = ""] = text.replace(/^[+-]/, "").split(".");
+  const lead = whole.replace(/^0+/, "");
+  const tail = fraction.replace(/0+$/, "");
+  return lead ? lead.length + tail.length : tail.replace(/^0+/, "").length;
+}
+function coerceFilterValue(field, raw) {
+  if (typeof raw !== "string" || field?.type !== "number") return raw;
+  const text = raw.trim();
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(text)) return raw;
+  if (significantDigits(text) > EXACT_DIGITS) return raw;
+  const value = Number(text);
+  if (value === 0 && /[1-9]/.test(text)) return raw;
+  return value;
+}
+var low = (v) => String(v ?? "").trim().toLowerCase();
+var num = (v) => v === "" || v === null || v === void 0 ? NaN : Number(v);
+var arr = (v) => Array.isArray(v) ? v : v === "" || v === null || v === void 0 ? [] : [v];
+var first = (v) => Array.isArray(v) ? v[0] : v;
+function day(v) {
+  const s = String(v ?? "").trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return NaN;
+  return Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10));
+}
+var instant = (v) => v === null || v === void 0 || v === "" ? NaN : Date.parse(String(v));
+var todayUtc = () => {
+  const d = /* @__PURE__ */ new Date();
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+};
+var isBlank = (v) => v === null || v === void 0 || v === "" || Array.isArray(v) && v.length === 0;
+var TO_TREE_OPERATOR = Object.freeze({
+  is: "eq",
+  is_not: "ne",
+  one_of: "in",
+  none_of: "not_in",
+  is_empty: "is_blank",
+  is_not_empty: "is_not_blank",
+  before: "lt",
+  after: "gt"
+});
+var FROM_TREE_OPERATOR = Object.freeze({
+  eq: "is",
+  ne: "is_not",
+  in: "one_of",
+  not_in: "none_of",
+  is_blank: "is_empty",
+  is_not_blank: "is_not_empty"
+});
+var isBareNode = (node) => node !== null && typeof node === "object";
+function toConditionTree(node) {
+  if (!isBareNode(node)) return node;
+  if (node.kind === "clause") {
+    const { kind: _kind2, field, op: op2, ...rest2 } = node;
+    return { column: field, operator: TO_TREE_OPERATOR[op2] ?? op2, ...rest2 };
+  }
+  if (node.kind !== "group") return node.kind === "opaque" ? node.node : node;
+  const { kind: _kind, op, negate, children, ...rest } = node;
+  const list = (children || []).map(toConditionTree);
+  const treeOp = String(op).toLowerCase();
+  if (!negate) return { op: treeOp, children: list, ...rest };
+  return { op: "not", children: [list.length === 1 ? list[0] : { op: treeOp, children: list }], ...rest };
+}
+function fromConditionTree(node) {
+  if (node === null || node === void 0) return emptyFilter();
+  if (!isBareNode(node)) return { kind: "opaque", node };
+  const op = String(node.op ?? "").toLowerCase();
+  if (!node.op && "column" in node) {
+    const { column, operator, ...rest } = node;
+    const id = String(operator ?? "eq").toLowerCase();
+    return { kind: "clause", field: column, op: FROM_TREE_OPERATOR[id] ?? id, ...rest };
+  }
+  if ((op === "and" || op === "or") && Array.isArray(node.children ?? [])) {
+    const { op: _op, children, ...rest } = node;
+    return { kind: "group", op: op.toUpperCase(), children: (children || []).map(fromConditionTree), ...rest };
+  }
+  if (op === "not" && Array.isArray(node.children) && node.children.length === 1) {
+    const { op: _op, children, ...rest } = node;
+    const inner = fromConditionTree(children[0]);
+    if (inner.kind === "group" && !inner.negate && inner.children.length !== 1) {
+      return { ...inner, negate: true, ...rest };
+    }
+    return { kind: "group", op: "AND", negate: true, children: [inner], ...rest };
+  }
+  return { kind: "opaque", node };
+}
+var CACHE_MAX = 200;
+function createFilterModel({
+  fields,
+  noun = "row",
+  operators = [],
+  emptyOr = "everything",
+  unknownName = (key) => key
+}) {
+  const byKey = new Map(fields.map((f) => [f.key, f]));
+  const fieldByKey = (key) => byKey.get(key) || null;
+  const catalogue = new Map(OPERATOR_LIST.map((o) => [o.id, o]));
+  for (const o of operators) {
+    const known = catalogue.get(o.id);
+    if (!known && !Number.isInteger(o.arity)) {
+      throw new Error(`[FilterModel] operator "${o.id}" needs an arity`);
+    }
+    catalogue.set(o.id, { ...known, ...o });
+  }
+  for (const f of fields) {
+    for (const id of f.operators || []) {
+      if (!catalogue.has(id)) {
+        throw new Error(`[FilterModel] field "${f.key}" names unknown operator "${id}"`);
+      }
+    }
+  }
+  const operatorsFor = (fieldKey) => {
+    const field = byKey.get(fieldKey);
+    if (!field) return [];
+    const ids = field.operators || FILTER_TYPE_OPERATORS[field.type] || [];
+    return ids.map((id) => catalogue.get(id));
+  };
+  const operatorById = (id) => catalogue.get(id) || null;
+  function defaultValue(field, op) {
+    if (!field || !op || !op.arity) return void 0;
+    if (op.multi) return [];
+    if (op.input === "days") return 7;
+    if (op.arity === 2) return field.type === "number" ? [null, null] : ["", ""];
+    if (field.type === "number") return null;
+    if (field.type === "enum") return filterOptions(field)[0]?.value ?? "";
+    return "";
+  }
+  function newClause(key) {
+    const field = key ? byKey.get(key) : fields.find((f) => !f.hidden);
+    if (!field) return null;
+    const op = operatorsFor(field.key)[0] || null;
+    const clause = { kind: "clause", field: field.key, op: op ? op.id : "" };
+    const value = defaultValue(field, op);
+    if (value !== void 0) clause.value = value;
+    return clause;
+  }
+  function compileClause(clause) {
+    const field = byKey.get(clause?.field);
+    if (!field) {
+      console.warn("[FilterModel] clause references unknown field", clause?.field);
+      return () => false;
+    }
+    const op = clause.op;
+    const raw = clause.value;
+    const get = field.get || ((row) => row?.[field.key]);
+    const custom = catalogue.get(op)?.match;
+    if (custom) return (row) => !!custom(get(row), raw, row);
+    switch (op) {
+      case "is_empty":
+        return (r) => isBlank(get(r));
+      case "is_not_empty":
+        return (r) => !isBlank(get(r));
+      case "is_null":
+        return (r) => get(r) === null || get(r) === void 0;
+      case "is_not_null":
+        return (r) => get(r) !== null && get(r) !== void 0;
+      case "is_true":
+        return (r) => get(r) === true || low(get(r)) === "true";
+      case "is_false":
+        return (r) => get(r) === false || low(get(r)) === "false";
+      default:
+    }
+    if (field.type === "number") {
+      const a = num(first(raw));
+      const b = num(Array.isArray(raw) ? raw[1] : void 0);
+      const list = arr(raw).map(num);
+      switch (op) {
+        case "is":
+          return (r) => num(get(r)) === a;
+        case "is_not":
+          return (r) => num(get(r)) !== a;
+        case "gt":
+          return (r) => num(get(r)) > a;
+        case "lt":
+          return (r) => num(get(r)) < a;
+        case "gte":
+          return (r) => num(get(r)) >= a;
+        case "lte":
+          return (r) => num(get(r)) <= a;
+        case "between":
+          return (r) => {
+            const n = num(get(r));
+            return n >= Math.min(a, b) && n <= Math.max(a, b);
+          };
+        case "one_of":
+          return (r) => list.includes(num(get(r)));
+        case "none_of":
+          return (r) => !list.includes(num(get(r)));
+        default:
+      }
+    }
+    if (field.type === "date") {
+      const at = field.time ? instant : day;
+      const a = at(first(raw));
+      const b = Array.isArray(raw) ? at(raw[1]) : NaN;
+      const compare = (test) => (r) => {
+        const d = at(get(r));
+        return !Number.isNaN(d) && test(d);
+      };
+      switch (op) {
+        case "is":
+          return (r) => at(get(r)) === a;
+        case "is_not":
+          return (r) => at(get(r)) !== a;
+        case "before":
+        case "lt":
+          return compare((d) => d < a);
+        case "after":
+        case "gt":
+          return compare((d) => d > a);
+        case "lte":
+          return compare((d) => d <= a);
+        case "gte":
+          return compare((d) => d >= a);
+        case "between":
+          return compare((d) => d >= Math.min(a, b) && d <= Math.max(a, b));
+        // Inclusive of today and of the Nth day back.
+        case "in_last_days": {
+          const days = num(first(raw));
+          return (r) => {
+            const d = day(get(r));
+            if (Number.isNaN(d) || Number.isNaN(days)) return false;
+            return d >= todayUtc() - (days - 1) * 864e5 && d <= todayUtc();
+          };
+        }
+        default:
+      }
+    }
+    const one = low(first(raw));
+    const many = arr(raw).map(low).filter((s) => s !== "");
+    if (field.type === "set") {
+      const vals = (r) => arr(get(r)).map(low);
+      switch (op) {
+        case "contains":
+          return (r) => vals(r).includes(one);
+        case "not_contains":
+          return (r) => !vals(r).includes(one);
+        case "one_of":
+          return (r) => {
+            const v = vals(r);
+            return many.some((m) => v.includes(m));
+          };
+        case "none_of":
+          return (r) => {
+            const v = vals(r);
+            return !many.some((m) => v.includes(m));
+          };
+        case "all_of":
+          return (r) => {
+            const v = vals(r);
+            return many.every((m) => v.includes(m));
+          };
+        default:
+      }
+    }
+    if (field.type === "enum" || field.type === "text") {
+      switch (op) {
+        case "is":
+          return (r) => low(get(r)) === one;
+        case "is_not":
+          return (r) => low(get(r)) !== one;
+        case "contains":
+          return (r) => low(get(r)).includes(one);
+        case "not_contains":
+          return (r) => !low(get(r)).includes(one);
+        case "starts_with":
+          return (r) => low(get(r)).startsWith(one);
+        case "ends_with":
+          return (r) => low(get(r)).endsWith(one);
+        case "one_of":
+          return (r) => many.includes(low(get(r)));
+        case "none_of":
+          return (r) => !many.includes(low(get(r)));
+        default:
+      }
+    }
+    console.warn("[FilterModel] clause uses an operator its field cannot run", op, field.key);
+    return () => false;
+  }
+  const emptyMatches = (group) => String(group?.op).toUpperCase() !== "OR" || emptyOr === "everything";
+  function compile(node) {
+    if (!node) return () => true;
+    if (node.kind === "clause") return compileClause(node);
+    if (node.kind !== "group") {
+      console.warn("[FilterModel] cannot run a node of kind", node.kind);
+      return () => false;
+    }
+    const children = (Array.isArray(node.children) ? node.children : []).map(compile);
+    const negate = !!node.negate;
+    if (!children.length) {
+      const result = emptyMatches(node) !== negate;
+      return () => result;
+    }
+    const test = String(node.op || "AND").toUpperCase() === "OR" ? (row) => children.some((c) => c(row)) : (row) => children.every((c) => c(row));
+    return negate ? (row) => !test(row) : test;
+  }
+  const cache = /* @__PURE__ */ new Map();
+  function matcherFor(expr) {
+    const key = JSON.stringify(expr);
+    const hit = cache.get(key);
+    if (hit) return hit;
+    const fn = compile(expr);
+    if (cache.size >= CACHE_MAX) cache.clear();
+    cache.set(key, fn);
+    return fn;
+  }
+  const evaluateFilter = (expr, row) => matcherFor(expr)(row);
+  function describeValue(field, op, value, format) {
+    if (op.arity === 0) return "";
+    const shown = (v) => format && v !== "" && v !== null && v !== void 0 ? format(v, field) : String(v ?? "");
+    if (op.multi) return arr(value).map(shown).join(", ");
+    if (op.arity === 2) {
+      const [a, b] = arr(value);
+      return `${shown(a)} and ${shown(b)}`;
+    }
+    return shown(first(value));
+  }
+  function describeNode(node, depth, format) {
+    if (!node) return "";
+    if (node.kind === "clause") {
+      const field = byKey.get(node.field);
+      if (!field) return `\u26A0 unknown field \u201C${unknownName(String(node.field ?? ""))}\u201D`;
+      const op = catalogue.get(node.op);
+      if (!op) return `${field.label} ${node.op ?? ""}`.trim();
+      const val = describeValue(field, op, node.value, format);
+      return val ? `${field.label} ${op.label} ${val}` : `${field.label} ${op.label}`;
+    }
+    if (node.kind !== "group") return `\u26A0 ${JSON.stringify(node.node ?? node)}`;
+    const parts = (Array.isArray(node.children) ? node.children : []).map((c) => describeNode(c, depth + 1, format)).filter(Boolean);
+    if (!parts.length) return emptyMatches(node) !== !!node.negate ? "everything" : "nothing";
+    const joined = parts.join(String(node.op || "AND").toUpperCase() === "OR" ? " OR " : " AND ");
+    if (node.negate) return `NOT (${joined})`;
+    return depth > 0 && parts.length > 1 ? `(${joined})` : joined;
+  }
+  const describeFilter = (expr, { formatValue = null } = {}) => describeNode(expr, 0, formatValue);
+  function unknownFields(expr) {
+    const out = /* @__PURE__ */ new Set();
+    const walk = (n) => {
+      if (!n) return;
+      if (n.kind === "clause") {
+        if (!byKey.has(n.field)) out.add(n.field);
+      } else if (n.kind === "group") {
+        (Array.isArray(n.children) ? n.children : []).forEach(walk);
+      }
+    };
+    walk(expr);
+    return [...out];
+  }
+  function validateClause(node, errors, path) {
+    const field = byKey.get(node.field);
+    if (!field) {
+      errors.push(`${path}: unknown field "${unknownName(String(node.field ?? ""))}"`);
+      return;
+    }
+    const op = operatorsFor(field.key).find((o) => o.id === node.op);
+    if (!op) {
+      errors.push(`${field.label}: "${node.op}" is not a valid operator`);
+      return;
+    }
+    if (op.arity === 0) return;
+    const say = (what) => errors.push(`${field.label} ${op.label}: ${what}`);
+    if (op.multi) {
+      if (!Array.isArray(node.value) || node.value.length === 0) say("pick at least one value");
+      return;
+    }
+    const values = op.arity === 2 ? arr(node.value).slice(0, 2) : [first(node.value)];
+    const needed = op.arity === 2 ? 2 : 1;
+    if (values.length < needed || values.some(isBlank)) {
+      say(needed === 2 ? "needs two values" : "needs a value");
+      return;
+    }
+    if (op.input === "days") {
+      if (!(num(values[0]) > 0)) say("value must be a positive number of days");
+    } else if (field.type === "number") {
+      if (values.some((v) => Number.isNaN(num(v)))) say("value must be a number");
+    } else if (field.type === "date") {
+      const at = field.time ? instant : day;
+      if (values.some((v) => Number.isNaN(at(v)))) {
+        say(field.time ? "value must be a date and time" : "value must be a date (YYYY-MM-DD)");
+      }
+    }
+  }
+  function validateNode(node, errors, path) {
+    if (!node || typeof node !== "object") {
+      errors.push(`${path}: not an expression node`);
+    } else if (node.kind === "group") {
+      if (node.op !== "AND" && node.op !== "OR") errors.push(`${path}: group op must be AND or OR`);
+      if (!Array.isArray(node.children)) {
+        errors.push(`${path}: group children must be an array`);
+        return;
+      }
+      node.children.forEach((c, i) => validateNode(c, errors, `${path}/${i}`));
+    } else if (node.kind === "clause") {
+      validateClause(node, errors, path);
+    } else {
+      errors.push(`${path}: unknown node kind "${node.kind}"`);
+    }
+  }
+  function validateFilter(expr) {
+    const errors = [];
+    validateNode(expr, errors, "expr");
+    return { ok: errors.length === 0, errors };
+  }
+  function prune(node) {
+    if (!node || typeof node !== "object") return null;
+    if (node.kind === "clause") {
+      const op = catalogue.get(node.op);
+      if (!op || !byKey.has(node.field) || op.arity === 0) return node;
+      const blank = Array.isArray(node.value) ? node.value.every(isBlank) : isBlank(node.value);
+      return blank ? null : node;
+    }
+    if (node.kind !== "group") return node;
+    const children = (node.children || []).map(prune).filter(Boolean);
+    if (!children.length) return null;
+    if (children.length === 1 && children[0].kind === "group" && !node.negate) return children[0];
+    return { ...node, children };
+  }
+  const pruneFilter = (expr) => prune(cloneFilter(expr));
+  return Object.freeze({
+    fields,
+    noun,
+    fieldByKey,
+    operatorsFor,
+    operatorById,
+    defaultValue,
+    newClause,
+    emptyMatches,
+    unknownName,
+    matcherFor,
+    evaluateFilter,
+    describeFilter,
+    validateFilter,
+    unknownFields,
+    pruneFilter
+  });
+}
+
+// src/ui/components/tag_input.js
+var normalise = (list) => (Array.isArray(list) ? list : []).map((v) => v == null ? "" : String(v).trim()).filter((v) => v !== "");
+function createTagInput(host, options = {}) {
+  if (!host || typeof host.appendChild !== "function") {
+    throw new Error("[TagInput] host must be an HTMLElement");
+  }
+  const readOnly = !!options.readOnly;
+  const allowDuplicates = !!options.allowDuplicates;
+  const removeLabel = typeof options.removeLabel === "function" ? options.removeLabel : (tag) => `Remove ${tag}`;
+  let tags = normalise(options.value);
+  let disposed = false;
+  const root = document.createElement("div");
+  root.className = ["twm-tag-input", readOnly ? "twm-tag-input--readonly" : "", options.className || ""].join(" ").replace(/\s+/g, " ").trim();
+  root.setAttribute("role", "group");
+  if (options.label) root.setAttribute("aria-label", options.label);
+  const chips = document.createElement("ul");
+  chips.className = "twm-tag-input__chips";
+  root.appendChild(chips);
+  let input = null;
+  if (!readOnly) {
+    input = document.createElement("input");
+    input.type = "text";
+    input.className = "twm-tag-input__input";
+    input.spellcheck = false;
+    input.autocomplete = "off";
+    if (options.placeholder) input.placeholder = options.placeholder;
+    if (options.label) input.setAttribute("aria-label", options.label);
+    root.appendChild(input);
+  }
+  const changed = () => {
+    if (typeof options.onChange === "function") options.onChange([...tags]);
+  };
+  const chipFor = (tag, idx) => {
+    const chip = document.createElement("li");
+    chip.className = "twm-tag-input__chip";
+    const text = document.createElement("span");
+    text.className = "twm-tag-input__text";
+    text.textContent = tag;
+    text.title = tag;
+    chip.appendChild(text);
+    if (!readOnly) {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "twm-tag-input__remove";
+      remove.setAttribute("aria-label", removeLabel(tag));
+      remove.textContent = "\xD7";
+      remove.addEventListener("mousedown", (ev) => ev.preventDefault());
+      remove.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        removeAt(idx);
+        input?.focus();
+      });
+      chip.appendChild(remove);
+    }
+    return chip;
+  };
+  const paint = () => {
+    chips.replaceChildren(...tags.map(chipFor));
+  };
+  function removeAt(idx) {
+    if (disposed || readOnly || idx < 0 || idx >= tags.length) return;
+    tags = tags.filter((_, i) => i !== idx);
+    paint();
+    changed();
+  }
+  const commitText = (text) => {
+    if (disposed || readOnly) return false;
+    const next = [...tags];
+    for (const piece of String(text).split(",")) {
+      const tag = piece.trim();
+      if (tag === "") continue;
+      if (!allowDuplicates && next.includes(tag)) continue;
+      next.push(tag);
+    }
+    if (next.length === tags.length) return false;
+    const added = next.slice(tags.length).map((tag, i) => chipFor(tag, tags.length + i));
+    tags = next;
+    chips.append(...added);
+    changed();
+    return true;
+  };
+  const commitInput = () => {
+    if (!input) return;
+    const text = input.value;
+    input.value = "";
+    commitText(text);
+  };
+  if (input) {
+    input.addEventListener("keydown", (ev) => {
+      if (ev.isComposing) return;
+      if (ev.key === "Enter" || ev.key === ",") {
+        ev.preventDefault();
+        commitInput();
+      } else if (ev.key === "Backspace" && input.value === "" && tags.length) {
+        ev.preventDefault();
+        removeAt(tags.length - 1);
+      }
+    });
+    input.addEventListener("input", () => {
+      if (input.value.includes(",")) commitInput();
+    });
+    input.addEventListener("blur", commitInput);
+    input.addEventListener("paste", (ev) => {
+      const pasted = ev.clipboardData?.getData("text/plain") ?? "";
+      if (!pasted.includes(",")) return;
+      ev.preventDefault();
+      const start = input.selectionStart ?? input.value.length;
+      const end = input.selectionEnd ?? start;
+      const text = input.value.slice(0, start) + pasted + input.value.slice(end);
+      input.value = "";
+      commitText(text);
+    });
+    root.addEventListener("mousedown", (ev) => {
+      if (ev.target === root || ev.target === chips) {
+        ev.preventDefault();
+        input.focus();
+      }
+    });
+  }
+  paint();
+  host.appendChild(root);
+  return {
+    element: root,
+    input,
+    getValue: () => [...tags],
+    /** Replaces the list. Does not call `onChange`. */
+    setValue(list) {
+      if (disposed) return;
+      tags = normalise(list);
+      paint();
+    },
+    focus() {
+      input?.focus();
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      root.remove();
+    }
+  };
+}
+
+// src/ui/components/filter_builder.js
+var PREVIEW_DEBOUNCE_MS = 120;
+var ICON_COLUMNS = 8;
+var SUBMIT = "submit";
+var CLEAR = "clear";
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== void 0 && text !== null) node.textContent = String(text);
+  return node;
+}
+function button(className, text, onClick, { title, label } = {}) {
+  const node = el("button", className, text);
+  node.type = "button";
+  if (title) node.title = title;
+  if (label) node.setAttribute("aria-label", label);
+  node.addEventListener("click", onClick);
+  return node;
+}
+var SELECT_CLASS = "twm-filter-builder__input twm-filter-builder__select";
+var INPUT_CLASS = "twm-filter-builder__input";
+var SMALL_BUTTON = "twm-btn twm-filter-builder__add";
+var REMOVE_BUTTON = "twm-btn-icon twm-filter-builder__remove";
+function asRoot(expr) {
+  if (!expr || typeof expr !== "object") return emptyFilter();
+  const copy = cloneFilter(expr);
+  return copy.kind === "group" ? copy : { kind: "group", op: "AND", children: [copy] };
+}
+function createFilterBuilder(host, { model, value = null, onChange = null } = {}) {
+  if (!model) throw new Error("[FilterBuilder] needs a filter model");
+  const rootEl = el("div", "twm-filter-builder");
+  let root = asRoot(value);
+  let parents = /* @__PURE__ */ new WeakMap();
+  let controls = /* @__PURE__ */ new WeakMap();
+  const cells = /* @__PURE__ */ new Set();
+  const changed = () => onChange?.(cloneFilter(root));
+  const register = (node, role, control) => {
+    if (!controls.has(node)) controls.set(node, {});
+    controls.get(node)[role] = control;
+  };
+  function redraw(focusNode = null, focusRole = null) {
+    for (const cell of cells) cell.dispose();
+    cells.clear();
+    parents = /* @__PURE__ */ new WeakMap();
+    controls = /* @__PURE__ */ new WeakMap();
+    rootEl.replaceChildren(groupEl(root, true));
+    if (focusNode) controls.get(focusNode)?.[focusRole]?.focus();
+  }
+  function restructure(focusNode, focusRole) {
+    redraw(focusNode, focusRole);
+    changed();
+  }
+  function removeNode(node) {
+    let gone = node;
+    for (; ; ) {
+      const parent = parents.get(gone);
+      parent.children.splice(parent.children.indexOf(gone), 1);
+      if (parent.children.length || !parents.has(parent)) return parent;
+      gone = parent;
+    }
+  }
+  const removeButton = (node, label) => button(REMOVE_BUTTON, "\xD7", () => {
+    restructure(removeNode(node), "addClause");
+  }, { title: label, label });
+  function groupEl(group, isRoot) {
+    if (!Array.isArray(group.children)) group.children = [];
+    const box = el("div", `twm-filter-builder__group${isRoot ? " twm-filter-builder__group--root" : ""}`);
+    const noun = model.noun;
+    const head = el("div", "twm-filter-builder__group-head");
+    const seg = el("div", "twm-filter-builder__seg");
+    seg.setAttribute("role", "group");
+    seg.setAttribute("aria-label", "Match mode");
+    for (const op of ["AND", "OR"]) {
+      const on = group.op === op;
+      const toggle = button(`twm-filter-builder__seg-btn${on ? " twm-filter-builder__seg-btn--on" : ""}`, op, () => {
+        if (group.op === op) return;
+        group.op = op;
+        restructure(group, op);
+      });
+      toggle.setAttribute("aria-pressed", String(on));
+      register(group, op, toggle);
+      seg.appendChild(toggle);
+    }
+    const not = button(`twm-filter-builder__not${group.negate ? " twm-filter-builder__not--on" : ""}`, "NOT", () => {
+      if (group.negate) delete group.negate;
+      else group.negate = true;
+      restructure(group, "not");
+    }, { title: "Invert this group" });
+    not.setAttribute("aria-pressed", String(!!group.negate));
+    register(group, "not", not);
+    head.append(seg, not, el(
+      "span",
+      "twm-filter-builder__hint",
+      group.op === "OR" ? "any condition matches" : "all conditions match"
+    ));
+    if (!isRoot) head.appendChild(removeButton(group, "Remove group"));
+    box.appendChild(head);
+    const children = el("div", "twm-filter-builder__children");
+    for (const child of group.children) {
+      parents.set(child, group);
+      if (child?.kind === "group") children.appendChild(groupEl(child, false));
+      else if (child?.kind === "clause") children.appendChild(clauseEl(child));
+      else children.appendChild(carriedEl(child));
+    }
+    if (!group.children.length) {
+      const matches = model.emptyMatches(group) !== !!group.negate;
+      children.appendChild(el("div", "twm-filter-builder__empty", matches ? `No conditions: this group matches every ${noun}.` : `No conditions: this group matches no ${noun}.`));
+    }
+    box.appendChild(children);
+    const foot = el("div", "twm-filter-builder__group-foot");
+    const add = (factory, focusRole) => {
+      const node = factory();
+      if (!node) return;
+      group.children.push(node);
+      restructure(node, focusRole);
+    };
+    const offerable = !!model.newClause();
+    const addClause = button(SMALL_BUTTON, "+ Condition", () => add(() => model.newClause(), "field"));
+    addClause.disabled = !offerable;
+    register(group, "addClause", addClause);
+    const addGroup = button(SMALL_BUTTON, "+ Group", () => add(
+      () => ({ kind: "group", op: "AND", children: [model.newClause()] }),
+      "addClause"
+    ));
+    addGroup.disabled = !offerable;
+    foot.append(addClause, addGroup);
+    box.appendChild(foot);
+    return box;
+  }
+  function carriedEl(node) {
+    const row = el("div", "twm-filter-builder__row twm-filter-builder__row--carried");
+    const text = el("span", "twm-filter-builder__carried", model.describeFilter(node));
+    text.title = "This editor cannot draw this condition. It is kept exactly as it is; remove it to drop it.";
+    row.append(text, removeButton(node, "Remove condition"));
+    return row;
+  }
+  function fieldChoices(current) {
+    const list = [];
+    const groups = /* @__PURE__ */ new Map();
+    for (const field of model.fields) {
+      if (field.hidden && field.key !== current) continue;
+      const option = { value: field.key, label: field.label };
+      if (!field.group) {
+        list.push(option);
+      } else if (groups.has(field.group)) {
+        groups.get(field.group).options.push(option);
+      } else {
+        const entry = { group: field.group, options: [option] };
+        groups.set(field.group, entry);
+        list.push(entry);
+      }
+    }
+    return list;
+  }
+  function operatorChoices(clause) {
+    const offered = model.operatorsFor(clause.field);
+    const held = model.operatorById(clause.op);
+    const list = held && model.fieldByKey(clause.field) && !offered.includes(held) ? [...offered, held] : offered;
+    return list.map((op) => ({ value: op.id, label: op.label }));
+  }
+  function clauseEl(clause) {
+    const row = el("div", "twm-filter-builder__row");
+    const fieldSelect = selectBox(fieldChoices(clause.field), clause.field, {
+      label: "Field",
+      className: `${SELECT_CLASS} twm-filter-builder__select--field`,
+      notFound: () => `\u26A0 unknown field \u201C${model.unknownName(String(clause.field ?? ""))}\u201D`
+    });
+    fieldSelect.box.addEventListener("change", () => {
+      const next = model.newClause(fieldSelect.valueOf());
+      for (const key of ["op", "value"]) delete clause[key];
+      Object.assign(clause, next);
+      restructure(clause, "field");
+    });
+    register(clause, "field", fieldSelect.box);
+    const opSelect = selectBox(operatorChoices(clause), clause.op, {
+      label: "Operator",
+      className: `${SELECT_CLASS} twm-filter-builder__select--op`,
+      notFound: (id) => `${id} (unknown)`
+    });
+    opSelect.box.addEventListener("change", () => {
+      clause.op = opSelect.valueOf();
+      const fresh = model.defaultValue(model.fieldByKey(clause.field), model.operatorById(clause.op));
+      if (fresh === void 0) delete clause.value;
+      else clause.value = fresh;
+      restructure(clause, "op");
+    });
+    register(clause, "op", opSelect.box);
+    const cellEl = el("div", "twm-filter-builder__value");
+    const cell = { dispose() {
+    } };
+    cells.add(cell);
+    const drawCell = (focus = false) => {
+      cell.dispose();
+      cell.dispose = () => {
+      };
+      cellEl.replaceChildren();
+      drawValue(clause, cellEl, cell, drawCell);
+      if (focus) cellEl.querySelector("select, input")?.focus();
+    };
+    drawCell();
+    row.append(fieldSelect.box, opSelect.box, cellEl, removeButton(clause, "Remove condition"));
+    return row;
+  }
+  function drawValue(clause, cellEl, cell, drawCell) {
+    const field = model.fieldByKey(clause.field);
+    const op = model.operatorById(clause.op);
+    if (!field || !op) {
+      if (clause.value !== void 0) {
+        cellEl.appendChild(el("span", "twm-filter-builder__carried", JSON.stringify(clause.value)));
+      }
+      return;
+    }
+    if (!op.arity) return;
+    const write = (next) => {
+      clause.value = next;
+      changed();
+    };
+    const custom = field.editor?.({ field, op, value: clause.value, label: field.label, onChange: write });
+    if (custom) {
+      cellEl.appendChild(custom.el);
+      cell.dispose = () => custom.destroy?.();
+      return;
+    }
+    if (op.multi) {
+      if (filterOptions(field).length) drawChosenOptions(clause, field, cellEl, drawCell, write);
+      else drawTags(clause, field, cellEl, cell, write);
+      return;
+    }
+    if (op.arity === 2) {
+      const pair = Array.isArray(clause.value) ? [...clause.value] : ["", ""];
+      const box = (i) => scalarInput(field, op, pair[i], (v) => {
+        pair[i] = v;
+        write([...pair]);
+      });
+      cellEl.append(box(0), el("span", "twm-filter-builder__and", "and"), box(1));
+      return;
+    }
+    const options = field.type === "enum" ? filterOptions(field) : [];
+    if (options.length) {
+      const choice = selectBox(options, clause.value, {
+        label: field.label,
+        className: `${SELECT_CLASS} twm-filter-builder__select--value`,
+        notFound: (v) => `${v} (unknown)`
+      });
+      if (clause.value === void 0 || clause.value === null || clause.value === "") {
+        clause.value = choice.valueOf();
+      }
+      choice.box.addEventListener("change", () => write(choice.valueOf()));
+      cellEl.appendChild(choice.box);
+      return;
+    }
+    cellEl.appendChild(scalarInput(field, op, Array.isArray(clause.value) ? clause.value[0] : clause.value, write));
+    if (op.input === "days") cellEl.appendChild(el("span", "twm-filter-builder__and", "days"));
+  }
+  function scalarInput(field, op, current, write) {
+    const input = el("input", INPUT_CLASS);
+    const numeric = field.type === "number" || op.input === "days";
+    if (numeric) {
+      input.type = "number";
+      input.step = "any";
+    } else if (field.type === "date") {
+      input.type = field.time ? "datetime-local" : "date";
+    } else {
+      input.type = "text";
+      input.placeholder = "value\u2026";
+    }
+    input.setAttribute("aria-label", field.label);
+    input.value = current ?? "";
+    const type = numeric ? { type: "number" } : field;
+    input.addEventListener("input", () => write(coerceFilterValue(type, input.value)));
+    return input;
+  }
+  function asList(value2) {
+    if (Array.isArray(value2)) return value2;
+    return value2 === "" || value2 === null || value2 === void 0 ? [] : [value2];
+  }
+  function drawTags(clause, field, cellEl, cell, write) {
+    const tags = createTagInput(cellEl, {
+      value: asList(clause.value).map(String),
+      placeholder: "value\u2026",
+      label: field.label,
+      className: "twm-filter-builder__tags",
+      onChange: (list) => write(list.map((v) => coerceFilterValue(field, v)))
+    });
+    cell.dispose = () => tags.dispose();
+  }
+  function drawChosenOptions(clause, field, cellEl, drawCell, write) {
+    const options = filterOptions(field);
+    const chosen = asList(clause.value);
+    const labelOf = (v) => options.find((o) => o.value === v)?.label ?? String(v);
+    const box = el("div", "twm-filter-builder__chosen");
+    chosen.forEach((v, i) => {
+      const chip = el("span", "twm-filter-builder__chip", labelOf(v));
+      chip.appendChild(button("twm-filter-builder__chip-remove", "\xD7", () => {
+        write(chosen.filter((_, at) => at !== i));
+        drawCell(true);
+      }, { label: `Remove ${labelOf(v)}` }));
+      box.appendChild(chip);
+    });
+    const rest = options.filter((o) => !chosen.includes(o.value));
+    if (rest.length) {
+      const adder = selectBox(rest, void 0, {
+        empty: "+ value",
+        keepMissing: false,
+        label: `Add a value to ${field.label}`,
+        className: `${SELECT_CLASS} twm-filter-builder__select--add`
+      });
+      adder.box.addEventListener("change", () => {
+        const next = adder.valueOf();
+        if (next === void 0) return;
+        write([...chosen, next]);
+        drawCell(true);
+      });
+      box.appendChild(adder.box);
+    }
+    cellEl.appendChild(box);
+  }
+  redraw();
+  host.appendChild(rootEl);
+  return {
+    el: rootEl,
+    getValue: () => cloneFilter(root),
+    /** Replaces the expression. Does not call `onChange`. */
+    setValue(expr) {
+      root = asRoot(expr);
+      redraw();
+    },
+    validate: () => model.validateFilter(root),
+    focus() {
+      rootEl.querySelector("select, input, button")?.focus();
+    },
+    destroy() {
+      for (const cell of cells) cell.dispose();
+      cells.clear();
+      rootEl.remove();
+    }
+  };
+}
+function createIconPicker({ value, options, onChange }) {
+  let current = value;
+  const root = el("div", "twm-filter-dialog__icon");
+  const glyph2 = (name) => el("span", "material-symbols-outlined", name);
+  const trigger = button("twm-btn twm-filter-dialog__icon-trigger", null, () => pop.hidden ? open() : close(), {
+    title: "Icon",
+    label: "Icon"
+  });
+  trigger.setAttribute("aria-haspopup", "listbox");
+  trigger.setAttribute("aria-expanded", "false");
+  const face = glyph2(current);
+  trigger.appendChild(face);
+  const pop = el("div", "twm-filter-dialog__icon-pop");
+  pop.hidden = true;
+  const search = el("input", `${INPUT_CLASS} twm-filter-dialog__icon-search`);
+  search.type = "text";
+  search.placeholder = "Search icons\u2026";
+  search.setAttribute("aria-label", "Search icons");
+  const grid = el("div", "twm-filter-dialog__icon-grid");
+  grid.setAttribute("role", "listbox");
+  grid.setAttribute("aria-label", "Icon");
+  const none = el("div", "twm-filter-dialog__icon-none", "No icon matches.");
+  pop.append(search, grid, none);
+  root.append(trigger, pop);
+  const pick = (name) => {
+    current = name;
+    face.textContent = name;
+    close();
+    onChange(name);
+  };
+  const drawGrid = () => {
+    const query = search.value.trim().toLowerCase();
+    const list = query ? options.filter((n) => n.toLowerCase().includes(query)) : options;
+    none.hidden = list.length > 0;
+    grid.replaceChildren(...list.map((name) => {
+      const on = name === current;
+      const option = button(
+        `twm-filter-dialog__icon-option${on ? " twm-filter-dialog__icon-option--on" : ""}`,
+        null,
+        () => pick(name),
+        { title: name }
+      );
+      option.setAttribute("role", "option");
+      option.setAttribute("aria-selected", String(on));
+      option.appendChild(glyph2(name));
+      return option;
+    }));
+  };
+  function open() {
+    search.value = "";
+    drawGrid();
+    pop.hidden = false;
+    trigger.setAttribute("aria-expanded", "true");
+    search.focus();
+  }
+  function close(refocus = true) {
+    if (pop.hidden) return;
+    pop.hidden = true;
+    trigger.setAttribute("aria-expanded", "false");
+    if (refocus) trigger.focus();
+  }
+  search.addEventListener("input", drawGrid);
+  search.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      grid.firstElementChild?.focus();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      grid.firstElementChild?.click();
+    }
+  });
+  grid.addEventListener("keydown", (e) => {
+    const items = [...grid.children];
+    const at = items.indexOf(e.target.closest("button"));
+    if (at < 0) return;
+    const step = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: ICON_COLUMNS, ArrowUp: -ICON_COLUMNS }[e.key];
+    if (step === void 0) return;
+    e.preventDefault();
+    if (at + step < 0 && e.key === "ArrowUp") search.focus();
+    else items[at + step]?.focus();
+  });
+  pop.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    close();
+  });
+  return { el: root, close, value: () => current };
+}
+async function openFilterDialog({
+  model,
+  value = null,
+  seedField = null,
+  title = "Filter",
+  icon: icon2 = "filter_alt",
+  head = null,
+  name = null,
+  iconChoice = null,
+  preview = null,
+  requireValid = true,
+  prune = false,
+  confirmDiscard = false,
+  submitLabel = "Apply",
+  onSubmit = null,
+  clearLabel = null,
+  actions = [],
+  width = preview ? 920 : 760,
+  height = 560
+} = {}) {
+  if (!model) throw new Error("[FilterDialog] needs a filter model");
+  const start = asRoot(value);
+  if (seedField) {
+    const seeded = model.newClause(seedField);
+    if (seeded) start.children.push(seeded);
+  }
+  const content = el("div", "twm-filter-dialog");
+  if (head) content.appendChild(head);
+  let picker = null;
+  let nameInput = null;
+  if (name || iconChoice) {
+    const row = el("div", "twm-filter-dialog__identity");
+    if (name) {
+      const label = el("label", "twm-filter-dialog__name");
+      label.appendChild(el("span", "twm-filter-dialog__name-label", name.label ?? "Name"));
+      nameInput = el("input", INPUT_CLASS);
+      nameInput.type = "text";
+      nameInput.autocomplete = "off";
+      nameInput.value = name.value ?? "";
+      if (name.placeholder) nameInput.placeholder = name.placeholder;
+      nameInput.addEventListener("input", refresh);
+      label.appendChild(nameInput);
+      row.appendChild(label);
+    }
+    if (iconChoice) {
+      picker = createIconPicker({
+        value: iconChoice.value ?? iconChoice.options[0],
+        options: iconChoice.options,
+        onChange: refresh
+      });
+      row.appendChild(picker.el);
+      content.addEventListener("mousedown", (e) => {
+        if (!picker.el.contains(e.target)) picker.close(false);
+      });
+    }
+    content.appendChild(row);
+  }
+  const columns = el("div", "twm-filter-dialog__columns");
+  const buildPane = el("section", "twm-filter-dialog__pane twm-filter-dialog__pane--build");
+  columns.appendChild(buildPane);
+  content.appendChild(columns);
+  const errorsEl = el("ul", "twm-filter-dialog__errors");
+  errorsEl.hidden = true;
+  const failureEl = el("div", "twm-filter-dialog__failure");
+  failureEl.setAttribute("role", "alert");
+  failureEl.hidden = true;
+  let sentenceEl = null;
+  let slot = null;
+  if (preview) {
+    const pane = el("section", "twm-filter-dialog__pane twm-filter-dialog__pane--preview");
+    sentenceEl = el("div", "twm-filter-dialog__sentence");
+    slot = el("div", "twm-filter-dialog__preview");
+    pane.append(sentenceEl, errorsEl, slot);
+    columns.appendChild(pane);
+  }
+  let previewTimer = 0;
+  let previewRun = null;
+  let controls = null;
+  let busy = false;
+  const builder = createFilterBuilder(buildPane, {
+    model,
+    value: start,
+    onChange: () => {
+      refresh();
+      clearTimeout(previewTimer);
+      previewTimer = setTimeout(drawPreview, PREVIEW_DEBOUNCE_MS);
+    }
+  });
+  if (!preview) buildPane.appendChild(errorsEl);
+  content.appendChild(failureEl);
+  function current() {
+    const expr = builder.getValue();
+    return prune ? model.pruneFilter(expr) : expr;
+  }
+  const checkOf = (expr) => expr ? model.validateFilter(expr) : { ok: true, errors: [] };
+  const nameMissing = () => !!nameInput && name.required !== false && !nameInput.value.trim();
+  const canSubmit = () => !busy && !nameMissing() && (!requireValid || checkOf(current()).ok);
+  function refresh() {
+    if (!controls) return;
+    for (const { value: value2 } of modalActions) {
+      controls.setActionEnabled(value2, value2 === SUBMIT ? canSubmit() : !busy);
+    }
+  }
+  function showErrors(errors) {
+    errorsEl.replaceChildren(...errors.map((message) => el("li", "", message)));
+    errorsEl.hidden = errors.length === 0;
+  }
+  function showFailure(message) {
+    failureEl.textContent = message;
+    failureEl.hidden = !message;
+  }
+  function drawPreview() {
+    const expr = current();
+    const { ok, errors } = checkOf(expr);
+    previewRun?.abort();
+    previewRun = null;
+    const blocked = requireValid && !ok;
+    showErrors(blocked ? errors : []);
+    if (!preview) return;
+    slot.hidden = blocked;
+    if (blocked) {
+      sentenceEl.textContent = "";
+      slot.replaceChildren();
+      return;
+    }
+    const shown = expr ?? emptyFilter();
+    const sentence = model.describeFilter(shown);
+    sentenceEl.textContent = sentence;
+    previewRun = new AbortController();
+    try {
+      preview(slot, { expr: shown, sentence, signal: previewRun.signal });
+    } catch (err) {
+      showFailure(`Preview failed: ${err?.message ?? err}`);
+    }
+  }
+  const snapshot = () => JSON.stringify([builder.getValue(), nameInput?.value ?? null, picker?.value() ?? null]);
+  const initial = snapshot();
+  function mayDiscard() {
+    if (busy) return false;
+    if (!confirmDiscard || snapshot() === initial) return true;
+    return openConfirm({
+      title: "Discard changes?",
+      message: "This filter has unsaved changes. Closing now throws them away.",
+      confirmLabel: "Discard",
+      cancelLabel: "Keep editing",
+      danger: true
+    });
+  }
+  async function runAction(action, close) {
+    if (busy || action.value === SUBMIT && !canSubmit()) return;
+    showFailure("");
+    busy = true;
+    try {
+      if (action.confirm && !await openConfirm(action.confirm)) return;
+      refresh();
+      const result = { action: action.value, expr: action.value === CLEAR ? null : current() };
+      if (nameInput) result.name = nameInput.value.trim();
+      if (picker) result.icon = picker.value();
+      await action.run?.(result);
+      close(result);
+    } catch (err) {
+      showFailure(err?.message ?? String(err));
+    } finally {
+      busy = false;
+      refresh();
+    }
+  }
+  const asModalAction = (action) => ({
+    ...action,
+    keepOpen: true,
+    onClick: (close) => runAction(action, close)
+  });
+  const modalActions = [
+    ...actions.map(asModalAction),
+    {
+      label: "Cancel",
+      value: "cancel",
+      keepOpen: true,
+      onClick: async (close) => {
+        if (await mayDiscard()) close(null);
+      }
+    }
+  ];
+  if (clearLabel) modalActions.push(asModalAction({ label: clearLabel, value: CLEAR }));
+  modalActions.push({
+    ...asModalAction({ label: submitLabel, value: SUBMIT, run: onSubmit }),
+    primary: true,
+    disabled: !canSubmit()
+  });
+  const closed = openModal({
+    title,
+    icon: icon2,
+    content,
+    actions: modalActions,
+    width,
+    height,
+    maximizable: true,
+    beforeClose: mayDiscard,
+    onMount: (_body, modalControls) => {
+      controls = modalControls;
+      refresh();
+    }
+  });
+  drawPreview();
+  try {
+    return await closed;
+  } finally {
+    clearTimeout(previewTimer);
+    previewRun?.abort();
+    builder.destroy();
+  }
 }
 
 // src/ui/components/gallery_picker.js
@@ -2820,9 +4138,9 @@ function showNotificationMenu(event, notification, logger) {
   );
 }
 var TOAST_TEXT = ".twm-notification__title, .twm-notification__body, .twm-notification__description, .twm-notification__status";
-function selectsTextIn(el2) {
-  const sel = el2.ownerDocument.getSelection?.();
-  return Boolean(sel && !sel.isCollapsed && sel.rangeCount && el2.contains(sel.getRangeAt(0).commonAncestorContainer));
+function selectsTextIn(el3) {
+  const sel = el3.ownerDocument.getSelection?.();
+  return Boolean(sel && !sel.isCollapsed && sel.rangeCount && el3.contains(sel.getRangeAt(0).commonAncestorContainer));
 }
 var NotificationCenter = class _NotificationCenter extends ComponentBase {
   #items;
@@ -3316,9 +4634,9 @@ var NotificationCenter = class _NotificationCenter extends ComponentBase {
     });
     const summary = this.#syncSummary();
     if (summary) wanted.push(summary);
-    wanted.forEach((el2, i) => {
+    wanted.forEach((el3, i) => {
       const at = this.listEl.children[i];
-      if (at !== el2) this.listEl.insertBefore(el2, at ?? null);
+      if (at !== el3) this.listEl.insertBefore(el3, at ?? null);
     });
     while (this.listEl.children.length > wanted.length) {
       this.listEl.lastElementChild.remove();
@@ -3427,11 +4745,11 @@ var NotificationCenter = class _NotificationCenter extends ComponentBase {
       const actionsEl = document.createElement("div");
       actionsEl.className = "twm-notification__actions";
       notification.actions.forEach((action) => {
-        const button2 = document.createElement("button");
-        button2.type = "button";
-        button2.className = "twm-notification__action-btn";
-        button2.textContent = action.label;
-        button2.addEventListener("click", () => {
+        const button3 = document.createElement("button");
+        button3.type = "button";
+        button3.className = "twm-notification__action-btn";
+        button3.textContent = action.label;
+        button3.addEventListener("click", () => {
           try {
             if (action.handler) {
               action.handler(notification, action);
@@ -3446,7 +4764,7 @@ var NotificationCenter = class _NotificationCenter extends ComponentBase {
             }
           }
         });
-        actionsEl.appendChild(button2);
+        actionsEl.appendChild(button3);
       });
       item.appendChild(actionsEl);
     }
@@ -4360,10 +5678,10 @@ function pill(p) {
   if (s.tone) span.dataset.tone = safeWord(s.tone);
   return span;
 }
-function appendContent2(el2, content) {
+function appendContent2(el3, content) {
   if (content == null || content === false) return;
-  if (typeof Node !== "undefined" && content instanceof Node) el2.appendChild(content);
-  else el2.appendChild(document.createTextNode(String(content)));
+  if (typeof Node !== "undefined" && content instanceof Node) el3.appendChild(content);
+  else el3.appendChild(document.createTextNode(String(content)));
 }
 
 // src/ui/components/section_stack.js
@@ -4589,14 +5907,14 @@ function createSectionStack(container, { sections = [], stateStore = null, key =
 
 // src/ui/components/settings_view.js
 var SETTINGS_TEXT_DEBOUNCE_MS = 300;
-function el(tag, className, text) {
+function el2(tag, className, text) {
   const n = document.createElement(tag);
   if (className) n.className = className;
   if (text !== void 0 && text !== null) n.textContent = String(text);
   return n;
 }
 function icon(name) {
-  const n = el("span", "material-symbols-outlined", name);
+  const n = el2("span", "material-symbols-outlined", name);
   n.setAttribute("aria-hidden", "true");
   return n;
 }
@@ -4630,8 +5948,8 @@ function fitNumber(n, { min, max, step }) {
   return at(k);
 }
 function filterBox(onInput) {
-  const label = el("label", "twm-settings__search");
-  const input = el("input", "twm-settings__search-input");
+  const label = el2("label", "twm-settings__search");
+  const input = el2("input", "twm-settings__search-input");
   input.type = "search";
   input.placeholder = "Filter settings\u2026";
   input.autocomplete = "off";
@@ -4642,7 +5960,7 @@ function filterBox(onInput) {
   return { label, input };
 }
 function categoryNav(onSelect) {
-  const nav = el("nav", "twm-settings__nav");
+  const nav = el2("nav", "twm-settings__nav");
   nav.setAttribute("aria-label", "Settings categories");
   nav.addEventListener("click", (e) => {
     const btn = e.target.closest?.("[data-category]");
@@ -4652,23 +5970,23 @@ function categoryNav(onSelect) {
 }
 function paintCategories(nav, categories, active) {
   const buttons = categories.map((cat) => {
-    const b = el("button", "twm-settings__cat");
+    const b = el2("button", "twm-settings__cat");
     b.type = "button";
     b.dataset.category = cat.id;
     if (cat.id === active) {
       b.classList.add("twm-settings__cat--active");
       b.setAttribute("aria-current", "page");
     }
-    b.append(icon(cat.icon || "tune"), el("span", "twm-settings__cat-label", cat.label ?? cat.id));
+    b.append(icon(cat.icon || "tune"), el2("span", "twm-settings__cat-label", cat.label ?? cat.id));
     if (cat.description) b.title = String(cat.description);
     return b;
   });
   nav.replaceChildren(...buttons);
 }
 function resetAllButton(onClick) {
-  const b = el("button", "twm-btn twm-settings__reset-all");
+  const b = el2("button", "twm-btn twm-settings__reset-all");
   b.type = "button";
-  b.append(icon("restart_alt"), el("span", "", "Reset all"));
+  b.append(icon("restart_alt"), el2("span", "", "Reset all"));
   b.addEventListener("click", () => {
     onClick();
   });
@@ -4723,18 +6041,18 @@ var SettingsView = class extends ComponentBase {
   /** Build the view into `container` (once). */
   mount(container) {
     if (this.root) return this.root;
-    const root = el("div", "twm-settings");
+    const root = el2("div", "twm-settings");
     if (this._sidebar) {
-      const side = el("aside", "twm-settings__sidebar");
-      const head = el("div", "twm-settings__sidebar-title");
-      head.append(icon("settings"), el("span", "", this._title));
+      const side = el2("aside", "twm-settings__sidebar");
+      const head = el2("div", "twm-settings__sidebar-title");
+      head.append(icon("settings"), el2("span", "", this._title));
       const search = filterBox((text) => this.setQuery(text));
       this._search = search.input;
       this._nav = categoryNav((id) => this.selectCategory(id));
       side.append(head, search.label, this._nav, resetAllButton(() => this.resetAll()));
       root.append(side);
     }
-    const content = el("div", "twm-settings__content");
+    const content = el2("div", "twm-settings__content");
     this._content = content;
     root.append(content);
     this.root = root;
@@ -4902,10 +6220,10 @@ var SettingsView = class extends ComponentBase {
       const rank = new Map(cats.map((c, i) => [c.id, i]));
       const matches = Object.entries(schema).filter(([path, def]) => [def.label, def.description, path].some((t) => t != null && String(t).toLowerCase().includes(q))).map(([path, def]) => ({ path, ...def }));
       matches.sort((a, b) => (rank.get(a.category) ?? Infinity) - (rank.get(b.category) ?? Infinity));
-      const header2 = el("header", "twm-settings__header");
-      const info2 = el("div", "twm-settings__header-info");
+      const header2 = el2("header", "twm-settings__header");
+      const info2 = el2("div", "twm-settings__header-info");
       const n = matches.length;
-      info2.append(el(
+      info2.append(el2(
         "h2",
         "twm-settings__title",
         `${n} result${n === 1 ? "" : "s"} for \u201C${this._query.trim()}\u201D`
@@ -4913,7 +6231,7 @@ var SettingsView = class extends ComponentBase {
       header2.append(info2);
       content.append(header2);
       if (!n) {
-        content.append(el("div", "twm-settings__empty", "No setting matches the filter."));
+        content.append(el2("div", "twm-settings__empty", "No setting matches the filter."));
         return;
       }
       this.#paintGroups(matches, (def) => `${labelOf.get(def.category) ?? def.category ?? ""} \u203A ${def.group || "General"}`);
@@ -4921,17 +6239,17 @@ var SettingsView = class extends ComponentBase {
     }
     const cat = this.#activeCategory();
     if (!cat) {
-      content.append(el("div", "twm-settings__empty", "No settings."));
+      content.append(el2("div", "twm-settings__empty", "No settings."));
       return;
     }
     this._category = cat.id;
-    const header = el("header", "twm-settings__header");
-    const info = el("div", "twm-settings__header-info");
-    info.append(el("h2", "twm-settings__title", cat.label ?? cat.id));
-    if (cat.description) info.append(el("p", "twm-settings__description", cat.description));
-    const reset = el("button", "twm-btn twm-settings__reset-category");
+    const header = el2("header", "twm-settings__header");
+    const info = el2("div", "twm-settings__header-info");
+    info.append(el2("h2", "twm-settings__title", cat.label ?? cat.id));
+    if (cat.description) info.append(el2("p", "twm-settings__description", cat.description));
+    const reset = el2("button", "twm-btn twm-settings__reset-category");
     reset.type = "button";
-    reset.append(icon("restart_alt"), el("span", "", "Reset category"));
+    reset.append(icon("restart_alt"), el2("span", "", "Reset category"));
     reset.addEventListener("click", () => {
       this.resetCategory(cat.id);
     });
@@ -4939,7 +6257,7 @@ var SettingsView = class extends ComponentBase {
     content.append(header);
     const defs = Object.entries(schema).filter(([, def]) => def.category === cat.id).map(([path, def]) => ({ path, ...def }));
     if (!defs.length) {
-      content.append(el("div", "twm-settings__empty", "No settings in this category."));
+      content.append(el2("div", "twm-settings__empty", "No settings in this category."));
       return;
     }
     this.#paintGroups(defs, (def) => def.group || "General");
@@ -4952,8 +6270,8 @@ var SettingsView = class extends ComponentBase {
       groups.get(key).push(def);
     }
     for (const [title, list] of groups) {
-      const section = el("section", "twm-settings__group");
-      section.append(el("h3", "twm-settings__group-title", title));
+      const section = el2("section", "twm-settings__group");
+      section.append(el2("h3", "twm-settings__group-title", title));
       for (const def of list) section.append(this.#row(def));
       this._content.append(section);
     }
@@ -4962,20 +6280,20 @@ var SettingsView = class extends ComponentBase {
   #row(def) {
     const { path } = def;
     const store = this.store;
-    const row = el("div", "twm-settings__row");
+    const row = el2("div", "twm-settings__row");
     row.dataset.path = path;
-    const info = el("div", "twm-settings__info");
-    const labelLine = el("div", "twm-settings__label-line");
-    const label = el("span", "twm-settings__label", def.label ?? path);
-    const marker = el("span", "twm-settings__marker", "Modified");
+    const info = el2("div", "twm-settings__info");
+    const labelLine = el2("div", "twm-settings__label-line");
+    const label = el2("span", "twm-settings__label", def.label ?? path);
+    const marker = el2("span", "twm-settings__marker", "Modified");
     labelLine.append(label, marker);
     info.append(labelLine);
-    if (def.description) info.append(el("div", "twm-settings__description", def.description));
-    info.append(el("code", "twm-settings__path", path));
-    const slot = el("div", "twm-settings__control");
+    if (def.description) info.append(el2("div", "twm-settings__description", def.description));
+    info.append(el2("code", "twm-settings__path", path));
+    const slot = el2("div", "twm-settings__control");
     const control = this.#control(def, (value) => store.set(path, value));
     slot.append(control.el);
-    const reset = el("button", "twm-settings__reset");
+    const reset = el2("button", "twm-settings__reset");
     reset.type = "button";
     reset.title = "Reset to default";
     reset.setAttribute("aria-label", `Reset ${def.label ?? path} to default`);
@@ -5042,7 +6360,7 @@ var SettingsView = class extends ComponentBase {
         };
       }
       case "number": {
-        const box = el("input", "twm-settings__number");
+        const box = el2("input", "twm-settings__number");
         box.type = "number";
         box.setAttribute("aria-label", name);
         if (def.min != null) box.min = String(def.min);
@@ -5078,7 +6396,7 @@ var SettingsView = class extends ComponentBase {
         };
       }
       case "text": {
-        const box = el("input", "twm-settings__text");
+        const box = el2("input", "twm-settings__text");
         box.type = "text";
         box.setAttribute("aria-label", name);
         if (def.placeholder != null) box.placeholder = String(def.placeholder);
@@ -5141,7 +6459,7 @@ var SettingsView = class extends ComponentBase {
         };
       }
       default: {
-        const out = el("span", "twm-settings__readonly");
+        const out = el2("span", "twm-settings__readonly");
         return {
           el: out,
           show: (v) => {
@@ -5172,7 +6490,7 @@ var SettingsCategories = class extends ComponentBase {
   mount(container) {
     if (this.root) return this.root;
     const view = this.view;
-    const root = el("div", "twm-settings-categories");
+    const root = el2("div", "twm-settings-categories");
     const search = filterBox((text) => view.setQuery(text));
     this._search = search.input;
     this._nav = categoryNav((id) => view.selectCategory(id));
@@ -5603,153 +6921,10 @@ function createTableStateStore({ host, key, logger = console, debounceMs = 500 }
   };
 }
 
-// src/ui/components/tag_input.js
-var normalise = (list) => (Array.isArray(list) ? list : []).map((v) => v == null ? "" : String(v).trim()).filter((v) => v !== "");
-function createTagInput(host, options = {}) {
-  if (!host || typeof host.appendChild !== "function") {
-    throw new Error("[TagInput] host must be an HTMLElement");
-  }
-  const readOnly = !!options.readOnly;
-  const allowDuplicates = !!options.allowDuplicates;
-  const removeLabel = typeof options.removeLabel === "function" ? options.removeLabel : (tag) => `Remove ${tag}`;
-  let tags = normalise(options.value);
-  let disposed = false;
-  const root = document.createElement("div");
-  root.className = ["twm-tag-input", readOnly ? "twm-tag-input--readonly" : "", options.className || ""].join(" ").replace(/\s+/g, " ").trim();
-  root.setAttribute("role", "group");
-  if (options.label) root.setAttribute("aria-label", options.label);
-  const chips = document.createElement("ul");
-  chips.className = "twm-tag-input__chips";
-  root.appendChild(chips);
-  let input = null;
-  if (!readOnly) {
-    input = document.createElement("input");
-    input.type = "text";
-    input.className = "twm-tag-input__input";
-    input.spellcheck = false;
-    input.autocomplete = "off";
-    if (options.placeholder) input.placeholder = options.placeholder;
-    if (options.label) input.setAttribute("aria-label", options.label);
-    root.appendChild(input);
-  }
-  const changed = () => {
-    if (typeof options.onChange === "function") options.onChange([...tags]);
-  };
-  const chipFor = (tag, idx) => {
-    const chip = document.createElement("li");
-    chip.className = "twm-tag-input__chip";
-    const text = document.createElement("span");
-    text.className = "twm-tag-input__text";
-    text.textContent = tag;
-    text.title = tag;
-    chip.appendChild(text);
-    if (!readOnly) {
-      const remove = document.createElement("button");
-      remove.type = "button";
-      remove.className = "twm-tag-input__remove";
-      remove.setAttribute("aria-label", removeLabel(tag));
-      remove.textContent = "\xD7";
-      remove.addEventListener("mousedown", (ev) => ev.preventDefault());
-      remove.addEventListener("click", (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        removeAt(idx);
-        input?.focus();
-      });
-      chip.appendChild(remove);
-    }
-    return chip;
-  };
-  const paint = () => {
-    chips.replaceChildren(...tags.map(chipFor));
-  };
-  function removeAt(idx) {
-    if (disposed || readOnly || idx < 0 || idx >= tags.length) return;
-    tags = tags.filter((_, i) => i !== idx);
-    paint();
-    changed();
-  }
-  const commitText = (text) => {
-    if (disposed || readOnly) return false;
-    const next = [...tags];
-    for (const piece of String(text).split(",")) {
-      const tag = piece.trim();
-      if (tag === "") continue;
-      if (!allowDuplicates && next.includes(tag)) continue;
-      next.push(tag);
-    }
-    if (next.length === tags.length) return false;
-    const added = next.slice(tags.length).map((tag, i) => chipFor(tag, tags.length + i));
-    tags = next;
-    chips.append(...added);
-    changed();
-    return true;
-  };
-  const commitInput = () => {
-    if (!input) return;
-    const text = input.value;
-    input.value = "";
-    commitText(text);
-  };
-  if (input) {
-    input.addEventListener("keydown", (ev) => {
-      if (ev.isComposing) return;
-      if (ev.key === "Enter" || ev.key === ",") {
-        ev.preventDefault();
-        commitInput();
-      } else if (ev.key === "Backspace" && input.value === "" && tags.length) {
-        ev.preventDefault();
-        removeAt(tags.length - 1);
-      }
-    });
-    input.addEventListener("input", () => {
-      if (input.value.includes(",")) commitInput();
-    });
-    input.addEventListener("blur", commitInput);
-    input.addEventListener("paste", (ev) => {
-      const pasted = ev.clipboardData?.getData("text/plain") ?? "";
-      if (!pasted.includes(",")) return;
-      ev.preventDefault();
-      const start = input.selectionStart ?? input.value.length;
-      const end = input.selectionEnd ?? start;
-      const text = input.value.slice(0, start) + pasted + input.value.slice(end);
-      input.value = "";
-      commitText(text);
-    });
-    root.addEventListener("mousedown", (ev) => {
-      if (ev.target === root || ev.target === chips) {
-        ev.preventDefault();
-        input.focus();
-      }
-    });
-  }
-  paint();
-  host.appendChild(root);
-  return {
-    element: root,
-    input,
-    getValue: () => [...tags],
-    /** Replaces the list. Does not call `onChange`. */
-    setValue(list) {
-      if (disposed) return;
-      tags = normalise(list);
-      paint();
-    },
-    focus() {
-      input?.focus();
-    },
-    dispose() {
-      if (disposed) return;
-      disposed = true;
-      root.remove();
-    }
-  };
-}
-
 // src/ui/components/tree_view.js
 function setText(root, selector, value) {
-  const el2 = root.querySelector(selector);
-  if (el2) el2.textContent = value == null ? "" : String(value);
+  const el3 = root.querySelector(selector);
+  if (el3) el3.textContent = value == null ? "" : String(value);
 }
 function attrValue(value) {
   return String(value).replace(/["\\]/g, "\\$&").replace(/[\n\r\f]/g, (c) => `\\${c.charCodeAt(0).toString(16)} `);
@@ -5928,7 +7103,7 @@ function filterTree(container, filter, options = {}) {
     item.classList.toggle("twm-filter-match", matches && !!normalizedFilter);
     if (matches) visibleItems.add(item);
   });
-  const hasVisibleItem = (el2) => !normalizedFilter || [...el2.querySelectorAll(".twm-tree-item")].some((item) => visibleItems.has(item));
+  const hasVisibleItem = (el3) => !normalizedFilter || [...el3.querySelectorAll(".twm-tree-item")].some((item) => visibleItems.has(item));
   container.querySelectorAll(".twm-tree-node").forEach((node) => {
     const visible = hasVisibleItem(node);
     node.style.display = visible ? "" : "none";
@@ -5942,8 +7117,8 @@ function filterTree(container, filter, options = {}) {
 }
 function selectItem(container, itemId, options = {}) {
   const { scrollIntoView = true, expandParents = true } = options;
-  container.querySelectorAll(".twm-tree-item.selected").forEach((el2) => {
-    el2.classList.remove("selected");
+  container.querySelectorAll(".twm-tree-item.selected").forEach((el3) => {
+    el3.classList.remove("selected");
   });
   const item = container.querySelector(`.twm-tree-item[data-item-id="${attrValue(itemId)}"]`);
   if (!item) return null;
@@ -6722,7 +7897,7 @@ function setText2(node, text) {
 function show(node, shown) {
   node.hidden = !shown;
 }
-function button(className) {
+function button2(className) {
   const node = part("button", className);
   node.type = "button";
   return node;
@@ -6785,14 +7960,14 @@ function mountPickerField(hostEl, {
   onActivate = null
 } = {}) {
   const centered = layout === "centered";
-  const el2 = button(["twm-wspicker-field", centered ? "twm-wspicker-field--centered" : "", className].filter(Boolean).join(" "));
-  el2.setAttribute("aria-haspopup", "dialog");
-  el2.setAttribute("aria-expanded", "false");
+  const el3 = button2(["twm-wspicker-field", centered ? "twm-wspicker-field--centered" : "", className].filter(Boolean).join(" "));
+  el3.setAttribute("aria-haspopup", "dialog");
+  el3.setAttribute("aria-expanded", "false");
   const iconEl = glyph("", "twm-wspicker-field__icon");
   const nameEl = part("span", "twm-wspicker-field__name");
   const keyEl = part("kbd", "twm-wspicker-field__key");
-  el2.append(iconEl, nameEl, keyEl);
-  if (caret) el2.append(glyph("expand_more", "twm-wspicker-field__caret"));
+  el3.append(iconEl, nameEl, keyEl);
+  if (caret) el3.append(glyph("expand_more", "twm-wspicker-field__caret"));
   const update = (patch) => {
     if ("name" in patch) setText2(nameEl, patch.name);
     if ("icon" in patch) {
@@ -6803,26 +7978,26 @@ function mountPickerField(hostEl, {
       setText2(keyEl, patch.keyHint);
       show(keyEl, !!patch.keyHint);
     }
-    if ("muted" in patch) el2.classList.toggle("twm-wspicker-field--muted", !!patch.muted);
+    if ("muted" in patch) el3.classList.toggle("twm-wspicker-field--muted", !!patch.muted);
     if ("tooltip" in patch) {
-      el2.classList.toggle("twm-has-tooltip", !!patch.tooltip);
+      el3.classList.toggle("twm-has-tooltip", !!patch.tooltip);
       if (patch.tooltip) {
-        el2.setAttribute("data-tooltip", patch.tooltip);
-        el2.setAttribute("data-tooltip-placement", "bottom");
+        el3.setAttribute("data-tooltip", patch.tooltip);
+        el3.setAttribute("data-tooltip-placement", "bottom");
       } else {
-        el2.removeAttribute("data-tooltip");
-        el2.removeAttribute("data-tooltip-placement");
+        el3.removeAttribute("data-tooltip");
+        el3.removeAttribute("data-tooltip-placement");
       }
     }
     if ("ariaLabel" in patch) {
-      if (patch.ariaLabel) el2.setAttribute("aria-label", patch.ariaLabel);
-      else el2.removeAttribute("aria-label");
+      if (patch.ariaLabel) el3.setAttribute("aria-label", patch.ariaLabel);
+      else el3.removeAttribute("aria-label");
     }
   };
   update({ name, icon: icon2, keyHint, muted, tooltip, ariaLabel });
   const fit = () => {
     if (!centered) {
-      el2.classList.toggle("twm-wspicker-field--tight", el2.getBoundingClientRect().width < tightWidth);
+      el3.classList.toggle("twm-wspicker-field--tight", el3.getBoundingClientRect().width < tightWidth);
       return;
     }
     const box = hostEl.getBoundingClientRect();
@@ -6830,42 +8005,42 @@ function mountPickerField(hostEl, {
     let leftEdge = box.left;
     let rightEdge = box.right;
     for (const other of avoid ? hostEl.querySelectorAll(avoid) : []) {
-      if (el2.contains(other)) continue;
+      if (el3.contains(other)) continue;
       const r = other.getBoundingClientRect();
       if (r.width <= 0) continue;
       if (r.left + r.width / 2 < middle) leftEdge = Math.max(leftEdge, r.right);
       else rightEdge = Math.min(rightEdge, r.left);
     }
     const width = Math.min(maxWidth, 2 * Math.min(middle - leftEdge, rightEdge - middle) - gap);
-    el2.classList.toggle("twm-wspicker-field--hidden", width < minWidth);
-    el2.classList.toggle("twm-wspicker-field--tight", width < tightWidth);
-    el2.style.width = `${Math.max(minWidth, width)}px`;
+    el3.classList.toggle("twm-wspicker-field--hidden", width < minWidth);
+    el3.classList.toggle("twm-wspicker-field--tight", width < tightWidth);
+    el3.style.width = `${Math.max(minWidth, width)}px`;
   };
   let destroyed = false;
   const onClick = () => onActivate?.();
-  el2.addEventListener("click", onClick);
-  hostEl.appendChild(el2);
+  el3.addEventListener("click", onClick);
+  hostEl.appendChild(el3);
   const observer = createRafResizeObserver(() => {
     if (!destroyed) fit();
   });
-  observer.observe(centered ? hostEl : el2);
+  observer.observe(centered ? hostEl : el3);
   fit();
   document.fonts?.ready?.then(() => {
     if (!destroyed) fit();
   });
   return {
-    el: el2,
+    el: el3,
     update,
     fit,
     setOpen(open) {
-      el2.classList.toggle("twm-wspicker-field--open", open);
-      el2.setAttribute("aria-expanded", String(open));
+      el3.classList.toggle("twm-wspicker-field--open", open);
+      el3.setAttribute("aria-expanded", String(open));
     },
     destroy() {
       destroyed = true;
       observer.disconnect();
-      el2.removeEventListener("click", onClick);
-      el2.remove();
+      el3.removeEventListener("click", onClick);
+      el3.remove();
     }
   };
 }
@@ -6956,7 +8131,7 @@ function createPickerSwitcher({
   if (listLabel) list.setAttribute("aria-label", listLabel);
   const note = part("p", "twm-wspicker__note");
   note.setAttribute("role", "status");
-  const more = button("twm-btn twm-wspicker__more");
+  const more = button2("twm-btn twm-wspicker__more");
   const moreLabel = part("span", "twm-wspicker__more-label");
   more.append(glyph("expand_more"), moreLabel);
   const actionList = part("div", "twm-wspicker__actions");
@@ -6970,7 +8145,7 @@ function createPickerSwitcher({
   const cardName = part("span", "twm-wspicker__card-name");
   const cardDetail = part("span", "twm-wspicker__card-detail");
   cardText.append(cardName, cardDetail);
-  const cardOpen = button("twm-btn twm-wspicker__card-open");
+  const cardOpen = button2("twm-btn twm-wspicker__card-open");
   const cardOpenIcon = glyph("");
   const cardOpenLabel = part("span", "");
   cardOpen.append(cardOpenIcon, cardOpenLabel);
@@ -6995,7 +8170,7 @@ function createPickerSwitcher({
     text.append(name, detail);
     const badge = part("span", "twm-wspicker__row-badge");
     const check = glyph("check", "twm-wspicker__row-check");
-    const bin = button("twm-wspicker__row-remove");
+    const bin = button2("twm-wspicker__row-remove");
     bin.tabIndex = -1;
     bin.append(glyph("delete"));
     node.append(icon2, text, badge, check, bin);
@@ -7061,7 +8236,7 @@ function createPickerSwitcher({
   }
   function buildVerb(hook) {
     return () => {
-      const node = button(`twm-btn ${hook}`);
+      const node = button2(`twm-btn ${hook}`);
       const icon2 = glyph("");
       const text = part("span", "");
       const trailing = glyph("");
@@ -7282,9 +8457,9 @@ function createPickerSwitcher({
     loadingMore = false;
     const stayed = activeKey === "more";
     if (stayed && items.length >= total) {
-      const first = added.find((item) => !modelOf(item).disabled);
-      if (first) {
-        activeKey = `row:${idOf(first)}`;
+      const first2 = added.find((item) => !modelOf(item).disabled);
+      if (first2) {
+        activeKey = `row:${idOf(first2)}`;
         moved = true;
       }
     }
@@ -7649,7 +8824,7 @@ var WindowChromeController = class {
     if (!host) return;
     const box = document.createElement("div");
     box.className = "twm-window-controls";
-    const button2 = (id, icon2, label, extra = "") => {
+    const button3 = (id, icon2, label, extra = "") => {
       const b = document.createElement("button");
       b.type = "button";
       b.id = id;
@@ -7662,9 +8837,9 @@ var WindowChromeController = class {
       b.appendChild(i);
       box.appendChild(b);
     };
-    button2("win-minimize", "remove", "Minimize");
-    button2("win-maximize", "check_box_outline_blank", "Maximize");
-    button2("win-close", "close", "Close", " twm-window-controls__btn--close");
+    button3("win-minimize", "remove", "Minimize");
+    button3("win-maximize", "check_box_outline_blank", "Maximize");
+    button3("win-close", "close", "Close", " twm-window-controls__btn--close");
     host.appendChild(box);
     this._createdControls = box;
   }
@@ -8235,19 +9410,19 @@ function thumbGeometry(scrollSize, clientSize, scrollPos, trackLen) {
   const pos = (trackLen - size) * Math.min(1, Math.max(0, scrollPos / max));
   return { size, pos };
 }
-function barCovered(el2, stacks) {
+function barCovered(el3, stacks) {
   const passThrough = (h) => h.closest?.(".twm-autoscroll-layer") || h.closest?.(".twm-resize-handle");
   return stacks.some((stack) => {
     const top = (stack || []).find((h) => !passThrough(h));
-    return Boolean(top) && top !== el2 && !el2.contains(top);
+    return Boolean(top) && top !== el3 && !el3.contains(top);
   });
 }
-function scrollsOn(el2, axis) {
-  if (!(el2 instanceof Element)) return false;
-  const cs = getComputedStyle(el2);
+function scrollsOn(el3, axis) {
+  if (!(el3 instanceof Element)) return false;
+  const cs = getComputedStyle(el3);
   const overflow = axis === "y" ? cs.overflowY : cs.overflowX;
-  if (overflow !== "auto" && overflow !== "scroll" && !(el2.tagName === "TEXTAREA" && overflow !== "hidden")) return false;
-  return axis === "y" ? el2.scrollHeight - el2.clientHeight > 1 : el2.scrollWidth - el2.clientWidth > 1;
+  if (overflow !== "auto" && overflow !== "scroll" && !(el3.tagName === "TEXTAREA" && overflow !== "hidden")) return false;
+  return axis === "y" ? el3.scrollHeight - el3.clientHeight > 1 : el3.scrollWidth - el3.clientWidth > 1;
 }
 function installAutoScrollbars(root = document.body, { exclude = null } = {}) {
   const doc = root.ownerDocument || document;
@@ -8262,8 +9437,8 @@ function installAutoScrollbars(root = document.body, { exclude = null } = {}) {
   }
   const managed = /* @__PURE__ */ new Map();
   let hoverChain = /* @__PURE__ */ new Set();
-  const eligible = (el2) => el2 instanceof Element && root.contains(el2) && !el2.__overlayScrollbarInstalled && !el2.closest?.(".twm-autoscroll-layer") && !(exclude && exclude(el2));
-  const makeBar = (el2, axis) => {
+  const eligible = (el3) => el3 instanceof Element && root.contains(el3) && !el3.__overlayScrollbarInstalled && !el3.closest?.(".twm-autoscroll-layer") && !(exclude && exclude(el3));
+  const makeBar = (el3, axis) => {
     const bar = doc.createElement("div");
     bar.className = `twm-autoscroll-bar twm-autoscroll-bar--${axis}`;
     const thumb = doc.createElement("div");
@@ -8275,182 +9450,182 @@ function installAutoScrollbars(root = document.body, { exclude = null } = {}) {
       e.preventDefault();
       const r = thumb.getBoundingClientRect();
       const before = axis === "y" ? e.clientY < r.top : e.clientX < r.left;
-      const page = (axis === "y" ? el2.clientHeight : el2.clientWidth) * 0.9;
-      if (axis === "y") el2.scrollTop += before ? -page : page;
-      else el2.scrollLeft += before ? -page : page;
+      const page = (axis === "y" ? el3.clientHeight : el3.clientWidth) * 0.9;
+      if (axis === "y") el3.scrollTop += before ? -page : page;
+      else el3.scrollLeft += before ? -page : page;
     });
     thumb.addEventListener("mousedown", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      const rec = managed.get(el2);
+      const rec = managed.get(el3);
       if (rec) rec.dragging = true;
       const start = axis === "y" ? e.clientY : e.clientX;
-      const startScroll = axis === "y" ? el2.scrollTop : el2.scrollLeft;
+      const startScroll = axis === "y" ? el3.scrollTop : el3.scrollLeft;
       const trackLen = axis === "y" ? bar.getBoundingClientRect().height : bar.getBoundingClientRect().width;
       const thumbLen = axis === "y" ? thumb.getBoundingClientRect().height : thumb.getBoundingClientRect().width;
-      const max = axis === "y" ? el2.scrollHeight - el2.clientHeight : el2.scrollWidth - el2.clientWidth;
+      const max = axis === "y" ? el3.scrollHeight - el3.clientHeight : el3.scrollWidth - el3.clientWidth;
       const perPx = trackLen > thumbLen ? max / (trackLen - thumbLen) : 0;
       bar.classList.add("twm-autoscroll-bar--active");
       const move = (mv) => {
         const d = (axis === "y" ? mv.clientY : mv.clientX) - start;
-        if (axis === "y") el2.scrollTop = startScroll + d * perPx;
-        else el2.scrollLeft = startScroll + d * perPx;
+        if (axis === "y") el3.scrollTop = startScroll + d * perPx;
+        else el3.scrollLeft = startScroll + d * perPx;
       };
       const up = () => {
         doc.removeEventListener("mousemove", move);
         doc.removeEventListener("mouseup", up);
         bar.classList.remove("twm-autoscroll-bar--active");
         if (rec) rec.dragging = false;
-        hideLater(el2);
+        hideLater(el3);
       };
       doc.addEventListener("mousemove", move);
       doc.addEventListener("mouseup", up);
     });
     bar.addEventListener("mouseenter", () => {
-      const rec = managed.get(el2);
+      const rec = managed.get(el3);
       if (rec) {
         rec.onBar = true;
-        show2(el2);
+        show2(el3);
       }
     });
     bar.addEventListener("mouseleave", () => {
-      const rec = managed.get(el2);
+      const rec = managed.get(el3);
       if (rec) {
         rec.onBar = false;
-        hideLater(el2);
+        hideLater(el3);
       }
     });
     return { bar, thumb };
   };
-  const record = (el2) => {
-    let rec = managed.get(el2);
+  const record = (el3) => {
+    let rec = managed.get(el3);
     if (!rec) {
       rec = { v: null, h: null, timer: 0, dragging: false, onBar: false };
-      managed.set(el2, rec);
+      managed.set(el3, rec);
     }
     return rec;
   };
-  const coveredAlong = (el2, points) => typeof doc.elementsFromPoint === "function" && barCovered(el2, points.map(([x, y]) => doc.elementsFromPoint(x, y)));
-  const place = (el2) => {
-    const rec = managed.get(el2);
+  const coveredAlong = (el3, points) => typeof doc.elementsFromPoint === "function" && barCovered(el3, points.map(([x, y]) => doc.elementsFromPoint(x, y)));
+  const place = (el3) => {
+    const rec = managed.get(el3);
     if (!rec) return;
-    if (!el2.isConnected) {
-      drop(el2);
+    if (!el3.isConnected) {
+      drop(el3);
       return;
     }
-    const r = el2.getBoundingClientRect();
+    const r = el3.getBoundingClientRect();
     const vw = win.innerWidth;
     const vh = win.innerHeight;
     const top = Math.max(0, r.top);
     const left = Math.max(0, r.left);
     const bottom = Math.min(vh, r.bottom);
     const right = Math.min(vw, r.right);
-    const z = el2.offsetHeight ? r.height / el2.offsetHeight : 1;
+    const z = el3.offsetHeight ? r.height / el3.offsetHeight : 1;
     for (const axis of ["y", "x"]) {
       const key = axis === "y" ? "v" : "h";
-      const overflows = scrollsOn(el2, axis);
+      const overflows = scrollsOn(el3, axis);
       if (!overflows) {
         if (rec[key]) rec[key].bar.style.display = "none";
         continue;
       }
-      if (!rec[key]) rec[key] = makeBar(el2, axis);
+      if (!rec[key]) rec[key] = makeBar(el3, axis);
       const { bar, thumb } = rec[key];
       bar.style.display = "";
       if (axis === "y") {
         const len = bottom - top;
         Object.assign(bar.style, { top: `${top}px`, left: `${right - BAR - 1}px`, height: `${len}px`, width: `${BAR}px` });
-        const g = thumbGeometry(el2.scrollHeight * z, el2.clientHeight * z, el2.scrollTop * z, len);
+        const g = thumbGeometry(el3.scrollHeight * z, el3.clientHeight * z, el3.scrollTop * z, len);
         if (!g) {
           bar.style.display = "none";
           continue;
         }
         Object.assign(thumb.style, { top: `${g.pos}px`, height: `${g.size}px`, left: "0", width: "100%" });
         const x = right - BAR / 2 - 1;
-        if (coveredAlong(el2, [[x, top + 2], [x, top + len / 2], [x, bottom - 2]])) bar.style.display = "none";
+        if (coveredAlong(el3, [[x, top + 2], [x, top + len / 2], [x, bottom - 2]])) bar.style.display = "none";
       } else {
         const len = right - left;
         Object.assign(bar.style, { left: `${left}px`, top: `${bottom - BAR - 1}px`, width: `${len}px`, height: `${BAR}px` });
-        const g = thumbGeometry(el2.scrollWidth * z, el2.clientWidth * z, el2.scrollLeft * z, len);
+        const g = thumbGeometry(el3.scrollWidth * z, el3.clientWidth * z, el3.scrollLeft * z, len);
         if (!g) {
           bar.style.display = "none";
           continue;
         }
         Object.assign(thumb.style, { left: `${g.pos}px`, width: `${g.size}px`, top: "0", height: "100%" });
         const y = bottom - BAR / 2 - 1;
-        if (coveredAlong(el2, [[left + 2, y], [left + len / 2, y], [right - 2, y]])) bar.style.display = "none";
+        if (coveredAlong(el3, [[left + 2, y], [left + len / 2, y], [right - 2, y]])) bar.style.display = "none";
       }
     }
   };
-  const setVisible = (el2, on) => {
-    const rec = managed.get(el2);
+  const setVisible = (el3, on) => {
+    const rec = managed.get(el3);
     if (!rec) return;
     for (const b of [rec.v, rec.h]) if (b) b.bar.classList.toggle("twm-autoscroll-bar--on", on);
   };
-  const show2 = (el2) => {
-    const rec = record(el2);
+  const show2 = (el3) => {
+    const rec = record(el3);
     clearTimeout(rec.timer);
-    place(el2);
-    setVisible(el2, true);
+    place(el3);
+    setVisible(el3, true);
   };
-  const hideLater = (el2) => {
-    const rec = managed.get(el2);
+  const hideLater = (el3) => {
+    const rec = managed.get(el3);
     if (!rec) return;
     clearTimeout(rec.timer);
     rec.timer = setTimeout(() => {
-      if (rec.dragging || rec.onBar || hoverChain.has(el2)) return;
-      setVisible(el2, false);
+      if (rec.dragging || rec.onBar || hoverChain.has(el3)) return;
+      setVisible(el3, false);
     }, HIDE_AFTER_MS);
   };
-  const drop = (el2) => {
-    const rec = managed.get(el2);
+  const drop = (el3) => {
+    const rec = managed.get(el3);
     if (!rec) return;
     clearTimeout(rec.timer);
     rec.v?.bar.remove();
     rec.h?.bar.remove();
-    managed.delete(el2);
+    managed.delete(el3);
   };
   const scrollChain = (target) => {
     const out = /* @__PURE__ */ new Set();
-    for (let el2 = target instanceof Element ? target : target?.parentElement; el2 && el2 !== doc.documentElement; el2 = el2.parentElement) {
-      if (el2.closest?.(".twm-autoscroll-layer")) return out;
-      if (eligible(el2) && (scrollsOn(el2, "y") || scrollsOn(el2, "x"))) out.add(el2);
-      if (el2 === root) break;
+    for (let el3 = target instanceof Element ? target : target?.parentElement; el3 && el3 !== doc.documentElement; el3 = el3.parentElement) {
+      if (el3.closest?.(".twm-autoscroll-layer")) return out;
+      if (eligible(el3) && (scrollsOn(el3, "y") || scrollsOn(el3, "x"))) out.add(el3);
+      if (el3 === root) break;
     }
     return out;
   };
   const onOver = (e) => {
     if (e.target?.closest?.(".twm-autoscroll-layer")) return;
     const next = scrollChain(e.target);
-    for (const el2 of hoverChain) if (!next.has(el2)) hideLater(el2);
-    for (const el2 of next) show2(el2);
+    for (const el3 of hoverChain) if (!next.has(el3)) hideLater(el3);
+    for (const el3 of next) show2(el3);
     hoverChain = next;
   };
   const onLeaveWindow = (e) => {
     if (e.relatedTarget) return;
-    for (const el2 of hoverChain) hideLater(el2);
+    for (const el3 of hoverChain) hideLater(el3);
     hoverChain = /* @__PURE__ */ new Set();
   };
   const onScroll = (e) => {
-    const el2 = e.target === doc ? null : e.target;
-    if (el2 && eligible(el2)) {
-      show2(el2);
-      hideLater(el2);
+    const el3 = e.target === doc ? null : e.target;
+    if (el3 && eligible(el3)) {
+      show2(el3);
+      hideLater(el3);
     }
-    for (const other of managed.keys()) if (other !== el2) place(other);
+    for (const other of managed.keys()) if (other !== el3) place(other);
   };
   let raf = 0;
   const onResize = () => {
     cancelAnimationFrame(raf);
     raf = requestAnimationFrame(() => {
-      for (const el2 of managed.keys()) place(el2);
+      for (const el3 of managed.keys()) place(el3);
     });
   };
   const sweep = new MutationObserver((mutations) => {
     if (!managed.size || !mutations.some((m) => m.removedNodes.length)) return;
-    for (const el2 of [...managed.keys()]) {
-      if (!el2.isConnected) {
-        drop(el2);
-        hoverChain.delete(el2);
+    for (const el3 of [...managed.keys()]) {
+      if (!el3.isConnected) {
+        drop(el3);
+        hoverChain.delete(el3);
       }
     }
   });
@@ -8468,7 +9643,7 @@ function installAutoScrollbars(root = document.body, { exclude = null } = {}) {
       win.removeEventListener("resize", onResize);
       doc.removeEventListener("focusin", onResize, true);
       sweep.disconnect();
-      for (const el2 of [...managed.keys()]) drop(el2);
+      for (const el3 of [...managed.keys()]) drop(el3);
       root.classList.remove(ROOT_CLASS);
     }
   };
@@ -8490,12 +9665,12 @@ var TEXT_INPUTS = /* @__PURE__ */ new Set([
   "week",
   "time"
 ]);
-function isEditable(el2) {
-  if (!el2 || el2.nodeType !== 1) return false;
-  const tag = el2.tagName;
+function isEditable(el3) {
+  if (!el3 || el3.nodeType !== 1) return false;
+  const tag = el3.tagName;
   if (tag === "TEXTAREA" || tag === "SELECT") return true;
-  if (tag === "INPUT") return TEXT_INPUTS.has(String(el2.getAttribute("type") || "").toLowerCase());
-  return !!el2.closest?.('[contenteditable=""],[contenteditable="true"],[contenteditable="plaintext-only"]');
+  if (tag === "INPUT") return TEXT_INPUTS.has(String(el3.getAttribute("type") || "").toLowerCase());
+  return !!el3.closest?.('[contenteditable=""],[contenteditable="true"],[contenteditable="plaintext-only"]');
 }
 function onSelection(target, doc) {
   const sel = doc?.getSelection?.();
@@ -8848,8 +10023,8 @@ function installWorkspaceScrollbars(workspace, options = {}) {
   return update;
 }
 function installCollapsibleScrollbars(root = document.body) {
-  const installOnElement = (el2) => {
-    installOverlayScrollbar(el2, {
+  const installOnElement = (el3) => {
+    installOverlayScrollbar(el3, {
       orientation: "vertical",
       setOverflow: false,
       watchSubtree: true
@@ -8860,9 +10035,9 @@ function installCollapsibleScrollbars(root = document.body) {
   const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
       if (mutation.type === "attributes" && mutation.attributeName === "class") {
-        const el2 = mutation.target;
-        if (el2.classList.contains("twm-collapsible-content") && el2.classList.contains("visible")) {
-          installOnElement(el2);
+        const el3 = mutation.target;
+        if (el3.classList.contains("twm-collapsible-content") && el3.classList.contains("visible")) {
+          installOnElement(el3);
         }
         continue;
       }
@@ -8886,8 +10061,8 @@ function installCollapsibleScrollbars(root = document.body) {
 function installTabsScrollbars(selectors = [".tabs"]) {
   const selector = selectors.join(", ");
   const classes = selectors.filter((s) => s.startsWith(".")).map((s) => s.slice(1));
-  const installOnElement = (el2) => {
-    installOverlayScrollbar(el2, {
+  const installOnElement = (el3) => {
+    installOverlayScrollbar(el3, {
       orientation: "horizontal",
       className: "tabs-scrollbar",
       setOverflow: false,
@@ -8895,11 +10070,11 @@ function installTabsScrollbars(selectors = [".tabs"]) {
       watchSubtree: true
     });
   };
-  const cleanupElement = (el2) => {
-    el2.__overlayScrollbarInstalled?.horizontal?.cleanup?.();
-    delete el2.__overlayScrollbarInstalled;
+  const cleanupElement = (el3) => {
+    el3.__overlayScrollbarInstalled?.horizontal?.cleanup?.();
+    delete el3.__overlayScrollbarInstalled;
   };
-  const matches = (el2) => classes.some((c) => el2.classList?.contains(c));
+  const matches = (el3) => classes.some((c) => el3.classList?.contains(c));
   document.querySelectorAll(selector).forEach(installOnElement);
   const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
@@ -8929,48 +10104,48 @@ function createScrollLock({ axis = "y", enabled = true } = {}) {
   function copyFrom(source) {
     last = { top: source.scrollTop, left: source.scrollLeft };
     if (!on) return;
-    for (const [el2, state] of members) {
-      if (el2 === source) continue;
-      const top = doY ? last.top : el2.scrollTop;
-      const left = doX ? last.left : el2.scrollLeft;
-      if (el2.scrollTop === top && el2.scrollLeft === left) continue;
+    for (const [el3, state] of members) {
+      if (el3 === source) continue;
+      const top = doY ? last.top : el3.scrollTop;
+      const left = doX ? last.left : el3.scrollLeft;
+      if (el3.scrollTop === top && el3.scrollLeft === left) continue;
       state.wrote = { top, left };
-      if (doY) el2.scrollTop = top;
-      if (doX) el2.scrollLeft = left;
+      if (doY) el3.scrollTop = top;
+      if (doX) el3.scrollLeft = left;
     }
   }
   function onScroll(event) {
-    const el2 = event.currentTarget;
-    const state = members.get(el2);
+    const el3 = event.currentTarget;
+    const state = members.get(el3);
     if (!state) return;
     const wrote = state.wrote;
     state.wrote = null;
-    if (wrote && Math.abs(el2.scrollTop - wrote.top) < 1 && Math.abs(el2.scrollLeft - wrote.left) < 1) return;
-    copyFrom(el2);
+    if (wrote && Math.abs(el3.scrollTop - wrote.top) < 1 && Math.abs(el3.scrollLeft - wrote.left) < 1) return;
+    copyFrom(el3);
   }
   const lock = {
     /** Join the group. Returns the function that leaves it. */
-    attach(el2) {
-      if (!el2 || typeof el2.addEventListener !== "function") return () => {
+    attach(el3) {
+      if (!el3 || typeof el3.addEventListener !== "function") return () => {
       };
-      if (members.has(el2)) return () => lock.detach(el2);
+      if (members.has(el3)) return () => lock.detach(el3);
       const state = { wrote: null };
-      members.set(el2, state);
-      el2.addEventListener("scroll", onScroll, { passive: true });
+      members.set(el3, state);
+      el3.addEventListener("scroll", onScroll, { passive: true });
       if (on && (last.top || last.left)) {
         state.wrote = {
-          top: doY ? last.top : el2.scrollTop,
-          left: doX ? last.left : el2.scrollLeft
+          top: doY ? last.top : el3.scrollTop,
+          left: doX ? last.left : el3.scrollLeft
         };
-        if (doY) el2.scrollTop = last.top;
-        if (doX) el2.scrollLeft = last.left;
+        if (doY) el3.scrollTop = last.top;
+        if (doX) el3.scrollLeft = last.left;
       }
-      return () => lock.detach(el2);
+      return () => lock.detach(el3);
     },
-    detach(el2) {
-      if (!members.has(el2)) return;
-      members.delete(el2);
-      el2.removeEventListener("scroll", onScroll);
+    detach(el3) {
+      if (!members.has(el3)) return;
+      members.delete(el3);
+      el3.removeEventListener("scroll", onScroll);
     },
     /** Lock (true) or let the members scroll freely (false). Locking again
      *  brings every member level with the one scrolled last. */
@@ -8979,7 +10154,7 @@ function createScrollLock({ axis = "y", enabled = true } = {}) {
       on = !!value;
       if (on && !was) {
         const source = [...members.keys()].find(
-          (el2) => el2.scrollTop === last.top && el2.scrollLeft === last.left
+          (el3) => el3.scrollTop === last.top && el3.scrollLeft === last.left
         ) || members.keys().next().value;
         if (source) copyFrom(source);
       }
@@ -8992,7 +10167,7 @@ function createScrollLock({ axis = "y", enabled = true } = {}) {
       return members.size;
     },
     dispose() {
-      for (const el2 of [...members.keys()]) lock.detach(el2);
+      for (const el3 of [...members.keys()]) lock.detach(el3);
     }
   };
   return lock;
@@ -9161,8 +10336,8 @@ function startMouseCheck() {
 function attachListeners() {
   if (listenersAttached) return;
   listenersAttached = true;
-  document.querySelectorAll(".twm-has-tooltip, .has-latex-tooltip").forEach((el2) => {
-    el2.removeAttribute("title");
+  document.querySelectorAll(".twm-has-tooltip, .has-latex-tooltip").forEach((el3) => {
+    el3.removeAttribute("title");
   });
   document.addEventListener("mousemove", (event) => {
     lastMousePosition.x = event.clientX;
@@ -9219,8 +10394,8 @@ function setTooltip(element, text, isLatex = false) {
   }
 }
 function refreshTooltips(container = document) {
-  container.querySelectorAll(".twm-has-tooltip, .has-latex-tooltip").forEach((el2) => {
-    el2.removeAttribute("title");
+  container.querySelectorAll(".twm-has-tooltip, .has-latex-tooltip").forEach((el3) => {
+    el3.removeAttribute("title");
   });
 }
 var TooltipService = {
@@ -9264,6 +10439,8 @@ export {
   DocumentOutline,
   DragReorder,
   EDITOR_MESSAGES,
+  FILTER_OPERATORS,
+  FILTER_TYPE_OPERATORS,
   FactTable,
   HelpModal,
   ISO_DATE,
@@ -9302,6 +10479,9 @@ export {
   ago,
   attachInlineRenamer,
   barCovered,
+  cloneFilter,
+  coerceFilterValue,
+  countConditions,
   createAlertLog,
   createBoolEditor,
   createChipsFilter,
@@ -9310,6 +10490,8 @@ export {
   createDetailHeader,
   createDocumentOutline,
   createFactTable,
+  createFilterBuilder,
+  createFilterModel,
   createMenuBar,
   createMultiTextEditor,
   createNumberEditor,
@@ -9331,7 +10513,9 @@ export {
   dayLabel,
   detectSeries,
   editorTypeOf,
+  emptyFilter,
   endsTextSelection,
+  filterOptions,
   filterTree,
   fitColumns,
   formatDate,
@@ -9339,6 +10523,7 @@ export {
   formatDuration,
   formatElapsed,
   formatNumberForEdit,
+  fromConditionTree,
   fromTSV,
   getToastBus,
   helpCategories,
@@ -9369,6 +10554,7 @@ export {
   notificationText,
   numberSeparators,
   openConfirm,
+  openFilterDialog,
   openForm,
   openModal,
   parseBool,
@@ -9377,6 +10563,7 @@ export {
   parseDateTime,
   parseDateValue,
   parseDuration,
+  parseFilter,
   parseNumber,
   projectSeries,
   refTypesFor,
@@ -9385,6 +10572,7 @@ export {
   resolvePaging,
   revealInStrip,
   selectItem,
+  serializeFilter,
   setHelpProvider,
   setModalHost,
   setToastBus,
@@ -9401,6 +10589,7 @@ export {
   showSelectDialog,
   suppressNativeContextMenu,
   thumbGeometry,
+  toConditionTree,
   toTSV,
   toastError,
   toastInfo,

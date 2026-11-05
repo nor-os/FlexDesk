@@ -814,7 +814,8 @@ function openModal({
   backdropBlur = void 0,
   backdropOpacity = void 0,
   maximizable = false,
-  onMaximizeChange = null
+  onMaximizeChange = null,
+  beforeClose = null
 } = {}) {
   return new Promise((resolve) => {
     const body = document.createElement("div");
@@ -882,6 +883,7 @@ function openModal({
       canDrag: true,
       defaultWidth: width,
       defaultHeight: height,
+      beforeClose,
       // Esc, the X and the backdrop all land here without passing through
       // `close`, so the listener is dropped here as well as there — the
       // three dismissals a user reaches for most are exactly the ones
@@ -1310,4 +1312,4 @@ export {
   openConfirm,
   openModal
 };
-//# sourceMappingURL=chunk-YSKQQDHC.js.map
+//# sourceMappingURL=chunk-5EARWQU6.js.map

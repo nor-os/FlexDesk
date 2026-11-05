@@ -48,8 +48,8 @@ FlexDesk is nine entry points that share their code, so you load only what you u
 - [Forms and dialogs](components/forms-and-dialogs.md): `openForm`, `openConfirm`, and every field type.
 - [Settings page](components/settings-view.md): a settings store's schema drawn as a page.
 - [Wizard](components/wizard.md): a multi-step flow, inline or in a window.
-- [Input fields: slider and tags](components/input-fields.md): `SliderField` and `createTagInput`.
-- [Menus](components/menus.md): `createMenuBar`, `ActionDropdown` and `CategoryPicker`.
+- [Input fields: slider, tags, select and combobox](components/input-fields.md): `SliderField`, `createTagInput`, `createSelect` and `createCombobox`.
+- [Menus](components/menus.md): `createMenuBar`, `ActionDropdown`, `CategoryPicker`, `openPopover` and `positionAnchored`.
 
 ### Layout, content and feedback
 

@@ -9,10 +9,7 @@
  * Adds scrolling when the menu would exceed available vertical space.
  */
 
-/** Viewport margin in px — dropdown stays this far from edges. */
-const EDGE_MARGIN = 8;
-/** Gap between trigger and dropdown in px. */
-const GAP = 8;
+import { positionAnchored } from './anchored_layer.js';
 
 /**
  * ActionDropdown - A reusable dropdown component with smart auto-positioning.
@@ -371,11 +368,8 @@ export class ActionDropdown {
     // =========================================================================
 
     /**
-     * Position a dropdown menu relative to a trigger element.
-     * Uses `position: fixed` to avoid overflow clipping.
-     * Picks above/below based on available space, aligns left/right edge,
-     * and applies `max-height` + `overflow-y: auto` when the menu is taller
-     * than the available space.
+     * Position a dropdown menu relative to a trigger element: `positionAnchored`
+     * (`anchored_layer.js`), the one placement every floating panel uses.
      *
      * @param {HTMLElement} trigger - The element the dropdown opens from
      * @param {HTMLElement} menu - The dropdown menu element to position
@@ -386,75 +380,7 @@ export class ActionDropdown {
      */
     static position(trigger, menu, { align = 'start' } = {}) {
         if (!trigger || !menu) return;
-
-        // Reset any prior inline position so natural size can be measured.
-        Object.assign(menu.style, {
-            position: 'fixed',
-            top: 'auto',
-            bottom: 'auto',
-            left: 'auto',
-            right: 'auto',
-            maxHeight: '',
-            overflowY: ''
-        });
-
-        const triggerRect = trigger.getBoundingClientRect();
-        const menuRect = menu.getBoundingClientRect();
-        const vw = window.innerWidth;
-        const vh = window.innerHeight;
-
-        // ── Vertical: prefer below, flip above if insufficient room ───────
-        const spaceBelow = vh - triggerRect.bottom - GAP - EDGE_MARGIN;
-        const spaceAbove = triggerRect.top - GAP - EDGE_MARGIN;
-
-        let top;
-        let maxHeight;
-
-        if (menuRect.height <= spaceBelow) {
-            // Fits below — use natural height.
-            top = triggerRect.bottom + GAP;
-            maxHeight = spaceBelow;
-        } else if (menuRect.height <= spaceAbove) {
-            // Fits above — use natural height.
-            top = triggerRect.top - GAP - menuRect.height;
-            maxHeight = spaceAbove;
-        } else if (spaceBelow >= spaceAbove) {
-            // More space below — scroll.
-            top = triggerRect.bottom + GAP;
-            maxHeight = spaceBelow;
-        } else {
-            // More space above — scroll.
-            maxHeight = spaceAbove;
-            top = EDGE_MARGIN;
-        }
-
-        // ── Horizontal: align with the trigger's start (left) or end (right)
-        //    edge, flip to the other edge if off-screen ──
-        let left;
-        if (align === 'end') {
-            left = triggerRect.right - menuRect.width;
-            if (left < EDGE_MARGIN) {
-                // Align left edges instead.
-                left = triggerRect.left;
-            }
-        } else {
-            left = triggerRect.left;
-            if (left + menuRect.width > vw - EDGE_MARGIN) {
-                // Align right edges instead.
-                left = triggerRect.right - menuRect.width;
-            }
-        }
-
-        // Still off-screen? Clamp to edges.
-        left = Math.max(EDGE_MARGIN, Math.min(left, vw - menuRect.width - EDGE_MARGIN));
-
-        Object.assign(menu.style, {
-            position: 'fixed',
-            top: `${Math.round(top)}px`,
-            left: `${Math.round(left)}px`,
-            maxHeight: `${Math.round(maxHeight)}px`,
-            overflowY: 'auto'
-        });
+        positionAnchored(trigger, menu, { align });
     }
 }
 

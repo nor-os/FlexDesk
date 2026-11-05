@@ -77,7 +77,7 @@
  *   }
  *
  * Dependent-property pick-or-create — a `select` field that carries a
- * `create` spec renders as a **type-ahead combobox** instead of a
+ * `create` spec renders as a `createCombobox` instead of a
  * dropdown: the user picks an existing option OR types a new value.
  * On submit, a value that isn't an existing option is created via
  * `create.onCreate(value)` before the form resolves:
@@ -115,29 +115,10 @@ import { ToggleField } from '../../ui/components/toggle_field.js';
 import { ColorField } from './color_field.js';
 import { ColorListField } from './color_list_field.js';
 import { choiceList, findChoice, flatChoices, selectBox, toggleChips } from './choice_controls.js';
+import { createCombobox } from './combobox.js';
+import { modalHost, setModalHost } from '../utils/modal_host.js';
 
-/**
- * C25. WHERE A DIALOG OPENS, when the application spans more than one window.
- *
- * Every modal here is a `ManagedWindow` with no `container`, so it mounts into
- * `document.body` — and "document" is the document this MODULE was loaded in.
- * A consumer that opens a second browser window with `window.open` and builds
- * its DOM from the opener's realm (which is how a pop-out grid works: same
- * modules, same JS context, a different document) therefore gets its dialogs in
- * the window it popped OUT of. The user presses "Add column" on their second
- * monitor and a dialog appears on the first, behind whatever is there.
- *
- * Passing a container at each call site was the other option and it is worse:
- * twenty-one of them across eleven files, every one of which would have to be
- * given a document it has no other reason to know about, and any one missed is
- * this bug again with no way to see it from here.
- *
- * So the HOST is ambient and the consumer sets it when its focus moves. Null —
- * every consumer today — means `document.body`, exactly as before.
- */
-let _modalHost = null;
-export function setModalHost(el) { _modalHost = el || null; }
-export function modalHost() { return _modalHost; }
+export { setModalHost, modalHost };
 
 let _modalSeq = 1;
 
@@ -198,7 +179,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
         `;
 
         const win = new ManagedWindow({
-            container: _modalHost,
+            container: modalHost(),
             id: `twm-modal-${_modalSeq++}`,
             title: title || 'Dialog',
             icon: 'edit_note',
@@ -237,12 +218,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
         // The options each field offers NOW — `setOptions` replaces them, the
         // caller's field object is never written to.
         const optionsOf = new Map(formFields.map((f) => [f.name, f.options]));
-        const comboHints = new Map();
         for (const f of formFields) {
-            if (f.type === 'select' && f.create) {
-                const update = _wireComboboxHint(body, f, () => optionsOf.get(f.name));
-                if (update) comboHints.set(f.name, update);
-            }
             if (f.type === 'picker') _wirePicker(body, f);
         }
         const rowHidden = (name) => !!body.querySelector(`[data-field-row="${name}"]`)?.hidden;
@@ -281,13 +257,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
          *  read a combobox through this, so they agree (`'2'` is option `2`). */
         const comboOption = (f, text) => findChoice(flatChoices(optionsOf.get(f.name)), text, true);
         /** A disabled option's reason ('' with none) when one is the value, else null. */
-        const unavailable = (f, value) => {
-            const c = controls.get(f.name);
-            if (c) return c.unavailable();
-            if (f.type !== 'select' || !f.create || value == null || value === '') return null;
-            const o = comboOption(f, value);
-            return o?.disabled ? (o.reason || '') : null;
-        };
+        const unavailable = (f) => controls.get(f.name)?.unavailable() ?? null;
 
         // Clear per-field errors on input so the user sees the row recover.
         for (const f of formFields) {
@@ -337,11 +307,6 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                     const el = body.querySelector(`[name="${name}"]`);
                     if (!el) return undefined;
                     if (el.type === 'checkbox') return !!el.checked;
-                    const f = fieldOf(name);
-                    if (f?.type === 'select' && f.create) {
-                        const match = comboOption(f, el.value);
-                        return match ? match.value : el.value;
-                    }
                     return el.value;
                 },
                 set(name, value) {
@@ -350,29 +315,17 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                     if (!el) return;
                     if (el.type === 'checkbox') { el.checked = !!value; return; }
                     const f = fieldOf(name);
-                    // A combobox does not take a disabled option's text either.
-                    const shut = f?.type === 'select' && f.create && comboOption(f, value)?.disabled;
-                    el.value = value == null || shut ? '' : String(value);
-                    comboHints.get(name)?.();
+                    el.value = value == null ? '' : String(value);
                     if (f?.type === 'picker') {
                         const display = body.querySelector(`[data-picker-display="${name}"]`);
                         if (display) display.value = _pickerLabel(f, el.value);
                     }
                 },
                 setOptions(name, options) {
-                    const f = fieldOf(name);
-                    if (!f) return;
                     const c = controls.get(name);
-                    if (c?.setOptions) {
-                        optionsOf.set(name, options);
-                        c.setOptions(options);
-                        return;
-                    }
-                    if (f.type !== 'select' || !f.create) return;
+                    if (!c?.setOptions) return;
                     optionsOf.set(name, options);
-                    const list = body.querySelector(`[data-datalist-for="${name}"]`);
-                    if (list) list.innerHTML = _datalistOptions(options);
-                    comboHints.get(name)?.();
+                    c.setOptions(options);
                 },
             };
             const fire = (name) => {
@@ -444,7 +397,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                 if (rowHidden(f.name)) {
                     // Not asked about — but a disabled option is still never
                     // the value: a hidden row holding one submits no value.
-                    if (unavailable(f, data[f.name]) != null) data[f.name] = f.type === 'radio' ? null : '';
+                    if (unavailable(f) != null) data[f.name] = f.type === 'radio' ? null : '';
                     continue;
                 }
                 const v = data[f.name];
@@ -454,7 +407,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
                 let msg = f.required && _missing(f, v) ? 'Required.' : null;
                 if (!msg && _outOfRange(f, v)) msg = _rangeMessage(f);
                 if (!msg) {
-                    const reason = unavailable(f, v);
+                    const reason = unavailable(f);
                     if (reason != null) msg = reason ? `Not available: ${reason}` : 'Not available.';
                 }
                 if (!msg) msg = controls.get(f.name)?.error?.() ?? null;
@@ -527,7 +480,7 @@ export function openConfirm({
 
         let _resolved = false;
         const win = new ManagedWindow({
-            container: _modalHost,
+            container: modalHost(),
             id: `twm-confirm-${_modalSeq++}`,
             title: title || 'Confirm',
             icon: icon || (danger ? 'warning' : 'help'),
@@ -726,7 +679,7 @@ export function openModal({
             _onMax = null;
         };
         const win = new ManagedWindow({
-            container: _modalHost,
+            container: modalHost(),
             id: `twm-modal-${_modalSeq++}`,
             title,
             icon,
@@ -953,14 +906,68 @@ function _offered(options) {
     return flatChoices(options).filter((o) => !o.disabled);
 }
 
-function _datalistOptions(options) {
-    return _offered(options).map((o) => `<option value="${_esc(o.value)}"></option>`).join('');
+/**
+ * A `select` with `create`: `createCombobox` over the enabled options. The box holds
+ * the text; `read` is the value of the option that text names, else the text. A
+ * disabled option is not offered, and a default or `write` naming one leaves the box
+ * empty; typed all the same, it is `unavailable`.
+ */
+function _mountCombobox(slot, f, value) {
+    let options = f.options;
+    const named = (text) => findChoice(flatChoices(options), text, true);
+    const shown = (v) => (v == null || named(v)?.disabled ? '' : String(v));
+
+    const hint = document.createElement('span');
+    hint.className = 'twm-combobox__hint';
+    hint.hidden = true;
+    // With `create: true` the typed value simply IS the value — there is no
+    // entity being made, so promising to "create" one is a lie that reads as
+    // a warning.
+    const noun = f.create === true ? null : _createSpec(f).hint || 'new entry';
+    const updateHint = () => {
+        const v = c.value.trim();
+        const isNew = noun && v && !flatChoices(options).some((o) => String(o.value) === v);
+        if (isNew) hint.textContent = `↳ will create ${noun} “${v}”`;
+        hint.hidden = !isNew;
+    };
+
+    const c = createCombobox({
+        options: _offered(options),
+        value: shown(value),
+        name: f.name,
+        placeholder: f.placeholder ?? 'type to pick or create…',
+        // Enter keeps what was typed: this field exists to accept a value nobody listed.
+        autoHighlight: false,
+        onChange: () => updateHint(),
+    });
+    if (f.required) c.input.required = true;
+    c.el.appendChild(hint);
+    slot.replaceWith(c.el);
+    updateHint();
+    return {
+        read() {
+            const o = named(c.value);
+            return o ? o.value : c.value;
+        },
+        write(v) { c.value = shown(v); updateHint(); },
+        focus: c.focus,
+        unavailable() {
+            const o = c.value === '' ? undefined : named(c.value);
+            return o?.disabled ? (o.reason || '') : null;
+        },
+        setOptions(next) {
+            options = next;
+            c.setOptions(_offered(next));
+            updateHint();
+        },
+        dispose: c.destroy,
+    };
 }
 
 /**
  * Mount a field that is a component rather than markup — a `toggle`, a
- * `select` (not a combobox), `checklist` or `radio` drawn by
- * `choice_controls.js`, or a `color` / `colorList` — into the
+ * `select`, `checklist` or `radio` drawn by `choice_controls.js`, a `select`
+ * with `create` drawn by `createCombobox`, or a `color` / `colorList` — into the
  * `data-control-slot` its row left, and hand back what the form needs of it:
  * `{ read(), write(v), focus(), unavailable(), submit?(), error?(),
  * setOptions?(options), dispose?() }`. `unavailable()` is the reason (or '')
@@ -1018,6 +1025,7 @@ function _mountControl(host, f, value, onChange) {
             dispose: () => c.dispose(),
         };
     }
+    if (f.type === 'select' && f.create) return _mountCombobox(slot, f, value);
     const common = { keepMissing: false, loose: true };
     const disabledReason = (entry) => (entry?.disabled ? (entry.reason || '') : null);
     if (f.type === 'select') {
@@ -1121,33 +1129,6 @@ function _wirePicker(host, f) {
 }
 
 
-/** Show / hide the "↳ will create …" hint as the user types into a
- *  create-capable combobox. */
-function _wireComboboxHint(host, f, optionsOf) {
-    const input = host.querySelector(`input[name="${f.name}"]`);
-    const hintEl = host.querySelector(`.twm-combobox__hint[data-for="${f.name}"]`);
-    if (!input || !hintEl) return;
-    // With `create: true` the typed value simply IS the value — there is no
-    // entity being made, so promising to "create" one is a lie that reads as
-    // a warning.
-    if (f.create === true) return;
-    const label = _createSpec(f).hint || 'new entry';
-    const update = () => {
-        const v = input.value.trim();
-        const known = new Set(flatChoices(optionsOf()).map((o) => String(o.value)));
-        if (v && !known.has(v)) {
-            hintEl.textContent = `↳ will create ${label} “${v}”`;
-            hintEl.hidden = false;
-        } else {
-            hintEl.hidden = true;
-        }
-    };
-    input.addEventListener('input', update);
-    update();
-    return update;
-}
-
-
 function _renderEntry(f, defaults) {
     if (f && f.section != null) {
         // A named section is addressable by `setVisible`, so a heading can be
@@ -1244,23 +1225,6 @@ function _renderField(f, value) {
                         aria-label="Search" title="Search">
                     <span class="material-symbols-outlined" aria-hidden="true">search</span>
                 </button>
-            </div>
-        `);
-    }
-    if (f.type === 'select' && f.create) {
-        // A default naming a disabled option is not taken, as in a select.
-        const shown = findChoice(flatChoices(f.options), value, true)?.disabled ? '' : v;
-        const dlId = `ea-dl-${f.name}-${_modalSeq}`;
-        const opts = _datalistOptions(f.options);
-        const placeholder = f.placeholder
-            ? `placeholder="${_esc(f.placeholder)}"` : 'placeholder="type to pick or create…"';
-        return wrap(`
-            <div class="twm-combobox">
-                <input name="${f.name}" type="text" list="${dlId}"
-                       value="${_esc(shown)}" ${placeholder} ${required}
-                       autocomplete="off">
-                <datalist id="${dlId}" data-datalist-for="${f.name}">${opts}</datalist>
-                <span class="twm-combobox__hint" data-for="${f.name}" hidden></span>
             </div>
         `);
     }

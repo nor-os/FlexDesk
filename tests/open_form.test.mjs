@@ -131,7 +131,7 @@ section('§1 a form using none of the additions behaves as in 0.9.1');
     ok('no picker markup', !f.q('.twm-picker'));
     f.type('asset', 'y');
     ok('an object create spec still announces what it will create',
-       f.q('.twm-combobox__hint[data-for="asset"]').textContent.includes('new asset'));
+       f.q('[data-field-row="asset"] .twm-combobox__hint').textContent.includes('new asset'));
     await f.submit();
     check('the submit resolves the same data, the new value created by onCreate',
           await f.result, { name: 'n', count: 3, on: true, kind: 'b', asset: 'id:y' });
@@ -308,7 +308,7 @@ section('§5 create: true on a select');
     });
     f.type('name', 'carol');
     ok('no "will create" promise for a value that creates nothing',
-       f.q('.twm-combobox__hint[data-for="name"]').hidden);
+       f.q('[data-field-row="name"] .twm-combobox__hint').hidden);
     await f.submit();
     check('the typed value is submitted as typed', await f.result, { name: 'carol' });
 }

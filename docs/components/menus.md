@@ -309,3 +309,69 @@ The Add button is FlexDesk's `twm-btn twm-btn--primary`; everything else is
 styled from the tokens (`tests/category_picker.test.mjs` checks there is no
 colour literal in its rules, and that base.css and flexdesk.css carry the same
 block).
+
+## A rich popover: `openPopover` (0.18.0)
+
+`openPopover` hangs a panel of your own content off the element that opened it. It
+is not a menu: it holds a form, a list, anything.
+
+```js
+import { openPopover } from '@flexdesk/widgets';
+
+button.addEventListener('click', () => {
+    const pop = openPopover({
+        anchor: button,
+        content: shareForm,
+        label: 'Share',
+        focus: shareForm.querySelector('input'),
+        onClose: (reason) => saveDraft(),
+    });
+    // pop.close(), pop.reposition(), await pop.closed
+});
+```
+
+| Option | What it does |
+| --- | --- |
+| `anchor`, `content` | What it hangs from, and its body |
+| `label`, `className` | Its accessible name (`role="dialog"`), and extra classes on `.twm-popover` |
+| `focus` | What takes focus on open; else the panel. On close, focus held inside it goes back to the anchor |
+| `align` | `'start'` or `'end'`: which anchor edge it lines up with first |
+| `inside` | A selector for floating panels of your own: a press in one is not "outside" |
+| `onClose(reason)` | After it is gone: `'outside'`, `'escape'`, `'toggle'`, `'replaced'`, `'parent'`, `'detached'`, or what you passed to `close` |
+
+It closes on a press outside it, on Escape and when its anchor leaves the page. While open
+the anchor carries `.twm-is-open` and `aria-expanded="true"`. Opening one from the anchor
+that holds an open one closes it: `toggled` is then true and `el` null, so a click handler
+needs no state. Opening one anywhere else closes the open one, unless the new
+anchor is inside it.
+
+The flow kit's popover is this one with the class `.twm-flow-popover`. It used to place
+itself and now scrolls inside when it fits neither above nor below its anchor, where it used to be
+clamped to the window. `@flexdesk/flow` still exports its own `openPopover`, `closeFlowPopovers`
+and `openFlowPopover`.
+
+## An anchored layer: `positionAnchored`, `openAnchoredLayer` (0.18.0)
+
+There is one placement. `positionAnchored(anchor, panel, { align, gap, margin, matchWidth })`
+is what `ActionDropdown.position` calls, and `CategoryPicker`, a tile's menu, `openPopover`,
+`createSelect` and `createCombobox` place through it: `position: fixed`, under the anchor when it fits there (else
+above it when it fits there, else on the side with more room, scrolling inside), `margin` inside
+the window. `gap` is 8 by default, as it was for `ActionDropdown`.
+
+`openAnchoredLayer({ anchor, el, align, gap, matchWidth, inside, returnFocus, onClose })` is the
+behaviour around it, for a floating panel of your own. It answers `{ el, anchor, place, close(reason) }`.
+
+- `el` is mounted on `modalHost()` or the anchor's `document.body`, and taken off on
+  close, so a closed layer leaves nothing on the page.
+- It is placed again on a window resize, on a scroll outside it and when its size
+  changes. An anchor gone from the page closes it.
+- **Layers stack.** Opening one closes every layer that does not hold its anchor. A press
+  in a layer is inside every layer under it, and closing a layer closes those above it.
+  So a select in a popover works, and a press in the select's list does not close the popover.
+- **Escape goes to the top layer and to nothing else**, so the `ManagedWindow` around the field stays
+  open. From inside the panel it is heard as it bubbles out, so that the panel's content
+  can answer first, by stopping it or preventing its default.
+- A press in an `ActionDropdown` menu, a `CategoryPicker`, a context menu or a modal window that
+  does not hold the anchor is not "outside". An open menu or picker, and such a modal, have Escape first.
+
+`tests/select_combobox_popover.test.mjs` covers these in jsdom.

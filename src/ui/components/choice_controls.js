@@ -47,10 +47,15 @@ function el(tag, className, text) {
 
 const isGroup = (o) => o !== null && typeof o === 'object' && Array.isArray(o.options) && 'group' in o;
 
-/** One option, normalised: `{value, label, description, disabled, reason}`. */
+/**
+ * One option, normalised: `{value, label, description, disabled, reason, icon, hint,
+ * keywords, source}`. `icon`, `hint` and `keywords` are the DOM-drawn select's and
+ * combobox's; `source` is the entry as it was given, handed back when one is chosen.
+ */
 function choiceOption(o) {
     if (o === null || typeof o !== 'object') {
-        return { value: o, label: shownValue(o), description: null, disabled: false, reason: null };
+        return { value: o, label: shownValue(o), description: null, disabled: false, reason: null, icon: null,
+                 hint: null, keywords: null, source: o };
     }
     return {
         value: o.value,
@@ -58,6 +63,10 @@ function choiceOption(o) {
         description: o.description != null ? String(o.description) : null,
         disabled: Boolean(o.disabled),
         reason: o.reason != null && o.reason !== '' ? String(o.reason) : null,
+        icon: o.icon ? String(o.icon) : null,
+        hint: o.hint != null && o.hint !== '' ? String(o.hint) : null,
+        keywords: o.keywords != null ? String(o.keywords) : null,
+        source: o,
     };
 }
 
@@ -69,6 +78,40 @@ export function flatChoices(options) {
         else out.push(choiceOption(o));
     }
     return out;
+}
+
+/**
+ * A list as the sections it draws in, in order: `[{ heading, items }]`, `heading`
+ * null for a run of options outside any group, `items` normalised. A group with no
+ * options is left out.
+ */
+export function choiceSections(options) {
+    const out = [];
+    for (const o of options || []) {
+        if (isGroup(o)) {
+            if (o.options.length) out.push({ heading: String(o.group ?? ''), items: o.options.map(choiceOption) });
+        } else if (out.length && out[out.length - 1].heading === null) {
+            out[out.length - 1].items.push(choiceOption(o));
+        } else {
+            out.push({ heading: null, items: [choiceOption(o)] });
+        }
+    }
+    return out;
+}
+
+/** Does `text` occur, ignoring case, in the option's label, value, description or keywords? */
+export function optionMatches(option, text) {
+    const needle = String(text ?? '').trim().toLowerCase();
+    if (!needle) return true;
+    return [option.label, shownValue(option.value), option.description, option.keywords]
+        .some((part) => String(part ?? '').toLowerCase().includes(needle));
+}
+
+/** `sections` with only the options `text` matches; a section left empty goes. */
+export function filterSections(sections, text) {
+    return sections
+        .map((s) => ({ heading: s.heading, items: s.items.filter((o) => optionMatches(o, text)) }))
+        .filter((s) => s.items.length);
 }
 
 /**

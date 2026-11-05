@@ -40,7 +40,7 @@ model.validateFilter(expr);  // { ok: true, errors: [] }
 
 A group is `{ kind: 'group', op: 'AND' | 'OR', negate?: true, children: [...] }`, nested to any depth. A condition is `{ kind: 'clause', field, op, value? }`. It is plain JSON: store it as it is, or use `serializeFilter(expr)` and `parseFilter(text)`. `emptyFilter()` is a new empty AND group, and `cloneFilter(expr)` a deep copy. A node of any other kind is kept and never interpreted; it matches nothing and `validateFilter` reports it.
 
-An empty AND matches everything. An empty OR matches everything too, unless the model is created with `emptyOr: 'nothing'`. `negate` flips either. `countConditions(expr)` counts the conditions in an expression.
+An empty AND matches everything. An empty OR matches everything too, unless the model is created with `emptyOr: 'nothing'`. `negate` flips either. `countConditions(expr)` counts the conditions in an expression; for a condition tree, see [below](#a-consumer-that-keeps-trees).
 
 ### Fields
 
@@ -136,6 +136,28 @@ What it preserves:
 
 Nothing else differs, except what an empty OR means: the model's default is "everything", and a compiler following SQL's identities says "nothing", so a model whose expressions go to one is created with `emptyOr: 'nothing'`.
 
+### A consumer that keeps trees
+
+Everything in the model takes expressions. A bare tree is not one, and is not refused: `countConditions({ op: 'and', children: [a, b] })` is 1, as is the same call on an empty group. Convert first:
+
+```js
+const count = (tree) => countConditions(fromConditionTree(tree));   // 2 for that tree, 0 for an empty one or null
+```
+
+**The server's operators stay the consumer's.** `FILTER_OPERATORS` is keyed by FlexDesk's ids (`is`, `one_of`, `is_empty`), not a tree's (`eq`, `in`, `is_blank`), and it knows nothing of operators a server adds. FlexDesk has no list of what your server compiles, so that list, and any check that it agrees with the server, stays with you, under the server's ids. Converting a bare condition gives the id to build the model from:
+
+```js
+const ourId = (id) => fromConditionTree({ column: '', operator: id }).op;   // 'eq' -> 'is'
+
+const model = createFilterModel({
+    fields: columns.map((c) => ({ key: c.name, label: c.title, type: c.type, operators: offeredFor(c).map(ourId) })),
+    operators: Object.entries(SERVER_OPERATORS).map(([id, [label, arity]]) => ({ id: ourId(id), label, arity })),
+    emptyOr: 'nothing',
+});
+```
+
+`toConditionTree` sends each one back under the server's id. An arity that disagrees with FlexDesk's is taken as given, and draws the wrong control, so a consumer's own test should compare `FILTER_OPERATORS[ourId(id)]?.arity` with its list.
+
 ## The builder: `createFilterBuilder` (0.18.0)
 
 ```js
@@ -212,12 +234,12 @@ const result = await openFilterDialog({
 | `preview` | `(host, { expr, sentence, signal })`: yours to draw into. Called on open and, debounced, after each change, while the expression can be submitted; otherwise the slot is emptied and hidden and the errors are shown. `signal` aborts when this drawing is superseded or the dialog closes, for a preview that asks a server. The dialog shows `sentence` above the slot. |
 | `requireValid` | Default true: the submit button is off, and the errors are listed, while `validateFilter` objects. False submits regardless. |
 | `prune` | Validate, preview and submit `model.pruneFilter(...)`, so a half-built row is dropped rather than refused. `expr` is null when nothing is left. |
-| `confirmDiscard` | Ask before Cancel, Esc, the X or the backdrop throws away a change. |
-| `submitLabel`, `onSubmit` | `onSubmit(result)` may be async: the dialog stays open and the button off until it settles, a second press does nothing, and if it throws the message is shown and the dialog stays. |
+| `confirmDiscard` | Ask before Cancel, Esc or the X throws away a change. |
+| `submitLabel`, `onSubmit` | `onSubmit(result)` may be async: until it settles every button is off and Esc and the X do nothing, so the answer always says what happened. If it throws, the message is shown and the dialog stays. A promise that never settles holds the dialog open, so give a call that can hang its own timeout. |
 | `clearLabel` | Adds a button answering `{ action: 'clear', expr: null }`, for a caller to whom "no filter" and "leave it alone" are different answers. |
 | `actions` | More buttons, before Cancel: `{ label, value, danger, icon, confirm, run }`. `confirm` is `openConfirm`'s options, asked first, and `run` behaves as `onSubmit` does. |
 
-**`openModal` gains `beforeClose`** for this: `() => boolean | Promise<boolean>`, asked when Esc, the X or the backdrop would dismiss, as `ManagedWindow`'s is. An action button does not ask it.
+**`openModal` gains `beforeClose`** for this: `() => boolean | Promise<boolean>`, asked when Esc or the X would dismiss, as `ManagedWindow`'s is. An action button does not ask it.
 
 ## Styling
 

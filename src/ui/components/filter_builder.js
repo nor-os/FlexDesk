@@ -526,8 +526,9 @@ function createIconPicker({ value, options, onChange }) {
  *   previewed and submitted (`model.pruneFilter`); `expr` is null when nothing is left
  * @param {boolean}  [options.confirmDiscard]  ask before closing with unsaved changes
  * @param {string}   [options.submitLabel]
- * @param {(result: object) => any} [options.onSubmit]  may be async: the dialog stays
- *   open until it settles, and shows the error if it throws
+ * @param {(result: object) => any} [options.onSubmit]  may be async: until it settles
+ *   every button is off and Esc and the X do nothing, so the answer is what happened.
+ *   If it throws, the dialog shows the error and stays.
  * @param {string}   [options.clearLabel]  adds a button answering `{ action: 'clear', expr: null }`
  * @param {Array<{label: string, value: string, danger?: boolean, icon?: string,
  *   confirm?: object, run?: (result: object) => any}>} [options.actions]
@@ -635,7 +636,10 @@ export async function openFilterDialog({
     const canSubmit = () => !busy && !nameMissing() && (!requireValid || checkOf(current()).ok);
 
     function refresh() {
-        controls?.setActionEnabled(SUBMIT, canSubmit());
+        if (!controls) return;
+        for (const { value } of modalActions) {
+            controls.setActionEnabled(value, value === SUBMIT ? canSubmit() : !busy);
+        }
     }
 
     function showErrors(errors) {
@@ -675,8 +679,14 @@ export async function openFilterDialog({
     const snapshot = () => JSON.stringify([builder.getValue(), nameInput?.value ?? null, picker?.value() ?? null]);
     const initial = snapshot();
 
-    /** May the dialog close without keeping what was typed? */
+    /**
+     * May the dialog close without an answer? Not while an action is in flight:
+     * the caller would hear "dismissed" about a save that then completes, or
+     * never see the error of one that fails. Otherwise, not without asking if
+     * that loses what was typed.
+     */
     function mayDiscard() {
+        if (busy) return false;
         if (!confirmDiscard || snapshot() === initial) return true;
         return openConfirm({
             title: 'Discard changes?',
@@ -691,9 +701,11 @@ export async function openFilterDialog({
         if (busy || (action.value === SUBMIT && !canSubmit())) return;
         showFailure('');
         busy = true;
-        refresh();
         try {
+            // Its question stacks over this window, so the buttons stay as they
+            // are until it is answered and focus has a button to come back to.
             if (action.confirm && !await openConfirm(action.confirm)) return;
+            refresh();
             const result = { action: action.value, expr: action.value === CLEAR ? null : current() };
             if (nameInput) result.name = nameInput.value.trim();
             if (picker) result.icon = picker.value();

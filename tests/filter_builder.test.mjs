@@ -310,6 +310,44 @@ section('§4 the condition tree');
     check('nested', fromConditionTree(toConditionTree(nested)), nested);
     check('a carried node in an expression', toConditionTree({ kind: 'opaque', node: { op: 'xor' } }), { op: 'xor' });
     check('upper-case input is read as the compiler reads it', fromConditionTree({ op: 'AND', children: [{ column: 'x', operator: 'EQ', value: 1 }] }), group('AND', clause('x', 'is', 1)));
+
+    // countConditions reads expressions: a tree goes through the conversion.
+    const counted = [
+        [null, 0],
+        [{ op: 'and', children: [] }, 0],
+        [{ op: 'not', children: [{ op: 'and', children: [] }] }, 0],
+        [a, 1],
+        [{ op: 'and', children: [a, b] }, 2],
+        [{ op: 'and', children: [a, { op: 'or', children: [b, c] }] }, 3],
+        [{ op: 'not', children: [a] }, 1],
+        [{ op: 'not', children: [{ op: 'and', children: [a, b] }] }, 2],
+        [{ op: 'xor', children: [a, b] }, 1],
+    ];
+    for (const [tree, n] of counted) check(`count of a tree ${JSON.stringify(tree)?.slice(0, 50)}`, countConditions(fromConditionTree(tree)), n);
+
+    // A server's own operator table, under its own ids, is what a model is built from.
+    const serverTable = {
+        eq: ['is', 1], ne: ['is not', 1], gt: ['is greater than', 1], gte: ['is at least', 1],
+        lt: ['is less than', 1], lte: ['is at most', 1], contains: ['contains', 1],
+        not_contains: ['does not contain', 1], starts_with: ['starts with', 1], ends_with: ['ends with', 1],
+        is_blank: ['is empty', 0], is_not_blank: ['is not empty', 0], is_null: ['has no value', 0],
+        is_not_null: ['has a value', 0], in: ['is any of', 1], not_in: ['is none of', 1],
+        between: ['is between', 2], is_true: ['is true', 0], is_false: ['is false', 0], is_me: ['is me', 0],
+    };
+    const ourId = (id) => fromConditionTree({ column: '', operator: id }).op;
+    const served = createFilterModel({
+        fields: [{ key: 'x', label: 'X', type: 'text', operators: ['eq', 'in', 'is_blank', 'is_me'].map(ourId) }],
+        operators: Object.entries(serverTable).map(([id, [label, arity]]) => ({ id: ourId(id), label, arity })),
+    });
+    for (const [id, [label, arity]] of Object.entries(serverTable)) {
+        check(`${id} comes back under its own id`, toConditionTree(clause('x', ourId(id))).operator, id);
+        const known = FILTER_OPERATORS[ourId(id)];
+        if (known) check(`${id} has the arity FlexDesk's ${known.id} has`, known.arity, arity);
+        const def = served.operatorById(ourId(id));
+        check(`${id} is offered under the server's words`, [def.label, def.arity], [label, arity]);
+    }
+    ok('a relabelled list operator still takes a list', served.operatorById(ourId('in')).multi === true);
+    check('a field offered server ids', served.operatorsFor('x').map((o) => o.label), ['is', 'is any of', 'is empty', 'is me']);
 }
 
 // ── §5 ──────────────────────────────────────────────────────────────────
@@ -648,6 +686,78 @@ const pressEsc = () => document.dispatchEvent(new window.KeyboardEvent('keydown'
     check('a second press does not save twice', attempts, 2);
     release();
     check('it closes when the save settles', (await open).action, 'submit');
+
+    // In flight, nothing dismisses it: the caller's answer is what happened.
+    const dismissers = (dlg) => ({
+        Esc: pressEsc,
+        X: () => dlg.querySelector('.twm-managed-window__btn--close').click(),
+    });
+    {
+        let settle;
+        let answered = false;
+        open = openFilterDialog({
+            model,
+            value: group('AND', clause('name', 'is', 'x')),
+            confirmDiscard: true,
+            clearLabel: 'Clear',
+            actions: [{ label: 'Other', value: 'other', run: () => { throw new Error('must not run'); } }],
+            onSubmit: () => new Promise((resolve, reject) => { settle = { resolve, reject }; }),
+        });
+        open.then(() => { answered = true; });
+        await nextFrame();
+        const dlg = lastModal();
+        typeIn(q(dlg, '.twm-filter-builder__value input'), 'edited');
+        action('Apply').click();
+        await wait(0);
+        ok('in flight every button is off',
+           ['Apply', 'Cancel', 'Clear', 'Other'].every((label) => action(label).disabled));
+        action('Cancel').click();
+        await wait(0);
+        ok('Cancel does nothing in flight', !answered && lastModal() === dlg);
+        for (const [how, press] of Object.entries(dismissers(dlg))) {
+            press();
+            await wait(0);
+            ok(`${how} does nothing in flight, and asks nothing`, !answered && lastModal() === dlg);
+        }
+        settle.reject(new Error('server said no'));
+        await wait(0);
+        check('a rejection after those is still shown', q(dlg, '.twm-filter-dialog__failure').textContent, 'server said no');
+        ok('the dialog is still there', !answered && lastModal() === dlg);
+        ok('the buttons come back',
+           ['Apply', 'Cancel', 'Clear', 'Other'].every((label) => !action(label).disabled));
+
+        action('Apply').click();
+        await wait(0);
+        pressEsc();
+        await wait(0);
+        settle.resolve();
+        check('a save that succeeds after Esc answers the save', (await open).action, 'submit');
+    }
+    {
+        // The same for an extra action, and only once its question is answered.
+        let settle;
+        open = openFilterDialog({
+            model,
+            actions: [{ label: 'Delete', value: 'delete',
+                        confirm: { title: 'Delete?', message: 'Sure?', confirmLabel: 'Yes' },
+                        run: () => new Promise((resolve) => { settle = resolve; }) }],
+        });
+        await nextFrame();
+        const dlg = lastModal();
+        action('Delete').click();
+        await wait(0);
+        ok('asking is not in flight: the button stays on for focus to return to',
+           !btn(q(dlg, '.twm-modal__actions'), 'Delete').disabled);
+        action('Yes').click();
+        await wait(0);
+        ok('run in flight: every button is off',
+           ['Delete', 'Cancel', 'Apply'].every((label) => action(label).disabled));
+        pressEsc();
+        await wait(0);
+        ok('and Esc does nothing', lastModal() === dlg);
+        settle();
+        check('it answers when run settles', (await open).action, 'delete');
+    }
 
     // An extra action: confirm, run, error.
     const ran = [];

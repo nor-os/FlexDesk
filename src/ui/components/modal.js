@@ -601,9 +601,9 @@ export function openConfirm({
  *                 existing caller has always got.
  *   - `onMaximizeChange` `(maximized, contentEl) => void`, called on each
  *                 flip. Only useful with `maximizable`.
- *   - `beforeClose`      `() => boolean | Promise<boolean>`: asked when Esc, the
- *                 X or the backdrop would dismiss; answering false keeps the
- *                 modal open. An action button does not ask it.
+ *   - `beforeClose`      `() => boolean | Promise<boolean>`: asked when Esc or
+ *                 the X would dismiss; answering false keeps the modal open. An
+ *                 action button does not ask it.
  *
  * ══ C29. WHY A DIALOG'S MAXIMISE IS THE GEOMETRIC ONE ═══════════════════
  *

@@ -54,7 +54,7 @@ section('§0 the 0.6 strip, untouched, without the new options');
     const pages = [];
     const { host, table } = mount({ headers, rows: make(100), totalCount: 1000, offset: 0,
                                     onPageChange: (o) => pages.push(o) });
-    check('its info line', info(host), 'Rows 1–100 of 1,000');
+    check('its info line', info(host), `Rows 1–100 of ${(1000).toLocaleString()}`);
     ok('no data-pager attribute (the old buttons)', !host.querySelector('[data-pager]'));
     check('its page words', [...host.querySelectorAll('.twm-pagination-controls > span')]
         .map((s) => s.textContent).find((t) => t.startsWith('Page')), 'Page 1 of 10');
@@ -132,17 +132,17 @@ section('§4 maxJumpOffset');
     const { host, table } = mount({ headers, dataSource: fetchBig, maxJumpOffset: 50_000,
                                     pagerLabels: { tooDeep: (max) => `Past ${max.toLocaleString()} rows. Narrow the filters first.` } });
     await tick();
-    check('known total: the 0.6 words', info(host), 'Rows 1–100 of 1,000,000');
+    check('known total: the 0.6 words', info(host), `Rows 1–100 of ${(1_000_000).toLocaleString()}`);
     const last = btn(host, 'last');
     ok('Last refused past the bound', last.disabled);
-    check('…with the reason', last.dataset.refusal, 'Past 50,000 rows. Narrow the filters first.');
+    check('…with the reason', last.dataset.refusal, `Past ${(50_000).toLocaleString()} rows. Narrow the filters first.`);
     const jump = host.querySelector('.twm-pagination-input');
     jump.value = '60001';
     const asked = calls.length;
     click(btn(host, 'go'));
     await tick();
     check('Go past the bound asks nothing', calls.length, asked);
-    check('…and says why on the box', jump.dataset.refusal, 'Past 50,000 rows. Narrow the filters first.');
+    check('…and says why on the box', jump.dataset.refusal, `Past ${(50_000).toLocaleString()} rows. Narrow the filters first.`);
     ok('…marked invalid', jump.getAttribute('aria-invalid') === 'true');
     jump.value = '4321';
     click(btn(host, 'go'));

@@ -28,6 +28,7 @@
  * the box's `change` (blur, Enter, a preset, the picker closing) with
  * `commit: true`.
  */
+import { fireEvent } from '../utils/fire_event.js';
 
 const HEX_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 const RGB_RE = /^rgba?\(\s*([^)]*)\)$/i;
@@ -197,8 +198,8 @@ export class ColorField {
     /** Put `text` in the box and fire the box's own events, as typing would. */
     #writeBox(text, commit) {
         this.hex.value = text;
-        this.hex.dispatchEvent(new Event('input', { bubbles: true }));
-        if (commit) this.hex.dispatchEvent(new Event('change', { bubbles: true }));
+        fireEvent(this.hex, 'input', { bubbles: true });
+        if (commit) fireEvent(this.hex, 'change', { bubbles: true });
     }
 
     /** Swatch and invalid mark follow the box; `commit === null` is silent. */

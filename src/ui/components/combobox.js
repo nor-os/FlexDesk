@@ -32,6 +32,7 @@
  * under the box and the value is still reported.
  */
 import { openAnchoredLayer } from './anchored_layer.js';
+import { fireEvent } from '../utils/fire_event.js';
 import { choiceSections, filterSections, shownValue } from './choice_controls.js';
 import { createOptionList } from './option_list.js';
 
@@ -387,7 +388,7 @@ export function createCombobox({
             settle();
             input.focus();
             // A value set by script fires nothing; a surrounding form listens for this.
-            input.dispatchEvent(new Event('change', { bubbles: true }));
+            fireEvent(input, 'change', { bubbles: true });
         },
     });
 

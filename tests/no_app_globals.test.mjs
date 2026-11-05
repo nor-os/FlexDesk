@@ -137,7 +137,7 @@ console.log('\nno app globals: toasts, gallery picker, plot window\n');
         for (const name of readdirSync(dir)) {
             const p = resolvePath(dir, name);
             if (statSync(p).isDirectory()) {
-                if (relative(ROOT, p) !== 'src/host') walk(p);
+                if (p !== resolvePath(ROOT, 'src', 'host')) walk(p);
                 continue;
             }
             readFileSync(p, 'utf8').split('\n').forEach((line, i) => {

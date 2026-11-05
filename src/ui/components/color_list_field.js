@@ -27,6 +27,7 @@
 
 import { SortableList } from './sortable_list.js';
 import { ColorField, isHexColor, normalizeHex } from './color_field.js';
+import { fireEvent } from '../utils/fire_event.js';
 
 let _seq = 0;
 
@@ -202,8 +203,8 @@ export class ColorListField {
     #emit(commit) {
         this.#writeInput();
         if (this.input) {
-            this.input.dispatchEvent(new Event('input', { bubbles: true }));
-            if (commit) this.input.dispatchEvent(new Event('change', { bubbles: true }));
+            fireEvent(this.input, 'input', { bubbles: true });
+            if (commit) fireEvent(this.input, 'change', { bubbles: true });
         }
         this.onChange?.(this.getValue(), { commit });
     }

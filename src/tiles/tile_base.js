@@ -10,6 +10,7 @@ import { openRawTracesWindow } from '../charts/plot_popout_window.js';
 import { formatVariableLabel } from './config_schema.js';
 import { ActionDropdown } from '../ui/components/action_dropdown.js';
 import { modalHost } from '../ui/components/modal.js';
+import { fireEvent } from '../ui/utils/fire_event.js';
 // The host is INJECTED, not fetched from a global.
 //
 // This imported `appHost()` from ui/js/ecoagent/app_host.js — a tile reaching into
@@ -771,7 +772,7 @@ export class TileBase {
         });
 
         // Also dispatch DOM event for alternative handling
-        this.element?.dispatchEvent(new CustomEvent('tile:config-request', {
+        if (this.element) fireEvent(this.element, 'tile:config-request', {
             bubbles: true,
             detail: {
                 tileId: this.id,
@@ -779,7 +780,7 @@ export class TileBase {
                 config: this.config,
                 schema: this.getConfigSchema()
             }
-        }));
+        });
     }
 
     /**
@@ -791,13 +792,13 @@ export class TileBase {
         const removeBtn = this.element?.querySelector('.tile-remove-btn');
 
         // Only dispatch DOM event - let the dashboard handle confirmation
-        this.element?.dispatchEvent(new CustomEvent('tile:remove-request', {
+        if (this.element) fireEvent(this.element, 'tile:remove-request', {
             bubbles: true,
             detail: {
                 tileId: this.id,
                 anchorElement: removeBtn
             }
-        }));
+        });
     }
 
     /**

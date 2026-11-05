@@ -117,6 +117,7 @@ import { ColorListField } from './color_list_field.js';
 import { choiceList, findChoice, flatChoices, selectBox, toggleChips } from './choice_controls.js';
 import { createCombobox } from './combobox.js';
 import { modalHost, setModalHost } from '../utils/modal_host.js';
+import { fireEvent } from '../utils/fire_event.js';
 
 export { setModalHost, modalHost };
 
@@ -1126,7 +1127,7 @@ function _wirePicker(host, f) {
             ? String(picked.label) : _pickerLabel(f, hidden.value);
         // A hidden input fires no `change` of its own; this is the one the
         // field-error clear and `onFieldChange` listen for.
-        hidden.dispatchEvent(new Event('change', { bubbles: true }));
+        fireEvent(hidden, 'change', { bubbles: true });
     };
     btn.addEventListener('click', open);
     // The read-only box is the obvious thing to click; make it work too.

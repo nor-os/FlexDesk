@@ -23,6 +23,7 @@
  * and Tab closes the list and goes on from the trigger.
  */
 import { openAnchoredLayer } from './anchored_layer.js';
+import { fireEvent } from '../utils/fire_event.js';
 import { choiceSections, filterSections, findChoice, flatChoices, shownValue } from './choice_controls.js';
 import { createOptionList } from './option_list.js';
 
@@ -193,7 +194,7 @@ export function createSelect({
         paint();
         layer?.close('pick');
         if (!changed) return;
-        hidden?.dispatchEvent(new Event('change', { bubbles: true }));
+        if (hidden) fireEvent(hidden, 'change', { bubbles: true });
         onChange?.(current, option.source);
     }
 

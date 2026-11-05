@@ -527,10 +527,15 @@ export class ManagedWindow {
         // taskbar can filter on receipt: an in-panel taskbar shows only the
         // windows mounted in its own panel, and the viewport taskbar shows only
         // the ones with no container.
-        window.dispatchEvent(new CustomEvent('managed-window-closed', {
-            detail: { id: this.id, container: this.container }
-        }));
+        this._announce('managed-window-closed', { id: this.id, container: this.container });
         this._release();
+    }
+
+    /** Every window event goes out on the page's window, and a window takes only
+     *  an event built by its own `CustomEvent`: Node's global one is refused
+     *  under jsdom, in the middle of the close that fired it. */
+    _announce(name, detail) {
+        window.dispatchEvent(new window.CustomEvent(name, { detail }));
     }
 
     /** BUG-0053. A closed window leaves the registry and lets go of what it
@@ -586,12 +591,10 @@ export class ManagedWindow {
         }
 
         // Dispatch event first so the taskbar button is created synchronously
-        window.dispatchEvent(new CustomEvent('managed-window-minimized', {
-            detail: {
-                id: this.id, title: this.title, icon: this.icon,
-                container: this.container,
-            }
-        }));
+        this._announce('managed-window-minimized', {
+            id: this.id, title: this.title, icon: this.icon,
+            container: this.container,
+        });
 
         if (!this.element) return;
 
@@ -723,9 +726,7 @@ export class ManagedWindow {
         this.bringToFront();
 
         // Notify taskbar (removes the taskbar button)
-        window.dispatchEvent(new CustomEvent('managed-window-restored', {
-            detail: { id: this.id, container: this.container }
-        }));
+        this._announce('managed-window-restored', { id: this.id, container: this.container });
     }
 
     /**
@@ -820,9 +821,7 @@ export class ManagedWindow {
         // tiles — had no edge to hang the rule on and would have had to poll.
         // Same detail shape as the other three window events, `container`
         // included, so a per-region consumer can filter on receipt.
-        window.dispatchEvent(new CustomEvent('managed-window-maximized', {
-            detail: { id: this.id, maximized: this.isMaximized, container: this.container },
-        }));
+        this._announce('managed-window-maximized', { id: this.id, maximized: this.isMaximized, container: this.container });
     }
 
     /**
@@ -1253,9 +1252,7 @@ export class ManagedWindow {
             this.width = bounds.width; this.height = bounds.height;
         }
         this._applyPosition();
-        window.dispatchEvent(new CustomEvent('managed-window-moved', {
-            detail: { id: this.id, container },
-        }));
+        this._announce('managed-window-moved', { id: this.id, container });
         return true;
     }
 
@@ -1715,9 +1712,7 @@ export class ManagedWindow {
         this.height = rect.height;
         this._applyPosition();
         this.element?.classList.add('twm-managed-window--snapped');
-        window.dispatchEvent(new CustomEvent('managed-window-snapped', {
-            detail: { id: this.id, zone, container: this.container },
-        }));
+        this._announce('managed-window-snapped', { id: this.id, zone, container: this.container });
     }
 
     /** Restore the geometry a snap replaced. Called when a snapped window is

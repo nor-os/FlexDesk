@@ -295,7 +295,8 @@ export async function createShell({
     // Chrome — painted into the ELEMENTS the embedder handed over. An absent
     // key means absent chrome, not a crash.
     const paletteBtn = mountPaletteButton(chrome.paletteButton, palette);
-    topNavEl = mountTopNav(chrome.topNav, taxonomy, wm);
+    const topNav = mountTopNav(chrome.topNav, taxonomy, wm);
+    topNavEl = topNav?.el ?? null;
     rail = chrome.rail ? mountPageRail(chrome.rail, { wm }) : null;
     desktopsEl = mountDesktopBar(chrome.desktops, wm, desktopBar || {});
     // C31. The content zoom. Painted with the rest of the chrome and, unlike the
@@ -366,9 +367,10 @@ export async function createShell({
             // persist it under the host the old shell was given. The element
             // goes; the next shell paints its own.
             try { desktopsEl?.remove(); } catch { /* ignore */ }
-            // The rail's element is the embedder's and outlives this shell; its
-            // buttons and their listener close over THIS wm, so they go.
+            // The rail's and the top nav's elements are the embedder's and outlive
+            // this shell; their buttons and listeners close over THIS wm, so they go.
             try { rail?.dispose(); } catch { /* ignore */ }
+            try { topNav?.dispose(); } catch { /* ignore */ }
             // Its listeners are on the document; a rebuilt shell paints its own.
             try { menuBar?.dispose(); } catch { /* ignore */ }
         },
@@ -399,12 +401,19 @@ function mountTopNav(hostEl, taxonomy, wm) {
         `;
         hostEl.appendChild(btn);
     }
-    hostEl.addEventListener('click', (e) => {
+    const onClick = (e) => {
         const btn = e.target.closest('[data-kind]');
         if (!btn) return;
         wm.openInPrimary(btn.dataset.kind);
-    });
-    return hostEl;
+    };
+    hostEl.addEventListener('click', onClick);
+    return {
+        el: hostEl,
+        dispose: () => {
+            hostEl.removeEventListener('click', onClick);
+            hostEl.replaceChildren();
+        },
+    };
 }
 
 /** The page the primary tile is on. topNavFor maps an entity kind onto its owning

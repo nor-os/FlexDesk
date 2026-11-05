@@ -12,7 +12,7 @@
  *   §6  dispose empties the element and takes the listener off; a rebuilt shell
  *       on the same element drives only itself
  *   §7  mountPageRail alone: `activeKind` and `decorate`
- *   §8  the stylesheets and tokens: the rail's look, in both sheets, from tokens
+ *   §8  the stylesheets and tokens: the rail's look, from tokens
  *   §9  the public name is reachable through the entry and its built dist, and
  *       the rail writes only data keys the state guard's defaults allow
  *
@@ -266,7 +266,7 @@ t.section('§7 mountPageRail alone');
 t.section('§8 the stylesheets');
 {
     const decl = (body, prop) => (body ?? '').match(new RegExp(`(?:^|[;\\s])${prop}\\s*:\\s*([^;]+);`))?.[1].trim() ?? null;
-    for (const name of ['base.css', 'flexdesk.css']) {
+    for (const name of ['flexdesk.css']) {
         const sheet = t.css(name);
         const bar = ruleBody(sheet, '.twm-fl-bar');
         t.check(`${name}: the bar's width`, decl(bar, 'width'), 'var(--twm-rail-width)');
@@ -296,7 +296,7 @@ t.section('§8 the stylesheets');
         const rules = [...stripComments(sheet).matchAll(/([^{}]*\.twm-fl-[^{}]*)\{([^{}]*)\}/g)].map((m) => m[2]).join('');
         t.ok(`${name}: no colour literal in the rail's rules`, !/#[0-9a-f]{3,8}\b|rgba?\(/i.test(rules));
     }
-    for (const name of ['overrides.css', 'flexdesk.css']) {
+    for (const name of ['flexdesk.css']) {
         const sheet = t.css(name);
         const row = ruleBody(sheet, '.twm-workspace');
         t.check(`${name}: the row fills the column`, decl(row, 'flex'), '1 1 auto');

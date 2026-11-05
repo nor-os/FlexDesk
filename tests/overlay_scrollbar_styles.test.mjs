@@ -7,7 +7,7 @@
  * container, its height fed the container's content height and the container
  * grew without limit, unless the embedder brought its own CSS.
  *
- *   §1  both sheets (flexdesk.css and its base.css mirror) make the bars
+ *   §1  flexdesk.css makes the bars
  *       absolute, hidden and pointer-transparent, pin them to the right /
  *       bottom edge, and give the thumb its pointer events back
  *   §2  every var() the block reads is a token in tokens.css
@@ -41,10 +41,10 @@ const decl = (body, prop) => {
     return m ? m[1].trim() : null;
 };
 
-// ── §1 the rules, in both sheets ────────────────────────────────────────────
+// ── §1 the rules ────────────────────────────────────────────
 const BAR = '.overlay-scrollbar-v, .overlay-scrollbar-h';
 const THUMB = '.overlay-scrollbar-v .thumb, .overlay-scrollbar-h .thumb';
-for (const sheet of ['flexdesk.css', 'base.css']) {
+for (const sheet of ['flexdesk.css']) {
     const text = css(sheet);
     const bar = ruleBody(text, BAR);
     ok(`${sheet}: a rule for the bars`, bar !== null);

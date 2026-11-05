@@ -817,8 +817,7 @@ export class TileRenderer {
         //
         // No `e.button` test, unlike the pull: `dblclick` is dispatched for the
         // primary button only. No `preventDefault`, and NO NEW CSS: the strip
-        // is already `user-select: none` (`css/overrides.css:1001`, mirrored
-        // into the generated `css/flexdesk.css:4743`), so a double-click here
+        // is already `user-select: none` (`css/flexdesk.css`), so a double-click here
         // cannot word-select the title on its way to floating the pane.
         chrome.addEventListener('dblclick', (e) => {
             if (e.target.closest(CHROME_NO_FLOAT)) return;
@@ -1783,7 +1782,7 @@ export class TileRenderer {
     /** The rectangle a release would fill.
      *
      *  IT IS THE WINDOW DROP'S OWN PREVIEW ELEMENT — same two classes, same
-     *  stylesheet rules (`css/base.css`, `.twm-snap-preview`) — so a tab drop
+     *  stylesheet rules (`css/flexdesk.css`, `.twm-snap-preview`) — so a tab drop
      *  and a window drop cannot come to disagree about what a drop looks like.
      *  `--viewport` is what makes `position: fixed` apply, and that is required
      *  rather than cosmetic: the rectangle came from `getBoundingClientRect` on

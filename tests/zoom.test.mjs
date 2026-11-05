@@ -244,7 +244,7 @@ console.log('\n§3 the control');
 
 // ── §4 the geometry invariant, against the SHIPPED stylesheet ───────────
 console.log('\n§4 nothing a window is dragged across is zoomed');
-for (const file of ['css/flexdesk.css', 'css/base.css']) {
+for (const file of ['css/flexdesk.css']) {
     const css = readFileSync(join(ROOT, file), 'utf8')
         .replace(/\/\*[\s\S]*?\*\//g, '');   // comments name the forbidden selectors on purpose
     // Every rule whose declarations set `zoom`.

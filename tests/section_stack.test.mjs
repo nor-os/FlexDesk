@@ -15,8 +15,7 @@
  *   §6  expand / collapse / toggle / isExpanded, and the toggled event
  *   §7  a fill section: the stylesheet gives it the remaining height and makes
  *       its body the thing that scrolls (min-height: 0), but never lets the box
- *       shrink below its header; base.css mirrors
- *       flexdesk.css byte for byte
+ *       shrink below its header
  *   §8  dispose removes every listener and every node it created
  *
  *     node tests/section_stack.test.mjs
@@ -325,7 +324,6 @@ section('§6 the API and the toggled event');
 section('§7 a fill section takes the remaining height and scrolls inside');
 {
     const FLEX = t.css('flexdesk.css');
-    const BASE = t.css('base.css');
     const OPEN = '/* ══ SECTION STACK ';
     const CLOSE = '/* ══ end SECTION STACK ══ */';
     const cut = (sheet) => {
@@ -333,7 +331,6 @@ section('§7 a fill section takes the remaining height and scrolls inside');
         return a >= 0 && b > a ? sheet.slice(a, b + CLOSE.length) : null;
     };
     ok('flexdesk.css has a SECTION STACK section', cut(FLEX));
-    check('base.css carries the same section, byte for byte', cut(BASE), cut(FLEX));
     const css = stripComments(cut(FLEX) || '');
     const decl = (body, prop) => new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`).exec(body || '')?.[1].trim() ?? null;
     const rootRule = ruleBody(css, '.twm-section-stack');

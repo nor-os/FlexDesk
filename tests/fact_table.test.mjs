@@ -18,7 +18,7 @@
  *   §5  rowClass, rowAttrs, a row's key, getRow, labelColumn:false,
  *       wrapLabels, label (aria-label), className
  *   §6  the empty state, setRows, dispose, and the barrel
- *   §7  the stylesheet: in base.css AND flexdesk.css; values WRAP (pre-wrap,
+ *   §7  the stylesheet: values WRAP (pre-wrap,
  *       overflow-wrap: anywhere) and nothing in the sheet ellipsises, hides
  *       overflow or sets a height; labels stay on one line unless wrapLabels;
  *       the header row's look is not the row headers' look
@@ -186,29 +186,27 @@ section('§6 empty, setRows, dispose, the barrel');
 
 section('§7 the stylesheet');
 {
-    const base = css('base.css');
     const flexdesk = css('flexdesk.css');
     const block = (sheet) => {
         const from = sheet.indexOf('/* ══ RECORD LIST & FACT SHEET (0.7.0)');
         const to = sheet.indexOf('/* ══ end RECORD LIST & FACT SHEET ══ */');
         return from >= 0 && to > from ? sheet.slice(from, to) : null;
     };
-    check('mirrored byte for byte into flexdesk.css', block(flexdesk), block(base));
-    const sheet = stripComments(block(base) || '');
+    const sheet = stripComments(block(flexdesk) || '');
     const factRules = sheet.slice(sheet.indexOf('.twm-facts {'));
     ok('the fact-sheet rules were found', sheet.includes('.twm-facts {') && factRules.length > 200);
     ok('nothing in the sheet ellipsises, hides overflow or sets a height',
         !/text-overflow|overflow\s*:\s*hidden|(^|[\s;{])(max-)?height\s*:/.test(factRules));
-    const cell = ruleBody(base, '.twm-facts tbody td, .twm-facts tbody th') || '';
+    const cell = ruleBody(flexdesk, '.twm-facts tbody td, .twm-facts tbody th') || '';
     ok('values keep their line breaks and wrap', /white-space:\s*pre-wrap/.test(cell) && /overflow-wrap:\s*anywhere/.test(cell));
     ok('cells are top-aligned, so a long value does not float its label', /vertical-align:\s*top/.test(cell));
-    ok('labels stay on one line', /white-space:\s*nowrap/.test(ruleBody(base, '.twm-facts tbody th.twm-facts__label') || ''));
-    ok('…unless wrapLabels', /white-space:\s*normal/.test(ruleBody(base, '.twm-facts.twm-facts--wrap-labels tbody th.twm-facts__label') || ''));
+    ok('labels stay on one line', /white-space:\s*nowrap/.test(ruleBody(flexdesk, '.twm-facts tbody th.twm-facts__label') || ''));
+    ok('…unless wrapLabels', /white-space:\s*normal/.test(ruleBody(flexdesk, '.twm-facts.twm-facts--wrap-labels tbody th.twm-facts__label') || ''));
     ok('the header row is styled under thead only (row headers are not header-row text)',
-        ruleBody(base, '.twm-facts thead th') && !ruleBody(base, '.twm-facts th'));
-    ok('mono reads the token', /font-family-mono/.test(ruleBody(base, '.twm-facts.twm-facts--mono tbody td.twm-facts__value, .twm-facts tbody td.twm-facts__mono') || ''));
-    ok('the table is full width and collapses its borders', /width:\s*100%/.test(ruleBody(base, '.twm-facts') || '')
-        && /border-collapse:\s*collapse/.test(ruleBody(base, '.twm-facts') || ''));
+        ruleBody(flexdesk, '.twm-facts thead th') && !ruleBody(flexdesk, '.twm-facts th'));
+    ok('mono reads the token', /font-family-mono/.test(ruleBody(flexdesk, '.twm-facts.twm-facts--mono tbody td.twm-facts__value, .twm-facts tbody td.twm-facts__mono') || ''));
+    ok('the table is full width and collapses its borders', /width:\s*100%/.test(ruleBody(flexdesk, '.twm-facts') || '')
+        && /border-collapse:\s*collapse/.test(ruleBody(flexdesk, '.twm-facts') || ''));
 }
 
 section('§8 wrap: words and none');
@@ -219,11 +217,11 @@ section('§8 wrap: words and none');
     ok("wrap: 'none'", cls({ wrap: 'none' }).contains('twm-facts--wrap-none'));
     const odd = cls({ wrap: 'sideways' });
     ok('an unknown wrap is the default', !odd.contains('twm-facts--wrap-words') && !odd.contains('twm-facts--wrap-none'));
-    const base = css('base.css');
+    const flexdesk = css('flexdesk.css');
     ok('words: a long word stays whole',
-        /overflow-wrap:\s*normal/.test(ruleBody(base, '.twm-facts.twm-facts--wrap-words tbody td, .twm-facts.twm-facts--wrap-words tbody th') || ''));
+        /overflow-wrap:\s*normal/.test(ruleBody(flexdesk, '.twm-facts.twm-facts--wrap-words tbody td, .twm-facts.twm-facts--wrap-words tbody th') || ''));
     ok('none: only its own line breaks',
-        /white-space:\s*pre;/.test(ruleBody(base, '.twm-facts.twm-facts--wrap-none tbody td, .twm-facts.twm-facts--wrap-none tbody th') || ''));
+        /white-space:\s*pre;/.test(ruleBody(flexdesk, '.twm-facts.twm-facts--wrap-none tbody td, .twm-facts.twm-facts--wrap-none tbody th') || ''));
 }
 
 done();

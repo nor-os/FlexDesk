@@ -92,12 +92,12 @@ function accentLiterals(css) {
     }
     return found;
 }
-for (const sheet of ['dist/flexdesk.css', 'css/flexdesk.css', 'css/base.css', 'css/overrides.css']) {
+for (const sheet of ['dist/flexdesk.css', 'css/flexdesk.css']) {
     const left = accentLiterals(read(sheet));
     ok(`${sheet}: no accent literal outside the token definitions`, left.length === 0,
        `${left.length} left, e.g.\n    ${left.slice(0, 8).join('\n    ')}`);
 }
-for (const sheet of ['dist/flexdesk.css', 'css/flexdesk.css', 'css/base.css']) {
+for (const sheet of ['dist/flexdesk.css', 'css/flexdesk.css']) {
     ok(`${sheet}: no var(--twm-dt-new-bg, …) fallback (the token is defined)`,
        !/var\(--twm-dt-new-bg\s*,/.test(stripComments(read(sheet))));
 }

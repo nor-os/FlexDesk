@@ -41,7 +41,7 @@ const fresh = (opts) => {
     return nc;
 };
 const toastEl = (id) => document.querySelector(`[data-notification-id="${id}"]`);
-const SHEETS = ['flexdesk.css', 'base.css'];
+const SHEETS = ['flexdesk.css'];
 // Icon glyph spans carry the icon font's class, which is not FlexDesk's to prefix.
 const FOREIGN = new Set(['material-symbols-outlined']);
 const unprefixed = (root) => [root, ...root.querySelectorAll('[class]')]

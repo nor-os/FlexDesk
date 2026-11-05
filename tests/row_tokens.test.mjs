@@ -19,7 +19,7 @@
  *   §0  tokens.css does not DEFINE them (a default there would replace both
  *       densities' values with one) — it documents them
  *   §1  the normal cell rules read the padding tokens over their 0.4 values,
- *       in both copies of the rule, in both sheets
+ *       in both copies of the rule
  *   §2  the compact cell rule reads all three over ITS 0.4 values
  *   §3  normal's line height is declared on the ROW GROUPS (thead, tbody,
  *       tfoot), at zero specificity and with no fallback, and the cells
@@ -65,7 +65,7 @@ console.log('\n§0 tokens.css documents them and does not define them');
 }
 
 console.log('\n§1 the normal cell rules read the padding tokens over the 0.4 padding');
-for (const sheet of ['base.css', 'flexdesk.css']) {
+for (const sheet of ['flexdesk.css']) {
     const a = ruleBody(css(sheet), '.twm-preview-table th,\n.twm-preview-table td');
     const b = ruleBody(css(sheet), '.twm-preview-table th, .twm-preview-table td');
     ok(`${sheet}: the first copy of the rule`, has(a, NORMAL_PAD));
@@ -73,7 +73,7 @@ for (const sheet of ['base.css', 'flexdesk.css']) {
 }
 
 console.log('\n§2 the compact cell rule reads all three over the 0.4 compact values');
-for (const sheet of ['overrides.css', 'flexdesk.css']) {
+for (const sheet of ['flexdesk.css']) {
     const c = ruleBody(css(sheet), '.twm-data-table-component--compact .twm-preview-table th,\n.twm-data-table-component--compact .twm-preview-table td');
     ok(`${sheet}: padding`, has(c, COMPACT_PAD));
     ok(`${sheet}: line height`, has(c, COMPACT_LINE));
@@ -82,12 +82,12 @@ for (const sheet of ['overrides.css', 'flexdesk.css']) {
 console.log('\n§3 normal\'s line height: on the row groups, zero specificity, no fallback');
 const ROW_GROUPS = ':where(.twm-preview-table) > :where(thead, tbody, tfoot)';
 const COMPACT_CELLS = '.twm-data-table-component--compact .twm-preview-table th, .twm-data-table-component--compact .twm-preview-table td';
-for (const sheet of ['base.css', 'flexdesk.css']) {
+for (const sheet of ['flexdesk.css']) {
     const w = ruleBody(css(sheet), ROW_GROUPS);
     ok(`${sheet}: the row-group rule reads the token with NO fallback`,
        has(w, 'line-height: var(--twm-dt-cell-line-height);'));
 }
-for (const sheet of ['base.css', 'flexdesk.css', 'overrides.css']) {
+for (const sheet of ['flexdesk.css']) {
     const text = stripComments(css(sheet));
     const readers = [];
     const re = /([^{}]+)\{([^{}]*)\}/g;
@@ -102,7 +102,7 @@ for (const sheet of ['base.css', 'flexdesk.css', 'overrides.css']) {
 }
 
 console.log('\n§4 no table cell rule keeps a padding the tokens cannot reach');
-for (const sheet of ['base.css', 'flexdesk.css', 'overrides.css']) {
+for (const sheet of ['flexdesk.css']) {
     const text = stripComments(css(sheet));
     const bare = [];
     const re = /([^{}]+)\{([^{}]*)\}/g;

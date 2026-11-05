@@ -25,7 +25,6 @@ const { createTaxonomy } = await import('../src/tiling/kind_taxonomy.js');
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const css = readFileSync(join(HERE, '..', 'css', 'flexdesk.css'), 'utf8');
-const overrides = readFileSync(join(HERE, '..', 'css', 'overrides.css'), 'utf8');
 
 const taxonomy = createTaxonomy({
     root: 'start',
@@ -74,6 +73,5 @@ section('§4 a root crumb makes two segments on the page itself');
 section('§5 a hidden strip takes its slot out of the layout');
 const rule = /\.twm-page-shell__breadcrumb \.twm-tile-breadcrumb\[hidden\],\s*\.twm-page-shell__breadcrumb:has\(> \.twm-tile-breadcrumb\[hidden\]\) \{\s*display: none;\s*\}/;
 ok('flexdesk.css hides the strip and its slot', rule.test(css));
-ok('overrides.css carries the same rule', rule.test(overrides));
 
 done();

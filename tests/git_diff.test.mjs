@@ -250,7 +250,7 @@ section('§7 the entry, the stylesheets, the DOM');
     // Built from a variable (`--${kind}`) are checked by their prefix, below; `__init` is a `.twm-btn` with no rule of its own.
     const classes = [...new Set([...code.matchAll(/twm-(?:git|diff)[a-zA-Z0-9_-]*/g)].map((m) => m[0]))]
         .filter((c) => !c.endsWith('-') && c !== 'twm-git-panel__init');
-    for (const sheet of ['flexdesk.css', 'base.css']) {
+    for (const sheet of ['flexdesk.css']) {
         const text = css(sheet);
         const start = text.indexOf('/* ══ GIT ');
         const end = text.indexOf('/* ══ end GIT ══ */');

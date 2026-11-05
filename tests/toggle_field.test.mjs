@@ -14,8 +14,7 @@
  *   §3  openForm `type: 'toggle'` mounts a ToggleField and resolves `true` or
  *       `false`; `onFieldChange`'s get/set read and write it as a boolean.
  *   §4  ITS CSS: every class the switch sets has a rule, and the section
- *       contains no hex literal — colours come from tokens.css; base.css
- *       mirrors the section byte for byte.
+ *       contains no hex literal — colours come from tokens.css.
  *   §5  `@flexdesk/widgets` exports it.
  *
  *     node tests/toggle_field.test.mjs
@@ -275,11 +274,6 @@ section('§4 its CSS: every class has a rule, and no hex literal');
        /outline:\s*2px solid var\(--/.test(ruleBody(sheet, '.twm-toggle__input:focus-visible + .twm-toggle__track') || ''));
     t.dispose();
 
-    const base = readFileSync(resolvePath(HERE, '../css/base.css'), 'utf8');
-    const bStart = base.indexOf('/* ══ TOGGLE ');
-    const bEnd = base.indexOf('/* ══ end TOGGLE ══ */');
-    check('base.css carries the same TOGGLE section, byte for byte (the hand-mirror)',
-          bStart >= 0 && bEnd > bStart ? base.slice(bStart, bEnd) : null, css.slice(start, end));
 }
 
 // ── §5 ──────────────────────────────────────────────────────────────────

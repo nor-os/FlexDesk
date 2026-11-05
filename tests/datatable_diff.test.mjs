@@ -98,7 +98,7 @@ section('§3 updateRow re-asks diff');
 }
 
 section('§4 the stylesheets');
-for (const sheet of ['base.css', 'flexdesk.css']) {
+for (const sheet of ['flexdesk.css']) {
     const text = css(sheet);
     for (const cls of ['twm-dt-diff--added', 'twm-dt-diff--removed', 'twm-dt-diff--changed',
                        'twm-dt-diff__cell--changed', 'twm-dt-diff__gap']) {

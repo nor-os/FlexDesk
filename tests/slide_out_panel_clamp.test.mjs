@@ -18,11 +18,11 @@
  *       its right edge the host's, at 100% and under a CSS zoom
  *   §2  the width cap reaches the stylesheet: the panel carries the host's
  *       width as `--twm-slide-out-host-w`, and the panel rule caps `max-width`
- *       and lowers the 400px `min-width` to it (base.css and flexdesk.css)
+ *       and lowers the 400px `min-width` to it (flexdesk.css)
  *   §3  a host wider than the panel: unchanged, the requested width
  *   §4  the cap follows a host that narrows while open
  *   §5  the header icon and the close icon have 18px rules that beat
- *       `.material-symbols-outlined` on specificity, in both sheets
+ *       `.material-symbols-outlined` on specificity
  *
  *     node tests/slide_out_panel_clamp.test.mjs
  *
@@ -141,7 +141,7 @@ section('§2 the cap reaches the stylesheet');
           el.style.getPropertyValue('--twm-slide-out-host-w'), '200px');
     panel.dispose();
 }
-for (const sheet of ['base.css', 'flexdesk.css']) {
+for (const sheet of ['flexdesk.css']) {
     const css = readFileSync(resolvePath(HERE, '../css', sheet), 'utf8');
     const body = ruleBody(css, '.twm-slide-out-panel') || '';
     const decl = (prop) => (new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`).exec(body) || [])[1]?.trim() ?? null;
@@ -183,7 +183,7 @@ section('§5 the header and close icons are 18px');
        host.querySelector('.twm-slide-out-panel__close .material-symbols-outlined'));
     panel.dispose();
     const google = specificity('.material-symbols-outlined');
-    for (const sheet of ['base.css', 'flexdesk.css']) {
+    for (const sheet of ['flexdesk.css']) {
         const css = readFileSync(resolvePath(HERE, '../css', sheet), 'utf8');
         for (const sel of ['.twm-slide-out-panel__icon.material-symbols-outlined',
                            '.twm-slide-out-panel__close .material-symbols-outlined']) {

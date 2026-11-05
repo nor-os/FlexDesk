@@ -12,7 +12,7 @@
  *       entry
  *   §3  two consecutive separators render as one; a leading or a trailing one
  *       renders as none; `setOptions` collapses the same way
- *   §4  the stylesheet styles the divider (flexdesk.css and its base.css mirror)
+ *   §4  the stylesheet styles the divider (flexdesk.css)
  *
  * Against 0.16.1, §1–§3 fail (a separator became an unlabelled button that the
  * arrows landed on and that called `onSelect({separator: true})`).
@@ -174,7 +174,7 @@ section('§3 doubled, leading and trailing separators collapse');
 
 // ── §4 ──────────────────────────────────────────────────────────────────
 section('§4 the stylesheet draws the divider');
-for (const file of ['flexdesk.css', 'base.css']) {
+for (const file of ['flexdesk.css']) {
     const css = readFileSync(resolvePath(HERE, '../css', file), 'utf8');
     const rule = ruleBody(css, '.twm-action-dropdown-separator') || '';
     ok(`${file}: .twm-action-dropdown-separator has a height`, /height:\s*1px/.test(rule), `rule: ${JSON.stringify(rule)}`);

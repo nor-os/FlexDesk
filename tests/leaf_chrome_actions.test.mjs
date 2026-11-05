@@ -160,7 +160,7 @@ ok('…and the pressed class', on.classList.contains('twm-leaf__btn--pressed'));
 check('pressed:false renders aria-pressed="false"', off.getAttribute('aria-pressed'), 'false');
 ok('…without the pressed class', !off.classList.contains('twm-leaf__btn--pressed'));
 ok('no pressed key: not a toggle, no aria-pressed', !plain.hasAttribute('aria-pressed'));
-for (const sheet of ['flexdesk.css', 'base.css']) {
+for (const sheet of ['flexdesk.css']) {
     const css = readFileSync(resolvePath(HERE, '../css', sheet), 'utf8');
     const body = ruleBody(css, '.twm-leaf__btn--pressed');
     ok(`${sheet} styles .twm-leaf__btn--pressed with a background`, /background\s*:/.test(body || ''),
@@ -180,7 +180,7 @@ check('it keeps its tooltip', dis.title, 'Nothing to publish yet');
 check('aria-disabled="true"', dis.getAttribute('aria-disabled'), 'true');
 ok('…and the disabled class', dis.classList.contains('twm-leaf__btn--disabled'));
 ok('not the disabled attribute, which would take the pointer events a tooltip needs', !dis.disabled);
-for (const sheet of ['flexdesk.css', 'base.css']) {
+for (const sheet of ['flexdesk.css']) {
     const css = readFileSync(resolvePath(HERE, '../css', sheet), 'utf8');
     ok(`${sheet} greys .twm-leaf__btn--disabled`,
         /opacity/.test(ruleBody(css, '.twm-leaf__btn--disabled, .twm-leaf__btn:disabled') || ''));

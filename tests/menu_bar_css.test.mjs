@@ -13,7 +13,6 @@
  *       hamburger and its icon title — has a
  *       rule in the MENU BAR section
  *   §3  every class a MENU BAR rule names is one the bar sets
- *   §4  base.css's MENU BAR section is flexdesk.css's (the hand-mirror)
  *
  *     node tests/menu_bar_css.test.mjs
  */
@@ -32,9 +31,7 @@ const barSection = (sheet) => {
     return start >= 0 && end > start ? sheet.slice(start, end + CLOSE.length) : null;
 };
 const FLEX = barSection(t.css('flexdesk.css'));
-const BASE = barSection(t.css('base.css'));
 ok('flexdesk.css has a MENU BAR section', FLEX);
-ok('base.css has a MENU BAR section', BASE);
 const CSS = stripComments(FLEX || '');
 
 const decl = (body, prop) => {
@@ -113,9 +110,5 @@ for (const c of set.sort()) ok(`.${c} has a rule`, ruled.has(c));
 // ── §3 every class a rule names is one the bar sets ───────────────────────
 section('§3 every class a MENU BAR rule names is one the bar sets');
 for (const c of [...ruled].sort()) ok(`.${c} is set by the bar`, seen.has(c));
-
-// ── §4 the hand-mirror ────────────────────────────────────────────────────
-section('§4 the hand-mirror');
-check('base.css carries the same MENU BAR section, byte for byte', BASE, FLEX);
 
 done();

@@ -10,8 +10,7 @@
  * `EditorPane`s is mounted and a `NotebookSearchBar` is opened in one of them.
  *
  *   §1  every class the three components set has a rule (the harvest is from
- *       the mounted DOM, in every state the bug names), in BOTH `flexdesk.css`
- *       and `base.css`, the sheet it is extracted from
+ *       the mounted DOM, in every state the bug names), in `flexdesk.css`
  *   §2  the layout the bug expected: panes side by side, a divider with a
  *       width that does not shrink and a col-resize cursor, a search bar hidden
  *       until it is opened — read through jsdom's cascade where jsdom has one
@@ -35,7 +34,6 @@ const { document, window } = t;
 const { SplitPaneContainer, EditorPane, NotebookSearchBar } = await import('../editor.js');
 
 const FLEX = t.css('flexdesk.css');
-const BASE = t.css('base.css');
 for (const name of ['tokens.css', 'reset.css', 'flexdesk.css']) {
     const style = document.createElement('style');
     style.textContent = t.css(name);
@@ -86,7 +84,6 @@ const classesIn = (css) => {
     return out;
 };
 const inFlex = classesIn(FLEX);
-const inBase = classesIn(BASE);
 t.ok('the harvest found the three components at work', seen.size >= 20, `${seen.size} classes`);
 for (const c of ['split-pane-container', 'split-pane-container--split', 'split-pane', 'split-pane-divider',
                  'split-pane-divider--active', 'editor-pane', 'editor-pane--focused', 'editor-pane__body',
@@ -97,7 +94,6 @@ for (const c of ['split-pane-container', 'split-pane-container--split', 'split-p
 for (const c of [...seen].sort()) {
     if (HOOKS.has(c)) continue;
     t.ok(`.${c} has a rule in flexdesk.css`, inFlex.has(c));
-    t.ok(`.${c} has a rule in base.css`, inBase.has(c));
 }
 
 // ── §2 the layout the bug expected ──────────────────────────────────────

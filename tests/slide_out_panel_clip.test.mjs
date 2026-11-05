@@ -30,7 +30,7 @@ const decl = (body, prop) => {
     return m ? m[1].trim() : null;
 };
 
-for (const sheet of ['flexdesk.css', 'base.css']) {
+for (const sheet of ['flexdesk.css']) {
     console.log(`\n${sheet}`);
     const css = readFileSync(join(HERE, '..', 'css', sheet), 'utf8');
     const closed = ruleBody(css, '.twm-slide-out-panel');

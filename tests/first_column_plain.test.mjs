@@ -8,9 +8,8 @@
  * consumer overrode it three times, and its organization page still drew its
  * lists' first column grey and bold.
  *
- * jsdom applies no stylesheet, so the CSS half is held as TEXT here — in both
- * sheets, which must agree (`css/flexdesk.css` is the shipped one, `base.css`
- * its source) — and the result was looked at in headless Edge for 0.5.0.
+ * jsdom applies no stylesheet, so the CSS half is held as TEXT here, in `css/flexdesk.css`,
+ * and the result was looked at in headless Edge for 0.5.0.
  *
  *   §0  without the key: no class, and the time rules are still in both
  *       sheets, untouched
@@ -18,7 +17,7 @@
  *       empty-state table included
  *   §2  the plain rule: width auto, the ordinary 80px floor, no max, the
  *       body cell's weight and colour inherited, the header cell the
- *       header's — in both sheets, and one class MORE specific than the time
+ *       header's — and one class MORE specific than the time
  *       rules so the order of the sheets cannot matter
  *
  * Against 0.4.7, §1 and §2 fail.
@@ -39,7 +38,7 @@ section('§0 without the key: 0.4');
 {
     const { host } = mount({ headers, rows });
     ok('no table carries the class', tables(host).every((t) => !t.classList.contains('twm-dt--first-plain')));
-    for (const sheet of ['base.css', 'flexdesk.css']) {
+    for (const sheet of ['flexdesk.css']) {
         const css = T.css(sheet);
         const time = ruleBody(css, '.twm-preview-table th:first-child, .twm-preview-table td:first-child');
         ok(`${sheet}: the time rule is still there`, time && /color:\s*#bbb/.test(time) && /font-weight:\s*500/.test(time));
@@ -54,8 +53,8 @@ section('§1 plain: the class on both halves');
     check('…and the empty-state tables', tables(empty).map((t) => t.classList.contains('twm-dt--first-plain')), [true, true]);
 }
 
-section('§2 the plain rule, in both sheets');
-for (const sheet of ['base.css', 'flexdesk.css']) {
+section('§2 the plain rule');
+for (const sheet of ['flexdesk.css']) {
     const css = T.css(sheet);
     const both = ruleBody(css, '.twm-preview-table.twm-dt--first-plain th:first-child,\n.twm-preview-table.twm-dt--first-plain td:first-child');
     ok(`${sheet}: width auto, an 80px floor, no maximum`,

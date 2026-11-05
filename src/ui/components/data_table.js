@@ -4486,7 +4486,7 @@ export class DataTable {
 
         // ALL THREE PROPERTIES, not just `width`. `_setCellWidth` writes
         // `width` together with `min-width: 0` and `max-width: none`, precisely
-        // to escape the CSS floors on these cells (base.css pins the first
+        // to escape the CSS floors on these cells (flexdesk.css pins the first
         // column at 120px/min 100px and gives every other column a 80px min).
         // Carrying the width across the rebuild and leaving the other two behind
         // let those floors back in — so a column measured narrower than its
@@ -6329,7 +6329,7 @@ export class DataTable {
         //
         // `_measureNaturalWidths` flips BOTH tables to
         // `table-layout:auto; width:max-content` with the CSS caps lifted, for
-        // a full synchronous reflow (`.twm-dt-measuring`, css/base.css). This
+        // a full synchronous reflow (`.twm-dt-measuring`, css/flexdesk.css). This
         // method is the ResizeObserver's callback, so that reflow fires once
         // per animation frame for the whole of a splitter drag — and an
         // embedder that pages a thousand rows at a time across twenty columns

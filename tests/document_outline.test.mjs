@@ -17,7 +17,7 @@
  *   §5  dispose: the observer disconnected, the timer cleared, the listeners
  *       and the element gone
  *   §6  setEntries, refresh, setActive/getActive, the empty state, the barrel
- *   §7  the stylesheet: the block in base.css AND flexdesk.css, no height
+ *   §7  the stylesheet: the block in flexdesk.css, no height
  *
  *     node tests/document_outline.test.mjs
  */
@@ -343,16 +343,14 @@ section('§6 setEntries, refresh, setActive, getActive, the empty state, the bar
 
 section('§7 the stylesheet');
 {
-    const base = css('base.css');
     const flexdesk = css('flexdesk.css');
     const block = (sheet) => {
         const from = sheet.indexOf('/* ══ DOCUMENT OUTLINE (0.17.0)');
         const to = sheet.indexOf('/* ══ end DOCUMENT OUTLINE ══ */');
         return from >= 0 && to > from ? sheet.slice(from, to) : null;
     };
-    ok('the block is in base.css', block(base));
-    check('…and mirrored byte for byte into flexdesk.css', block(flexdesk), block(base));
-    const body = (sel) => ruleBody(base, sel) || '';
+    ok('the block is in flexdesk.css', block(flexdesk));
+    const body = (sel) => ruleBody(flexdesk, sel) || '';
     ok('the outline declares no height', !/(^|[;\s])(height|max-height)\s*:/.test(body('.twm-doc-outline') + body('.twm-doc-outline__items')));
     ok('each level is indented by the depth it is given', /--twm-doc-outline-depth/.test(body('.twm-doc-outline__link')));
     ok('a long label ellipsises', /text-overflow:\s*ellipsis/.test(body('.twm-doc-outline__label')));

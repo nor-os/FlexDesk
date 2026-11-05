@@ -137,8 +137,8 @@ section('§6 the cascade: these cells out-specify the first column and the densi
         '.twm-preview-table.twm-dt--first-plain td:first-child',
         '.twm-data-table-component--compact .twm-preview-table td',
     ];
-    for (const sheet of ['base.css', 'flexdesk.css']) {
-        const text = stripComments(T.css(sheet)) + stripComments(sheet === 'base.css' ? T.css('overrides.css') : '');
+    for (const sheet of ['flexdesk.css']) {
+        const text = stripComments(T.css(sheet));
         for (const r of rivals) ok(`${sheet}: the rival ${r} exists`, text.replace(/\s+/g, ' ').includes(r));
         const ours = [];
         const re = /([^{}]+)\{([^{}]*)\}/g;

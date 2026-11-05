@@ -307,8 +307,7 @@ category's `color` is any CSS colour; it reaches the rows as
 
 The Add button is FlexDesk's `twm-btn twm-btn--primary`; everything else is
 styled from the tokens (`tests/category_picker.test.mjs` checks there is no
-colour literal in its rules, and that base.css and flexdesk.css carry the same
-block).
+colour literal in its rules).
 
 ## A rich popover: `openPopover` (0.18.0)
 

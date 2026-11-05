@@ -933,21 +933,19 @@ section('§10 the barrel and the stylesheet');
     }
     check('createOptionList stays internal', widgets.createOptionList, undefined);
 
-    const base = css('base.css');
     const flexdesk = css('flexdesk.css');
     const block = (sheet) => {
         const from = sheet.indexOf('/* ══ SELECT, COMBOBOX, POPOVER (0.18.0)');
         const to = sheet.indexOf('/* ══ end SELECT, COMBOBOX, POPOVER ══ */');
         return from >= 0 && to > from ? sheet.slice(from, to) : null;
     };
-    ok('the block is in base.css', block(base));
-    check('…and mirrored byte for byte into flexdesk.css', block(flexdesk), block(base));
+    ok('the block is in flexdesk.css', block(flexdesk));
     for (const sel of ['.twm-option-panel', '.twm-popover']) {
-        ok(`${sel} is over the managed windows`, /z-index:\s*var\(--z-over-windows\)/.test(ruleBody(base, sel) || ''));
+        ok(`${sel} is over the managed windows`, /z-index:\s*var\(--z-over-windows\)/.test(ruleBody(flexdesk, sel) || ''));
     }
-    ok('no literal colour in the block', !/#[0-9a-f]{3,8}\b|rgba?\(/i.test(block(base)));
+    ok('no literal colour in the block', !/#[0-9a-f]{3,8}\b|rgba?\(/i.test(block(flexdesk)));
     ok('the active row reads differently from the current value',
-       /--state-active/.test(ruleBody(base, '.twm-option-list__row--active, .twm-option-list__row--active:hover, .twm-option-list__row--active[aria-selected="true"]') || ''));
+       /--state-active/.test(ruleBody(flexdesk, '.twm-option-list__row--active, .twm-option-list__row--active:hover, .twm-option-list__row--active[aria-selected="true"]') || ''));
 }
 
 done();

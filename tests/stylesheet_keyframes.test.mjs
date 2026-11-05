@@ -16,9 +16,8 @@
  *       inside `@media`, ignores `none`, `var()` and custom properties, and
  *       reports the one with no @keyframes
  *   §2  THE GUARD: in every sheet under css/, every animation name used has an
- *       @keyframes in the SAME sheet (base.css and overrides.css are each loaded
- *       beside a different file, flexdesk.css alone), so a new spinner cannot
- *       name a keyframes it does not ship
+ *       @keyframes in the SAME sheet, so a new spinner cannot name a keyframes
+ *       it does not ship
  *   §3  the four spinners: each rule runs its animation linear and infinite, and
  *       each keyframes turns a full 0 -> 360deg, in every sheet that has the rule
  *   §4  the four spinner classes are ones the code puts on elements, so the
@@ -170,7 +169,7 @@ section('§1 the scanner finds what a sheet uses and defines');
 // ── §2 the guard ────────────────────────────────────────────────────────────
 section('§2 every animation a sheet uses is an @keyframes that sheet defines');
 {
-    for (const f of ['flexdesk.css', 'base.css', 'overrides.css']) ok(`css/${f} is among the sheets read`, f in sheet);
+    for (const f of ['flexdesk.css']) ok(`css/${f} is among the sheets read`, f in sheet);
     for (const [file, text] of sheets) {
         const used = [...new Set(usedAnimations(text))];
         const defined = definedKeyframes(text);
@@ -190,10 +189,10 @@ section('§3 each spinner runs linear and infinite, and its keyframes turn a ful
 {
     const SPINNERS = [
         // selector, animation, duration, the sheets that carry the rule
-        ['.twm-tile-loading__spinner', 'twm-tile-loading-spin', '0.7s', ['flexdesk.css', 'overrides.css']],
-        ['.twm-data-table__spinner', 'data-table__spin', '0.7s', ['flexdesk.css', 'overrides.css']],
-        ['.twm-computing-status__spinner', 'computing-spin', '0.8s', ['flexdesk.css', 'base.css']],
-        ['.twm-run-progress__spinner', 'etl-spin', '0.8s', ['flexdesk.css', 'base.css']],
+        ['.twm-tile-loading__spinner', 'twm-tile-loading-spin', '0.7s', ['flexdesk.css']],
+        ['.twm-data-table__spinner', 'data-table__spin', '0.7s', ['flexdesk.css']],
+        ['.twm-computing-status__spinner', 'computing-spin', '0.8s', ['flexdesk.css']],
+        ['.twm-run-progress__spinner', 'etl-spin', '0.8s', ['flexdesk.css']],
     ];
     for (const [selector, name, duration, files] of SPINNERS) {
         for (const file of files) {

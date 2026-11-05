@@ -10,7 +10,7 @@
  *       caret survives typing, custom value editors mount and are released
  *   §6  the dialog: a real modal, result shapes, gating, async submit and its
  *       error, preview slot and its signal, discard guard, name and icon
- *   §7  exports, CSS (every class styled, tokens only, block in both sheets),
+ *   §7  exports, CSS (every class styled, tokens only),
  *       no DOM state, no application words
  *
  *     node tests/filter_builder.test.mjs
@@ -878,11 +878,9 @@ section('§7 exports, CSS, domain words');
     }
 
     const BLOCK = /\/\* ══ FILTER BUILDER[\s\S]*?\/\* ══ end FILTER BUILDER ══ \*\//;
-    const base = css('base.css').match(BLOCK)?.[0];
-    const full = css('flexdesk.css').match(BLOCK)?.[0];
-    ok('base.css carries the block', !!base);
-    ok('flexdesk.css carries the same block', !!full && full === base);
-    const rules = stripComments(base || '');
+    const block = css('flexdesk.css').match(BLOCK)?.[0];
+    ok('flexdesk.css carries the block', !!block);
+    const rules = stripComments(block || '');
     check('no hex colour literals', rules.match(/#[0-9a-fA-F]{3,8}\b/g), null);
     check('no rgb()/rgba() literals', rules.match(/rgba?\(/g), null);
 
@@ -897,7 +895,7 @@ section('§7 exports, CSS, domain words');
     const words = /\b(bugs?|tickets?|backlog|epics?|sprints?|simulation|ecosim|ecoagent|bugdesk|tables?|workspace|project)\b/i;
     const doc = readFileSync(join(ROOT, 'docs/components/filter-builder.md'), 'utf8');
     check('no application word in the code', js.match(words)?.[0] ?? null, null);
-    check('nor in the block', base.match(words)?.[0] ?? null, null);
+    check('nor in the block', block.match(words)?.[0] ?? null, null);
     check('nor in the docs', doc.match(words)?.[0] ?? null, null);
     ok('the docs carry the version', /\(0\.18\.0\)/.test(doc));
     ok('the docs index links the page', readFileSync(join(ROOT, 'docs/README.md'), 'utf8').includes('components/filter-builder.md'));

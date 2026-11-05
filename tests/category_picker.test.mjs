@@ -14,7 +14,7 @@
  *   §5  positioning: position: fixed under the trigger, flipped above it with
  *       no room below, kept inside the window; trigger click toggles; destroy
  *   §6  CSS: every class it sets is styled, --z-over-windows, no hex
- *       literals, base.css and flexdesk.css carry the same block
+ *       literals, flexdesk.css carries the block
  *
  *     node tests/category_picker.test.mjs
  *
@@ -312,11 +312,9 @@ section('§5 positioning');
 section('§6 CSS');
 {
     const BLOCK = /\/\* ══ CATEGORY PICKER[\s\S]*?\/\* ══ end CATEGORY PICKER ══ \*\//;
-    const base = css('base.css').match(BLOCK)?.[0];
-    const full = css('flexdesk.css').match(BLOCK)?.[0];
-    ok('base.css carries the block', !!base);
-    ok('flexdesk.css carries the same block', !!full && full === base);
-    const rules = stripComments(base || '');
+    const block = css('flexdesk.css').match(BLOCK)?.[0];
+    ok('flexdesk.css carries the block', !!block);
+    const rules = stripComments(block || '');
     check('no hex colour literals', rules.match(/#[0-9a-fA-F]{3,8}\b/g), null);
     check('no rgb()/rgba() literals either', rules.match(/rgba?\(/g), null);
     ok('drawn over windows', /\.twm-category-picker \{[^}]*z-index: var\(--z-over-windows\)/.test(rules));
@@ -430,7 +428,7 @@ section('§7 review fixes');
     trigger.remove();
 
     // 8. the dot's colour is background-color
-    const rules = stripComments(css('base.css'));
+    const rules = stripComments(css('flexdesk.css'));
     const dot = rules.match(/\.twm-category-picker__dot \{([^}]*)\}/)?.[1] || '';
     ok('the dot sets background-color, not the background shorthand',
        /background-color: var\(--twm-category-picker-color/.test(dot) && !/(^|[\s;])background:/.test(dot));

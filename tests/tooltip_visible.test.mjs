@@ -63,7 +63,7 @@ t.check('a hidden tooltip computes to opacity 0', w.getComputedStyle(tip).opacit
 
 t.section('§2 the rule, in both stylesheets');
 const opacity = (body) => (body ?? '').match(/opacity\s*:\s*([^;]+)/)?.[1].trim() ?? null;
-for (const name of ['base.css', 'flexdesk.css']) {
+for (const name of ['flexdesk.css']) {
     const sheet = t.css(name);
     t.check(`${name}: .twm-latex-tooltip is opacity 0`, opacity(ruleBody(sheet, '.twm-latex-tooltip')), '0');
     t.check(`${name}: .twm-latex-tooltip.visible is opacity 1`,

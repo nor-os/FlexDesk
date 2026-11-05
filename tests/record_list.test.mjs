@@ -24,8 +24,7 @@
  *       `refresh(key)` asks `describe` again for that record only
  *   §9  `facts: 'ellipsis'`: one line, the whole line on its title
  *   §10 dispose; the barrel exports it
- *   §11 the stylesheet: every rule is in base.css AND flexdesk.css, nothing
- *       gives the list a height, the name column can shrink, the refusal
+ *   §11 the stylesheet: nothing gives the list a height, the name column can shrink, the refusal
  *       line has a colour, and a paused record does not dim its verbs
  *
  *     node tests/record_list.test.mjs
@@ -375,25 +374,23 @@ section('§10 dispose and the barrel');
 
 section('§11 the stylesheet');
 {
-    const base = css('base.css');
     const flexdesk = css('flexdesk.css');
     const block = (sheet) => {
         const from = sheet.indexOf('/* ══ RECORD LIST & FACT SHEET (0.7.0)');
         const to = sheet.indexOf('/* ══ end RECORD LIST & FACT SHEET ══ */');
         return from >= 0 && to > from ? sheet.slice(from, to) : null;
     };
-    ok('the block is in base.css', block(base));
-    check('…and mirrored byte for byte into flexdesk.css', block(flexdesk), block(base));
-    const body = (sel) => ruleBody(base, sel) || '';
+    ok('the block is in flexdesk.css', block(flexdesk));
+    const body = (sel) => ruleBody(flexdesk, sel) || '';
     ok('the list and a record declare no height', !/(^|[;\s])(height|max-height)\s*:/.test(body('.twm-record-list') + body('.twm-record') + body('.twm-record-list__items')));
     ok('the words can shrink (min-width: 0) and grow', /min-width:\s*0/.test(body('.twm-record__main')) && /flex:\s*1 1/.test(body('.twm-record__main')));
     ok('a record wraps its verbs under its words on a narrow host', /flex-wrap:\s*wrap/.test(body('.twm-record')));
     ok('the refusal line is coloured', /color:/.test(body('.twm-record__refusal')));
     ok('the facts wrap by default (no nowrap on the plain rule)', !/nowrap/.test(body('.twm-record__facts')) && /overflow-wrap:\s*anywhere/.test(body('.twm-record__facts')));
     ok('the clip rule ellipsises', /text-overflow:\s*ellipsis/.test(body('.twm-record-list--clip .twm-record__facts')));
-    const dim = ruleBody(base, '.twm-record--state-paused > .twm-record__main, .twm-record--state-paused > .twm-record__pills, .twm-record--state-off > .twm-record__main, .twm-record--state-off > .twm-record__pills, .twm-record--state-dead > .twm-record__main, .twm-record--state-dead > .twm-record__pills');
+    const dim = ruleBody(flexdesk, '.twm-record--state-paused > .twm-record__main, .twm-record--state-paused > .twm-record__pills, .twm-record--state-off > .twm-record__main, .twm-record--state-off > .twm-record__pills, .twm-record--state-dead > .twm-record__main, .twm-record--state-dead > .twm-record__pills');
     ok('a paused, off or dead record dims its words and pills', dim && /opacity/.test(dim));
-    ok('…and never its verbs', !/twm-record__verbs\s*[{,][^}]*opacity/.test(block(base) || '') && !/\.twm-record--state-(paused|off|dead)\s*\{[^}]*opacity/.test(block(base) || ''));
+    ok('…and never its verbs', !/twm-record__verbs\s*[{,][^}]*opacity/.test(block(flexdesk) || '') && !/\.twm-record--state-(paused|off|dead)\s*\{[^}]*opacity/.test(block(flexdesk) || ''));
     ok('the open record wears the accent edge', /accent-bright/.test(body('.twm-record.twm-record--active')));
     for (const tone of ['info', 'success', 'warn', 'danger', 'muted']) {
         ok(`pill tone ${tone} has a rule`, body(`.twm-record__pill--${tone}`));

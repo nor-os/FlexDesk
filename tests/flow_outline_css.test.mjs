@@ -19,7 +19,6 @@
  *       the OUTLINE section, any other (the kit's, FlexDesk's button) in the sheet
  *   §2  each class an OUTLINE rule names is one the outline sets
  *   §3  the numbers the module and the sheet share: 22px a level, the guides
- *   §4  base.css's OUTLINE section is flexdesk.css's (the hand-mirror)
  *
  *     node tests/flow_outline_css.test.mjs
  */
@@ -40,7 +39,6 @@ const section = (sheet) => {
     return sheet.slice(start, end + '/* ══ end FLOW · OUTLINE ══ */'.length);
 };
 const FLEX = t.css('flexdesk.css');
-const BASE = t.css('base.css');
 const OUTLINE = stripComments(section(FLEX));
 const ALL = stripComments(FLEX);
 const classesIn = (css) => {
@@ -193,8 +191,5 @@ t.section('§3 the numbers the module and the sheet share');
     }
     t.ok('[hidden] wins inside the outline and the menu', /\.twm-flow-outline \[hidden\][^{]*\{\s*display:\s*none !important/.test(OUTLINE));
 }
-
-t.section('§4 the hand-mirror');
-t.check('base.css carries the same OUTLINE section, byte for byte', section(BASE), section(FLEX));
 
 t.done();

@@ -805,7 +805,7 @@ export class ManagedWindow {
 
         // A CLASS THE STYLESHEET HAS ALWAYS KNOWN AND NOTHING EVER SET.
         // `.twm-managed-window--maximized .twm-managed-window__resize
-        // { display: none }` is in `css/base.css` — "a maximised window is not
+        // { display: none }` is in `css/flexdesk.css` — "a maximised window is not
         // resized by dragging its edges" — and it has never matched anything,
         // because no code path adds the modifier. So a maximised window keeps
         // eight live resize handles hanging 3px outside its edges. Exactly the

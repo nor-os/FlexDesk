@@ -9,7 +9,6 @@
  * stylesheet, so the contract is read as text:
  *
  *   §1  each of them resolves to a z-index above MAX_Z_INDEX, in flexdesk.css
- *       and in base.css's mirror
  *   §2  the token exists, and is above the windows too
  *
  *     node tests/flow_popover_layer.test.mjs
@@ -31,7 +30,7 @@ const zOf = (body) => {
 
 t.section('§1 every flow popover is above the managed windows');
 t.ok('MAX_Z_INDEX is read from managed_window.js', Number.isFinite(MAX), String(MAX));
-for (const sheet of ['flexdesk.css', 'base.css']) {
+for (const sheet of ['flexdesk.css']) {
     const css = t.css(sheet);
     for (const sel of ['.twm-flow-popover', '.twm-flow-outline__ghost']) {
         const z = zOf(ruleBody(css, sel));

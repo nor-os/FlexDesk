@@ -11,7 +11,7 @@
  *   §5  a paste with commas is split; a paste without one is plain text
  *   §6  readOnly: chips, no remove buttons, no text box
  *   §7  setValue (no onChange), getValue copies, dispose; the barrel exports it
- *   §8  the stylesheet: the block is in base.css AND flexdesk.css
+ *   §8  the stylesheet: the block is in flexdesk.css
  *
  *     node tests/tag_input.test.mjs
  */
@@ -240,16 +240,14 @@ section('§7 setValue, dispose and the barrel');
 
 section('§8 the stylesheet');
 {
-    const base = css('base.css');
     const flexdesk = css('flexdesk.css');
     const block = (sheet) => {
         const from = sheet.indexOf('/* ══ TAG INPUT (0.17.0)');
         const to = sheet.indexOf('/* ══ end TAG INPUT ══ */');
         return from >= 0 && to > from ? sheet.slice(from, to) : null;
     };
-    ok('the block is in base.css', block(base));
-    check('…and mirrored byte for byte into flexdesk.css', block(flexdesk), block(base));
-    const body = (sel) => ruleBody(base, sel) || '';
+    ok('the block is in flexdesk.css', block(flexdesk));
+    const body = (sel) => ruleBody(flexdesk, sel) || '';
     ok('the input wraps its chips', /flex-wrap:\s*wrap/.test(body('.twm-tag-input')));
     ok('the root declares no height', !/(^|[;\s])(height|max-height)\s*:/.test(body('.twm-tag-input')));
     ok('a long chip ellipsises', /text-overflow:\s*ellipsis/.test(body('.twm-tag-input__text')));

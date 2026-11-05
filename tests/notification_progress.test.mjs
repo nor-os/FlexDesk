@@ -280,7 +280,7 @@ section('§6 actions on a progress toast');
 }
 
 section('§7 stylesheets');
-for (const sheet of ['base.css', 'flexdesk.css']) {
+for (const sheet of ['flexdesk.css']) {
     const text = css(sheet);
     ok(`${sheet}: the collapse toggle`, text.includes('.twm-notification__collapse {'));
     ok(`${sheet}: the status line`, text.includes('.twm-notification__status {'));

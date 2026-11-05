@@ -118,7 +118,7 @@ console.log('§1b from a real NotificationCenter: success, warn and error');
     nc.dispose();
 }
 
-for (const sheet of ['base.css', 'flexdesk.css']) {
+for (const sheet of ['flexdesk.css']) {
     const css = readFileSync(resolvePath(HERE, '../css', sheet), 'utf8');
     console.log(`§2 ${sheet}: a border colour per severity`);
     const base = ruleBody(css, ITEM);

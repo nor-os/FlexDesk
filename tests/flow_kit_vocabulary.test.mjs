@@ -71,7 +71,7 @@ export function scan(root) {
             });
         }
     }
-    for (const sheet of ['css/flexdesk.css', 'css/base.css']) {
+    for (const sheet of ['css/flexdesk.css']) {
         const text = readFileSync(join(root, sheet), 'utf8');
         const at = text.indexOf('/* ══ FLOW · KIT');
         if (at < 0) continue;

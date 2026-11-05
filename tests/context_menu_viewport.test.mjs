@@ -14,7 +14,7 @@
  *   §3  showContextMenu, 100 items near the bottom: the same cap and placement;
  *       scrolling inside the menu does not close it; End scrolls into view
  *   §4  NotebookTabBar's tab menu in a short window: the same
- *   §5  flexdesk.css (and base.css): the menus scroll inside, border-box
+ *   §5  flexdesk.css: the menus scroll inside, border-box
  *
  * jsdom computes no layout, so a menu's box is stubbed: 24 px a row, capped by
  * its inline max-height, as a browser with flexdesk.css lays it out.
@@ -160,7 +160,7 @@ ok('Escape closes it', !menu.isConnected);
 bar.dispose();
 
 section('§5 flexdesk.css: the menus scroll inside');
-const sheets = [resolvePath(HERE, '../css/flexdesk.css'), resolvePath(HERE, '../css/base.css')];
+const sheets = [resolvePath(HERE, '../css/flexdesk.css')];
 if (existsSync(resolvePath(HERE, '../dist/flexdesk.css'))) sheets.push(resolvePath(HERE, '../dist/flexdesk.css'));
 for (const file of sheets) {
     const body = ruleBody(readFileSync(file, 'utf8'), '.twm-context-menu, .nb-context-menu') || '';

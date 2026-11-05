@@ -21,8 +21,8 @@
  *       the list scrolls only for the keyboard, never under a mouse
  *   §9  the chord: capture phase, modifiers exact, toggles, works with the field
  *       hidden, removed on destroy; two pickers live side by side
- *   §10 nothing about state in DOM attributes; CSS: every class styled, tokens,
- *       base.css and flexdesk.css agree; no application word; docs; barrel
+ *   §10 nothing about state in DOM attributes; CSS: every class styled, tokens;
+ *       no application word; docs; barrel
  *
  *     node tests/workspace_picker.test.mjs
  *
@@ -1005,7 +1005,6 @@ section('§10 attributes, CSS, words, docs, barrel');
     };
     const flex = blockOf(css('flexdesk.css'));
     ok('flexdesk.css carries the block', flex.length > 0);
-    check('base.css carries the same one', blockOf(css('base.css')) === flex, true);
     const rules = stripComments(flex);
     const classesSet = new Set([...source.matchAll(/twm-wspicker[a-z_-]*/g)].map((m) => m[0]));
     for (const name of ['--over', '--centered']) classesSet.add(`twm-wspicker${name}`);

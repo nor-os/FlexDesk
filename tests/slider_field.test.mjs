@@ -14,7 +14,7 @@
  *   §6  setValue / setRange / setEnabled: silent reports nothing; an unchanged
  *       value reports nothing (no echo); a real change reports once.
  *   §7  The enable toggle: off reports disabledValue and disables the inputs.
- *   §8  The readout formatter; base.css mirrors flexdesk.css's companion rules.
+ *   §8  The readout formatter; flexdesk.css's companion rules.
  *
  *     node tests/slider_field.test.mjs
  *
@@ -259,7 +259,6 @@ section('§8 readout formatting, and the stylesheet');
     };
     const flex = part(css('flexdesk.css'));
     ok('flexdesk.css has the companion section', flex);
-    check('base.css carries the same section, byte for byte', part(css('base.css')), flex);
     for (const sel of ['.twm-slider-field__row', '.twm-slider-field__number', '.twm-slider-field__readout',
                        '.twm-slider-field__reset', '.twm-slider-field--modified .twm-slider-field__reset']) {
         ok(`${sel} has a rule`, ruleBody(flex || '', sel));

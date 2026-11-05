@@ -14,7 +14,6 @@
  *       has a rule in the HELP MODAL section
  *   §3  every class a HELP MODAL rule names is one the modal sets (or the
  *       icon class it renders with)
- *   §4  base.css's HELP MODAL section is flexdesk.css's (the hand-mirror)
  *
  *     node tests/help_modal_css.test.mjs
  */
@@ -34,9 +33,7 @@ const helpSection = (sheet) => {
     return start >= 0 && end > start ? sheet.slice(start, end + CLOSE.length) : null;
 };
 const FLEX = helpSection(t.css('flexdesk.css'));
-const BASE = helpSection(t.css('base.css'));
 ok('flexdesk.css has a HELP MODAL section', FLEX);
-ok('base.css has a HELP MODAL section', BASE);
 const HELP = stripComments(FLEX || '');
 
 const decl = (body, prop) => {
@@ -126,9 +123,5 @@ for (const c of set.sort()) ok(`.${c} has a rule`, ruled.has(c));
 section('§3 every class a HELP MODAL rule names is one the modal sets');
 const ALSO = new Set(['material-symbols-outlined', 'collapsed', 'active']);
 for (const c of [...ruled].sort()) ok(`.${c} is set by the modal`, seen.has(c) || ALSO.has(c));
-
-// ── §4 the hand-mirror ────────────────────────────────────────────────────
-section('§4 the hand-mirror');
-check('base.css carries the same HELP MODAL section, byte for byte', BASE, FLEX);
 
 done();

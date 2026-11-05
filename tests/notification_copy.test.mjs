@@ -173,7 +173,7 @@ console.log('§4 the text is selectable');
     ok('a plain click on the chrome still closes it', !document.querySelector('.twm-notification'));
     nc.dispose();
 
-    for (const sheet of ['base.css', 'flexdesk.css']) {
+    for (const sheet of ['flexdesk.css']) {
         const css = readFileSync(resolvePath(HERE, '../css', sheet), 'utf8');
         const rule = css.match(/([^{}]*)\{\s*user-select: text;\s*cursor: text;\s*\}/g)
             ?.find((r) => r.includes('.twm-notification__body')) ?? '';

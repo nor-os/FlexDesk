@@ -8,8 +8,7 @@
  *
  *   §1  the row's rules: a flex strip on FlexDesk tokens, in normal flow (no
  *       `position`, no `z-index`), and a fixed-size item of body.twm-body's
- *       column, so the host (flex 1 1 auto) shrinks by its height; base.css
- *       and overrides.css carry the same rules as flexdesk.css
+ *       column, so the host (flex 1 1 auto) shrinks by its height
  *   §2  in jsdom with flexdesk.css loaded: the markup the docs show, the row a
  *       sibling after the top bar and not inside it, and the cascade applied
  *   §3  the row is not part of the drag region: WindowChromeController bound
@@ -26,8 +25,6 @@ const t = await dataTableEnv('menu row — layout');
 const { check, ok, section, done, document, window, tick } = t;
 
 const FLEX = t.css('flexdesk.css');
-const BASE = t.css('base.css');
-const OVER = t.css('overrides.css');
 const TOKENS = t.css('tokens.css');
 
 const decl = (body, prop) => {
@@ -66,8 +63,6 @@ check('…as a fixed-size item of the column', decl(item, 'flex'), '0 0 auto');
 check('the host still takes the rest, so it shrinks by the row\'s height',
       decl(ruleBody(FLEX, 'body.twm-body > .twm-host, .twm-workspace > .twm-host'), 'flex'), '1 1 auto');
 check('the body is still a column', decl(ruleBody(FLEX, 'body.twm-body'), 'flex-direction'), 'column');
-check('base.css has the row rule, word for word', norm(ruleBody(BASE, ROW)), norm(row));
-check('overrides.css has the column rule, word for word', norm(ruleBody(OVER, ITEM)), norm(item));
 ok('no rule puts the row inside the top bar',
    !/\.twm-global-top-bar[^{},]*\.twm-global-menu-bar/.test(stripComments(FLEX)));
 check('the top bar\'s rule is untouched (35px)', decl(ruleBody(FLEX, '.twm-global-top-bar'), 'height'), '35px');

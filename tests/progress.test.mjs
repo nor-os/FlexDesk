@@ -447,7 +447,7 @@ section('§6 barrel and stylesheet');
     const barrel = await import('../widgets.js');
     ok('widgets exports ProgressBar, ProgressList, StepProgress',
         barrel.ProgressBar === ProgressBar && barrel.ProgressList === ProgressList && barrel.StepProgress === StepProgress);
-    for (const name of ['base.css', 'flexdesk.css']) {
+    for (const name of ['flexdesk.css']) {
         const css = readFileSync(resolvePath(HERE, '../css', name), 'utf8');
         for (const sel of ['.twm-progress__fill, .twm-progress-list__fill', '.twm-progress--indeterminate .twm-progress__fill',
             '.twm-progress-list__row', '.twm-steps__step--active .twm-steps__marker', '.twm-steps__step--error']) {

@@ -229,7 +229,7 @@ console.log('\nSTORY-0128 review 7: the grid holds the mark, so setLayout keeps 
 {
     const { readFileSync } = await import('node:fs');
     const { ruleBody } = await import('./css_rules.mjs');
-    for (const sheet of ['base.css', 'flexdesk.css']) {
+    for (const sheet of ['flexdesk.css']) {
         const css = readFileSync(resolvePath(HERE, '../css', sheet), 'utf8');
         ok(`${sheet}: tile--configuring is drawn like tile--selected`,
            !!ruleBody(css, '.tile.tile--selected, .tile.tile--configuring')

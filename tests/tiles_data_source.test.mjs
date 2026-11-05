@@ -466,11 +466,9 @@ console.log('\ntiles: per-tile data source, the two lifecycle hooks, and the men
 // column of unstyled divs. Nothing in any gate could see it.
 //
 // `css/flexdesk.css` is the file that ships (`build.mjs` copies it verbatim
-// into `dist/`); `css/base.css` is hand-mirrored and is checked here too,
-// because a rule that lands in only one of them is a rule that works until
-// someone regenerates the other.
+// into `dist/`).
 {
-    const stylesheets = Object.fromEntries(['css/flexdesk.css', 'css/base.css'].map((f) => [
+    const stylesheets = Object.fromEntries(['css/flexdesk.css'].map((f) => [
         f, readFileSync(join(HERE, '..', f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, ''),
     ]));
 

@@ -399,7 +399,7 @@ console.log('\n§8 a press inside a window keeps focus in it (review 2)\n');
 
     const { readFileSync } = await import('node:fs');
     const { ruleBody } = await import('./css_rules.mjs');
-    for (const sheet of ['base.css', 'flexdesk.css']) {
+    for (const sheet of ['flexdesk.css']) {
         const css = readFileSync(resolvePath(HERE, '../css', sheet), 'utf8');
         ok(`${sheet}: the focused frame draws no outline (its focus-within border shows it)`,
            /outline:\s*none/.test(ruleBody(css, '.twm-managed-window:focus') || ''));

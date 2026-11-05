@@ -14,8 +14,7 @@
  *   §3  without `actions` the markup is what it was: no actions slot
  *   §4  flexdesk.css keeps the slot in one line, takes it out of the row's
  *       height, hides it by opacity (its buttons stay in the tab order) and
- *       shows it on hover, focus within and the selected item; base.css
- *       carries the same rules
+ *       shows it on hover, focus within and the selected item
  *
  * jsdom applies no stylesheet, so §4 reads the rules as text.
  *
@@ -33,7 +32,6 @@ const { createTreeItem, TreeView } = await import('../src/ui/components/tree_vie
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const css = readFileSync(join(HERE, '..', 'css', 'flexdesk.css'), 'utf8');
-const base = readFileSync(join(HERE, '..', 'css', 'base.css'), 'utf8');
 
 const calls = [];
 const actions = {
@@ -110,6 +108,6 @@ for (const state of ['.twm-tree-item:hover', '.twm-tree-item:focus-within', '.tw
         new RegExp(`${state.replace(/[.:]/g, '\\$&')} > \\.twm-tree-item__actions[^{]*\\{\\s*opacity: 1;\\s*pointer-events: auto;`).test(css));
 }
 const block = (sheet) => sheet.slice(sheet.indexOf('.twm-tree-item__actions {'), sheet.indexOf('pointer-events: auto;', sheet.indexOf('.twm-tree-item__actions {')));
-ok('base.css carries the same rules', block(css).length > 0 && block(base) === block(css));
+ok('flexdesk.css carries the rules', block(css).length > 0);
 
 done();

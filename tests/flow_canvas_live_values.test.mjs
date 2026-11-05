@@ -235,8 +235,6 @@ t.section('§4 collapsible: folding to the header, one entry, Ctrl+Z unfolds');
     const sheet = await readFile(new URL('../css/flexdesk.css', import.meta.url), 'utf8');
     t.ok('the sheet hides everything under a folded header',
          /\.twm-flow-graph__node--collapsed > :not\(\.twm-flow-graph__node-head\) \{ display: none; \}/.test(sheet));
-    const base = await readFile(new URL('../css/base.css', import.meta.url), 'utf8');
-    t.ok('and so does base.css', base.includes('.twm-flow-graph__node--collapsed > :not(.twm-flow-graph__node-head) { display: none; }'));
 }
 
 t.section('§5 the collapsed flag through serialise and load');

@@ -11809,6 +11809,128 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 .twm-chat__send--cancel:hover { background: var(--color-danger-hover); }
 .twm-chat--busy .twm-chat__input { border-color: var(--border-default); }
 
+/* ── The assistant chat shell (chat_shell.js) ─────────────────────────────
+ * Conversation tabs, the conversation view, a bar with the mode toggle and the
+ * model picker. It fills its host; the transcript scrolls inside it. */
+.twm-chat-shell { display: flex; flex-direction: column; flex: 1 1 auto; height: 100%; min-height: 0; background: var(--surface-1); color: var(--text-primary); font-size: var(--font-size-sm); }
+.twm-chat-shell [hidden] { display: none !important; }
+.twm-chat-shell__tab-bar { position: relative; flex: 0 0 auto; display: flex; align-items: stretch; min-width: 0; border-bottom: 1px solid var(--border-subtle); }
+.twm-chat-shell__tabs { flex: 1 1 auto; min-width: 0; }
+.twm-chat-shell__tabs > .twm-tabs > .twm-tabs__tabs { border-bottom: none; }
+.twm-chat-shell__rename { position: absolute; top: 0; bottom: 0; z-index: var(--z-sticky); box-sizing: border-box; min-width: 0; padding: 0 var(--space-sm); border: 1px solid var(--accent); background: var(--surface-0); color: var(--text-primary); font: inherit; outline: none; }
+.twm-chat-shell__tab-btn { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 24px; padding: 0; overflow: hidden; border: none; background: transparent; color: var(--text-muted); cursor: pointer; }
+.twm-chat-shell__tab-btn:hover:not(:disabled) { background: var(--surface-2); color: var(--text-primary); }
+.twm-chat-shell__tab-btn:disabled { color: var(--text-dim); cursor: default; }
+.twm-chat-shell__tab-btn .material-symbols-outlined { font-size: var(--font-size-lg); }
+.twm-chat-shell__tab-btn--clear:hover:not(:disabled) { color: var(--color-danger); }
+.twm-chat-shell__conversation { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+
+.twm-chat-shell__welcome { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-md); padding: var(--space-xl) var(--space-lg); color: var(--text-muted); text-align: center; pointer-events: none; }
+.twm-chat .twm-chat-shell__welcome-icon { font-size: 28px; color: var(--text-dim); }
+.twm-chat-shell__welcome-text { margin: 0; max-width: 240px; font-size: var(--font-size-xs); line-height: var(--line-height-normal); }
+
+.twm-chat-shell .twm-chat__msg { max-width: 90%; line-height: var(--line-height-normal); background: var(--surface-2); }
+.twm-chat-shell .twm-chat__msg--user { background: color-mix(in srgb, var(--accent) 30%, var(--surface-2)); }
+.twm-chat-shell .twm-chat__msg--user .twm-chat__body { white-space: pre-wrap; }
+.twm-chat-shell .twm-chat__msg--streaming { border-left: 2px solid var(--accent); }
+.twm-chat-shell .twm-chat__msg--error { align-self: stretch; max-width: none; background: color-mix(in srgb, var(--color-danger) 15%, transparent); border-left: 2px solid var(--color-danger); color: var(--color-danger); }
+.twm-chat-shell .twm-chat__msg--error .twm-chat__body { white-space: pre-wrap; }
+.twm-chat-shell .twm-chat__extra { margin-top: var(--space-xs); }
+
+/* The dots stand for the text cursor too, while a reply has no text. */
+.twm-chat-shell .twm-chat__msg--streaming .twm-chat__body:has(> .twm-chat-shell__typing)::after { content: none; }
+.twm-chat-shell__typing { display: flex; align-items: center; gap: var(--space-xs); padding: var(--space-xs) var(--space-xxs); }
+.twm-chat-shell__typing > span { width: 6px; height: 6px; border-radius: var(--radius-circle); background: var(--text-muted); animation: twm-chat-shell-typing 1.2s ease-in-out infinite; }
+.twm-chat-shell__typing > span:nth-child(2) { animation-delay: 0.2s; }
+.twm-chat-shell__typing > span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes twm-chat-shell-typing {
+    0%, 60%, 100% { opacity: 0.2; transform: scale(0.8); }
+    30% { opacity: 1; transform: scale(1); }
+}
+
+/* Markdown bodies. The text can be selected whatever the app does to the rest. */
+.twm-chat-shell .twm-chat__body,
+.twm-chat-shell .twm-chat__body * { -webkit-user-select: text; user-select: text; }
+.twm-chat-shell .twm-chat__body { cursor: text; }
+.twm-chat-shell .twm-chat__body p { margin: 0 0 var(--space-sm); }
+.twm-chat-shell .twm-chat__body p:last-child { margin-bottom: 0; }
+.twm-chat-shell .twm-chat__body :is(h1, h2, h3, h4, h5, h6) { margin: var(--space-md) 0 var(--space-xs); color: var(--text-primary); font-weight: var(--font-weight-semibold); line-height: var(--line-height-tight); }
+.twm-chat-shell .twm-chat__body :is(h1, h2, h3, h4, h5, h6):first-child { margin-top: 0; }
+.twm-chat-shell .twm-chat__body h1 { font-size: var(--font-size-xl); }
+.twm-chat-shell .twm-chat__body h2 { font-size: var(--font-size-lg); }
+.twm-chat-shell .twm-chat__body h3 { font-size: var(--font-size-md); }
+.twm-chat-shell .twm-chat__body :is(h4, h5, h6) { font-size: var(--font-size-sm); }
+.twm-chat-shell .twm-chat__body :not(pre) > code { padding: 1px var(--space-xs); border-radius: var(--radius-sm); background: var(--state-active); font-family: var(--font-family-mono); font-size: var(--font-size-xs); }
+.twm-chat-shell .twm-chat__body pre { margin: var(--space-sm) 0; padding: var(--space-md); overflow-x: auto; border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--surface-0); white-space: pre; }
+.twm-chat-shell .twm-chat__body pre code { color: var(--text-body); font-family: var(--font-family-mono); font-size: var(--font-size-xs); line-height: var(--line-height-normal); }
+.twm-chat-shell .twm-chat__body blockquote { margin: var(--space-sm) 0; padding: var(--space-xs) var(--space-md); border-left: 3px solid var(--text-dim); color: var(--text-secondary); }
+.twm-chat-shell .twm-chat__body blockquote > :last-child { margin-bottom: 0; }
+.twm-chat-shell .twm-chat__body :is(ul, ol) { margin: var(--space-xs) 0; padding-left: var(--space-xl); }
+.twm-chat-shell .twm-chat__body li { margin: var(--space-xxs) 0; }
+.twm-chat-shell .twm-chat__body a { color: var(--accent-light); text-decoration: none; }
+.twm-chat-shell .twm-chat__body a:hover { text-decoration: underline; }
+.twm-chat-shell .twm-chat__body hr { margin: var(--space-md) 0; border: none; border-top: 1px solid var(--border-strong); }
+.twm-chat-shell .twm-chat__body strong { color: var(--text-bright); font-weight: var(--font-weight-semibold); }
+.twm-chat-shell .twm-chat__body img { max-width: 100%; }
+.twm-chat-shell .twm-chat__body table { margin: var(--space-sm) 0; border-collapse: collapse; }
+.twm-chat-shell .twm-chat__body :is(th, td) { padding: var(--space-xxs) var(--space-sm); border: 1px solid var(--border-strong); text-align: left; }
+.twm-chat-shell .twm-chat__body th { background: var(--surface-1); font-weight: var(--font-weight-semibold); }
+
+/* In a message's extra slot: its tool calls, the caller's controls, its footer. */
+.twm-chat-shell__tools { display: flex; flex-direction: column; gap: var(--space-xxs); margin-bottom: var(--space-xs); }
+.twm-chat-shell__tools:empty,
+.twm-chat-shell__controls:empty,
+.twm-chat-shell__footer:empty { display: none; }
+.twm-chat-shell__tool { display: flex; align-items: center; gap: var(--space-xs); min-width: 0; color: var(--text-muted); font-size: var(--font-size-xs); }
+.twm-chat .twm-chat-shell__tool-icon { flex: 0 0 auto; font-size: var(--font-size-lg); }
+.twm-chat-shell__tool-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.twm-chat-shell__tool--running { color: var(--text-secondary); }
+.twm-chat-shell__tool--running .twm-chat-shell__tool-icon { animation: twm-chat-shell-pulse 1.5s ease-in-out infinite; }
+.twm-chat-shell__tool--done .twm-chat-shell__tool-icon { color: var(--color-success); }
+.twm-chat-shell__tool--error { color: var(--color-danger); }
+.twm-chat-shell__tool--stopped { color: var(--text-dim); }
+.twm-chat-shell__controls { margin-bottom: var(--space-xs); }
+.twm-chat-shell__footer { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-sm); opacity: 0; transition: opacity var(--transition-normal); }
+.twm-chat-shell .twm-chat__msg:hover .twm-chat-shell__footer,
+.twm-chat-shell__footer:focus-within,
+.twm-chat-shell__footer:has(.twm-chat-shell__retry) { opacity: 1; }
+.twm-chat-shell__time { color: var(--text-muted); font-size: var(--font-size-xs); }
+.twm-chat-shell__copy { display: inline-flex; align-items: center; justify-content: center; padding: var(--space-xxs); border: none; border-radius: var(--radius-sm); background: transparent; color: var(--text-muted); cursor: pointer; }
+.twm-chat-shell__copy:hover { background: var(--state-active); color: var(--text-primary); }
+.twm-chat .twm-chat-shell__copy .material-symbols-outlined { font-size: var(--font-size-lg); }
+.twm-chat-shell__copy--done,
+.twm-chat-shell__copy--done:hover { color: var(--color-success); }
+.twm-chat-shell__retry { display: inline-flex; align-items: center; gap: var(--space-xs); margin-right: auto; padding: var(--space-xxs) var(--space-sm); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--font-size-xs); cursor: pointer; }
+.twm-chat-shell__retry:hover { background: var(--state-hover); color: var(--text-primary); }
+.twm-chat .twm-chat-shell__retry .material-symbols-outlined { font-size: var(--font-size-lg); }
+
+/* The bar under the composer. */
+.twm-chat-shell__bar { flex: 0 0 auto; display: flex; align-items: center; gap: var(--space-sm); padding: var(--space-xs) var(--space-md); border-top: 1px solid var(--border-strong); }
+.twm-chat-shell__bar-spacer { flex: 1 1 auto; }
+.twm-chat-shell__modes { display: flex; overflow: hidden; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
+.twm-chat-shell__mode { padding: var(--space-xxs) var(--space-md); border: none; background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--font-size-xs); cursor: pointer; transition: background var(--transition-normal), color var(--transition-normal); }
+.twm-chat-shell__mode:hover { background: var(--state-hover); }
+.twm-chat-shell__mode--on,
+.twm-chat-shell__mode--on:hover { background: var(--accent); color: var(--text-bright); }
+.twm-chat-shell__model-btn { display: flex; align-items: center; gap: var(--space-xs); min-width: 0; max-width: 160px; padding: var(--space-xxs) var(--space-sm) var(--space-xxs) var(--space-md); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--font-size-xs); white-space: nowrap; cursor: pointer; transition: background var(--transition-normal), border-color var(--transition-normal); }
+.twm-chat-shell__model-btn:hover { background: var(--state-hover); border-color: var(--text-dim); }
+.twm-chat-shell__model-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.twm-chat-shell__model-chevron { flex: 0 0 auto; font-size: var(--font-size-lg); transition: transform var(--transition-normal); }
+.twm-chat-shell__model-btn.twm-is-open .twm-chat-shell__model-chevron { transform: rotate(180deg); }
+.twm-chat-shell__model-menu { min-width: 220px; }
+.twm-chat-shell__status { flex: 0 0 auto; width: 6px; height: 6px; border-radius: var(--radius-circle); background: var(--text-dim); }
+.twm-chat-shell__status--ready { background: var(--color-success); }
+.twm-chat-shell__status--pending { background: var(--color-warning); animation: twm-chat-shell-pulse 1.5s ease-in-out infinite; }
+@keyframes twm-chat-shell-pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .twm-chat-shell__typing > span,
+    .twm-chat .twm-chat-shell__tool--running .twm-chat-shell__tool-icon,
+    .twm-chat-shell__status--pending { animation: none; }
+}
+
 /* ══ FLOW · KIT ═══════════════════════════════════════════════════════ */
 /* The shared flow-editor kit (36 §3, §3.12): the settings panel and its
  * fields, the generic widgets, reference chips and the chip input, the two

@@ -26,6 +26,8 @@ export * from './src/ui/components/column_fit.js';
 export * from './src/ui/components/computing_status_window.js';
 export * from './src/ui/components/confirm_dialog.js';
 export * from './src/ui/components/context_menu.js';
+export * from './src/ui/components/chat_shell.js';
+export * from './src/ui/components/chat_state_machine.js';
 export * from './src/ui/components/conversation_view.js';
 export * from './src/ui/components/data_table.js';
 export * from './src/ui/components/detail_header.js';

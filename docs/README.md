@@ -59,6 +59,7 @@ FlexDesk is nine entry points that share their code, so you load only what you u
 - [Slide-out panel](components/slide-out-panel.md): `SlideOutPanel`, an inline panel that slides in over its host.
 - [Markdown and document outline](components/markdown-and-outline.md): `renderMarkdown` and `createDocumentOutline`.
 - [Conversation view](components/conversation.md): a transcript above a composer.
+- [Assistant chat shell](components/chat-shell.md): `mountChatShell`, tabs, a model picker and streaming replies over a thin transport.
 - [Notifications and progress](components/notifications.md): toasts, history, the alert log, progress bars, lists and phases.
 
 ### Charts, editor and dashboards

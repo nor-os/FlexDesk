@@ -107,6 +107,9 @@ check('numbers from the hunk header; no git headers; --- inside a hunk is a line
         '_ 10 +TEN',
         'meta:\\ No newline at end of file',
     ]);
+check('a rename with no change in it is still something to read', brief(parseUnifiedDiff(
+    'diff --git a/old.txt b/new.txt\nsimilarity index 100%\nrename from old.txt\nrename to new.txt\n')),
+    ['meta:rename from old.txt', 'meta:rename to new.txt']);
 check('CRLF line ends', brief(parseUnifiedDiff('@@ -1 +1 @@\r\n-a\r\n+b\r\n')), ['hunk:@@ -1 +1 @@', '1 _ -a', '_ 1 +b']);
 check('a binary file is a meta line',
     brief(parseUnifiedDiff('diff --git a/p.png b/p.png\nBinary files a/p.png and b/p.png differ\n')),

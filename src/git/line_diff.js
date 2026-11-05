@@ -135,7 +135,8 @@ const HUNK_RE = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 /**
  * Read a unified diff into DiffLines: `diff --git`, `index`, `---` and `+++`
  * headers are left out, a `@@` line is a `hunk`, and `\ No newline at end of
- * file` and `Binary files … differ` are `meta`. A diff of several files has a
+ * file`, `Binary files … differ` and `rename from …`/`rename to …` are `meta`,
+ * so that a rename with no change in it is still something to read. A diff of several files has a
  * `file` line before each file's hunks; a diff of one file has none.
  * @param {string|null|undefined} text
  * @returns {Array<Object>}
@@ -176,7 +177,7 @@ export function parseUnifiedDiff(text) {
             oldLeft = hunk[2] === undefined ? 1 : Number(hunk[2]);
             newLeft = hunk[4] === undefined ? 1 : Number(hunk[4]);
             header('hunk', line);
-        } else if (line.startsWith('\\') || /^Binary files .* differ$/.test(line)) {
+        } else if (line.startsWith('\\') || /^Binary files .* differ$/.test(line) || /^rename (from|to) /.test(line)) {
             header('meta', line);
         } else if (line.startsWith('diff --git ') && fileHeaders > 1) {
             header('file', / b\/(.*)$/.exec(line)?.[1] ?? line.slice('diff --git '.length));

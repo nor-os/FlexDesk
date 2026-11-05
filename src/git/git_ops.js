@@ -50,12 +50,12 @@ export async function askFor(title, submitLabel, fields) {
  * when the adapter has `diffFile`.
  * @param {() => Object|null} getAdapter
  * @param {Function|null|undefined} onOpenDiff
- * @returns {(file: {path: string, status: string, ref?: string}) => void}
+ * @returns {(file: {path: string, status: string, renamedFrom?: string, ref?: string}) => void}
  */
 export function openDiffHandler(getAdapter, onOpenDiff) {
     if (onOpenDiff) return onOpenDiff;
-    return ({ path, status, ref }) => {
+    return ({ path, status, renamedFrom, ref }) => {
         const adapter = getAdapter();
-        if (adapter?.diffFile) openGitDiffWindow({ adapter, path, status, ref });
+        if (adapter?.diffFile) openGitDiffWindow({ adapter, path, status, renamedFrom, ref });
     };
 }

@@ -39,12 +39,13 @@ export function openDiffWindow({ title, load, icon = 'difference', width = 880, 
  * @param {Object} options.adapter - A git adapter with `diffFile` (docs/components/git.md).
  * @param {string} options.path
  * @param {string} [options.status]
+ * @param {string} [options.renamedFrom] - The path it had before, for a rename.
  * @param {string} [options.ref] - A commit: the file's change in that commit, not the uncommitted one.
  * @returns {Promise<null>}
  */
-export function openGitDiffWindow({ adapter, path, status, ref }) {
+export function openGitDiffWindow({ adapter, path, status, renamedFrom, ref }) {
     return openDiffWindow({
-        title: path,
-        load: () => adapter.diffFile({ path, status, ...(ref ? { ref } : {}) }),
+        title: renamedFrom ? `${renamedFrom} → ${path}` : path,
+        load: () => adapter.diffFile({ path, status, ...(renamedFrom ? { renamedFrom } : {}), ...(ref ? { ref } : {}) }),
     });
 }

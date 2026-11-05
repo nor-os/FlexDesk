@@ -18,6 +18,10 @@
  * change never touches what somebody is typing into the commit box. A failed
  * operation is an error toast carrying the backend's words, and the panel reads
  * the repository again either way. Nothing is stored on the DOM.
+ *
+ * An operation belongs to the repository it started on: whatever waits on a
+ * dialog or on an earlier step holds that adapter, not the panel's current one,
+ * so `setAdapter` can never send the rest of an operation to another repository.
  */
 
 import { ActionDropdown } from '../ui/components/action_dropdown.js';
@@ -129,7 +133,7 @@ export function createGitPanel(host, options = {}) {
     const pullButton = iconButton('twm-git-panel__bar-btn', 'arrow_downward', 'Pull',
         () => runOp('pull', () => adapter.pull()));
     const pushButton = iconButton('twm-git-panel__bar-btn', 'arrow_upward', 'Push',
-        () => runOp('push', () => push()));
+        () => runOp('push', () => adapter.push({ setUpstream: !status?.hasUpstream })));
     const overflowButton = iconButton('twm-git-panel__bar-btn', 'more_horiz', 'More actions', () => {});
     barActions.append(fetchButton, pullButton, pushButton, overflowButton);
 
@@ -229,9 +233,12 @@ export function createGitPanel(host, options = {}) {
             action('add', 'Stage', () => runOp('stage', () => adapter.stage({ paths: [file.path] })));
         }
         if (file.staged && adapter.unstage) {
-            action('remove', 'Unstage', () => runOp('unstage', () => adapter.unstage({ paths: [file.path] })));
+            // A rename is two paths to the index: the new one alone would leave the old one staged as deleted.
+            const paths = file.renamedFrom ? [file.renamedFrom, file.path] : [file.path];
+            action('remove', 'Unstage', () => runOp('unstage', () => adapter.unstage({ paths })));
         }
-        if (adapter.discard) action('undo', 'Discard changes', () => discard(file));
+        // A conflict is resolved or the merge aborted; there is no one state to put it back to.
+        if (adapter.discard && file.status !== 'C') action('undo', 'Discard changes', () => discard(file));
         row.appendChild(actions);
         return row;
     };
@@ -253,7 +260,7 @@ export function createGitPanel(host, options = {}) {
 
     const drawBusy = () => {
         busyBar.hidden = !busy;
-        for (const b of [fetchButton, pullButton, pushButton, overflowButton, commitButton, commitMenuButton]) {
+        for (const b of [branchButton, fetchButton, pullButton, pushButton, overflowButton, commitButton, commitMenuButton]) {
             b.disabled = busy;
         }
     };
@@ -423,24 +430,23 @@ export function createGitPanel(host, options = {}) {
     // ── operations ──────────────────────────────────────────────────────
 
     /**
-     * Run an operation with the panel busy, one at a time. The panel reads the
-     * repository again however it went.
-     * @returns {Promise<boolean>} Whether it succeeded.
+     * Run an operation with the panel busy, one at a time; one asked for while
+     * another runs does not run, and says so. The panel reads the repository
+     * again however it went.
      */
     async function runOp(opName, fn) {
-        if (busy) return false;
+        if (busy) {
+            toastInfo('Git is busy', `The ${opName} did not run: another operation is still going.`);
+            return;
+        }
         busy = true;
         drawBusy();
-        const result = await callGit(`Git ${opName}`, fn);
+        await callGit(`Git ${opName}`, fn);
         busy = false;
         drawBusy();
         statusJson = '';
         await refresh();
-        return result !== null;
     }
-
-    /** A branch with no upstream yet gets one on its first push. */
-    const push = () => adapter.push({ setUpstream: !status?.hasUpstream });
 
     async function initRepo() {
         const result = await callGit('Git init', () => adapter.init());
@@ -469,44 +475,56 @@ export function createGitPanel(host, options = {}) {
             toastInfo('Nothing to commit', 'There are no changes.');
             return;
         }
+        const git = adapter;
+        // A branch with no upstream yet gets one on its first push.
+        const setUpstream = !status?.hasUpstream;
         // With nothing staged, a commit takes every change.
-        const stageAll = !amend && adapter.stage && !files.some((f) => f.staged);
+        const stageAll = !amend && git.stage && !files.some((f) => f.staged);
         await runOp('commit', () => inSteps([
-            ...(stageAll ? [() => adapter.stage({ paths: 'all' })] : []),
+            ...(stageAll ? [() => git.stage({ paths: 'all' })] : []),
             async () => {
-                const result = await adapter.commit({ message: message || null, amend });
-                if (!result || result.ok !== false) {
+                const result = await git.commit({ message: message || null, amend });
+                if (git === adapter && (!result || result.ok !== false)) {
                     commitBox.value = '';
                     commitBox.style.height = '';
                 }
                 return result;
             },
-            ...(mode === 'commitSync' ? [() => adapter.pull()] : []),
-            ...(mode === 'commitPush' || mode === 'commitSync' ? [() => push()] : []),
+            ...(mode === 'commitSync' ? [() => git.pull()] : []),
+            ...(mode === 'commitPush' || mode === 'commitSync' ? [() => git.push({ setUpstream })] : []),
         ]));
     }
 
+    /** What the dialog says, by what discarding does to this kind of change. */
+    const discardWords = ({ path, status: letter, renamedFrom }) => {
+        const { name } = splitPath(path);
+        if (letter === 'U') {
+            return { title: 'Delete File', okLabel: 'Delete', message: `Delete the untracked file "${name}"? This cannot be undone.` };
+        }
+        if (letter === 'A') {
+            return { title: 'Delete File', okLabel: 'Delete', message: `Delete the new file "${name}"? It was never committed, so this cannot be undone.` };
+        }
+        if (renamedFrom) {
+            return { title: 'Discard Changes', okLabel: 'Discard', message: `Put "${splitPath(renamedFrom).name}" back and discard all changes to "${name}"?` };
+        }
+        return { title: 'Discard Changes', okLabel: 'Discard', message: `Discard all changes to "${name}"?` };
+    };
+
     async function discard(file) {
-        const { name } = splitPath(file.path);
-        const untracked = file.status === 'U';
-        const confirmed = await showConfirmDialog({
-            title: untracked ? 'Delete File' : 'Discard Changes',
-            message: untracked
-                ? `Delete the untracked file "${name}"? This cannot be undone.`
-                : `Discard all changes to "${name}"?`,
-            icon: 'warning',
-            okLabel: untracked ? 'Delete' : 'Discard',
-            okVariant: 'danger',
-        });
-        if (confirmed) await runOp('discard', () => adapter.discard({ path: file.path, status: file.status }));
+        const git = adapter;
+        const confirmed = await showConfirmDialog({ ...discardWords(file), icon: 'warning', okVariant: 'danger' });
+        if (!confirmed) return;
+        await runOp('discard', () => git.discard({ path: file.path, status: file.status,
+            ...(file.renamedFrom ? { renamedFrom: file.renamedFrom } : {}) }));
     }
 
     async function onBranchOption(option) {
         if (option.type === 'checkout') {
             await runOp('checkout', () => adapter.checkout({ ref: option.ref }));
         } else if (option.type === 'createBranch') {
+            const git = adapter;
             const values = await askFor('Create Branch', 'Create', [['name', 'Branch name']]);
-            if (values) await runOp('create branch', () => adapter.createBranch({ name: values.name }));
+            if (values) await runOp('create branch', () => git.createBranch({ name: values.name }));
         } else if (option.type === 'deleteBranch') {
             await deleteBranch();
         }
@@ -514,8 +532,9 @@ export function createGitPanel(host, options = {}) {
 
     const otherLocalBranches = () => branches.filter((b) => !b.isCurrent && !b.isRemote);
 
-    /** A branch git refuses to delete (not merged) is offered once more, forced. */
+    /** A branch the adapter refuses as not merged is offered once more, forced; any other refusal is only that. */
     async function deleteBranch() {
+        const git = adapter;
         const others = otherLocalBranches();
         if (others.length === 0) {
             toastInfo('Nothing to delete', 'There is no other local branch.');
@@ -527,16 +546,21 @@ export function createGitPanel(host, options = {}) {
             items: others.map((b) => ({ value: b.name, label: b.name })),
         });
         if (!name) return;
-        const deleted = await runOp('delete branch', () => adapter.deleteBranch({ name, force: false }));
-        if (deleted) return;
+        let notMerged = false;
+        await runOp('delete branch', async () => {
+            const result = await git.deleteBranch({ name, force: false });
+            notMerged = result?.notMerged === true;
+            return notMerged ? { ok: true } : result;   // the dialog below says it, not a toast as well
+        });
+        if (!notMerged) return;
         const force = await showConfirmDialog({
             title: 'Force Delete Branch',
-            message: `"${name}" was not deleted. Delete it anyway? Commits only on it may be lost.`,
+            message: `"${name}" is not fully merged. Delete it anyway? Commits only on it may be lost.`,
             icon: 'warning',
             okLabel: 'Force Delete',
             okVariant: 'danger',
         });
-        if (force) await runOp('delete branch', () => adapter.deleteBranch({ name, force: true }));
+        if (force) await runOp('delete branch', () => git.deleteBranch({ name, force: true }));
     }
 
     async function onOverflowOption(option) {
@@ -564,13 +588,14 @@ export function createGitPanel(host, options = {}) {
                 await showTagsMenu();
                 break;
             case 'createTag':
-                await createTag();
+                await createTag(adapter);
                 break;
         }
     }
 
     /** Merge another local branch into the current one, or rebase onto it. */
     async function mergeOrRebase(op) {
+        const git = adapter;
         const others = otherLocalBranches();
         if (others.length === 0) {
             toastInfo(`Nothing to ${op}`, 'There is no other local branch.');
@@ -582,7 +607,7 @@ export function createGitPanel(host, options = {}) {
             items: others.map((b) => ({ value: b.name, label: b.name })),
         });
         if (!branch) return;
-        await runOp(op, () => (op === 'merge' ? adapter.merge({ branch }) : adapter.rebase({ onto: branch })));
+        await runOp(op, () => (op === 'merge' ? git.merge({ branch }) : git.rebase({ onto: branch })));
     }
 
     /** A menu under the bar's actions: one item per thing listed, then a way to add one. */
@@ -596,20 +621,21 @@ export function createGitPanel(host, options = {}) {
     };
 
     async function showRemotesMenu() {
-        const result = await callGit('Git remotes', () => adapter.remotes());
-        if (!result) return;
+        const git = adapter;
+        const result = await callGit('Git remotes', () => git.remotes());
+        if (!result || git !== adapter) return;
         const remotes = result.remotes ?? [];
-        const items = adapter.removeRemote ? remotes.map((r, i) => ({
+        const items = git.removeRemote ? remotes.map((r, i) => ({
             label: `Remove ${r.name}`, title: r.url, icon: 'cloud_off', action: String(i), danger: true,
         })) : remotes.map((r) => ({ label: r.name, title: r.url, icon: 'cloud', disabled: true }));
-        if (adapter.addRemote) {
+        if (git.addRemote) {
             if (items.length > 0) items.push({ separator: true });
             items.push({ label: 'Add Remote…', icon: 'add', action: 'add' });
         }
         barMenu(items, 'No remotes', async (action) => {
             if (action === 'add') {
                 const values = await askFor('Add Remote', 'Add', [['name', 'Name'], ['url', 'URL']]);
-                if (values) await runOp('add remote', () => adapter.addRemote(values));
+                if (values) await runOp('add remote', () => git.addRemote(values));
                 return;
             }
             const { name } = remotes[Number(action)];
@@ -620,29 +646,30 @@ export function createGitPanel(host, options = {}) {
                 okLabel: 'Remove',
                 okVariant: 'danger',
             });
-            if (confirmed) await runOp('remove remote', () => adapter.removeRemote({ name }));
+            if (confirmed) await runOp('remove remote', () => git.removeRemote({ name }));
         });
     }
 
-    async function createTag() {
+    async function createTag(git) {
         const values = await askFor('Create Tag', 'Create', [['name', 'Tag name']]);
-        if (values) await runOp('create tag', () => adapter.createTag({ name: values.name }));
+        if (values) await runOp('create tag', () => git.createTag({ name: values.name }));
     }
 
     async function showTagsMenu() {
-        const result = await callGit('Git tags', () => adapter.tags());
-        if (!result) return;
+        const git = adapter;
+        const result = await callGit('Git tags', () => git.tags());
+        if (!result || git !== adapter) return;
         const tags = result.tags ?? [];
-        const items = adapter.deleteTag ? tags.map((t, i) => ({
+        const items = git.deleteTag ? tags.map((t, i) => ({
             label: `Delete ${t.name}`, title: t.hash, icon: 'delete', action: String(i), danger: true,
         })) : tags.map((t) => ({ label: t.name, title: t.hash, icon: 'sell', disabled: true }));
-        if (adapter.createTag) {
+        if (git.createTag) {
             if (items.length > 0) items.push({ separator: true });
             items.push({ label: 'Create Tag…', icon: 'add', action: 'add' });
         }
         barMenu(items, 'No tags', async (action) => {
             if (action === 'add') {
-                await createTag();
+                await createTag(git);
                 return;
             }
             const { name } = tags[Number(action)];
@@ -653,7 +680,7 @@ export function createGitPanel(host, options = {}) {
                 okLabel: 'Delete',
                 okVariant: 'danger',
             });
-            if (confirmed) await runOp('delete tag', () => adapter.deleteTag({ name }));
+            if (confirmed) await runOp('delete tag', () => git.deleteTag({ name }));
         });
     }
 

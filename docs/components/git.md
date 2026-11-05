@@ -27,7 +27,7 @@ await panel.refresh();                       // read now
 panel.destroy();
 ```
 
-From the top, it shows the current branch with its menu (check out, create, delete), ahead and behind counts, Fetch, Pull, Push and a More menu (stash, pop stash, merge, rebase, remotes, tags); a commit box with a Commit button and a menu (amend, commit and push, commit and sync); the changed files, each with Stage or Unstage and Discard; and the commit graph, collapsed until opened.
+From the top, it shows the current branch with its menu (check out, create, delete), ahead and behind counts, Fetch, Pull, Push and a More menu (stash, pop stash, merge, rebase, remotes, tags); a commit box with a Commit button and a menu (amend, commit and push, commit and sync); the changed files, each with Stage or Unstage and, unless it is in conflict, Discard; and the commit graph, collapsed until opened.
 
 | Option | Default | |
 |---|---|---|
@@ -50,7 +50,11 @@ From the top, it shows the current branch with its menu (check out, create, dele
 
 **A push with no upstream** asks for one (`setUpstream: true`).
 
-**Deleting a branch** git refuses (not fully merged) offers to force it, after asking.
+**Deleting a branch** the adapter refuses with `notMerged: true` offers to force it, after asking. Any other refusal is an error toast and nothing more.
+
+**One operation at a time.** While one runs, the actions in the bar, the branch menu and the commit box's buttons are disabled; an action that still arrives (a file row's, or one waiting on a dialog) does not run, and a toast says so. A row's menu in the graph is not part of this: the graph can stand alone and has no such lock.
+
+**Another repository mid-operation.** An operation stays with the adapter it started on, through every step and dialog, whatever `setAdapter` has done since: Commit and Sync finishes on the repository it began on. Afterwards the panel reads whichever adapter it now has. A list still being read for a menu (remotes, tags, a commit's files) is dropped if the adapter changed.
 
 **Keyboard.** Ctrl+Enter or Cmd+Enter commits from the box. A file row takes focus, Enter or Space opens it, and its actions show on focus as on hover.
 
@@ -73,7 +77,7 @@ The panel holds one of these; it also stands alone. Give `el` a height: the grap
 
 | Option | Default | |
 |---|---|---|
-| `adapter` | `null` | The git adapter. `log` is what it draws; `branches` tells remote pills from local ones. |
+| `adapter` | `null` | The git adapter. `log` is what it draws. |
 | `onOpenDiff` | a diff window | As for the panel; `ref` is always the commit's hash. |
 | `onChanged` | none | Told after a menu operation, so the rest of your page can follow. |
 | `pageSize` | `50` | Commits a page. |
@@ -85,7 +89,7 @@ Two pure functions are exported for your own drawing or tests:
 
 **`computeGraphLanes(commits)`** answers `{ rows, laneCount }` for commits newest first, children before parents. A row is `{ lane, hasChild, outputLanes: [{ lane, parentHash }], passLanes }`. The rows for a list are the same as the first rows for any longer list that starts with it.
 
-**`parseGitRefs(refs, remoteNames?)`** reads a `refs` string (below) into `[{ name, type }]`, with `type` one of `'head'`, `'tag'`, `'branch'`, `'remote'`. `git log` writes `origin/main` and a local `feature/x` the same way, so only `remoteNames`, a `Set` of the remote branches' names, tells them apart.
+**`parseGitRefs(refs)`** reads a `refs` string (below) into `[{ name, type }]`, with `type` one of `'head'`, `'tag'`, `'branch'`, `'remote'`, and `name` short: `refs/remotes/origin/main` is `{ name: 'origin/main', type: 'remote' }`. The full names are what tell it from a local branch called `origin/main`. A ref of any other kind, such as `refs/stash`, is left out, and so is a short name: an adapter that forgets `--decorate=full` gets no pills.
 
 The lane colours are the tokens `--twm-git-lane-0` to `--twm-git-lane-7`; a lane past the last takes them round again.
 
@@ -158,6 +162,7 @@ await openDiffWindow({
 
 await openGitDiffWindow({ adapter, path: 'src/a.txt', status: 'M' });
 await openGitDiffWindow({ adapter, path: 'src/a.txt', status: 'M', ref: hash });   // that commit's change
+await openGitDiffWindow({ adapter, path: 'new.txt', status: 'R', renamedFrom: 'old.txt' });
 ```
 
 A modal holding a viewer, showing "Loading…" until `load` answers. A refusal or a throw is shown in the window. `openDiffWindow` also takes `icon`, `width` (880), `height` (600) and `labels`. The promise settles when the window closes.
@@ -172,6 +177,7 @@ An adapter is a plain object. It knows which repository it is for, so no payload
 { ok: true, /* the method's own fields */ }
 { ok: false, error: 'what the backend said' }
 { ok: false, error: 'what git said', conflicts: true }   // merge, rebase, pull, stash pop, cherry-pick: stopped on conflicts
+{ ok: false, error: 'what git said', notMerged: true }   // deleteBranch, unforced: the branch is not fully merged
 ```
 
 A method that throws or rejects is treated as `{ ok: false, error: e.message }`. Field names are exactly as written here, camelCase, for a C# or Python backend as well. A method with no payload below is called with no argument.
@@ -186,8 +192,8 @@ A method that throws or rejects is treated as `{ ok: false, error: e.message }`.
 | `status()` | | [`StatusResult`](#statusresult) |
 | `branches()` | | `branches: Branch[]` |
 | `log(payload)` | `{ count: number, skip: number }` | `commits: Commit[]`, newest first, children before parents. `[]` for a repository with no commits, not a refusal. |
-| `commitFiles(payload)` | `{ hash: string }` | `files: [{ path: string, status: FileStatus }]`, what that commit changed |
-| `diffFile(payload)` | `{ path: string, status?: FileStatus, ref?: string }` | [`DiffResult`](#diffresult) |
+| `commitFiles(payload)` | `{ hash: string }` | `files: [{ path: string, status: FileStatus, renamedFrom?: string }]`, what that commit changed against its first parent: `git diff-tree --no-commit-id -r --root -M --name-status --diff-merges=first-parent <hash>`. A copy is `A`. |
+| `diffFile(payload)` | `{ path: string, status?: FileStatus, renamedFrom?: string, ref?: string }` | [`DiffResult`](#diffresult) |
 | `tags()` | | `tags: [{ name: string, hash: string }]` |
 | `remotes()` | | `remotes: [{ name: string, url: string }]` |
 
@@ -208,18 +214,18 @@ A method that throws or rejects is treated as `{ ok: false, error: e.message }`.
 }
 ```
 
-One entry a path. `path` is relative to the repository, with forward slashes. `staged` is true when the index has a change for the path, whether or not the working copy has another.
+One entry a path, so a file with both staged and unstaged changes is one entry. `path` is relative to the repository, with forward slashes, as plain text: not the quoted form `--porcelain=v1` gives a name with a space unless it is run with `-z`. `staged` is true when the index has a change for the path, whether or not the working copy has another.
 
-`FileStatus` is one letter:
+`FileStatus` is one letter, the first row here that matches the two columns of `git status --porcelain=v1`:
 
-| | Meaning | `git status --porcelain=v1` |
+| | Meaning | Columns |
 |---|---|---|
-| `M` | Modified | anything not below |
-| `A` | Added | `A` in either column |
-| `D` | Deleted | `D` in either column |
-| `R` | Renamed; the entry has `renamedFrom` | `R` in the index column |
-| `C` | Conflicted | `U` in either column |
+| `C` | Conflicted | `DD`, `AA`, or `U` in either |
 | `U` | Untracked | `??` |
+| `R` | Renamed; the entry has `renamedFrom` | `R` in either |
+| `A` | Added (a copy too) | `A` in either, or `C` in the index column |
+| `D` | Deleted | `D` in either |
+| `M` | Modified | anything else |
 
 The panel compares answers to decide whether to redraw, so answer the same fields in the same order when nothing has changed.
 
@@ -230,10 +236,12 @@ The panel compares answers to decide whether to redraw, so answer the same field
     name: 'feature/x',        // what `checkout` takes; a remote branch as `origin/main`, without `remotes/`
     hash: 'a1b2c3d',          // short
     isCurrent: false,
-    isRemote: false,
+    isRemote: false,          // its full name starts refs/remotes/; a `/` in the name says nothing
     upstream: 'origin/x',     // '' when it has none
 }
 ```
+
+`git for-each-ref --format='%(refname)%09%(objectname:short)%09%(HEAD)%09%(upstream:short)%09%(symref)' refs/heads refs/remotes` gives all of it. Leave out a ref with a `%(symref)`: `refs/remotes/origin/HEAD` is only another name for a branch that is listed anyway, and `git branch -a` calls it `origin`, which reads as a local branch.
 
 #### Commit
 
@@ -245,12 +253,12 @@ The panel compares answers to decide whether to redraw, so answer the same field
     email: 'a.person@example.org',   // %ae
     timestamp: 1700000000,           // seconds since the epoch, %at
     subject: 'Name the steps',       // %s
-    refs: 'HEAD -> main, tag: v1',   // %D, exactly as git writes it; '' when none
+    refs: 'HEAD -> refs/heads/main, tag: refs/tags/v1, refs/remotes/origin/main',   // %D with --decorate=full, one string; '' when none
     parentHashes: ['b2c3d4e5f6a7…'], // full, %P split on spaces; [] for a root commit
 }
 ```
 
-`log` must list all branches in `--topo-order` for the lanes to be right: `git log --all --topo-order -n<count> --skip=<skip>`.
+`log` must list all branches in `--topo-order` for the lanes to be right, and full ref names for the pills to be right: `git log --all --topo-order --decorate=full -n<count> --skip=<skip>`. Without `--decorate=full`, `%D` writes `origin/main` and a local `feature/x` the same way, and nothing can tell them apart.
 
 #### DiffResult
 
@@ -258,7 +266,17 @@ The panel compares answers to decide whether to redraw, so answer the same field
 { ok: true, before: 'old text', after: 'new text', diff: '@@ -1 +1 @@\n…', language: 'python' }
 ```
 
-Answer `before` and `after`, or `diff`, or all three; a missing side of a new or deleted file is `''`. Without `ref`, the comparison is the last commit against the working copy, that is everything not yet committed, staged or not. With `ref`, it is that commit's parent against that commit. `language` is optional and FlexDesk does not read it: it is there for an `onOpenDiff` of yours that opens a code editor's diff view.
+Answer `before` and `after`, or `diff`, or all three; a missing side of a new or deleted file is `''`. Without `ref`, the comparison is the last commit against the working copy, that is everything not yet committed, staged or not. With `ref`, it is that commit's first parent against that commit, and the working copy plays no part. With `renamedFrom`, the old side is read at that path, `path` being the new one.
+
+| Asked for | `diff` | `before` / `after` |
+|---|---|---|
+| No `ref` | `git diff HEAD -- <path>` | `git show HEAD:<path>` / the file on disk |
+| No `ref`, `U` | none: git has nothing to compare | `''` / the file on disk |
+| No `ref`, `R` | `git diff HEAD -M -- <renamedFrom> <path>` | `git show HEAD:<renamedFrom>` / the file on disk |
+| No `ref`, `C` | as for `M`: the file on disk holds the conflict markers | as for `M` |
+| `ref` | `git diff -M <ref>^ <ref> -- [<renamedFrom>] <path>`; for a root commit, `git show --format= <ref> -- <path>` | `git show <ref>^:<renamedFrom or path>` / `git show <ref>:<path>` |
+
+`language` is optional and FlexDesk does not read it: it is there for an `onOpenDiff` of yours that opens a code editor's diff view.
 
 ### Changing the working copy
 
@@ -268,11 +286,20 @@ Each answers `{ ok: true }` unless it says otherwise.
 |---|---|---|
 | `init()` | | `git init` |
 | `stage(payload)` | `{ paths: string[] \| 'all' }` | `git add -- <paths>`; `'all'` is `git add -A` |
-| `unstage(payload)` | `{ paths: string[] }` | `git reset HEAD -- <paths>` |
-| `discard(payload)` | `{ path: string, status: FileStatus }` | Puts a tracked file back to its last commit. For `U`, removes the file. The panel asks first. |
+| `unstage(payload)` | `{ paths: string[] }` | `git reset HEAD -- <paths>`. A rename comes as both its paths. |
+| `discard(payload)` | `{ path: string, status: FileStatus, renamedFrom?: string }` | Takes the path back to the last commit, in the index and on disk alike, by `status` as below. The panel asks first. |
 | `commit(payload)` | `{ message: string \| null, amend: boolean }` | `git commit -m <message>`, with `--amend` when asked. `message: null` comes only with `amend: true` and keeps the last message (`--no-edit`). Answers `hash: string`, the new commit. The panel stages before calling; this does not. |
 | `stash(payload)` | `{ message?: string }` | `git stash push`, with `-m` when given |
 | `stashPop()` | | `git stash pop`. May answer `conflicts`. |
+
+`discard` by status. The panel never sends `C`: a conflict is resolved or the merge aborted.
+
+| `status` | Command | |
+|---|---|---|
+| `M`, `D` | `git restore --source=HEAD --staged --worktree -- <path>` | `git checkout -- <path>` is not enough: it restores from the index, so a staged change survives. |
+| `R` | `git restore --source=HEAD --staged --worktree -- <renamedFrom> <path>` | Puts the old name back and removes the new one. |
+| `A` | `git rm -f -- <path>` | There is no last commit to go back to: the file goes. The panel's dialog says so. Works before the first commit too, when `git restore --source=HEAD` cannot. |
+| `U` | Remove the file from disk | The panel's dialog says so. |
 
 ### Branches and history
 
@@ -280,7 +307,7 @@ Each answers `{ ok: true }` unless it says otherwise.
 |---|---|---|
 | `checkout(payload)` | `{ ref: string }` | `git checkout <ref>`: a branch, a remote branch or a commit's full hash |
 | `createBranch(payload)` | `{ name: string, from?: string }` | `git checkout -b <name> [<from>]`: makes it and switches to it |
-| `deleteBranch(payload)` | `{ name: string, force: boolean }` | `git branch -d <name>`, or `-D` when forced |
+| `deleteBranch(payload)` | `{ name: string, force: boolean }` | `git branch -d <name>`, or `-D` when forced. Answers `notMerged: true` with `ok: false` only when `-d` refused because the branch is not fully merged (git's message, in the C locale, has `not fully merged`), and only then does the panel offer to force it. |
 | `merge(payload)` | `{ branch: string }` | `git merge <branch>`. May answer `conflicts`. |
 | `rebase(payload)` | `{ onto: string }` or `{ continue: true }` or `{ abort: true }` | `git rebase <onto>`, `--continue` or `--abort`. May answer `conflicts`. |
 | `cherryPick(payload)` | `{ hash: string }` | `git cherry-pick <hash>`. May answer `conflicts`. |
@@ -307,7 +334,7 @@ const adapter = {
     status:  () => api.git_status({ repoPath }),
     log:     (p) => api.git_log({ repoPath, ...p }),
     stage:   (p) => api.git_stage({ repoPath, ...p }),
-    discard: ({ path, status }) => api.git_discard({ repoPath, filePath: path, status }),
+    discard: ({ path, status, renamedFrom }) => api.git_discard({ repoPath, filePath: path, status, renamedFrom }),
     // …
 };
 ```

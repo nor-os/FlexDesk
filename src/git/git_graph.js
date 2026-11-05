@@ -71,19 +71,27 @@ export function computeGraphLanes(commits) {
     return { rows, laneCount: Math.max(active.length, 1) };
 }
 
+/** What each full ref name in a decoration list is, by how it starts. */
+const REF_KINDS = [
+    ['HEAD -> refs/heads/', 'head'],
+    ['tag: refs/tags/', 'tag'],
+    ['refs/heads/', 'branch'],
+    ['refs/remotes/', 'remote'],
+];
+
 /**
- * Read `git log`'s `%D` decoration list into pills.
- * @param {string} refs - `HEAD -> main, tag: v1, origin/main, feature/x`
- * @param {Set<string>} [remoteNames] - Remote branches by name. Only this tells `origin/main` from a local `feature/x`.
+ * Read `git log --decorate=full`'s `%D` list into pills. Full names are what
+ * tell a remote's `refs/remotes/origin/main` from a local branch that happens
+ * to be called `origin/main`. Other refs, such as `refs/stash`, are left out.
+ * @param {string} refs - `HEAD -> refs/heads/main, tag: refs/tags/v1, refs/remotes/origin/main`
  * @returns {Array<{name: string, type: 'head'|'tag'|'branch'|'remote'}>}
  */
-export function parseGitRefs(refs, remoteNames = new Set()) {
+export function parseGitRefs(refs) {
     if (!refs) return [];
-    return String(refs).split(',').map((s) => s.trim()).filter(Boolean).map((part) => {
-        if (part === 'HEAD') return { name: 'HEAD', type: 'head' };
-        if (part.startsWith('HEAD -> ')) return { name: part.slice('HEAD -> '.length), type: 'head' };
-        if (part.startsWith('tag: ')) return { name: part.slice('tag: '.length), type: 'tag' };
-        return { name: part, type: remoteNames.has(part) ? 'remote' : 'branch' };
+    return String(refs).split(',').map((s) => s.trim()).flatMap((part) => {
+        if (part === 'HEAD') return [{ name: 'HEAD', type: 'head' }];
+        const kind = REF_KINDS.find(([prefix]) => part.startsWith(prefix));
+        return kind ? [{ name: part.slice(kind[0].length), type: kind[1] }] : [];
     });
 }
 
@@ -159,7 +167,6 @@ export function createGitGraph(host, options = {}) {
 
     let commits = [];
     let drawnJson = '';
-    let remoteNames = new Set();
     let allLoaded = false;
     let generation = 0;    // a newer read makes an older answer stale
     let observer = null;
@@ -180,9 +187,10 @@ export function createGitGraph(host, options = {}) {
         sentinel = null;
     };
 
-    const openFiles = async (commit, x, y) => {
-        const result = await callGit('Git changes', () => adapter.commitFiles({ hash: commit.hash }));
-        if (!result) return;
+    /** `git` is the adapter the menu was opened on; a file opens only while that repository still shows. */
+    const openFiles = async (git, commit, x, y) => {
+        const result = await callGit('Git changes', () => git.commitFiles({ hash: commit.hash }));
+        if (!result || git !== adapter) return;
         const files = result.files ?? [];
         if (files.length === 0) {
             toastInfo('No files changed', commit.shortHash);
@@ -190,27 +198,29 @@ export function createGitGraph(host, options = {}) {
             openDiff({ ...files[0], ref: commit.hash });
         } else {
             const items = files.map((f, i) => ({ label: f.path, icon: 'difference', action: String(i) }));
-            showContextMenu(x, y, items, (action) => openDiff({ ...files[Number(action)], ref: commit.hash }));
+            showContextMenu(x, y, items, (action) => {
+                if (git === adapter) openDiff({ ...files[Number(action)], ref: commit.hash });
+            });
         }
     };
 
-    const menuItems = () => {
+    const menuItems = (git) => {
         const groups = [
             [
-                adapter.checkout && { label: 'Checkout (detached)', icon: 'logout', action: 'checkout' },
-                adapter.createBranch && { label: 'Create Branch…', icon: 'commit', action: 'create-branch' },
+                git.checkout && { label: 'Checkout (detached)', icon: 'logout', action: 'checkout' },
+                git.createBranch && { label: 'Create Branch…', icon: 'commit', action: 'create-branch' },
                 { label: 'Copy Commit Hash', icon: 'content_copy', action: 'copy-hash' },
             ],
             [
-                adapter.cherryPick && { label: 'Cherry-pick', icon: 'content_copy', action: 'cherry-pick' },
-                adapter.createTag && { label: 'Create Tag…', icon: 'sell', action: 'create-tag' },
-                adapter.commitFiles && { label: 'View Changes', icon: 'difference', action: 'view-changes' },
+                git.cherryPick && { label: 'Cherry-pick', icon: 'content_copy', action: 'cherry-pick' },
+                git.createTag && { label: 'Create Tag…', icon: 'sell', action: 'create-tag' },
+                git.commitFiles && { label: 'View Changes', icon: 'difference', action: 'view-changes' },
             ],
         ].map((group) => group.filter(Boolean)).filter((group) => group.length > 0);
         return groups.flatMap((group, i) => (i === 0 ? group : [{ separator: true }, ...group]));
     };
 
-    const onMenuAction = async (action, commit, x, y) => {
+    const onMenuAction = async (git, action, commit, x, y) => {
         const { hash } = commit;
         /** Run an operation; whatever came of it, the graph and its owner read the repository again. */
         const change = async (opName, fn) => {
@@ -220,11 +230,11 @@ export function createGitGraph(host, options = {}) {
         };
         switch (action) {
             case 'checkout':
-                await change('Git checkout', () => adapter.checkout({ ref: hash }));
+                await change('Git checkout', () => git.checkout({ ref: hash }));
                 break;
             case 'create-branch': {
                 const values = await askFor('Create Branch', 'Create', [['name', 'Branch name']]);
-                if (values) await change('Git create branch', () => adapter.createBranch({ name: values.name, from: hash }));
+                if (values) await change('Git create branch', () => git.createBranch({ name: values.name, from: hash }));
                 break;
             }
             case 'copy-hash':
@@ -236,15 +246,15 @@ export function createGitGraph(host, options = {}) {
                 }
                 break;
             case 'cherry-pick':
-                await change('Git cherry-pick', () => adapter.cherryPick({ hash }));
+                await change('Git cherry-pick', () => git.cherryPick({ hash }));
                 break;
             case 'create-tag': {
                 const values = await askFor('Create Tag', 'Create', [['name', 'Tag name']]);
-                if (values) await change('Git create tag', () => adapter.createTag({ name: values.name, hash }));
+                if (values) await change('Git create tag', () => git.createTag({ name: values.name, hash }));
                 break;
             }
             case 'view-changes':
-                await openFiles(commit, x, y);
+                await openFiles(git, commit, x, y);
                 break;
         }
     };
@@ -258,7 +268,7 @@ export function createGitGraph(host, options = {}) {
 
         const info = document.createElement('div');
         info.className = 'twm-git-graph__info';
-        for (const pill of parseGitRefs(commit.refs, remoteNames)) {
+        for (const pill of parseGitRefs(commit.refs)) {
             if (pill.type === 'remote' && !showRemoteRefs) continue;
             const span = document.createElement('span');
             span.className = `twm-git-ref twm-git-ref--${pill.type}`;
@@ -273,7 +283,8 @@ export function createGitGraph(host, options = {}) {
         row.appendChild(info);
 
         const openMenu = (x, y) => {
-            showContextMenu(x, y, menuItems(), (action) => onMenuAction(action, commit, x, y));
+            const git = adapter;
+            showContextMenu(x, y, menuItems(git), (action) => onMenuAction(git, action, commit, x, y));
         };
         row.addEventListener('contextmenu', (e) => {
             e.preventDefault();
@@ -311,16 +322,6 @@ export function createGitGraph(host, options = {}) {
         observeSentinel();
     };
 
-    const readRemoteNames = async () => {
-        if (!adapter?.branches) return new Set();
-        try {
-            const result = await adapter.branches();
-            return new Set((result?.ok ? result.branches ?? [] : []).filter((b) => b.isRemote).map((b) => b.name));
-        } catch {
-            return new Set();   // it only sorts pills: the history is still right without it
-        }
-    };
-
     const clear = () => {
         stopObserving();
         commits = [];
@@ -338,9 +339,8 @@ export function createGitGraph(host, options = {}) {
         }
         const count = Math.max(commits.length, pageSize);
         let result;
-        let names = new Set();
         try {
-            [result, names] = await Promise.all([adapter.log({ count, skip: 0 }), readRemoteNames()]);
+            result = await adapter.log({ count, skip: 0 });
         } catch (e) {
             result = { ok: false, error: e?.message || String(e) };
         }
@@ -351,7 +351,7 @@ export function createGitGraph(host, options = {}) {
             return;
         }
         const next = result.commits ?? [];
-        const json = JSON.stringify([next, [...names]]);
+        const json = JSON.stringify(next);
         if (json === drawnJson) {
             if (!observer) observeSentinel();   // a read that overtook loadMore must not end the paging
             return;
@@ -360,7 +360,6 @@ export function createGitGraph(host, options = {}) {
         clear();
         drawnJson = json;
         commits = next;
-        remoteNames = names;
         allLoaded = next.length < count;
         if (commits.length === 0) {
             say('No commits yet');
@@ -379,7 +378,7 @@ export function createGitGraph(host, options = {}) {
         const page = result.commits ?? [];
         allLoaded = page.length < pageSize;
         commits = commits.concat(page);
-        drawnJson = JSON.stringify([commits, [...remoteNames]]);
+        drawnJson = JSON.stringify(commits);
         drawRows(skip);
     };
 

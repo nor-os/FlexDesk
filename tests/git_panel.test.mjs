@@ -5,7 +5,7 @@
  *
  *   §1  computeGraphLanes: a line, a branch and a merge, lanes passing through
  *       a row, a branch tip has nothing coming in, a prefix's rows don't move
- *   §2  parseGitRefs: head, tag, a local feature/x is not a remote
+ *   §2  parseGitRefs: full names, as real git writes them on a fresh clone
  *   §3  the graph draws: one row and SVG a commit, edges by lane colour class,
  *       pills, remote pills only when asked, the message when empty or refused
  *   §4  the graph pages: the sentinel, the next page's skip, the lanes widen,
@@ -22,9 +22,11 @@
  *       survives a failure and a status change
  *   §9  the menus: offered by capability; push sets an upstream when there is
  *       none; merge, rebase, continue, abort; stash; remotes; tags; delete
- *       branch, forced on refusal
+ *       branch, forced only on notMerged; nothing is escalated when busy
  *  §10  polling: every interval, stops, never overlaps; a failure is a toast
  *       and the panel still works; destroy
+ *  §11  setAdapter while an operation is out: every step and dialog stays with
+ *       the adapter it started on
  *
  *     node tests/git_panel.test.mjs
  */
@@ -189,17 +191,21 @@ section('§1 computeGraphLanes');
 }
 
 section('§2 parseGitRefs');
-check('every kind', parseGitRefs('HEAD -> main, tag: v1.0, origin/main, feature/x', new Set(['origin/main'])), [
-    { name: 'main', type: 'head' }, { name: 'v1.0', type: 'tag' },
-    { name: 'origin/main', type: 'remote' }, { name: 'feature/x', type: 'branch' }]);
-check('a detached HEAD is shown', parseGitRefs('HEAD, tag: v1'), [{ name: 'HEAD', type: 'head' }, { name: 'v1', type: 'tag' }]);
+// Word for word from `git log --all --decorate=full --format=%D` (git 2.51) on a clone.
+check('a fresh clone, with its symbolic origin/HEAD', parseGitRefs(
+    'HEAD -> refs/heads/main, tag: refs/tags/v1, refs/remotes/origin/main, refs/remotes/origin/HEAD, refs/heads/feature/x'), [
+    { name: 'main', type: 'head' }, { name: 'v1', type: 'tag' },
+    { name: 'origin/main', type: 'remote' }, { name: 'origin/HEAD', type: 'remote' }, { name: 'feature/x', type: 'branch' }]);
+check('a local branch named like a remote one is local', parseGitRefs('refs/heads/origin/fake'), [{ name: 'origin/fake', type: 'branch' }]);
+check('a detached HEAD is shown', parseGitRefs('HEAD, tag: refs/tags/v1'), [{ name: 'HEAD', type: 'head' }, { name: 'v1', type: 'tag' }]);
+check('other refs are left out', parseGitRefs('refs/stash, refs/notes/commits'), []);
 check('none', [parseGitRefs(''), parseGitRefs(undefined)], [[], []]);
 
 section('§3 the graph draws');
 {
     const f = fakeAdapter();
     f.state.commits = [
-        commit('m', ['a', 's'], { refs: 'HEAD -> main, origin/main, tag: v1, feature/x' }),
+        commit('m', ['a', 's'], { refs: 'HEAD -> refs/heads/main, refs/remotes/origin/main, refs/remotes/origin/HEAD, tag: refs/tags/v1, refs/heads/feature/x' }),
         commit('a', ['o']), commit('s', ['o']), commit('o'),
     ];
     const graph = createGitGraph(host(), { adapter: f.adapter });
@@ -242,11 +248,6 @@ section('§3 the graph draws');
     await settle();
     check('a throwing log says why', thrown.el.textContent, 'bridge gone');
     thrown.destroy();
-
-    const pale = createGitGraph(host(), { adapter: fakeAdapter({ branches: null }).adapter });
-    await settle();
-    check('without branches the history is still drawn', pale.el.querySelectorAll('.twm-git-graph__row').length, 2);
-    pale.destroy();
 
     const blank = createGitGraph(host(), { adapter: null });
     await settle();
@@ -493,6 +494,27 @@ section('§7 the panel\'s parts');
     check('a rename\'s tooltip names both', rowOf('n.txt').title, 'o.txt → n.txt');
     click(rowOf('n.txt'));
     check('and onOpenDiff gets renamedFrom', opened.at(-1), { path: 'n.txt', status: 'R', staged: true, renamedFrom: 'o.txt' });
+    click(rowOf('n.txt').querySelector('[aria-label="Unstage"]'));
+    await settle();
+    check('a rename unstages both its paths', f.named('unstage').at(-1), { paths: ['o.txt', 'n.txt'] });
+    click(rowOf('n.txt').querySelector('[aria-label="Discard changes"]'));
+    await settle();
+    ok('discarding a rename says the old name comes back', document.body.textContent.includes('Put "o.txt" back and discard all changes to "n.txt"'));
+    await answerConfirm(true);
+    check('and sends it', f.named('discard').at(-1), { path: 'n.txt', status: 'R', renamedFrom: 'o.txt' });
+
+    f.state.status = { ...f.state.status, files: [
+        { path: 'added.txt', status: 'A', staged: true },
+        { path: 'both.txt', status: 'C', staged: false },
+    ] };
+    await panel.refresh();
+    click(rowOf('added.txt').querySelector('[aria-label="Discard changes"]'));
+    await settle();
+    ok('discarding an added file says the file goes', document.body.textContent.includes('Delete the new file "added.txt"'));
+    await answerConfirm(true);
+    check('and sends its status', f.named('discard').at(-1), { path: 'added.txt', status: 'A' });
+    check('a conflict cannot be discarded', rowOf('both.txt').querySelector('[aria-label="Discard changes"]'), null);
+    ok('but can be staged', rowOf('both.txt').querySelector('[aria-label="Stage"]'));
 
     f.state.status = { ...f.state.status, files: [], hasUpstream: false };
     await panel.refresh();
@@ -507,6 +529,11 @@ section('§7 the panel\'s parts');
     await settle();
     check('with no onOpenDiff, the diff window asks diffFile', dflt.named('diffFile'), [{ path: 'src/a.txt', status: 'M' }]);
     check('and draws it', [...document.querySelectorAll('.twm-diff-window')].at(-1).querySelectorAll('.twm-diff__line').length, 2);
+    dflt.state.status = { ...dflt.state.status, files: [{ path: 'n.txt', status: 'R', staged: true, renamedFrom: 'o.txt' }] };
+    await second.panel.refresh();
+    click(second.rowOf('n.txt'));
+    await settle();
+    check('the diff window passes renamedFrom on', dflt.named('diffFile').at(-1), { path: 'n.txt', status: 'R', renamedFrom: 'o.txt' });
     second.panel.destroy();
 
     const graphed = fakeAdapter();
@@ -695,11 +722,51 @@ section('§9 the menus');
     await pickOption(branch, 'Delete Branch…');
     await answerForm({ _choice: 'feature/x' });
     check('delete branch, not forced', f.named('deleteBranch'), [{ name: 'feature/x', force: false }]);
-    f.adapter.deleteBranch = (p) => { f.calls.push(['deleteBranch', p]); return p.force ? { ok: true } : { ok: false, error: 'not fully merged' }; };
+    f.adapter.deleteBranch = (p) => {
+        f.calls.push(['deleteBranch', p]);
+        return p.force ? { ok: true } : { ok: false, error: 'not fully merged', notMerged: true };
+    };
+    toasts.length = 0;
     await pickOption(branch, 'Delete Branch…');
     await answerForm({ _choice: 'feature/x' });
+    ok('not merged: it asks, and says why', document.body.textContent.includes('"feature/x" is not fully merged'));
+    check('without a toast as well', toasts, []);
     await answerConfirm(true);
-    check('refused: offered forced', f.named('deleteBranch').slice(-2), [{ name: 'feature/x', force: false }, { name: 'feature/x', force: true }]);
+    check('and forces it', f.named('deleteBranch').slice(-2), [{ name: 'feature/x', force: false }, { name: 'feature/x', force: true }]);
+
+    // Closed dialogs may stay in the document a while, so what counts is whether another was drawn.
+    const forceOffers = () => [...document.querySelectorAll('.twm-modal__actions button')].filter((b) => b.textContent === 'Force Delete').length;
+    const offersBefore = forceOffers();
+
+    // Any other refusal is only that: a branch checked out in a worktree, the bridge gone.
+    for (const [why, method] of [
+        ['refused otherwise', (p) => { f.calls.push(['deleteBranch', p]); return { ok: false, error: 'checked out at ../other' }; }],
+        ['a throw', (p) => { f.calls.push(['deleteBranch', p]); throw new Error('bridge gone'); }],
+    ]) {
+        const before = f.named('deleteBranch').length;
+        f.adapter.deleteBranch = method;
+        await pickOption(branch, 'Delete Branch…');
+        await answerForm({ _choice: 'feature/x' });
+        check(`${why}: no offer to force`, [f.named('deleteBranch').slice(before).map((p) => p.force), forceOffers()], [[false], offersBefore]);
+    }
+
+    // Nothing runs while something else is out, and that is not read as a refusal.
+    let finishFetch;
+    f.adapter.fetch = () => new Promise((r) => { finishFetch = r; });
+    f.adapter.deleteBranch = (p) => { f.calls.push(['deleteBranch', p]); return { ok: false, error: 'x', notMerged: true }; };
+    const deletes = f.named('deleteBranch').length;
+    await pickOption(branch, 'Delete Branch…');   // the dialog is open first, then a fetch starts behind it
+    click(button('Fetch'));
+    await tick();
+    ok('busy: the branch button is off too', branch.disabled);
+    toasts.length = 0;
+    await answerForm({ _choice: 'feature/x' });
+    check('busy: delete is not sent', f.named('deleteBranch').length, deletes);
+    check('busy: nothing offers to force', forceOffers(), offersBefore);
+    check('busy: it says it did not run', toasts.map((t) => t.title), ['Git is busy']);
+    finishFetch({ ok: true });
+    await settle();
+    ok('then the branch button is back', !branch.disabled);
     panel.destroy();
 
     const named = fakeAdapter();
@@ -800,6 +867,132 @@ section('§10 polling and failures');
     await settle();
     check('a late answer from the old adapter is dropped', sw.el.querySelector('.twm-git-panel__branch-label').textContent, 'fresh');
     sw.destroy();
+}
+
+section('§11 another adapter while an operation is out');
+{
+    // Commit and Sync on A; B arrives while A's pull is out.
+    let finishPull;
+    const a = fakeAdapter();
+    a.adapter.pull = (p) => { a.calls.push(['pull', p]); return new Promise((r) => { finishPull = r; }); };
+    const b = fakeAdapter();
+    const sync = await panelOf(a);
+    sync.q('.twm-git-panel__commit-box').value = 'on A';
+    await pickOption(sync.q('.twm-git-panel__commit-menu'), 'Commit & Sync');
+    check('A committed and is pulling', [a.named('commit').length, a.named('pull').length], [1, 1]);
+    sync.panel.setAdapter(b.adapter);
+    sync.q('.twm-git-panel__commit-box').value = 'typed for B';
+    finishPull({ ok: true });
+    await settle();
+    check('A is pushed, as it had an upstream', a.named('push'), [{ setUpstream: false }]);
+    check('B is never pushed or committed', [b.named('push'), b.named('commit')], [[], []]);
+    check('what was typed for B stays', sync.q('.twm-git-panel__commit-box').value, 'typed for B');
+    check('the panel then shows B', b.named('status').length > 0, true);
+    sync.panel.destroy();
+
+    // The first steps of a commit finishing after the switch.
+    let finishCommit;
+    const c = fakeAdapter();
+    c.adapter.commit = () => new Promise((r) => { finishCommit = r; });
+    const late = await panelOf(c);
+    late.q('.twm-git-panel__commit-box').value = 'on C';
+    click(late.q('.twm-git-panel__commit-btn'));
+    await tick();
+    late.panel.setAdapter(fakeAdapter().adapter);
+    late.q('.twm-git-panel__commit-box').value = 'typed for the next';
+    finishCommit({ ok: true, hash: 'x' });
+    await settle();
+    check('a late commit does not clear the new box', late.q('.twm-git-panel__commit-box').value, 'typed for the next');
+    late.panel.destroy();
+
+    // Each dialog: answered after the switch, it acts on the repository it was opened for.
+    const from = fakeAdapter();
+    const to = fakeAdapter();
+    const d = await panelOf(from);
+    const untouched = () => to.calls.filter(([n]) => !['status', 'log'].includes(n)).map(([n]) => n);
+
+    click(d.rowOf('a.txt').querySelector('[aria-label="Discard changes"]'));
+    await settle();
+    d.panel.setAdapter(to.adapter);
+    await settle();
+    await answerConfirm(true);
+    check('discard goes to the first', from.named('discard'), [{ path: 'src/a.txt', status: 'M' }]);
+    d.panel.setAdapter(from.adapter);
+    await settle();
+
+    await pickOption(d.q('.twm-git-panel__branch'), 'Delete Branch…');
+    d.panel.setAdapter(to.adapter);
+    await settle();
+    await answerForm({ _choice: 'feature/x' });
+    check('delete branch goes to the first', from.named('deleteBranch'), [{ name: 'feature/x', force: false }]);
+    d.panel.setAdapter(from.adapter);
+    await settle();
+
+    await pickOption(d.button('More actions'), 'Merge…');
+    d.panel.setAdapter(to.adapter);
+    await settle();
+    await answerForm({ _choice: 'feature/x' });
+    check('merge goes to the first', from.named('merge'), [{ branch: 'feature/x' }]);
+    d.panel.setAdapter(from.adapter);
+    await settle();
+
+    await pickOption(d.q('.twm-git-panel__branch'), 'Create Branch…');
+    d.panel.setAdapter(to.adapter);
+    await settle();
+    await answerForm({ name: 'made' });
+    check('create branch goes to the first', from.named('createBranch'), [{ name: 'made' }]);
+    d.panel.setAdapter(from.adapter);
+    await settle();
+
+    await pickOption(d.button('More actions'), 'Tags…');
+    d.panel.setAdapter(to.adapter);
+    await settle();
+    await pickContext('Delete v1');
+    await answerConfirm(true);
+    check('delete tag goes to the first', from.named('deleteTag'), [{ name: 'v1' }]);
+    check('the second was asked for nothing', untouched(), []);
+    d.panel.setAdapter(from.adapter);
+    await settle();
+
+    let answerTags;
+    const tagsLate = from.adapter.tags;
+    from.adapter.tags = () => new Promise((r) => { answerTags = r; });
+    await pickOption(d.button('More actions'), 'Tags…');
+    d.panel.setAdapter(to.adapter);
+    answerTags({ ok: true, tags: [{ name: 'v1', hash: 'a' }] });
+    await settle();
+    check('a list read for the first opens no menu over the second', contextItems(), []);
+    from.adapter.tags = tagsLate;
+    d.panel.destroy();
+
+    // The graph: its menu holds the adapter it was opened on.
+    const opened = [];
+    const ga = fakeAdapter();
+    const gb = fakeAdapter();
+    const graph = createGitGraph(host(), { adapter: ga.adapter, onOpenDiff: (x) => opened.push(x) });
+    await settle();
+    const open = () => graph.el.querySelector('.twm-git-graph__row')
+        .dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }));
+    open();
+    graph.setAdapter(gb.adapter);
+    await settle();
+    await pickContext('Cherry-pick');
+    check('a menu open across the switch stays with the first', [ga.named('cherryPick'), gb.named('cherryPick')], [[{ hash: 'c1' }], []]);
+    open();
+    await pickContext('Create Tag');
+    graph.setAdapter(ga.adapter);
+    await settle();
+    await answerForm({ name: 't' });
+    check('so does its dialog', [gb.named('createTag'), ga.named('createTag')], [[{ name: 't', hash: 'c1' }], []]);
+    let answerFiles;
+    ga.adapter.commitFiles = () => new Promise((r) => { answerFiles = r; });
+    open();
+    await pickContext('View Changes');
+    graph.setAdapter(gb.adapter);
+    answerFiles({ ok: true, files: [{ path: 'f.txt', status: 'M' }] });
+    await settle();
+    check('a commit\'s files read for the first open nothing on the second', opened, []);
+    graph.destroy();
 }
 
 done();

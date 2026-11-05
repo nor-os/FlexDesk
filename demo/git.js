@@ -29,13 +29,13 @@ const repo = {
         { path: 'merge_me.txt', status: 'C', staged: false },
     ],
     log: [
-        commit('a01', 'Merge the reader into main', ['a02', 'b01'], 'HEAD -> main, origin/main, tag: v2.0'),
+        commit('a01', 'Merge the reader into main', ['a02', 'b01'], 'HEAD -> refs/heads/main, refs/remotes/origin/main, refs/remotes/origin/HEAD, tag: refs/tags/v2.0'),
         commit('a02', 'Keep the options in one place', ['a03']),
-        commit('c01', 'Try a second layout', ['a03'], 'feature/layout'),
+        commit('c01', 'Try a second layout', ['a03'], 'refs/heads/feature/layout'),
         commit('b01', 'Read the file in one pass', ['b02']),
         commit('a03', 'Name the steps', ['a04']),
         commit('b02', 'Start the reader', ['a04']),
-        commit('a04', 'Tidy the entry point', ['a05'], 'tag: v1.0'),
+        commit('a04', 'Tidy the entry point', ['a05'], 'tag: refs/tags/v1.0'),
         commit('a05', 'First commit', []),
     ],
 };
@@ -68,7 +68,7 @@ const adapter = {
         const staged = repo.files.filter((f) => f.staged);
         repo.files = repo.files.filter((f) => !f.staged);
         repo.ahead += 1;
-        repo.log.unshift(commit(`n${repo.log.length}`, message ?? 'Amended', [repo.log[0].shortHash], `HEAD -> ${repo.branch}`));
+        repo.log.unshift(commit(`n${repo.log.length}`, message ?? 'Amended', [repo.log[0].shortHash], `HEAD -> refs/heads/${repo.branch}`));
         repo.log[1].refs = '';
         return { ok: true, hash: repo.log[0].shortHash, staged: staged.length };
     },
@@ -77,7 +77,9 @@ const adapter = {
     push: done,
     checkout: done,
     createBranch: done,
-    deleteBranch: done,
+    deleteBranch: ({ name, force }) => (force || name !== 'feature/layout'
+        ? done()
+        : { ok: false, error: `the branch '${name}' is not fully merged`, notMerged: true }),
     merge: done,
     rebase: done,
     stash: done,

@@ -144,7 +144,7 @@ function parseUnifiedDiff(text) {
       oldLeft = hunk[2] === void 0 ? 1 : Number(hunk[2]);
       newLeft = hunk[4] === void 0 ? 1 : Number(hunk[4]);
       header("hunk", line);
-    } else if (line.startsWith("\\") || /^Binary files .* differ$/.test(line)) {
+    } else if (line.startsWith("\\") || /^Binary files .* differ$/.test(line) || /^rename (from|to) /.test(line)) {
       header("meta", line);
     } else if (line.startsWith("diff --git ") && fileHeaders > 1) {
       header("file", / b\/(.*)$/.exec(line)?.[1] ?? line.slice("diff --git ".length));
@@ -337,10 +337,10 @@ function openDiffWindow({ title, load, icon: icon2 = "difference", width = 880, 
   }).catch((e) => viewer.showMessage(e?.message || String(e)));
   return closed;
 }
-function openGitDiffWindow({ adapter, path, status, ref }) {
+function openGitDiffWindow({ adapter, path, status, renamedFrom, ref }) {
   return openDiffWindow({
-    title: path,
-    load: () => adapter.diffFile({ path, status, ...ref ? { ref } : {} })
+    title: renamedFrom ? `${renamedFrom} \u2192 ${path}` : path,
+    load: () => adapter.diffFile({ path, status, ...renamedFrom ? { renamedFrom } : {}, ...ref ? { ref } : {} })
   });
 }
 
@@ -368,9 +368,9 @@ async function askFor(title, submitLabel, fields) {
 }
 function openDiffHandler(getAdapter, onOpenDiff) {
   if (onOpenDiff) return onOpenDiff;
-  return ({ path, status, ref }) => {
+  return ({ path, status, renamedFrom, ref }) => {
     const adapter = getAdapter();
-    if (adapter?.diffFile) openGitDiffWindow({ adapter, path, status, ref });
+    if (adapter?.diffFile) openGitDiffWindow({ adapter, path, status, renamedFrom, ref });
   };
 }
 
@@ -408,13 +408,18 @@ function computeGraphLanes(commits) {
   });
   return { rows, laneCount: Math.max(active.length, 1) };
 }
-function parseGitRefs(refs, remoteNames = /* @__PURE__ */ new Set()) {
+var REF_KINDS = [
+  ["HEAD -> refs/heads/", "head"],
+  ["tag: refs/tags/", "tag"],
+  ["refs/heads/", "branch"],
+  ["refs/remotes/", "remote"]
+];
+function parseGitRefs(refs) {
   if (!refs) return [];
-  return String(refs).split(",").map((s) => s.trim()).filter(Boolean).map((part) => {
-    if (part === "HEAD") return { name: "HEAD", type: "head" };
-    if (part.startsWith("HEAD -> ")) return { name: part.slice("HEAD -> ".length), type: "head" };
-    if (part.startsWith("tag: ")) return { name: part.slice("tag: ".length), type: "tag" };
-    return { name: part, type: remoteNames.has(part) ? "remote" : "branch" };
+  return String(refs).split(",").map((s) => s.trim()).flatMap((part) => {
+    if (part === "HEAD") return [{ name: "HEAD", type: "head" }];
+    const kind = REF_KINDS.find(([prefix]) => part.startsWith(prefix));
+    return kind ? [{ name: part.slice(kind[0].length), type: kind[1] }] : [];
   });
 }
 var laneX = (lane) => lane * LANE_WIDTH + LANE_WIDTH / 2;
@@ -471,7 +476,6 @@ function createGitGraph(host, options = {}) {
   host.appendChild(root);
   let commits = [];
   let drawnJson = "";
-  let remoteNames = /* @__PURE__ */ new Set();
   let allLoaded = false;
   let generation = 0;
   let observer = null;
@@ -489,9 +493,9 @@ function createGitGraph(host, options = {}) {
     sentinel?.remove();
     sentinel = null;
   };
-  const openFiles = async (commit, x, y) => {
-    const result = await callGit("Git changes", () => adapter.commitFiles({ hash: commit.hash }));
-    if (!result) return;
+  const openFiles = async (git, commit, x, y) => {
+    const result = await callGit("Git changes", () => git.commitFiles({ hash: commit.hash }));
+    if (!result || git !== adapter) return;
     const files = result.files ?? [];
     if (files.length === 0) {
       toastInfo("No files changed", commit.shortHash);
@@ -499,25 +503,27 @@ function createGitGraph(host, options = {}) {
       openDiff({ ...files[0], ref: commit.hash });
     } else {
       const items = files.map((f, i) => ({ label: f.path, icon: "difference", action: String(i) }));
-      showContextMenu(x, y, items, (action) => openDiff({ ...files[Number(action)], ref: commit.hash }));
+      showContextMenu(x, y, items, (action) => {
+        if (git === adapter) openDiff({ ...files[Number(action)], ref: commit.hash });
+      });
     }
   };
-  const menuItems = () => {
+  const menuItems = (git) => {
     const groups = [
       [
-        adapter.checkout && { label: "Checkout (detached)", icon: "logout", action: "checkout" },
-        adapter.createBranch && { label: "Create Branch\u2026", icon: "commit", action: "create-branch" },
+        git.checkout && { label: "Checkout (detached)", icon: "logout", action: "checkout" },
+        git.createBranch && { label: "Create Branch\u2026", icon: "commit", action: "create-branch" },
         { label: "Copy Commit Hash", icon: "content_copy", action: "copy-hash" }
       ],
       [
-        adapter.cherryPick && { label: "Cherry-pick", icon: "content_copy", action: "cherry-pick" },
-        adapter.createTag && { label: "Create Tag\u2026", icon: "sell", action: "create-tag" },
-        adapter.commitFiles && { label: "View Changes", icon: "difference", action: "view-changes" }
+        git.cherryPick && { label: "Cherry-pick", icon: "content_copy", action: "cherry-pick" },
+        git.createTag && { label: "Create Tag\u2026", icon: "sell", action: "create-tag" },
+        git.commitFiles && { label: "View Changes", icon: "difference", action: "view-changes" }
       ]
     ].map((group) => group.filter(Boolean)).filter((group) => group.length > 0);
     return groups.flatMap((group, i) => i === 0 ? group : [{ separator: true }, ...group]);
   };
-  const onMenuAction = async (action, commit, x, y) => {
+  const onMenuAction = async (git, action, commit, x, y) => {
     const { hash } = commit;
     const change = async (opName, fn) => {
       await callGit(opName, fn);
@@ -526,11 +532,11 @@ function createGitGraph(host, options = {}) {
     };
     switch (action) {
       case "checkout":
-        await change("Git checkout", () => adapter.checkout({ ref: hash }));
+        await change("Git checkout", () => git.checkout({ ref: hash }));
         break;
       case "create-branch": {
         const values = await askFor("Create Branch", "Create", [["name", "Branch name"]]);
-        if (values) await change("Git create branch", () => adapter.createBranch({ name: values.name, from: hash }));
+        if (values) await change("Git create branch", () => git.createBranch({ name: values.name, from: hash }));
         break;
       }
       case "copy-hash":
@@ -542,15 +548,15 @@ function createGitGraph(host, options = {}) {
         }
         break;
       case "cherry-pick":
-        await change("Git cherry-pick", () => adapter.cherryPick({ hash }));
+        await change("Git cherry-pick", () => git.cherryPick({ hash }));
         break;
       case "create-tag": {
         const values = await askFor("Create Tag", "Create", [["name", "Tag name"]]);
-        if (values) await change("Git create tag", () => adapter.createTag({ name: values.name, hash }));
+        if (values) await change("Git create tag", () => git.createTag({ name: values.name, hash }));
         break;
       }
       case "view-changes":
-        await openFiles(commit, x, y);
+        await openFiles(git, commit, x, y);
         break;
     }
   };
@@ -562,7 +568,7 @@ function createGitGraph(host, options = {}) {
     row.appendChild(createGutter(laneRow, laneCount));
     const info = document.createElement("div");
     info.className = "twm-git-graph__info";
-    for (const pill of parseGitRefs(commit.refs, remoteNames)) {
+    for (const pill of parseGitRefs(commit.refs)) {
       if (pill.type === "remote" && !showRemoteRefs) continue;
       const span = document.createElement("span");
       span.className = `twm-git-ref twm-git-ref--${pill.type}`;
@@ -576,7 +582,8 @@ function createGitGraph(host, options = {}) {
     info.appendChild(subject);
     row.appendChild(info);
     const openMenu = (x, y) => {
-      showContextMenu(x, y, menuItems(), (action) => onMenuAction(action, commit, x, y));
+      const git = adapter;
+      showContextMenu(x, y, menuItems(git), (action) => onMenuAction(git, action, commit, x, y));
     };
     row.addEventListener("contextmenu", (e) => {
       e.preventDefault();
@@ -610,15 +617,6 @@ function createGitGraph(host, options = {}) {
     root.appendChild(fragment);
     observeSentinel();
   };
-  const readRemoteNames = async () => {
-    if (!adapter?.branches) return /* @__PURE__ */ new Set();
-    try {
-      const result = await adapter.branches();
-      return new Set((result?.ok ? result.branches ?? [] : []).filter((b) => b.isRemote).map((b) => b.name));
-    } catch {
-      return /* @__PURE__ */ new Set();
-    }
-  };
   const clear = () => {
     stopObserving();
     commits = [];
@@ -634,9 +632,8 @@ function createGitGraph(host, options = {}) {
     }
     const count = Math.max(commits.length, pageSize);
     let result;
-    let names = /* @__PURE__ */ new Set();
     try {
-      [result, names] = await Promise.all([adapter.log({ count, skip: 0 }), readRemoteNames()]);
+      result = await adapter.log({ count, skip: 0 });
     } catch (e) {
       result = { ok: false, error: e?.message || String(e) };
     }
@@ -647,7 +644,7 @@ function createGitGraph(host, options = {}) {
       return;
     }
     const next = result.commits ?? [];
-    const json = JSON.stringify([next, [...names]]);
+    const json = JSON.stringify(next);
     if (json === drawnJson) {
       if (!observer) observeSentinel();
       return;
@@ -656,7 +653,6 @@ function createGitGraph(host, options = {}) {
     clear();
     drawnJson = json;
     commits = next;
-    remoteNames = names;
     allLoaded = next.length < count;
     if (commits.length === 0) {
       say("No commits yet");
@@ -674,7 +670,7 @@ function createGitGraph(host, options = {}) {
     const page = result.commits ?? [];
     allLoaded = page.length < pageSize;
     commits = commits.concat(page);
-    drawnJson = JSON.stringify([commits, [...remoteNames]]);
+    drawnJson = JSON.stringify(commits);
     drawRows(skip);
   };
   refresh();
@@ -777,7 +773,7 @@ function createGitPanel(host, options = {}) {
     "twm-git-panel__bar-btn",
     "arrow_upward",
     "Push",
-    () => runOp("push", () => push())
+    () => runOp("push", () => adapter.push({ setUpstream: !status?.hasUpstream }))
   );
   const overflowButton = iconButton("twm-git-panel__bar-btn", "more_horiz", "More actions", () => {
   });
@@ -875,9 +871,10 @@ function createGitPanel(host, options = {}) {
       action("add", "Stage", () => runOp("stage", () => adapter.stage({ paths: [file.path] })));
     }
     if (file.staged && adapter.unstage) {
-      action("remove", "Unstage", () => runOp("unstage", () => adapter.unstage({ paths: [file.path] })));
+      const paths = file.renamedFrom ? [file.renamedFrom, file.path] : [file.path];
+      action("remove", "Unstage", () => runOp("unstage", () => adapter.unstage({ paths })));
     }
-    if (adapter.discard) action("undo", "Discard changes", () => discard(file));
+    if (adapter.discard && file.status !== "C") action("undo", "Discard changes", () => discard(file));
     row.appendChild(actions);
     return row;
   };
@@ -894,7 +891,7 @@ function createGitPanel(host, options = {}) {
   };
   const drawBusy = () => {
     busyBar.hidden = !busy;
-    for (const b of [fetchButton, pullButton, pushButton, overflowButton, commitButton, commitMenuButton]) {
+    for (const b of [branchButton, fetchButton, pullButton, pushButton, overflowButton, commitButton, commitMenuButton]) {
       b.disabled = busy;
     }
   };
@@ -1041,17 +1038,18 @@ function createGitPanel(host, options = {}) {
     pollTimer = null;
   };
   async function runOp(opName, fn) {
-    if (busy) return false;
+    if (busy) {
+      toastInfo("Git is busy", `The ${opName} did not run: another operation is still going.`);
+      return;
+    }
     busy = true;
     drawBusy();
-    const result = await callGit(`Git ${opName}`, fn);
+    await callGit(`Git ${opName}`, fn);
     busy = false;
     drawBusy();
     statusJson = "";
     await refresh();
-    return result !== null;
   }
-  const push = () => adapter.push({ setUpstream: !status?.hasUpstream });
   async function initRepo() {
     const result = await callGit("Git init", () => adapter.init());
     if (result) await refresh();
@@ -1076,45 +1074,60 @@ function createGitPanel(host, options = {}) {
       toastInfo("Nothing to commit", "There are no changes.");
       return;
     }
-    const stageAll = !amend && adapter.stage && !files.some((f) => f.staged);
+    const git = adapter;
+    const setUpstream = !status?.hasUpstream;
+    const stageAll = !amend && git.stage && !files.some((f) => f.staged);
     await runOp("commit", () => inSteps([
-      ...stageAll ? [() => adapter.stage({ paths: "all" })] : [],
+      ...stageAll ? [() => git.stage({ paths: "all" })] : [],
       async () => {
-        const result = await adapter.commit({ message: message || null, amend });
-        if (!result || result.ok !== false) {
+        const result = await git.commit({ message: message || null, amend });
+        if (git === adapter && (!result || result.ok !== false)) {
           commitBox.value = "";
           commitBox.style.height = "";
         }
         return result;
       },
-      ...mode === "commitSync" ? [() => adapter.pull()] : [],
-      ...mode === "commitPush" || mode === "commitSync" ? [() => push()] : []
+      ...mode === "commitSync" ? [() => git.pull()] : [],
+      ...mode === "commitPush" || mode === "commitSync" ? [() => git.push({ setUpstream })] : []
     ]));
   }
+  const discardWords = ({ path, status: letter, renamedFrom }) => {
+    const { name } = splitPath(path);
+    if (letter === "U") {
+      return { title: "Delete File", okLabel: "Delete", message: `Delete the untracked file "${name}"? This cannot be undone.` };
+    }
+    if (letter === "A") {
+      return { title: "Delete File", okLabel: "Delete", message: `Delete the new file "${name}"? It was never committed, so this cannot be undone.` };
+    }
+    if (renamedFrom) {
+      return { title: "Discard Changes", okLabel: "Discard", message: `Put "${splitPath(renamedFrom).name}" back and discard all changes to "${name}"?` };
+    }
+    return { title: "Discard Changes", okLabel: "Discard", message: `Discard all changes to "${name}"?` };
+  };
   async function discard(file) {
-    const { name } = splitPath(file.path);
-    const untracked = file.status === "U";
-    const confirmed = await showConfirmDialog({
-      title: untracked ? "Delete File" : "Discard Changes",
-      message: untracked ? `Delete the untracked file "${name}"? This cannot be undone.` : `Discard all changes to "${name}"?`,
-      icon: "warning",
-      okLabel: untracked ? "Delete" : "Discard",
-      okVariant: "danger"
-    });
-    if (confirmed) await runOp("discard", () => adapter.discard({ path: file.path, status: file.status }));
+    const git = adapter;
+    const confirmed = await showConfirmDialog({ ...discardWords(file), icon: "warning", okVariant: "danger" });
+    if (!confirmed) return;
+    await runOp("discard", () => git.discard({
+      path: file.path,
+      status: file.status,
+      ...file.renamedFrom ? { renamedFrom: file.renamedFrom } : {}
+    }));
   }
   async function onBranchOption(option) {
     if (option.type === "checkout") {
       await runOp("checkout", () => adapter.checkout({ ref: option.ref }));
     } else if (option.type === "createBranch") {
+      const git = adapter;
       const values = await askFor("Create Branch", "Create", [["name", "Branch name"]]);
-      if (values) await runOp("create branch", () => adapter.createBranch({ name: values.name }));
+      if (values) await runOp("create branch", () => git.createBranch({ name: values.name }));
     } else if (option.type === "deleteBranch") {
       await deleteBranch();
     }
   }
   const otherLocalBranches = () => branches.filter((b) => !b.isCurrent && !b.isRemote);
   async function deleteBranch() {
+    const git = adapter;
     const others = otherLocalBranches();
     if (others.length === 0) {
       toastInfo("Nothing to delete", "There is no other local branch.");
@@ -1126,16 +1139,21 @@ function createGitPanel(host, options = {}) {
       items: others.map((b) => ({ value: b.name, label: b.name }))
     });
     if (!name) return;
-    const deleted = await runOp("delete branch", () => adapter.deleteBranch({ name, force: false }));
-    if (deleted) return;
+    let notMerged = false;
+    await runOp("delete branch", async () => {
+      const result = await git.deleteBranch({ name, force: false });
+      notMerged = result?.notMerged === true;
+      return notMerged ? { ok: true } : result;
+    });
+    if (!notMerged) return;
     const force = await showConfirmDialog({
       title: "Force Delete Branch",
-      message: `"${name}" was not deleted. Delete it anyway? Commits only on it may be lost.`,
+      message: `"${name}" is not fully merged. Delete it anyway? Commits only on it may be lost.`,
       icon: "warning",
       okLabel: "Force Delete",
       okVariant: "danger"
     });
-    if (force) await runOp("delete branch", () => adapter.deleteBranch({ name, force: true }));
+    if (force) await runOp("delete branch", () => git.deleteBranch({ name, force: true }));
   }
   async function onOverflowOption(option) {
     switch (option.type) {
@@ -1162,11 +1180,12 @@ function createGitPanel(host, options = {}) {
         await showTagsMenu();
         break;
       case "createTag":
-        await createTag();
+        await createTag(adapter);
         break;
     }
   }
   async function mergeOrRebase(op) {
+    const git = adapter;
     const others = otherLocalBranches();
     if (others.length === 0) {
       toastInfo(`Nothing to ${op}`, "There is no other local branch.");
@@ -1178,7 +1197,7 @@ function createGitPanel(host, options = {}) {
       items: others.map((b) => ({ value: b.name, label: b.name }))
     });
     if (!branch) return;
-    await runOp(op, () => op === "merge" ? adapter.merge({ branch }) : adapter.rebase({ onto: branch }));
+    await runOp(op, () => op === "merge" ? git.merge({ branch }) : git.rebase({ onto: branch }));
   }
   const barMenu = (items, emptyTitle, onAction) => {
     if (items.length === 0) {
@@ -1189,24 +1208,25 @@ function createGitPanel(host, options = {}) {
     showContextMenu(anchor.left, anchor.bottom + 4, items, onAction);
   };
   async function showRemotesMenu() {
-    const result = await callGit("Git remotes", () => adapter.remotes());
-    if (!result) return;
+    const git = adapter;
+    const result = await callGit("Git remotes", () => git.remotes());
+    if (!result || git !== adapter) return;
     const remotes = result.remotes ?? [];
-    const items = adapter.removeRemote ? remotes.map((r, i) => ({
+    const items = git.removeRemote ? remotes.map((r, i) => ({
       label: `Remove ${r.name}`,
       title: r.url,
       icon: "cloud_off",
       action: String(i),
       danger: true
     })) : remotes.map((r) => ({ label: r.name, title: r.url, icon: "cloud", disabled: true }));
-    if (adapter.addRemote) {
+    if (git.addRemote) {
       if (items.length > 0) items.push({ separator: true });
       items.push({ label: "Add Remote\u2026", icon: "add", action: "add" });
     }
     barMenu(items, "No remotes", async (action) => {
       if (action === "add") {
         const values = await askFor("Add Remote", "Add", [["name", "Name"], ["url", "URL"]]);
-        if (values) await runOp("add remote", () => adapter.addRemote(values));
+        if (values) await runOp("add remote", () => git.addRemote(values));
         return;
       }
       const { name } = remotes[Number(action)];
@@ -1217,31 +1237,32 @@ function createGitPanel(host, options = {}) {
         okLabel: "Remove",
         okVariant: "danger"
       });
-      if (confirmed) await runOp("remove remote", () => adapter.removeRemote({ name }));
+      if (confirmed) await runOp("remove remote", () => git.removeRemote({ name }));
     });
   }
-  async function createTag() {
+  async function createTag(git) {
     const values = await askFor("Create Tag", "Create", [["name", "Tag name"]]);
-    if (values) await runOp("create tag", () => adapter.createTag({ name: values.name }));
+    if (values) await runOp("create tag", () => git.createTag({ name: values.name }));
   }
   async function showTagsMenu() {
-    const result = await callGit("Git tags", () => adapter.tags());
-    if (!result) return;
+    const git = adapter;
+    const result = await callGit("Git tags", () => git.tags());
+    if (!result || git !== adapter) return;
     const tags = result.tags ?? [];
-    const items = adapter.deleteTag ? tags.map((t, i) => ({
+    const items = git.deleteTag ? tags.map((t, i) => ({
       label: `Delete ${t.name}`,
       title: t.hash,
       icon: "delete",
       action: String(i),
       danger: true
     })) : tags.map((t) => ({ label: t.name, title: t.hash, icon: "sell", disabled: true }));
-    if (adapter.createTag) {
+    if (git.createTag) {
       if (items.length > 0) items.push({ separator: true });
       items.push({ label: "Create Tag\u2026", icon: "add", action: "add" });
     }
     barMenu(items, "No tags", async (action) => {
       if (action === "add") {
-        await createTag();
+        await createTag(git);
         return;
       }
       const { name } = tags[Number(action)];
@@ -1252,7 +1273,7 @@ function createGitPanel(host, options = {}) {
         okLabel: "Delete",
         okVariant: "danger"
       });
-      if (confirmed) await runOp("delete tag", () => adapter.deleteTag({ name }));
+      if (confirmed) await runOp("delete tag", () => git.deleteTag({ name }));
     });
   }
   function ensureGraph() {

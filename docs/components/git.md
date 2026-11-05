@@ -334,7 +334,7 @@ const adapter = {
     status:  () => api.git_status({ repoPath }),
     log:     (p) => api.git_log({ repoPath, ...p }),
     stage:   (p) => api.git_stage({ repoPath, ...p }),
-    discard: ({ path, status, renamedFrom }) => api.git_discard({ repoPath, filePath: path, status, renamedFrom }),
+    discard: ({ path, status, renamedFrom }) => api.git_discard({ repoPath, path, status, renamedFrom }),
     // …
 };
 ```

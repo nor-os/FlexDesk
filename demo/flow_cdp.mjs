@@ -41,6 +41,7 @@ const DIST_PATHS = {
     '/flow.js': '/dist/flow.js',
     '/canvas.js': '/dist/canvas.js',
     '/widgets.js': '/dist/widgets.js',
+    '/git.js': '/dist/git.js',
     '/css/flexdesk.css': '/dist/flexdesk.css',
     '/css/tokens.css': '/dist/tokens.css',
     '/css/reset.css': '/dist/reset.css',

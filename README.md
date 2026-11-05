@@ -31,6 +31,7 @@ Import only what you use. The entries share their code, so loading several does 
 | `@flexdesk/editor` | A Monaco multi-file editor (Monaco is a peer dependency) |
 | `@flexdesk/canvas` | A pannable, zoomable canvas with an edge router and a graph layer |
 | `@flexdesk/flow` | Flow editors: canvas, outline and lanes |
+| `@flexdesk/git` | A source-control panel, a commit graph and a diff viewer, over a written adapter contract |
 
 With npm the entries are imported as `flexdesk/wm`, `flexdesk/widgets` and so on. The docs write them as `@flexdesk/…`, the names an import map gives them. [Packages and entry points](docs/concepts/packages-and-entry-points.md) has the sizes.
 

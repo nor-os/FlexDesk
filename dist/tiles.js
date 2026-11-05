@@ -12,16 +12,18 @@ import {
   tile_registry_exports
 } from "./chunk-FOOS3T5L.js";
 import {
-  ActionDropdown,
   SlideOutPanel
-} from "./chunk-MIW7D6WC.js";
+} from "./chunk-UKP22RUG.js";
+import {
+  ActionDropdown
+} from "./chunk-J3HM52GP.js";
 import {
   showContextMenu
-} from "./chunk-7JI7HHSY.js";
+} from "./chunk-FC55ZOAL.js";
 import {
   modalHost,
   openModal
-} from "./chunk-XJNADRGR.js";
+} from "./chunk-YSKQQDHC.js";
 import {
   buildHistogramTrace,
   buildLegendLayout,
@@ -36,11 +38,12 @@ import {
   purge,
   resize,
   strideDownsampleShared
-} from "./chunk-7OL6F2AM.js";
-import "./chunk-2Z2ENHR3.js";
+} from "./chunk-LLVHIWQB.js";
+import "./chunk-XWOMYOUI.js";
+import "./chunk-VLOAI3HS.js";
 import {
   isHexColor
-} from "./chunk-PGZ4EHSE.js";
+} from "./chunk-WQIGN7L3.js";
 import "./chunk-HNU6MM2B.js";
 import "./chunk-WUFLGETN.js";
 import {

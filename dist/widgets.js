@@ -1,4 +1,27 @@
 import {
+  PROGRESS_ITEM_STATES,
+  PROGRESS_STATES,
+  ProgressBar,
+  ProgressList,
+  STEP_STATES,
+  StepProgress,
+  formatElapsed,
+  getToastBus,
+  mountJobProgress,
+  reportBridgeError,
+  setToastBus,
+  showChoiceDialog,
+  showCloseConfirmDialog,
+  showConfirmDialog,
+  showDeleteConfirmDialog,
+  showRunProgressDialog,
+  showSelectDialog,
+  toastError,
+  toastInfo,
+  toastSuccess,
+  toastWarn
+} from "./chunk-Y2JHFPBT.js";
+import {
   StateMachine
 } from "./chunk-3PHCPZHT.js";
 import {
@@ -19,14 +42,16 @@ import {
   createTabs
 } from "./chunk-REJ5HLIM.js";
 import {
-  ActionDropdown,
   ComponentBase,
   SlideOutPanel
-} from "./chunk-MIW7D6WC.js";
+} from "./chunk-UKP22RUG.js";
+import {
+  ActionDropdown
+} from "./chunk-J3HM52GP.js";
 import {
   hideContextMenu,
   showContextMenu
-} from "./chunk-7JI7HHSY.js";
+} from "./chunk-FC55ZOAL.js";
 import {
   ColorListField,
   SortableList,
@@ -35,7 +60,7 @@ import {
   openForm,
   openModal,
   setModalHost
-} from "./chunk-XJNADRGR.js";
+} from "./chunk-YSKQQDHC.js";
 import {
   ACTIONS,
   AutocompleteField,
@@ -82,22 +107,24 @@ import {
   resolvePaging,
   toTSV,
   tsvCell
-} from "./chunk-2Z2ENHR3.js";
+} from "./chunk-XWOMYOUI.js";
+import {
+  ROW_CONTROL_SELECTOR,
+  endsTextSelection,
+  isRowActivation,
+  isRowControl
+} from "./chunk-VLOAI3HS.js";
 import {
   ColorField,
   DEFAULT_MAX_SAVED_WINDOWS,
   DEFAULT_WINDOW_STORAGE_KEY,
   ManagedWindow,
-  ROW_CONTROL_SELECTOR,
   ToggleField,
-  endsTextSelection,
   isHexColor,
-  isRowActivation,
-  isRowControl,
   normalizeHex,
   selectBox,
   shownValue
-} from "./chunk-PGZ4EHSE.js";
+} from "./chunk-WQIGN7L3.js";
 import {
   getSetting
 } from "./chunk-HNU6MM2B.js";
@@ -610,65 +637,65 @@ function mountAlertsPane(host, {
   empty = {}
 } = {}) {
   const doc = host.ownerDocument;
-  const el3 = (tag, cls, text) => {
+  const el2 = (tag, cls, text) => {
     const n = doc.createElement(tag);
     if (cls) n.className = cls;
     if (text !== void 0) n.textContent = text;
     return n;
   };
-  const icon2 = (name) => el3("span", "material-symbols-outlined", name);
+  const icon2 = (name) => el2("span", "material-symbols-outlined", name);
   let level = "all";
   let rule = null;
   let q = "";
   let pointerDown = false;
   let pending = false;
   let destroyed = false;
-  const root = el3("div", "twm-alerts");
+  const root = el2("div", "twm-alerts");
   let ruleList = null;
   if (rules) {
-    const side = el3("div", "twm-alerts__rules");
-    const head = el3("div", "twm-alerts__head");
-    head.append(el3("span", "twm-alerts__caps", "RULES"), el3("span", "twm-alerts__spacer"));
+    const side = el2("div", "twm-alerts__rules");
+    const head = el2("div", "twm-alerts__head");
+    head.append(el2("span", "twm-alerts__caps", "RULES"), el2("span", "twm-alerts__spacer"));
     if (rules.onEdit) {
-      const edit = el3("button", "twm-alerts__link", "Edit rules");
+      const edit = el2("button", "twm-alerts__link", "Edit rules");
       edit.type = "button";
       edit.dataset.act = "edit-rules";
       head.append(edit);
     }
-    ruleList = el3("div", "twm-alerts__rulelist");
+    ruleList = el2("div", "twm-alerts__rulelist");
     side.append(head, ruleList);
-    if (rules.foot) side.append(el3("div", "twm-alerts__foot", rules.foot));
+    if (rules.foot) side.append(el2("div", "twm-alerts__foot", rules.foot));
     root.append(side);
   }
-  const main = el3("div", "twm-alerts__main");
-  const bar = el3("div", "twm-alerts__bar");
-  const chips = el3("div", "twm-alerts__chips");
+  const main = el2("div", "twm-alerts__main");
+  const bar = el2("div", "twm-alerts__bar");
+  const chips = el2("div", "twm-alerts__chips");
   chips.setAttribute("role", "group");
   chips.setAttribute("aria-label", "Level");
   const chipEls = /* @__PURE__ */ new Map();
   for (const [key, label] of CHIPS) {
-    const chip = el3("button", "twm-alerts__chip");
+    const chip = el2("button", "twm-alerts__chip");
     chip.type = "button";
     chip.dataset.level = key;
-    chip.append(doc.createTextNode(`${label} `), el3("span", "twm-alerts__count", "0"));
+    chip.append(doc.createTextNode(`${label} `), el2("span", "twm-alerts__count", "0"));
     chips.append(chip);
     chipEls.set(key, chip);
   }
-  const input = el3("input", "twm-alerts__q");
+  const input = el2("input", "twm-alerts__q");
   input.type = "text";
   input.autocomplete = "off";
   input.spellcheck = false;
   input.placeholder = "Filter";
   input.setAttribute("aria-label", "Filter alerts");
-  const readAll = el3("button", "twm-btn twm-alerts__btn", "Mark all read");
+  const readAll = el2("button", "twm-btn twm-alerts__btn", "Mark all read");
   readAll.type = "button";
   readAll.dataset.act = "read-all";
-  const clear = el3("button", "twm-btn twm-alerts__btn", "Clear");
+  const clear = el2("button", "twm-btn twm-alerts__btn", "Clear");
   clear.type = "button";
   clear.dataset.act = "clear";
-  bar.append(chips, input, el3("span", "twm-alerts__spacer"), readAll, clear);
-  const list = el3("div", "twm-alerts__log");
-  const foot = el3("div", "twm-alerts__status", status);
+  bar.append(chips, input, el2("span", "twm-alerts__spacer"), readAll, clear);
+  const list = el2("div", "twm-alerts__log");
+  const foot = el2("div", "twm-alerts__status", status);
   foot.hidden = !status;
   main.append(bar, list, foot);
   root.append(main);
@@ -680,23 +707,23 @@ function mountAlertsPane(host, {
   };
   function row(entry, now) {
     const lv = ALERT_LEVELS[normalizeLevel(entry.level)];
-    const r = el3("div", `twm-alerts__row twm-alerts__row--${entry.level}${entry.read ? "" : " twm-alerts__row--unread"}`);
+    const r = el2("div", `twm-alerts__row twm-alerts__row--${entry.level}${entry.read ? "" : " twm-alerts__row--unread"}`);
     r.dataset.id = entry.id;
-    const mark = el3("span", "twm-alerts__unread");
+    const mark = el2("span", "twm-alerts__unread");
     mark.setAttribute("aria-label", entry.read ? "Read" : "Unread");
     const ic = icon2(lv.icon);
     ic.classList.add("twm-alerts__icon");
     ic.title = lv.label;
-    const time = el3("span", "twm-alerts__time", ago(entry.at, now));
+    const time = el2("span", "twm-alerts__time", ago(entry.at, now));
     time.title = entry.at.toLocaleString();
-    const text = el3("span", "twm-alerts__text");
-    text.append(el3("span", "twm-alerts__title", entry.title));
-    if (entry.body) text.append(el3("span", "twm-alerts__body", entry.body));
+    const text = el2("span", "twm-alerts__text");
+    text.append(el2("span", "twm-alerts__title", entry.title));
+    if (entry.body) text.append(el2("span", "twm-alerts__body", entry.body));
     const cells = [mark, ic, time];
-    if (rules) cells.push(el3("span", "twm-alerts__rule", entry.rule ?? ""));
+    if (rules) cells.push(el2("span", "twm-alerts__rule", entry.rule ?? ""));
     const tag = describe?.(entry);
-    cells.push(el3("span", tag ? "twm-alerts__tag" : "twm-alerts__tag twm-alerts__tag--none", tag ?? ""));
-    const ref = el3(entry.ref && onOpen ? "button" : "span", "twm-alerts__ref", entry.ref ?? "");
+    cells.push(el2("span", tag ? "twm-alerts__tag" : "twm-alerts__tag twm-alerts__tag--none", tag ?? ""));
+    const ref = el2(entry.ref && onOpen ? "button" : "span", "twm-alerts__ref", entry.ref ?? "");
     if (ref.tagName === "BUTTON") {
       ref.type = "button";
       ref.dataset.open = entry.id;
@@ -704,15 +731,15 @@ function mountAlertsPane(host, {
     cells.push(ref, text);
     if (stillMatches) {
       const still = stillMatches(entry);
-      cells.push(el3(
+      cells.push(el2(
         "span",
         `twm-alerts__state${still === false ? " twm-alerts__state--gone" : ""}`,
         still === true ? "still matches" : still === false ? "no longer matches" : ""
       ));
     }
-    const acts = el3("span", "twm-alerts__acts");
+    const acts = el2("span", "twm-alerts__acts");
     if (onOpen) {
-      const open = el3("button", "twm-alerts__icon-btn");
+      const open = el2("button", "twm-alerts__icon-btn");
       open.type = "button";
       open.dataset.open = entry.id;
       open.title = "Open";
@@ -721,7 +748,7 @@ function mountAlertsPane(host, {
       acts.append(open);
     }
     if (log.canDismiss()) {
-      const dis = el3("button", "twm-alerts__icon-btn");
+      const dis = el2("button", "twm-alerts__icon-btn");
       dis.type = "button";
       dis.dataset.dismiss = entry.id;
       dis.title = "Dismiss";
@@ -756,14 +783,14 @@ function mountAlertsPane(host, {
       const items = [{ id: null, name: "All alerts", meta: String(all.length) }, ...rules.list?.() ?? []];
       ruleList.replaceChildren(...items.map((r) => {
         const key = r.id === null ? null : String(r.id);
-        const b = el3("button", `twm-alerts__rulebtn${rule === key ? " twm-alerts__rulebtn--on" : ""}${r.off ? " twm-alerts__rulebtn--off" : ""}`);
+        const b = el2("button", `twm-alerts__rulebtn${rule === key ? " twm-alerts__rulebtn--on" : ""}${r.off ? " twm-alerts__rulebtn--off" : ""}`);
         b.type = "button";
         b.dataset.rule = key ?? "";
         b.setAttribute("aria-pressed", String(rule === key));
         b.append(
-          el3("span", `twm-alerts__dot${r.level ? ` twm-alerts__dot--${normalizeLevel(r.level)}` : ""}`),
-          el3("span", "twm-alerts__rulename", r.name || "Unnamed rule"),
-          el3("span", "twm-alerts__meta", r.meta ?? "")
+          el2("span", `twm-alerts__dot${r.level ? ` twm-alerts__dot--${normalizeLevel(r.level)}` : ""}`),
+          el2("span", "twm-alerts__rulename", r.name || "Unnamed rule"),
+          el2("span", "twm-alerts__meta", r.meta ?? "")
         );
         return b;
       }));
@@ -772,15 +799,15 @@ function mountAlertsPane(host, {
     let lastDay = "";
     for (const entry of shown()) {
       const day = dayLabel(entry.at, now);
-      if (day !== lastDay) rows.push(el3("div", "twm-alerts__day", day));
+      if (day !== lastDay) rows.push(el2("div", "twm-alerts__day", day));
       lastDay = day;
       rows.push(row(entry, now));
     }
     if (!rows.length) {
-      rows.push(el3("div", "twm-alerts__none", !log.loaded() ? "Loading\u2026" : all.length ? empty.filtered ?? "No alerts match." : empty.none ?? "Nothing yet."));
+      rows.push(el2("div", "twm-alerts__none", !log.loaded() ? "Loading\u2026" : all.length ? empty.filtered ?? "No alerts match." : empty.none ?? "Nothing yet."));
     }
     if (log.hasMore()) {
-      const older = el3("button", "twm-btn twm-alerts__more", "Load older");
+      const older = el2("button", "twm-btn twm-alerts__more", "Load older");
       older.type = "button";
       older.dataset.act = "more";
       rows.push(older);
@@ -1069,15 +1096,15 @@ function mountAttributeListEditor(hostEl, options = {}) {
     if (variationMode && flagSource.force === true) {
       contentEl.querySelectorAll(
         'input:not([type="checkbox"]), select, textarea'
-      ).forEach((el3) => {
-        el3.disabled = true;
+      ).forEach((el2) => {
+        el2.disabled = true;
       });
     }
     if (variationMode) {
       contentEl.querySelectorAll(
         'input[type="checkbox"].ea-attr-editor__cell--flag'
-      ).forEach((el3) => {
-        el3.disabled = true;
+      ).forEach((el2) => {
+        el2.disabled = true;
       });
     }
     void FLAG_COLS;
@@ -1124,73 +1151,73 @@ function mountAttributeListEditor(hostEl, options = {}) {
     return stub;
   };
   const renderNumericCell = (item, field, callbacks) => {
-    const el3 = document.createElement("input");
-    el3.type = "number";
-    el3.className = "twm-sortable-list__input twm-attr-editor__cell";
-    el3.step = "any";
-    el3.value = item[field] === null || item[field] === void 0 ? "" : String(item[field]);
-    el3.placeholder = "\u2014";
-    el3.addEventListener("input", () => {
-      const v = el3.value === "" ? null : Number(el3.value);
+    const el2 = document.createElement("input");
+    el2.type = "number";
+    el2.className = "twm-sortable-list__input twm-attr-editor__cell";
+    el2.step = "any";
+    el2.value = item[field] === null || item[field] === void 0 ? "" : String(item[field]);
+    el2.placeholder = "\u2014";
+    el2.addEventListener("input", () => {
+      const v = el2.value === "" ? null : Number(el2.value);
       callbacks.update({ [field]: v });
     });
-    el3.addEventListener("blur", () => onFlush());
-    return el3;
+    el2.addEventListener("blur", () => onFlush());
+    return el2;
   };
   const renderDistributionCell = (item, callbacks) => {
-    const el3 = document.createElement("select");
-    el3.className = "twm-attr-editor__cell";
+    const el2 = document.createElement("select");
+    el2.className = "twm-attr-editor__cell";
     for (const d of DISTRIBUTION_OPTIONS) {
       const o = document.createElement("option");
       o.value = d;
       o.textContent = d || "(none)";
       if ((item.distribution || "") === d) o.selected = true;
-      el3.appendChild(o);
+      el2.appendChild(o);
     }
-    el3.addEventListener("change", () => {
-      callbacks.update({ distribution: el3.value || null });
+    el2.addEventListener("change", () => {
+      callbacks.update({ distribution: el2.value || null });
       onFlush();
     });
-    return el3;
+    return el2;
   };
   const renderTextCell = (item, field, callbacks, placeholder) => {
-    const el3 = document.createElement("input");
-    el3.type = "text";
-    el3.className = "twm-sortable-list__input twm-attr-editor__cell";
-    el3.value = item[field] ?? "";
-    el3.placeholder = placeholder;
-    el3.addEventListener("input", () => {
-      callbacks.update({ [field]: el3.value });
+    const el2 = document.createElement("input");
+    el2.type = "text";
+    el2.className = "twm-sortable-list__input twm-attr-editor__cell";
+    el2.value = item[field] ?? "";
+    el2.placeholder = placeholder;
+    el2.addEventListener("input", () => {
+      callbacks.update({ [field]: el2.value });
     });
-    el3.addEventListener("blur", () => onFlush());
-    return el3;
+    el2.addEventListener("blur", () => onFlush());
+    return el2;
   };
   const renderBoolCell = (item, field, callbacks) => {
-    const el3 = document.createElement("input");
-    el3.type = "checkbox";
-    el3.className = "twm-attr-editor__cell";
-    el3.checked = !!item[field];
-    el3.addEventListener("change", () => {
-      callbacks.update({ [field]: el3.checked });
+    const el2 = document.createElement("input");
+    el2.type = "checkbox";
+    el2.className = "twm-attr-editor__cell";
+    el2.checked = !!item[field];
+    el2.addEventListener("change", () => {
+      callbacks.update({ [field]: el2.checked });
       onFlush();
     });
-    return el3;
+    return el2;
   };
   const renderFlagCell = (item, field, callbacks, defaultIfMissing) => {
-    const el3 = document.createElement("input");
-    el3.type = "checkbox";
-    el3.className = "twm-attr-editor__cell ea-attr-editor__cell--flag";
+    const el2 = document.createElement("input");
+    el2.type = "checkbox";
+    el2.className = "twm-attr-editor__cell ea-attr-editor__cell--flag";
     const cur = item[field];
-    el3.checked = cur === void 0 || cur === null ? !!defaultIfMissing : !!cur;
-    el3.addEventListener("change", () => {
-      callbacks.update({ [field]: el3.checked });
+    el2.checked = cur === void 0 || cur === null ? !!defaultIfMissing : !!cur;
+    el2.addEventListener("change", () => {
+      callbacks.update({ [field]: el2.checked });
       onFlush();
     });
-    return el3;
+    return el2;
   };
   const renderTypeCell = (item, callbacks) => {
-    const el3 = document.createElement("select");
-    el3.className = "twm-attr-editor__cell";
+    const el2 = document.createElement("select");
+    el2.className = "twm-attr-editor__cell";
     const seen = /* @__PURE__ */ new Set();
     const addOpts = (label, optList) => {
       if (optList.length === 0) return;
@@ -1204,7 +1231,7 @@ function mountAttributeListEditor(hostEl, options = {}) {
         grp.appendChild(o);
         seen.add(t);
       }
-      el3.appendChild(grp);
+      el2.appendChild(grp);
     };
     addOpts("scalar", types.filter((t) => SCALAR_TYPES.includes(t)));
     addOpts("expression", types.filter((t) => t === "expression"));
@@ -1214,12 +1241,12 @@ function mountAttributeListEditor(hostEl, options = {}) {
       types.filter((t) => t.startsWith("list[ref:"))
     );
     addOpts("other", types.filter((t) => !seen.has(t)));
-    el3.addEventListener("change", () => {
-      callbacks.update({ type: el3.value });
+    el2.addEventListener("change", () => {
+      callbacks.update({ type: el2.value });
       onFlush();
       list?.setItems(currentItems());
     });
-    return el3;
+    return el2;
   };
   const renderTypedValueCell = (field, item, callbacks) => {
     const t = item.type || "string";
@@ -1227,24 +1254,24 @@ function mountAttributeListEditor(hostEl, options = {}) {
       return renderBoolCell(item, field, callbacks);
     }
     if (t === "integer" || t === "number") {
-      const el4 = document.createElement("input");
-      el4.type = "number";
-      el4.className = "twm-sortable-list__input twm-attr-editor__cell";
-      el4.step = t === "integer" ? "1" : "any";
-      el4.value = item[field] === null || item[field] === void 0 ? "" : item[field];
-      el4.placeholder = field;
-      el4.addEventListener("input", () => {
-        const v = el4.value === "" ? null : t === "integer" ? parseInt(el4.value, 10) : Number(el4.value);
+      const el3 = document.createElement("input");
+      el3.type = "number";
+      el3.className = "twm-sortable-list__input twm-attr-editor__cell";
+      el3.step = t === "integer" ? "1" : "any";
+      el3.value = item[field] === null || item[field] === void 0 ? "" : item[field];
+      el3.placeholder = field;
+      el3.addEventListener("input", () => {
+        const v = el3.value === "" ? null : t === "integer" ? parseInt(el3.value, 10) : Number(el3.value);
         callbacks.update({ [field]: v });
       });
-      el4.addEventListener("blur", () => onFlush());
-      return el4;
+      el3.addEventListener("blur", () => onFlush());
+      return el3;
     }
     if (t === "expression") {
-      const el4 = document.createElement("span");
-      el4.className = "twm-attr-editor__cell twm-attr-editor__cell--readonly";
-      el4.textContent = item.expression ? `\u2192 ${item.expression}` : "\u2014 (engine-evaluated)";
-      return el4;
+      const el3 = document.createElement("span");
+      el3.className = "twm-attr-editor__cell twm-attr-editor__cell--readonly";
+      el3.textContent = item.expression ? `\u2192 ${item.expression}` : "\u2014 (engine-evaluated)";
+      return el3;
     }
     if (t.startsWith("ref:")) {
       return renderRefCell(t.slice(4), field, item, callbacks);
@@ -1255,32 +1282,32 @@ function mountAttributeListEditor(hostEl, options = {}) {
     if (Array.isArray(item.options) && item.options.length > 0) {
       return renderEnumCell(item.options, field, item, callbacks);
     }
-    const el3 = document.createElement("input");
-    el3.type = "text";
-    el3.className = "twm-sortable-list__input twm-attr-editor__cell";
-    el3.value = item[field] ?? "";
-    el3.placeholder = field;
-    el3.addEventListener("input", () => {
-      callbacks.update({ [field]: el3.value });
+    const el2 = document.createElement("input");
+    el2.type = "text";
+    el2.className = "twm-sortable-list__input twm-attr-editor__cell";
+    el2.value = item[field] ?? "";
+    el2.placeholder = field;
+    el2.addEventListener("input", () => {
+      callbacks.update({ [field]: el2.value });
     });
-    el3.addEventListener("blur", () => onFlush());
-    return el3;
+    el2.addEventListener("blur", () => onFlush());
+    return el2;
   };
   const renderRefCell = (target, field, item, callbacks) => {
-    const el3 = document.createElement("select");
-    el3.className = "twm-attr-editor__cell";
+    const el2 = document.createElement("select");
+    el2.className = "twm-attr-editor__cell";
     const placeholder = document.createElement("option");
     placeholder.value = "";
     placeholder.textContent = `\u2014 pick ${target} \u2014`;
-    el3.appendChild(placeholder);
+    el2.appendChild(placeholder);
     const populate = (opts) => {
-      while (el3.childNodes.length > 1) el3.removeChild(el3.lastChild);
+      while (el2.childNodes.length > 1) el2.removeChild(el2.lastChild);
       for (const o of opts) {
         const node = document.createElement("option");
         node.value = o.id;
         node.textContent = o.label;
         if (o.id === item[field]) node.selected = true;
-        el3.appendChild(node);
+        el2.appendChild(node);
       }
     };
     if (refsCache.has(target)) {
@@ -1288,36 +1315,36 @@ function mountAttributeListEditor(hostEl, options = {}) {
     } else {
       resolveRefOptions(target).then(populate);
     }
-    el3.addEventListener("change", () => {
-      callbacks.update({ [field]: el3.value || null });
+    el2.addEventListener("change", () => {
+      callbacks.update({ [field]: el2.value || null });
       onFlush();
     });
-    return el3;
+    return el2;
   };
   const renderListRefCell = (target, field, item, callbacks) => {
-    const el3 = document.createElement("input");
-    el3.type = "text";
-    el3.className = "twm-sortable-list__input twm-attr-editor__cell";
+    const el2 = document.createElement("input");
+    el2.type = "text";
+    el2.className = "twm-sortable-list__input twm-attr-editor__cell";
     const arr = Array.isArray(item[field]) ? item[field] : [];
-    el3.value = arr.join(", ");
-    el3.placeholder = `${target}, ${target}, \u2026`;
-    el3.addEventListener("input", () => {
-      const next = el3.value.split(",").map((s) => s.trim()).filter(Boolean);
+    el2.value = arr.join(", ");
+    el2.placeholder = `${target}, ${target}, \u2026`;
+    el2.addEventListener("input", () => {
+      const next = el2.value.split(",").map((s) => s.trim()).filter(Boolean);
       callbacks.update({ [field]: next });
     });
-    el3.addEventListener("blur", () => onFlush());
-    return el3;
+    el2.addEventListener("blur", () => onFlush());
+    return el2;
   };
   const renderEnumCell = (options2, field, item, callbacks) => {
-    const el3 = document.createElement("select");
-    el3.className = "twm-attr-editor__cell";
+    const el2 = document.createElement("select");
+    el2.className = "twm-attr-editor__cell";
     const blank = document.createElement("option");
     blank.value = "";
     blank.textContent = "\u2014";
     if (item[field] === null || item[field] === void 0 || item[field] === "") {
       blank.selected = true;
     }
-    el3.appendChild(blank);
+    el2.appendChild(blank);
     for (const opt of options2) {
       const o = document.createElement("option");
       if (opt !== null && typeof opt === "object") {
@@ -1328,13 +1355,13 @@ function mountAttributeListEditor(hostEl, options = {}) {
         o.textContent = String(opt);
       }
       if (o.value === String(item[field] ?? "")) o.selected = true;
-      el3.appendChild(o);
+      el2.appendChild(o);
     }
-    el3.addEventListener("change", () => {
-      callbacks.update({ [field]: el3.value === "" ? null : el3.value });
+    el2.addEventListener("change", () => {
+      callbacks.update({ [field]: el2.value === "" ? null : el2.value });
       onFlush();
     });
-    return el3;
+    return el2;
   };
   const itemsCopy = (src) => (src || []).map((it) => ({ ...it }));
   const currentItems = () => list?.getItems?.() || itemsCopy(items);
@@ -1912,460 +1939,6 @@ function lowerTo(widths, idxs, low, over) {
   for (const i of cand) widths[i] = Math.min(widths[i], Math.max(floors.get(i), hi));
 }
 
-// src/ui/components/progress.js
-var PROGRESS_STATES = Object.freeze(["running", "done", "error", "cancelled"]);
-var PROGRESS_ITEM_STATES = Object.freeze(["pending", "running", "done", "failed"]);
-var STEP_STATES = Object.freeze(["pending", "active", "done", "error"]);
-var clamp01 = (x) => x < 0 ? 0 : x > 1 ? 1 : x;
-var isNum = (x) => typeof x === "number" && Number.isFinite(x);
-function formatElapsed(ms) {
-  const s = Math.max(0, Math.floor((ms || 0) / 1e3));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor(s % 3600 / 60);
-  const ss = String(s % 60).padStart(2, "0");
-  return h ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
-}
-function el(tag, className, text) {
-  const n = document.createElement(tag);
-  if (className) n.className = className;
-  if (text !== void 0) n.textContent = text;
-  return n;
-}
-function setText(node, text) {
-  const t = text == null ? "" : String(text);
-  if (node.textContent !== t) node.textContent = t;
-}
-function setWidth(node, fraction) {
-  const w = `${(clamp01(fraction) * 100).toFixed(2).replace(/\.?0+$/, "")}%`;
-  if (node.style.width !== w) node.style.width = w;
-}
-var ProgressBar = class {
-  /**
-   * @param {HTMLElement|null} host  appended to, if given
-   * @param {ProgressBarOptions} [options]
-   */
-  constructor(host, options = {}) {
-    const {
-      value = 0,
-      max = null,
-      indeterminate = false,
-      label = "",
-      showPercent = true,
-      showCount = null,
-      showElapsed = false,
-      onCancel = null,
-      cancelLabel = "Cancel",
-      now = Date.now,
-      className = ""
-    } = options;
-    this._value = isNum(value) ? value : 0;
-    this._max = isNum(max) && max > 0 ? max : null;
-    this._indeterminate = !!indeterminate;
-    this._label = label || "";
-    this._showPercent = showPercent !== false;
-    this._showCount = showCount;
-    this._showElapsed = !!showElapsed;
-    this._state = "running";
-    this._now = typeof now === "function" ? now : Date.now;
-    this._started = this._now();
-    this._stopped = null;
-    this._timer = null;
-    this._onCancel = typeof onCancel === "function" ? onCancel : null;
-    const root = el("div", `twm-progress${className ? ` ${className}` : ""}`);
-    const head = el("div", "twm-progress__head");
-    this._labelEl = el("span", "twm-progress__label");
-    this._readoutEl = el("span", "twm-progress__readout");
-    head.append(this._labelEl, this._readoutEl);
-    if (this._showElapsed) {
-      this._elapsedEl = el("span", "twm-progress__elapsed");
-      head.appendChild(this._elapsedEl);
-      this._startTimer();
-    } else {
-      this._elapsedEl = null;
-    }
-    if (this._onCancel) {
-      const btn = el("button", "twm-progress__cancel", cancelLabel);
-      btn.type = "button";
-      btn.addEventListener("click", () => {
-        if (btn.disabled || this._state !== "running") return;
-        btn.disabled = true;
-        this._onCancel();
-      });
-      this._cancelBtn = btn;
-      head.appendChild(btn);
-    } else {
-      this._cancelBtn = null;
-    }
-    this._track = el("div", "twm-progress__track");
-    this._track.setAttribute("role", "progressbar");
-    this._fill = el("div", "twm-progress__fill");
-    this._track.appendChild(this._fill);
-    root.append(head, this._track);
-    this.element = root;
-    this._draw();
-    if (host) host.appendChild(root);
-  }
-  /** The bar's fraction 0..1, or null while indeterminate. */
-  get fraction() {
-    if (this._indeterminate) return null;
-    return clamp01(this._max ? this._value / this._max : this._value);
-  }
-  /** `running`, `done`, `error` or `cancelled`. */
-  get state() {
-    return this._state;
-  }
-  /** Milliseconds since construction, frozen at the final state. */
-  get elapsed() {
-    return (this._stopped ?? this._now()) - this._started;
-  }
-  /**
-   * Change the bar in place. A number is the new value (a count with `max`,
-   * else a fraction); an object may carry `value`, `max`, `label` and
-   * `indeterminate`. Ignored once the bar is in a final state.
-   */
-  update(next) {
-    if (this._state !== "running") return this;
-    const o = isNum(next) ? { value: next } : next || {};
-    if ("max" in o) this._max = isNum(o.max) && o.max > 0 ? o.max : null;
-    if (isNum(o.value)) {
-      this._value = o.value;
-      if (!("indeterminate" in o)) this._indeterminate = false;
-    }
-    if ("indeterminate" in o) this._indeterminate = !!o.indeterminate;
-    if ("label" in o) this._label = o.label || "";
-    this._draw();
-    return this;
-  }
-  /**
-   * Put the bar in a final state (`done`, `error`, `cancelled`) or back to
-   * `running`. `done` fills it. A final state stops the elapsed clock and
-   * disables Cancel; `running` restarts the clock (still counting from
-   * construction) and enables Cancel again. `label` replaces the label when
-   * given.
-   */
-  setState(state, { label } = {}) {
-    if (!PROGRESS_STATES.includes(state)) throw new Error(`ProgressBar: unknown state "${state}"`);
-    this._state = state;
-    if (label !== void 0) this._label = label || "";
-    if (state === "done") {
-      this._indeterminate = false;
-      this._value = this._max ?? 1;
-    }
-    if (state === "running") {
-      this._stopped = null;
-      if (this._showElapsed) this._startTimer();
-    } else {
-      this._stopped = this._now();
-      if (this._timer) {
-        clearInterval(this._timer);
-        this._timer = null;
-      }
-    }
-    if (this._cancelBtn) this._cancelBtn.disabled = state !== "running";
-    this._draw();
-    this._drawElapsed();
-    return this;
-  }
-  /** Tick the elapsed readout once a second, unless it already ticks. */
-  _startTimer() {
-    if (!this._timer) this._timer = setInterval(() => this._drawElapsed(), 1e3);
-  }
-  /** Stop the elapsed clock and detach. */
-  dispose() {
-    this._showElapsed = false;
-    if (this._timer) {
-      clearInterval(this._timer);
-      this._timer = null;
-    }
-    this.element.remove();
-  }
-  _draw() {
-    const root = this.element;
-    for (const s of PROGRESS_STATES) {
-      root.classList.toggle(`twm-progress--${s}`, this._state === s);
-    }
-    root.classList.toggle("twm-progress--indeterminate", this._indeterminate);
-    setText(this._labelEl, this._label);
-    const f = this.fraction;
-    const parts = [];
-    if (f !== null) {
-      if (this._showPercent) parts.push(`${Math.floor(f * 100)}%`);
-      const count = this._showCount ?? !!this._max;
-      if (count && this._max) parts.push(`${fmtCount(this._value)} / ${fmtCount(this._max)}`);
-    }
-    setText(this._readoutEl, parts.join(" \xB7 "));
-    if (f === null) {
-      if (this._fill.style.width) this._fill.style.width = "";
-      this._track.removeAttribute("aria-valuenow");
-    } else {
-      setWidth(this._fill, f);
-      this._track.setAttribute("aria-valuenow", String(Math.round(f * 100)));
-    }
-    this._track.setAttribute("aria-valuemin", "0");
-    this._track.setAttribute("aria-valuemax", "100");
-    if (this._label) this._track.setAttribute("aria-label", this._label);
-    this._drawElapsed();
-  }
-  _drawElapsed() {
-    if (this._elapsedEl) setText(this._elapsedEl, formatElapsed(this.elapsed));
-  }
-};
-function fmtCount(n) {
-  return Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
-}
-var ProgressList = class {
-  /**
-   * @param {HTMLElement|null} host  appended to, if given
-   * @param {ProgressListOptions} [options]
-   */
-  constructor(host, options = {}) {
-    const { items = [], stats = true, pulse = true, emptyText = "", className = "" } = options;
-    this._stats = stats;
-    this._emptyText = emptyText;
-    this._rows = /* @__PURE__ */ new Map();
-    this._items = [];
-    const root = el("div", `twm-progress-list${pulse ? " twm-progress-list--pulse" : ""}${className ? ` ${className}` : ""}`);
-    this._listEl = el("div", "twm-progress-list__rows");
-    this._listEl.setAttribute("role", "list");
-    this._emptyEl = el("div", "twm-progress-list__empty");
-    this._statsEl = el("div", "twm-progress-list__stats");
-    root.append(this._listEl, this._emptyEl, this._statsEl);
-    this.element = root;
-    this.setItems(items);
-    if (host) host.appendChild(root);
-  }
-  /** The items last given, in order. */
-  get items() {
-    return this._items.slice();
-  }
-  /**
-   * Reconcile the rows with `items` by key: a known key keeps its row and
-   * has its text, width and state changed in place; a new key gets a row; a
-   * key that is gone loses its row. Rows follow the order given, and a row
-   * already in its place is not moved.
-   */
-  setItems(items) {
-    const list = Array.isArray(items) ? items : [];
-    const seen = /* @__PURE__ */ new Set();
-    this._items = [];
-    for (const it of list) {
-      if (!it || it.key == null) continue;
-      const k = String(it.key);
-      if (seen.has(k)) continue;
-      seen.add(k);
-      this._items.push(it);
-    }
-    for (const [k, r] of this._rows) {
-      if (!seen.has(k)) {
-        r.row.remove();
-        this._rows.delete(k);
-      }
-    }
-    const scale = this._items.reduce((m, it) => {
-      const d = isNum(it.total) && it.total > 0 ? it.total : isNum(it.completed) ? it.completed : 0;
-      return d > m ? d : m;
-    }, 0);
-    let prev = null;
-    for (const it of this._items) {
-      const k = String(it.key);
-      let r = this._rows.get(k);
-      if (!r) {
-        r = this._makeRow();
-        this._rows.set(k, r);
-      }
-      this._drawRow(r, it, scale);
-      const want = prev ? prev.nextSibling : this._listEl.firstChild;
-      if (want !== r.row) this._listEl.insertBefore(r.row, want);
-      prev = r.row;
-    }
-    this._emptyEl.hidden = this._items.length > 0 || !this._emptyText;
-    setText(this._emptyEl, this._emptyText);
-    const line = this._statsLine();
-    this._statsEl.hidden = !line;
-    setText(this._statsEl, line);
-    return this;
-  }
-  /** The row element for `key`, or null. */
-  rowFor(key) {
-    return this._rows.get(String(key))?.row ?? null;
-  }
-  dispose() {
-    this.element.remove();
-    this._rows.clear();
-  }
-  _makeRow() {
-    const row = el("div", "twm-progress-list__row");
-    row.setAttribute("role", "listitem");
-    const name = el("span", "twm-progress-list__name");
-    const track = el("div", "twm-progress-list__track");
-    const fill = el("div", "twm-progress-list__fill");
-    track.appendChild(fill);
-    const count = el("span", "twm-progress-list__count");
-    const state = el("span", "twm-progress-list__state");
-    row.append(state, name, track, count);
-    return { row, name, fill, count, state };
-  }
-  _drawRow(r, it, scale) {
-    const state = PROGRESS_ITEM_STATES.includes(it.state) ? it.state : "pending";
-    for (const s of PROGRESS_ITEM_STATES) {
-      r.row.classList.toggle(`twm-progress-list__row--${s}`, s === state);
-    }
-    const done = isNum(it.completed) ? it.completed : 0;
-    const hasTotal = isNum(it.total) && it.total > 0;
-    const denom = hasTotal ? it.total : scale;
-    setWidth(r.fill, denom > 0 ? done / denom : 0);
-    setText(r.name, it.name ?? String(it.key));
-    const count = hasTotal ? `${fmtCount(done)} / ${fmtCount(it.total)}` : fmtCount(done);
-    setText(r.count, it.detail ? `${count} \xB7 ${it.detail}` : count);
-    if (r.state.title !== state) r.state.title = state;
-  }
-  _statsLine() {
-    if (this._stats === false) return "";
-    if (typeof this._stats === "function") return String(this._stats(this.items) ?? "");
-    if (!this._items.length) return "";
-    const n = { done: 0, running: 0, failed: 0, pending: 0 };
-    let completed = 0;
-    for (const it of this._items) {
-      n[PROGRESS_ITEM_STATES.includes(it.state) ? it.state : "pending"] += 1;
-      if (isNum(it.completed)) completed += it.completed;
-    }
-    const parts = [`${n.done} / ${this._items.length} done`];
-    if (n.running) parts.push(`${n.running} running`);
-    if (n.failed) parts.push(`${n.failed} failed`);
-    if (n.pending) parts.push(`${n.pending} pending`);
-    parts.push(`${fmtCount(completed)} completed`);
-    return parts.join(" \xB7 ");
-  }
-};
-var StepProgress = class {
-  /**
-   * @param {HTMLElement|null} host  appended to, if given
-   * @param {{ steps?: Array<StepDef|string>, className?: string }} [options]
-   */
-  constructor(host, options = {}) {
-    const { steps = [], className = "" } = options;
-    const root = el("ol", `twm-steps${className ? ` ${className}` : ""}`);
-    this.element = root;
-    this._steps = steps.map((s, i) => {
-      const def = typeof s === "string" ? { label: s } : s || {};
-      const li = el("li", "twm-steps__step");
-      const marker = el("span", "twm-steps__marker");
-      const label = el("span", "twm-steps__label", def.label ?? "");
-      const pass = el("span", "twm-steps__pass");
-      pass.hidden = true;
-      li.append(marker, label, pass);
-      root.appendChild(li);
-      return { key: def.key != null ? String(def.key) : String(i), label: def.label ?? "", state: "pending", pass: null, li, passEl: pass };
-    });
-    this._draw();
-    if (host) host.appendChild(root);
-  }
-  /** `[{ key, label, state, pass }]`, in order. */
-  get steps() {
-    return this._steps.map(({ key, label, state, pass }) => ({ key, label, state, pass }));
-  }
-  /** The index of the active phase, or -1. */
-  get activeIndex() {
-    return this._steps.findIndex((s) => s.state === "active");
-  }
-  /**
-   * Make one phase active: every phase before it is done, every phase after
-   * it pending. `pass` and `passes` read "pass n of m" on it.
-   * @param {string|number} which - A key, or an index.
-   * @param {{ pass?: number, passes?: number }} [opts]
-   */
-  setStep(which, { pass, passes } = {}) {
-    const i = this._index(which);
-    this._steps.forEach((s, j) => {
-      s.state = j < i ? "done" : j === i ? "active" : "pending";
-      s.pass = j === i && isNum(pass) ? { n: pass, of: isNum(passes) ? passes : null } : null;
-    });
-    this._draw();
-    return this;
-  }
-  /** Mark a phase (the active one by default) as failed; phases after it stay pending. */
-  fail(which) {
-    const i = which === void 0 ? this.activeIndex : this._index(which);
-    if (i < 0) return this;
-    this._steps.forEach((s, j) => {
-      if (j < i) s.state = "done";
-      else if (j === i) s.state = "error";
-      else s.state = "pending";
-      if (j !== i) s.pass = null;
-    });
-    this._draw();
-    return this;
-  }
-  /** Every phase done. */
-  complete() {
-    for (const s of this._steps) {
-      s.state = "done";
-      s.pass = null;
-    }
-    this._draw();
-    return this;
-  }
-  dispose() {
-    this.element.remove();
-  }
-  _index(which) {
-    const i = typeof which === "number" ? which : this._steps.findIndex((s) => s.key === String(which));
-    if (!Number.isInteger(i) || i < 0 || i >= this._steps.length) {
-      throw new Error(`StepProgress: no step "${which}"`);
-    }
-    return i;
-  }
-  _draw() {
-    for (const s of this._steps) {
-      for (const st of STEP_STATES) s.li.classList.toggle(`twm-steps__step--${st}`, s.state === st);
-      if (s.state === "active") s.li.setAttribute("aria-current", "step");
-      else s.li.removeAttribute("aria-current");
-      const text = s.pass ? s.pass.of ? `pass ${s.pass.n} of ${s.pass.of}` : `pass ${s.pass.n}` : "";
-      s.passEl.hidden = !text;
-      setText(s.passEl, text);
-    }
-  }
-};
-
-// src/ui/components/job_progress.js
-function mountJobProgress(parent, { progress = null, steps = null, spinner = null } = {}) {
-  const stepper = Array.isArray(steps) && steps.length ? new StepProgress(parent, { steps, className: "twm-job-progress__steps" }) : null;
-  let bar = null;
-  if (progress) {
-    const { onCancel: _ignored, ...rest } = typeof progress === "object" ? progress : {};
-    bar = new ProgressBar(parent, { ...rest, className: "twm-job-progress__bar" });
-    if (spinner) spinner.hidden = true;
-  }
-  return {
-    get bar() {
-      return bar;
-    },
-    get steps() {
-      return stepper;
-    },
-    /** `bar.update(next)`. */
-    setProgress(next) {
-      if (!bar) throw new Error("setProgress: this dialog was opened without `progress`");
-      bar.update(next);
-    },
-    /** `steps.setStep(which, opts)`. */
-    setStep(which, opts) {
-      if (!stepper) throw new Error("setStep: this dialog was opened without `steps`");
-      stepper.setStep(which, opts);
-    },
-    /** Put the bar and the phases in their final state. */
-    finish(status) {
-      if (status === "done") {
-        bar?.setState("done");
-        stepper?.complete();
-      } else if (status === "error") {
-        bar?.setState("error");
-        stepper?.fail();
-      } else bar?.setState("cancelled");
-    }
-  };
-}
-
 // src/ui/components/computing_status_window.js
 var _activeWindow = null;
 function showComputingWindow({
@@ -2483,242 +2056,6 @@ function showComputingWindow({
   };
 }
 
-// src/ui/components/confirm_dialog.js
-var dialogIdCounter = 0;
-async function showConfirmDialog(options = {}) {
-  const {
-    title = "Confirm",
-    message = "Are you sure?",
-    icon: icon2 = "warning",
-    okLabel = "OK",
-    cancelLabel = "Cancel",
-    okVariant = "primary"
-  } = options;
-  return openConfirm({
-    title,
-    message,
-    icon: icon2,
-    confirmLabel: okLabel,
-    cancelLabel,
-    danger: okVariant === "danger"
-  });
-}
-async function showDeleteConfirmDialog(options = {}) {
-  const {
-    itemName = "",
-    itemType = "item",
-    additionalMessage = ""
-  } = options;
-  let message = `Delete ${itemType}`;
-  if (itemName) message += ` "${itemName}"`;
-  message += "?";
-  if (additionalMessage) message += `
-
-${additionalMessage}`;
-  return openConfirm({
-    title: `Delete ${capitalize(itemType)}`,
-    message,
-    icon: "delete",
-    confirmLabel: "Delete",
-    cancelLabel: "Cancel",
-    danger: true
-  });
-}
-async function showCloseConfirmDialog(options = {}) {
-  const {
-    itemName = "",
-    itemType = "tab"
-  } = options;
-  let message = `Close ${itemType}`;
-  if (itemName) message += ` "${itemName}"`;
-  message += "?";
-  return openConfirm({
-    title: `Close ${capitalize(itemType)}`,
-    message,
-    icon: "close",
-    confirmLabel: "Close",
-    cancelLabel: "Cancel"
-  });
-}
-async function showChoiceDialog(options = {}) {
-  const {
-    title = "Choose",
-    message = "",
-    icon: icon2 = "warning",
-    actions = []
-  } = options;
-  const content = document.createElement("div");
-  content.className = "twm-confirm-dialog__body";
-  content.innerHTML = `
-        <span class="twm-confirm-dialog__icon material-symbols-outlined">${escapeHtml(icon2)}</span>
-        <div class="twm-confirm-dialog__message">${escapeHtml(message)}</div>
-    `;
-  return openModal({
-    title,
-    icon: icon2,
-    content,
-    width: 480,
-    height: 220,
-    actions: actions.map((a) => ({
-      label: a.label,
-      value: a.value,
-      primary: a.variant === "primary",
-      danger: a.variant === "danger"
-    }))
-  });
-}
-async function showSelectDialog(options = {}) {
-  const {
-    title = "Select",
-    message = "",
-    items = [],
-    okLabel = "OK",
-    cancelLabel = "Cancel"
-  } = options;
-  const fields = [];
-  if (message) {
-    fields.push({ section: message });
-  }
-  fields.push({
-    name: "_choice",
-    label: "Choice",
-    type: "select",
-    default: items[0]?.value || "",
-    options: items.map((i) => ({ value: i.value, label: i.label }))
-  });
-  void cancelLabel;
-  const data = await openForm({
-    title,
-    submitLabel: okLabel,
-    fields
-  });
-  if (!data) return null;
-  return data._choice;
-}
-function escapeHtml(str) {
-  if (!str) return "";
-  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-function capitalize(str) {
-  if (!str) return "";
-  return str.charAt(0).toUpperCase() + str.slice(1);
-}
-function showRunProgressDialog(options = {}) {
-  const {
-    title = "Running Pipeline",
-    message = "Starting\u2026",
-    onCancel,
-    progress = null,
-    steps = null
-  } = options;
-  const dialogId = `run-progress-${++dialogIdCounter}`;
-  let finished = false;
-  let settle;
-  const result = new Promise((resolve) => {
-    settle = resolve;
-  });
-  const contentEl = document.createElement("div");
-  contentEl.className = "twm-confirm-dialog__content run-progress";
-  const bodyEl = document.createElement("div");
-  bodyEl.className = "twm-run-progress__body";
-  const spinnerEl = document.createElement("div");
-  spinnerEl.className = "twm-run-progress__spinner";
-  const messageEl = document.createElement("div");
-  messageEl.className = "twm-run-progress__message";
-  messageEl.textContent = message;
-  bodyEl.append(spinnerEl, messageEl);
-  contentEl.appendChild(bodyEl);
-  const job = mountJobProgress(contentEl, { progress, steps, spinner: spinnerEl });
-  let stopBtn = null;
-  if (typeof onCancel === "function") {
-    const stopActionsEl = document.createElement("div");
-    stopActionsEl.className = "twm-confirm-dialog__actions twm-run-progress__stop-actions";
-    stopBtn = document.createElement("button");
-    stopBtn.type = "button";
-    stopBtn.className = "twm-confirm-dialog__btn twm-run-progress__stop-btn";
-    stopBtn.innerHTML = '<span class="material-symbols-outlined">stop</span> Stop';
-    stopBtn.addEventListener("click", () => {
-      stopBtn.disabled = true;
-      stopBtn.innerHTML = '<span class="material-symbols-outlined">hourglass_top</span> Stopping\u2026';
-      onCancel();
-    });
-    stopActionsEl.appendChild(stopBtn);
-    contentEl.appendChild(stopActionsEl);
-  }
-  const actionsEl = document.createElement("div");
-  actionsEl.className = "twm-confirm-dialog__actions";
-  actionsEl.style.display = "none";
-  const closeBtn = document.createElement("button");
-  closeBtn.type = "button";
-  closeBtn.className = "twm-confirm-dialog__btn twm-confirm-dialog__btn--primary";
-  closeBtn.textContent = "Close";
-  closeBtn.addEventListener("click", () => dialogWindow.close());
-  actionsEl.appendChild(closeBtn);
-  contentEl.appendChild(actionsEl);
-  const finish = (status, text, cls) => {
-    finished = true;
-    spinnerEl.style.display = "none";
-    if (stopBtn) stopBtn.parentElement.style.display = "none";
-    messageEl.textContent = text;
-    messageEl.className = `twm-run-progress__message ${cls}`;
-    job.finish(status);
-    actionsEl.style.display = "";
-    settle({ status, message: text });
-  };
-  const dialogWindow = new ManagedWindow({
-    id: dialogId,
-    title,
-    icon: "play_arrow",
-    content: contentEl,
-    minWidth: 320,
-    minHeight: 120,
-    defaultWidth: 420,
-    defaultHeight: 200 + (job.bar ? 40 : 0) + (job.steps ? 40 : 0),
-    canMinimize: false,
-    canMaximize: false,
-    canResize: false,
-    canDrag: false,
-    modal: true,
-    // BUG-0053. Focus goes to the window, never to Stop or Cancel: a stray
-    // Enter or Space would cancel the run.
-    focusOnOpen: "window",
-    onClose: () => {
-      if (finished) return;
-      finish("cancelled", "Cancelled.", "is-cancelled");
-    }
-  });
-  dialogWindow.show();
-  return {
-    result,
-    update(msg) {
-      if (finished) return;
-      messageEl.textContent = msg;
-    },
-    setProgress(next) {
-      if (finished) return;
-      job.setProgress(next);
-    },
-    setStep(which, opts) {
-      if (finished) return;
-      job.setStep(which, opts);
-    },
-    complete(res) {
-      if (finished) return;
-      finish(res?.ok ? "done" : "error", res?.message || "", res?.ok ? "is-ok" : "is-err");
-    },
-    cancelled(msg) {
-      if (finished) return;
-      finish("cancelled", msg || "Cancelled.", "is-cancelled");
-    },
-    close() {
-      try {
-        dialogWindow.close();
-      } catch {
-      }
-    }
-  };
-}
-
 // src/ui/components/conversation_view.js
 var CONVERSATION_PIN_WITHIN_PX = 32;
 var AT_END_PX = 1;
@@ -2741,14 +2078,14 @@ function mountConversationView(host, {
     ...labels
   };
   const doc = host.ownerDocument;
-  const el3 = (tag, cls, content) => {
+  const el2 = (tag, cls, content) => {
     const n = doc.createElement(tag);
     if (cls) n.className = cls;
     if (content !== void 0) n.textContent = content;
     return n;
   };
   const icon2 = (name) => {
-    const i = el3("span", "material-symbols-outlined", name);
+    const i = el2("span", "material-symbols-outlined", name);
     i.setAttribute("aria-hidden", "true");
     return i;
   };
@@ -2760,22 +2097,22 @@ function mountConversationView(host, {
   let busy = false;
   let cancelled = false;
   let destroyed = false;
-  const root = el3("div", "twm-chat");
-  const viewport = el3("div", "twm-chat__viewport");
-  const log = el3("div", "twm-chat__log");
+  const root = el2("div", "twm-chat");
+  const viewport = el2("div", "twm-chat__viewport");
+  const log = el2("div", "twm-chat__log");
   log.setAttribute("role", "log");
   log.setAttribute("aria-live", "polite");
-  const jump = el3("button", "twm-chat__jump");
+  const jump = el2("button", "twm-chat__jump");
   jump.type = "button";
   jump.append(icon2("arrow_downward"), doc.createTextNode(` ${text.jump}`));
   jump.hidden = true;
   viewport.append(log, jump);
-  const composer = el3("div", "twm-chat__composer");
-  const input = el3("textarea", "twm-chat__input");
+  const composer = el2("div", "twm-chat__composer");
+  const input = el2("textarea", "twm-chat__input");
   input.rows = 1;
   input.placeholder = placeholder;
   input.setAttribute("aria-label", text.input);
-  const send = el3("button", "twm-chat__send");
+  const send = el2("button", "twm-chat__send");
   send.type = "button";
   composer.append(input, send);
   root.append(viewport, composer);
@@ -2866,10 +2203,10 @@ function mountConversationView(host, {
       text: String(spec?.text ?? "")
     };
     if (into.has(message.id)) throw duplicate(message.id);
-    const row = el3("div", `twm-chat__msg twm-chat__msg--${roleClass(message.role)}`);
+    const row = el2("div", `twm-chat__msg twm-chat__msg--${roleClass(message.role)}`);
     if (streaming) row.classList.add("twm-chat__msg--streaming");
-    const body = el3("div", "twm-chat__body");
-    const extra = el3("div", "twm-chat__extra");
+    const body = el2("div", "twm-chat__body");
+    const extra = el2("div", "twm-chat__extra");
     row.append(body, extra);
     const entry = { message, row, body, extra };
     into.set(message.id, entry);
@@ -3328,10 +2665,10 @@ function statusOf(r, hasBefore, hasAfter) {
   }
   return "changed";
 }
-function appendContent(el3, content) {
+function appendContent(el2, content) {
   if (content === null || content === void 0) return;
   if (isNode(content)) {
-    el3.appendChild(content);
+    el2.appendChild(content);
     return;
   }
   let text;
@@ -3344,7 +2681,7 @@ function appendContent(el3, content) {
   } else {
     text = String(content);
   }
-  el3.appendChild(document.createTextNode(text));
+  el2.appendChild(document.createTextNode(text));
 }
 
 // src/ui/components/gallery_picker.js
@@ -3454,61 +2791,6 @@ async function mountGalleryPicker(hostEl, opts = {}) {
   };
 }
 
-// src/ui/components/toast.js
-var toastBus = null;
-function setToastBus(bus) {
-  const prev = toastBus;
-  toastBus = bus && typeof bus.emit === "function" ? bus : null;
-  return prev;
-}
-function getToastBus() {
-  return toastBus;
-}
-function _emit(severity, persistent, titleOrMsg, msg) {
-  const bus = toastBus;
-  const title = msg !== void 0 ? titleOrMsg : null;
-  const message = msg !== void 0 ? msg : titleOrMsg;
-  if (!bus) {
-    (severity === "error" || severity === "warn" ? console.warn : console.info)(
-      `[toast/${severity}]`,
-      title ? `${title}:` : "",
-      message
-    );
-    return;
-  }
-  bus.emit("toast:show", {
-    title,
-    message,
-    severity,
-    persistent,
-    durationMs: persistent ? 0 : 5e3
-  });
-}
-function toastError(titleOrMsg, msg) {
-  _emit("error", true, titleOrMsg, msg);
-}
-function toastWarn(titleOrMsg, msg) {
-  _emit("warn", false, titleOrMsg, msg);
-}
-function toastInfo(titleOrMsg, msg) {
-  _emit("info", false, titleOrMsg, msg);
-}
-function toastSuccess(titleOrMsg, msg) {
-  _emit("success", false, titleOrMsg, msg);
-}
-function reportBridgeError(opName, resOrErr) {
-  if (!resOrErr) return true;
-  if (resOrErr instanceof Error) {
-    toastError(opName, resOrErr.message || String(resOrErr));
-    return false;
-  }
-  if (resOrErr && resOrErr.ok === false) {
-    toastError(opName, resOrErr.error || "operation refused");
-    return false;
-  }
-  return true;
-}
-
 // src/ui/notification_center.js
 var SEVERITIES = ["info", "success", "warn", "error", "fatal"];
 var OUTCOME_BAR_STATE = Object.freeze({ success: "done", error: "error", fatal: "error" });
@@ -3538,9 +2820,9 @@ function showNotificationMenu(event, notification, logger) {
   );
 }
 var TOAST_TEXT = ".twm-notification__title, .twm-notification__body, .twm-notification__description, .twm-notification__status";
-function selectsTextIn(el3) {
-  const sel = el3.ownerDocument.getSelection?.();
-  return Boolean(sel && !sel.isCollapsed && sel.rangeCount && el3.contains(sel.getRangeAt(0).commonAncestorContainer));
+function selectsTextIn(el2) {
+  const sel = el2.ownerDocument.getSelection?.();
+  return Boolean(sel && !sel.isCollapsed && sel.rangeCount && el2.contains(sel.getRangeAt(0).commonAncestorContainer));
 }
 var NotificationCenter = class _NotificationCenter extends ComponentBase {
   #items;
@@ -4034,9 +3316,9 @@ var NotificationCenter = class _NotificationCenter extends ComponentBase {
     });
     const summary = this.#syncSummary();
     if (summary) wanted.push(summary);
-    wanted.forEach((el3, i) => {
+    wanted.forEach((el2, i) => {
       const at = this.listEl.children[i];
-      if (at !== el3) this.listEl.insertBefore(el3, at ?? null);
+      if (at !== el2) this.listEl.insertBefore(el2, at ?? null);
     });
     while (this.listEl.children.length > wanted.length) {
       this.listEl.lastElementChild.remove();
@@ -5078,10 +4360,10 @@ function pill(p) {
   if (s.tone) span.dataset.tone = safeWord(s.tone);
   return span;
 }
-function appendContent2(el3, content) {
+function appendContent2(el2, content) {
   if (content == null || content === false) return;
-  if (typeof Node !== "undefined" && content instanceof Node) el3.appendChild(content);
-  else el3.appendChild(document.createTextNode(String(content)));
+  if (typeof Node !== "undefined" && content instanceof Node) el2.appendChild(content);
+  else el2.appendChild(document.createTextNode(String(content)));
 }
 
 // src/ui/components/section_stack.js
@@ -5307,14 +4589,14 @@ function createSectionStack(container, { sections = [], stateStore = null, key =
 
 // src/ui/components/settings_view.js
 var SETTINGS_TEXT_DEBOUNCE_MS = 300;
-function el2(tag, className, text) {
+function el(tag, className, text) {
   const n = document.createElement(tag);
   if (className) n.className = className;
   if (text !== void 0 && text !== null) n.textContent = String(text);
   return n;
 }
 function icon(name) {
-  const n = el2("span", "material-symbols-outlined", name);
+  const n = el("span", "material-symbols-outlined", name);
   n.setAttribute("aria-hidden", "true");
   return n;
 }
@@ -5348,8 +4630,8 @@ function fitNumber(n, { min, max, step }) {
   return at(k);
 }
 function filterBox(onInput) {
-  const label = el2("label", "twm-settings__search");
-  const input = el2("input", "twm-settings__search-input");
+  const label = el("label", "twm-settings__search");
+  const input = el("input", "twm-settings__search-input");
   input.type = "search";
   input.placeholder = "Filter settings\u2026";
   input.autocomplete = "off";
@@ -5360,7 +4642,7 @@ function filterBox(onInput) {
   return { label, input };
 }
 function categoryNav(onSelect) {
-  const nav = el2("nav", "twm-settings__nav");
+  const nav = el("nav", "twm-settings__nav");
   nav.setAttribute("aria-label", "Settings categories");
   nav.addEventListener("click", (e) => {
     const btn = e.target.closest?.("[data-category]");
@@ -5370,23 +4652,23 @@ function categoryNav(onSelect) {
 }
 function paintCategories(nav, categories, active) {
   const buttons = categories.map((cat) => {
-    const b = el2("button", "twm-settings__cat");
+    const b = el("button", "twm-settings__cat");
     b.type = "button";
     b.dataset.category = cat.id;
     if (cat.id === active) {
       b.classList.add("twm-settings__cat--active");
       b.setAttribute("aria-current", "page");
     }
-    b.append(icon(cat.icon || "tune"), el2("span", "twm-settings__cat-label", cat.label ?? cat.id));
+    b.append(icon(cat.icon || "tune"), el("span", "twm-settings__cat-label", cat.label ?? cat.id));
     if (cat.description) b.title = String(cat.description);
     return b;
   });
   nav.replaceChildren(...buttons);
 }
 function resetAllButton(onClick) {
-  const b = el2("button", "twm-btn twm-settings__reset-all");
+  const b = el("button", "twm-btn twm-settings__reset-all");
   b.type = "button";
-  b.append(icon("restart_alt"), el2("span", "", "Reset all"));
+  b.append(icon("restart_alt"), el("span", "", "Reset all"));
   b.addEventListener("click", () => {
     onClick();
   });
@@ -5441,18 +4723,18 @@ var SettingsView = class extends ComponentBase {
   /** Build the view into `container` (once). */
   mount(container) {
     if (this.root) return this.root;
-    const root = el2("div", "twm-settings");
+    const root = el("div", "twm-settings");
     if (this._sidebar) {
-      const side = el2("aside", "twm-settings__sidebar");
-      const head = el2("div", "twm-settings__sidebar-title");
-      head.append(icon("settings"), el2("span", "", this._title));
+      const side = el("aside", "twm-settings__sidebar");
+      const head = el("div", "twm-settings__sidebar-title");
+      head.append(icon("settings"), el("span", "", this._title));
       const search = filterBox((text) => this.setQuery(text));
       this._search = search.input;
       this._nav = categoryNav((id) => this.selectCategory(id));
       side.append(head, search.label, this._nav, resetAllButton(() => this.resetAll()));
       root.append(side);
     }
-    const content = el2("div", "twm-settings__content");
+    const content = el("div", "twm-settings__content");
     this._content = content;
     root.append(content);
     this.root = root;
@@ -5620,10 +4902,10 @@ var SettingsView = class extends ComponentBase {
       const rank = new Map(cats.map((c, i) => [c.id, i]));
       const matches = Object.entries(schema).filter(([path, def]) => [def.label, def.description, path].some((t) => t != null && String(t).toLowerCase().includes(q))).map(([path, def]) => ({ path, ...def }));
       matches.sort((a, b) => (rank.get(a.category) ?? Infinity) - (rank.get(b.category) ?? Infinity));
-      const header2 = el2("header", "twm-settings__header");
-      const info2 = el2("div", "twm-settings__header-info");
+      const header2 = el("header", "twm-settings__header");
+      const info2 = el("div", "twm-settings__header-info");
       const n = matches.length;
-      info2.append(el2(
+      info2.append(el(
         "h2",
         "twm-settings__title",
         `${n} result${n === 1 ? "" : "s"} for \u201C${this._query.trim()}\u201D`
@@ -5631,7 +4913,7 @@ var SettingsView = class extends ComponentBase {
       header2.append(info2);
       content.append(header2);
       if (!n) {
-        content.append(el2("div", "twm-settings__empty", "No setting matches the filter."));
+        content.append(el("div", "twm-settings__empty", "No setting matches the filter."));
         return;
       }
       this.#paintGroups(matches, (def) => `${labelOf.get(def.category) ?? def.category ?? ""} \u203A ${def.group || "General"}`);
@@ -5639,17 +4921,17 @@ var SettingsView = class extends ComponentBase {
     }
     const cat = this.#activeCategory();
     if (!cat) {
-      content.append(el2("div", "twm-settings__empty", "No settings."));
+      content.append(el("div", "twm-settings__empty", "No settings."));
       return;
     }
     this._category = cat.id;
-    const header = el2("header", "twm-settings__header");
-    const info = el2("div", "twm-settings__header-info");
-    info.append(el2("h2", "twm-settings__title", cat.label ?? cat.id));
-    if (cat.description) info.append(el2("p", "twm-settings__description", cat.description));
-    const reset = el2("button", "twm-btn twm-settings__reset-category");
+    const header = el("header", "twm-settings__header");
+    const info = el("div", "twm-settings__header-info");
+    info.append(el("h2", "twm-settings__title", cat.label ?? cat.id));
+    if (cat.description) info.append(el("p", "twm-settings__description", cat.description));
+    const reset = el("button", "twm-btn twm-settings__reset-category");
     reset.type = "button";
-    reset.append(icon("restart_alt"), el2("span", "", "Reset category"));
+    reset.append(icon("restart_alt"), el("span", "", "Reset category"));
     reset.addEventListener("click", () => {
       this.resetCategory(cat.id);
     });
@@ -5657,7 +4939,7 @@ var SettingsView = class extends ComponentBase {
     content.append(header);
     const defs = Object.entries(schema).filter(([, def]) => def.category === cat.id).map(([path, def]) => ({ path, ...def }));
     if (!defs.length) {
-      content.append(el2("div", "twm-settings__empty", "No settings in this category."));
+      content.append(el("div", "twm-settings__empty", "No settings in this category."));
       return;
     }
     this.#paintGroups(defs, (def) => def.group || "General");
@@ -5670,8 +4952,8 @@ var SettingsView = class extends ComponentBase {
       groups.get(key).push(def);
     }
     for (const [title, list] of groups) {
-      const section = el2("section", "twm-settings__group");
-      section.append(el2("h3", "twm-settings__group-title", title));
+      const section = el("section", "twm-settings__group");
+      section.append(el("h3", "twm-settings__group-title", title));
       for (const def of list) section.append(this.#row(def));
       this._content.append(section);
     }
@@ -5680,20 +4962,20 @@ var SettingsView = class extends ComponentBase {
   #row(def) {
     const { path } = def;
     const store = this.store;
-    const row = el2("div", "twm-settings__row");
+    const row = el("div", "twm-settings__row");
     row.dataset.path = path;
-    const info = el2("div", "twm-settings__info");
-    const labelLine = el2("div", "twm-settings__label-line");
-    const label = el2("span", "twm-settings__label", def.label ?? path);
-    const marker = el2("span", "twm-settings__marker", "Modified");
+    const info = el("div", "twm-settings__info");
+    const labelLine = el("div", "twm-settings__label-line");
+    const label = el("span", "twm-settings__label", def.label ?? path);
+    const marker = el("span", "twm-settings__marker", "Modified");
     labelLine.append(label, marker);
     info.append(labelLine);
-    if (def.description) info.append(el2("div", "twm-settings__description", def.description));
-    info.append(el2("code", "twm-settings__path", path));
-    const slot = el2("div", "twm-settings__control");
+    if (def.description) info.append(el("div", "twm-settings__description", def.description));
+    info.append(el("code", "twm-settings__path", path));
+    const slot = el("div", "twm-settings__control");
     const control = this.#control(def, (value) => store.set(path, value));
     slot.append(control.el);
-    const reset = el2("button", "twm-settings__reset");
+    const reset = el("button", "twm-settings__reset");
     reset.type = "button";
     reset.title = "Reset to default";
     reset.setAttribute("aria-label", `Reset ${def.label ?? path} to default`);
@@ -5760,7 +5042,7 @@ var SettingsView = class extends ComponentBase {
         };
       }
       case "number": {
-        const box = el2("input", "twm-settings__number");
+        const box = el("input", "twm-settings__number");
         box.type = "number";
         box.setAttribute("aria-label", name);
         if (def.min != null) box.min = String(def.min);
@@ -5796,7 +5078,7 @@ var SettingsView = class extends ComponentBase {
         };
       }
       case "text": {
-        const box = el2("input", "twm-settings__text");
+        const box = el("input", "twm-settings__text");
         box.type = "text";
         box.setAttribute("aria-label", name);
         if (def.placeholder != null) box.placeholder = String(def.placeholder);
@@ -5859,7 +5141,7 @@ var SettingsView = class extends ComponentBase {
         };
       }
       default: {
-        const out = el2("span", "twm-settings__readonly");
+        const out = el("span", "twm-settings__readonly");
         return {
           el: out,
           show: (v) => {
@@ -5890,7 +5172,7 @@ var SettingsCategories = class extends ComponentBase {
   mount(container) {
     if (this.root) return this.root;
     const view = this.view;
-    const root = el2("div", "twm-settings-categories");
+    const root = el("div", "twm-settings-categories");
     const search = filterBox((text) => view.setQuery(text));
     this._search = search.input;
     this._nav = categoryNav((id) => view.selectCategory(id));
@@ -6465,9 +5747,9 @@ function createTagInput(host, options = {}) {
 }
 
 // src/ui/components/tree_view.js
-function setText2(root, selector, value) {
-  const el3 = root.querySelector(selector);
-  if (el3) el3.textContent = value == null ? "" : String(value);
+function setText(root, selector, value) {
+  const el2 = root.querySelector(selector);
+  if (el2) el2.textContent = value == null ? "" : String(value);
 }
 function attrValue(value) {
   return String(value).replace(/["\\]/g, "\\$&").replace(/[\n\r\f]/g, (c) => `\\${c.charCodeAt(0).toString(16)} `);
@@ -6501,7 +5783,7 @@ function createTreeCategory(options) {
         </div>
         <div class="twm-collapsible-content${expanded ? " visible" : ""}" data-collapsible-content="true"></div>
     `;
-  setText2(node, ".twm-tree-category__label", label);
+  setText(node, ".twm-tree-category__label", label);
   return node;
 }
 function createTreeNode(options) {
@@ -6531,7 +5813,7 @@ function createTreeNode(options) {
         </div>
         <div class="twm-tree-node__children" style="display: ${expanded ? "block" : "none"};"></div>
     `;
-  setText2(node, ".twm-tree-node__label", label);
+  setText(node, ".twm-tree-node__label", label);
   if (actions) appendActionButtons(node.querySelector(".twm-tree-node__actions"), id, actions);
   return node;
 }
@@ -6591,9 +5873,9 @@ function createTreeItem(options) {
         ${subtitleHtml}
         ${badgeHtml}
     `;
-  setText2(item, ".twm-tree-item__label", label);
-  if (subtitle) setText2(item, ".twm-tree-item__subtitle", subtitle);
-  if (badge?.text) setText2(item, ".twm-tree-item__badge", badge.text);
+  setText(item, ".twm-tree-item__label", label);
+  if (subtitle) setText(item, ".twm-tree-item__subtitle", subtitle);
+  if (badge?.text) setText(item, ".twm-tree-item__badge", badge.text);
   if (actions) {
     const actionsEl = document.createElement("span");
     actionsEl.className = "twm-tree-item__actions";
@@ -6646,7 +5928,7 @@ function filterTree(container, filter, options = {}) {
     item.classList.toggle("twm-filter-match", matches && !!normalizedFilter);
     if (matches) visibleItems.add(item);
   });
-  const hasVisibleItem = (el3) => !normalizedFilter || [...el3.querySelectorAll(".twm-tree-item")].some((item) => visibleItems.has(item));
+  const hasVisibleItem = (el2) => !normalizedFilter || [...el2.querySelectorAll(".twm-tree-item")].some((item) => visibleItems.has(item));
   container.querySelectorAll(".twm-tree-node").forEach((node) => {
     const visible = hasVisibleItem(node);
     node.style.display = visible ? "" : "none";
@@ -6660,8 +5942,8 @@ function filterTree(container, filter, options = {}) {
 }
 function selectItem(container, itemId, options = {}) {
   const { scrollIntoView = true, expandParents = true } = options;
-  container.querySelectorAll(".twm-tree-item.selected").forEach((el3) => {
-    el3.classList.remove("selected");
+  container.querySelectorAll(".twm-tree-item.selected").forEach((el2) => {
+    el2.classList.remove("selected");
   });
   const item = container.querySelector(`.twm-tree-item[data-item-id="${attrValue(itemId)}"]`);
   if (!item) return null;
@@ -7433,7 +6715,7 @@ function glyph(name, className = "") {
   node.setAttribute("aria-hidden", "true");
   return node;
 }
-function setText3(node, text) {
+function setText2(node, text) {
   const value = String(text ?? "");
   if (node.textContent !== value) node.textContent = value;
 }
@@ -7503,44 +6785,44 @@ function mountPickerField(hostEl, {
   onActivate = null
 } = {}) {
   const centered = layout === "centered";
-  const el3 = button(["twm-wspicker-field", centered ? "twm-wspicker-field--centered" : "", className].filter(Boolean).join(" "));
-  el3.setAttribute("aria-haspopup", "dialog");
-  el3.setAttribute("aria-expanded", "false");
+  const el2 = button(["twm-wspicker-field", centered ? "twm-wspicker-field--centered" : "", className].filter(Boolean).join(" "));
+  el2.setAttribute("aria-haspopup", "dialog");
+  el2.setAttribute("aria-expanded", "false");
   const iconEl = glyph("", "twm-wspicker-field__icon");
   const nameEl = part("span", "twm-wspicker-field__name");
   const keyEl = part("kbd", "twm-wspicker-field__key");
-  el3.append(iconEl, nameEl, keyEl);
-  if (caret) el3.append(glyph("expand_more", "twm-wspicker-field__caret"));
+  el2.append(iconEl, nameEl, keyEl);
+  if (caret) el2.append(glyph("expand_more", "twm-wspicker-field__caret"));
   const update = (patch) => {
-    if ("name" in patch) setText3(nameEl, patch.name);
+    if ("name" in patch) setText2(nameEl, patch.name);
     if ("icon" in patch) {
-      setText3(iconEl, patch.icon);
+      setText2(iconEl, patch.icon);
       show(iconEl, !!patch.icon);
     }
     if ("keyHint" in patch) {
-      setText3(keyEl, patch.keyHint);
+      setText2(keyEl, patch.keyHint);
       show(keyEl, !!patch.keyHint);
     }
-    if ("muted" in patch) el3.classList.toggle("twm-wspicker-field--muted", !!patch.muted);
+    if ("muted" in patch) el2.classList.toggle("twm-wspicker-field--muted", !!patch.muted);
     if ("tooltip" in patch) {
-      el3.classList.toggle("twm-has-tooltip", !!patch.tooltip);
+      el2.classList.toggle("twm-has-tooltip", !!patch.tooltip);
       if (patch.tooltip) {
-        el3.setAttribute("data-tooltip", patch.tooltip);
-        el3.setAttribute("data-tooltip-placement", "bottom");
+        el2.setAttribute("data-tooltip", patch.tooltip);
+        el2.setAttribute("data-tooltip-placement", "bottom");
       } else {
-        el3.removeAttribute("data-tooltip");
-        el3.removeAttribute("data-tooltip-placement");
+        el2.removeAttribute("data-tooltip");
+        el2.removeAttribute("data-tooltip-placement");
       }
     }
     if ("ariaLabel" in patch) {
-      if (patch.ariaLabel) el3.setAttribute("aria-label", patch.ariaLabel);
-      else el3.removeAttribute("aria-label");
+      if (patch.ariaLabel) el2.setAttribute("aria-label", patch.ariaLabel);
+      else el2.removeAttribute("aria-label");
     }
   };
   update({ name, icon: icon2, keyHint, muted, tooltip, ariaLabel });
   const fit = () => {
     if (!centered) {
-      el3.classList.toggle("twm-wspicker-field--tight", el3.getBoundingClientRect().width < tightWidth);
+      el2.classList.toggle("twm-wspicker-field--tight", el2.getBoundingClientRect().width < tightWidth);
       return;
     }
     const box = hostEl.getBoundingClientRect();
@@ -7548,42 +6830,42 @@ function mountPickerField(hostEl, {
     let leftEdge = box.left;
     let rightEdge = box.right;
     for (const other of avoid ? hostEl.querySelectorAll(avoid) : []) {
-      if (el3.contains(other)) continue;
+      if (el2.contains(other)) continue;
       const r = other.getBoundingClientRect();
       if (r.width <= 0) continue;
       if (r.left + r.width / 2 < middle) leftEdge = Math.max(leftEdge, r.right);
       else rightEdge = Math.min(rightEdge, r.left);
     }
     const width = Math.min(maxWidth, 2 * Math.min(middle - leftEdge, rightEdge - middle) - gap);
-    el3.classList.toggle("twm-wspicker-field--hidden", width < minWidth);
-    el3.classList.toggle("twm-wspicker-field--tight", width < tightWidth);
-    el3.style.width = `${Math.max(minWidth, width)}px`;
+    el2.classList.toggle("twm-wspicker-field--hidden", width < minWidth);
+    el2.classList.toggle("twm-wspicker-field--tight", width < tightWidth);
+    el2.style.width = `${Math.max(minWidth, width)}px`;
   };
   let destroyed = false;
   const onClick = () => onActivate?.();
-  el3.addEventListener("click", onClick);
-  hostEl.appendChild(el3);
+  el2.addEventListener("click", onClick);
+  hostEl.appendChild(el2);
   const observer = createRafResizeObserver(() => {
     if (!destroyed) fit();
   });
-  observer.observe(centered ? hostEl : el3);
+  observer.observe(centered ? hostEl : el2);
   fit();
   document.fonts?.ready?.then(() => {
     if (!destroyed) fit();
   });
   return {
-    el: el3,
+    el: el2,
     update,
     fit,
     setOpen(open) {
-      el3.classList.toggle("twm-wspicker-field--open", open);
-      el3.setAttribute("aria-expanded", String(open));
+      el2.classList.toggle("twm-wspicker-field--open", open);
+      el2.setAttribute("aria-expanded", String(open));
     },
     destroy() {
       destroyed = true;
       observer.disconnect();
-      el3.removeEventListener("click", onClick);
-      el3.remove();
+      el2.removeEventListener("click", onClick);
+      el2.remove();
     }
   };
 }
@@ -7726,11 +7008,11 @@ function createPickerSwitcher({
     return entry;
   }
   function paintRow(entry, { name, detail, icon: icon2, badge, title, disabled = false, isCurrentRow = false }) {
-    setText3(entry.icon, icon2);
-    setText3(entry.name, name);
-    setText3(entry.detail, detail);
+    setText2(entry.icon, icon2);
+    setText2(entry.name, name);
+    setText2(entry.detail, detail);
     show(entry.detail, !!detail);
-    setText3(entry.badge, badge);
+    setText2(entry.badge, badge);
     show(entry.badge, !!badge);
     show(entry.check, isCurrentRow);
     entry.node.classList.toggle("twm-wspicker__row--current", isCurrentRow);
@@ -7790,9 +7072,9 @@ function createPickerSwitcher({
     };
   }
   function paintVerb(entry, verb) {
-    setText3(entry.icon, verb.icon);
-    setText3(entry.text, verb.label);
-    setText3(entry.trailing, verb.trailing);
+    setText2(entry.icon, verb.icon);
+    setText2(entry.text, verb.label);
+    setText2(entry.trailing, verb.trailing);
     entry.node.classList.toggle("twm-btn--primary", !!verb.primary);
     entry.node.title = verb.label;
     entry.run = () => runVerb(verb.run);
@@ -7812,14 +7094,14 @@ function createPickerSwitcher({
     cardOpenRun = model?.open ? () => runVerb(model.open.run) : null;
     show(cardOpen, !!model?.open);
     if (!model) return;
-    setText3(cardHeading, model.heading);
+    setText2(cardHeading, model.heading);
     show(cardHeading, !!model.heading);
-    setText3(cardIcon, model.icon);
-    setText3(cardName, model.name);
-    setText3(cardDetail, model.detail);
+    setText2(cardIcon, model.icon);
+    setText2(cardName, model.name);
+    setText2(cardDetail, model.detail);
     cardName.title = model.name;
-    setText3(cardOpenIcon, model.open?.icon);
-    setText3(cardOpenLabel, model.open?.label);
+    setText2(cardOpenIcon, model.open?.icon);
+    setText2(cardOpenLabel, model.open?.label);
     tiles.style.setProperty("--twm-wspicker-columns", String(model.columns || 2));
   }
   function renderFooter() {
@@ -7836,7 +7118,7 @@ function createPickerSwitcher({
       return hint;
     }));
     const { text = "", error = false } = typeof status === "string" ? { text: status } : status ?? {};
-    setText3(footStatus, text);
+    setText2(footStatus, text);
     show(footStatus, !!text);
     footStatus.classList.toggle("twm-wspicker__status--error", !!error);
     const keysShown = footKeys.childElementCount > 0 && panel.classList.contains("twm-wspicker--centered");
@@ -7900,19 +7182,19 @@ function createPickerSwitcher({
     const actionEntries = syncActions(shownActions(), (action) => action.id);
     const words = heading ? heading({ query, shown: shown.length, total }) : null;
     show(head, !!(words?.title || words?.count));
-    setText3(headTitle, words?.title);
-    setText3(headCount, words?.count);
+    setText2(headTitle, words?.title);
+    setText2(headCount, words?.count);
     let said = "";
     if (failure) said = failure;
     else if (!shown.length && (loading || total == null)) said = labels.loading;
     else if (!shown.length) said = query ? labels.noMatch(query) : labels.empty();
-    setText3(note, said);
+    setText2(note, said);
     show(note, !!said);
     note.classList.toggle("twm-wspicker__note--error", !!failure);
     const remaining = remote && total != null ? Math.max(0, total - items.length) : 0;
     show(more, remaining > 0 && !failure);
     if (remaining > 0) {
-      setText3(moreLabel, labels.loadMore({ next: Math.min(pageSize, remaining), shown: items.length, total }));
+      setText2(moreLabel, labels.loadMore({ next: Math.min(pageSize, remaining), shown: items.length, total }));
     }
     more.disabled = loading || loadingMore;
     collectStops(rowEntries, actionEntries, shown);
@@ -8953,19 +8235,19 @@ function thumbGeometry(scrollSize, clientSize, scrollPos, trackLen) {
   const pos = (trackLen - size) * Math.min(1, Math.max(0, scrollPos / max));
   return { size, pos };
 }
-function barCovered(el3, stacks) {
+function barCovered(el2, stacks) {
   const passThrough = (h) => h.closest?.(".twm-autoscroll-layer") || h.closest?.(".twm-resize-handle");
   return stacks.some((stack) => {
     const top = (stack || []).find((h) => !passThrough(h));
-    return Boolean(top) && top !== el3 && !el3.contains(top);
+    return Boolean(top) && top !== el2 && !el2.contains(top);
   });
 }
-function scrollsOn(el3, axis) {
-  if (!(el3 instanceof Element)) return false;
-  const cs = getComputedStyle(el3);
+function scrollsOn(el2, axis) {
+  if (!(el2 instanceof Element)) return false;
+  const cs = getComputedStyle(el2);
   const overflow = axis === "y" ? cs.overflowY : cs.overflowX;
-  if (overflow !== "auto" && overflow !== "scroll" && !(el3.tagName === "TEXTAREA" && overflow !== "hidden")) return false;
-  return axis === "y" ? el3.scrollHeight - el3.clientHeight > 1 : el3.scrollWidth - el3.clientWidth > 1;
+  if (overflow !== "auto" && overflow !== "scroll" && !(el2.tagName === "TEXTAREA" && overflow !== "hidden")) return false;
+  return axis === "y" ? el2.scrollHeight - el2.clientHeight > 1 : el2.scrollWidth - el2.clientWidth > 1;
 }
 function installAutoScrollbars(root = document.body, { exclude = null } = {}) {
   const doc = root.ownerDocument || document;
@@ -8980,8 +8262,8 @@ function installAutoScrollbars(root = document.body, { exclude = null } = {}) {
   }
   const managed = /* @__PURE__ */ new Map();
   let hoverChain = /* @__PURE__ */ new Set();
-  const eligible = (el3) => el3 instanceof Element && root.contains(el3) && !el3.__overlayScrollbarInstalled && !el3.closest?.(".twm-autoscroll-layer") && !(exclude && exclude(el3));
-  const makeBar = (el3, axis) => {
+  const eligible = (el2) => el2 instanceof Element && root.contains(el2) && !el2.__overlayScrollbarInstalled && !el2.closest?.(".twm-autoscroll-layer") && !(exclude && exclude(el2));
+  const makeBar = (el2, axis) => {
     const bar = doc.createElement("div");
     bar.className = `twm-autoscroll-bar twm-autoscroll-bar--${axis}`;
     const thumb = doc.createElement("div");
@@ -8993,182 +8275,182 @@ function installAutoScrollbars(root = document.body, { exclude = null } = {}) {
       e.preventDefault();
       const r = thumb.getBoundingClientRect();
       const before = axis === "y" ? e.clientY < r.top : e.clientX < r.left;
-      const page = (axis === "y" ? el3.clientHeight : el3.clientWidth) * 0.9;
-      if (axis === "y") el3.scrollTop += before ? -page : page;
-      else el3.scrollLeft += before ? -page : page;
+      const page = (axis === "y" ? el2.clientHeight : el2.clientWidth) * 0.9;
+      if (axis === "y") el2.scrollTop += before ? -page : page;
+      else el2.scrollLeft += before ? -page : page;
     });
     thumb.addEventListener("mousedown", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      const rec = managed.get(el3);
+      const rec = managed.get(el2);
       if (rec) rec.dragging = true;
       const start = axis === "y" ? e.clientY : e.clientX;
-      const startScroll = axis === "y" ? el3.scrollTop : el3.scrollLeft;
+      const startScroll = axis === "y" ? el2.scrollTop : el2.scrollLeft;
       const trackLen = axis === "y" ? bar.getBoundingClientRect().height : bar.getBoundingClientRect().width;
       const thumbLen = axis === "y" ? thumb.getBoundingClientRect().height : thumb.getBoundingClientRect().width;
-      const max = axis === "y" ? el3.scrollHeight - el3.clientHeight : el3.scrollWidth - el3.clientWidth;
+      const max = axis === "y" ? el2.scrollHeight - el2.clientHeight : el2.scrollWidth - el2.clientWidth;
       const perPx = trackLen > thumbLen ? max / (trackLen - thumbLen) : 0;
       bar.classList.add("twm-autoscroll-bar--active");
       const move = (mv) => {
         const d = (axis === "y" ? mv.clientY : mv.clientX) - start;
-        if (axis === "y") el3.scrollTop = startScroll + d * perPx;
-        else el3.scrollLeft = startScroll + d * perPx;
+        if (axis === "y") el2.scrollTop = startScroll + d * perPx;
+        else el2.scrollLeft = startScroll + d * perPx;
       };
       const up = () => {
         doc.removeEventListener("mousemove", move);
         doc.removeEventListener("mouseup", up);
         bar.classList.remove("twm-autoscroll-bar--active");
         if (rec) rec.dragging = false;
-        hideLater(el3);
+        hideLater(el2);
       };
       doc.addEventListener("mousemove", move);
       doc.addEventListener("mouseup", up);
     });
     bar.addEventListener("mouseenter", () => {
-      const rec = managed.get(el3);
+      const rec = managed.get(el2);
       if (rec) {
         rec.onBar = true;
-        show2(el3);
+        show2(el2);
       }
     });
     bar.addEventListener("mouseleave", () => {
-      const rec = managed.get(el3);
+      const rec = managed.get(el2);
       if (rec) {
         rec.onBar = false;
-        hideLater(el3);
+        hideLater(el2);
       }
     });
     return { bar, thumb };
   };
-  const record = (el3) => {
-    let rec = managed.get(el3);
+  const record = (el2) => {
+    let rec = managed.get(el2);
     if (!rec) {
       rec = { v: null, h: null, timer: 0, dragging: false, onBar: false };
-      managed.set(el3, rec);
+      managed.set(el2, rec);
     }
     return rec;
   };
-  const coveredAlong = (el3, points) => typeof doc.elementsFromPoint === "function" && barCovered(el3, points.map(([x, y]) => doc.elementsFromPoint(x, y)));
-  const place = (el3) => {
-    const rec = managed.get(el3);
+  const coveredAlong = (el2, points) => typeof doc.elementsFromPoint === "function" && barCovered(el2, points.map(([x, y]) => doc.elementsFromPoint(x, y)));
+  const place = (el2) => {
+    const rec = managed.get(el2);
     if (!rec) return;
-    if (!el3.isConnected) {
-      drop(el3);
+    if (!el2.isConnected) {
+      drop(el2);
       return;
     }
-    const r = el3.getBoundingClientRect();
+    const r = el2.getBoundingClientRect();
     const vw = win.innerWidth;
     const vh = win.innerHeight;
     const top = Math.max(0, r.top);
     const left = Math.max(0, r.left);
     const bottom = Math.min(vh, r.bottom);
     const right = Math.min(vw, r.right);
-    const z = el3.offsetHeight ? r.height / el3.offsetHeight : 1;
+    const z = el2.offsetHeight ? r.height / el2.offsetHeight : 1;
     for (const axis of ["y", "x"]) {
       const key = axis === "y" ? "v" : "h";
-      const overflows = scrollsOn(el3, axis);
+      const overflows = scrollsOn(el2, axis);
       if (!overflows) {
         if (rec[key]) rec[key].bar.style.display = "none";
         continue;
       }
-      if (!rec[key]) rec[key] = makeBar(el3, axis);
+      if (!rec[key]) rec[key] = makeBar(el2, axis);
       const { bar, thumb } = rec[key];
       bar.style.display = "";
       if (axis === "y") {
         const len = bottom - top;
         Object.assign(bar.style, { top: `${top}px`, left: `${right - BAR - 1}px`, height: `${len}px`, width: `${BAR}px` });
-        const g = thumbGeometry(el3.scrollHeight * z, el3.clientHeight * z, el3.scrollTop * z, len);
+        const g = thumbGeometry(el2.scrollHeight * z, el2.clientHeight * z, el2.scrollTop * z, len);
         if (!g) {
           bar.style.display = "none";
           continue;
         }
         Object.assign(thumb.style, { top: `${g.pos}px`, height: `${g.size}px`, left: "0", width: "100%" });
         const x = right - BAR / 2 - 1;
-        if (coveredAlong(el3, [[x, top + 2], [x, top + len / 2], [x, bottom - 2]])) bar.style.display = "none";
+        if (coveredAlong(el2, [[x, top + 2], [x, top + len / 2], [x, bottom - 2]])) bar.style.display = "none";
       } else {
         const len = right - left;
         Object.assign(bar.style, { left: `${left}px`, top: `${bottom - BAR - 1}px`, width: `${len}px`, height: `${BAR}px` });
-        const g = thumbGeometry(el3.scrollWidth * z, el3.clientWidth * z, el3.scrollLeft * z, len);
+        const g = thumbGeometry(el2.scrollWidth * z, el2.clientWidth * z, el2.scrollLeft * z, len);
         if (!g) {
           bar.style.display = "none";
           continue;
         }
         Object.assign(thumb.style, { left: `${g.pos}px`, width: `${g.size}px`, top: "0", height: "100%" });
         const y = bottom - BAR / 2 - 1;
-        if (coveredAlong(el3, [[left + 2, y], [left + len / 2, y], [right - 2, y]])) bar.style.display = "none";
+        if (coveredAlong(el2, [[left + 2, y], [left + len / 2, y], [right - 2, y]])) bar.style.display = "none";
       }
     }
   };
-  const setVisible = (el3, on) => {
-    const rec = managed.get(el3);
+  const setVisible = (el2, on) => {
+    const rec = managed.get(el2);
     if (!rec) return;
     for (const b of [rec.v, rec.h]) if (b) b.bar.classList.toggle("twm-autoscroll-bar--on", on);
   };
-  const show2 = (el3) => {
-    const rec = record(el3);
+  const show2 = (el2) => {
+    const rec = record(el2);
     clearTimeout(rec.timer);
-    place(el3);
-    setVisible(el3, true);
+    place(el2);
+    setVisible(el2, true);
   };
-  const hideLater = (el3) => {
-    const rec = managed.get(el3);
+  const hideLater = (el2) => {
+    const rec = managed.get(el2);
     if (!rec) return;
     clearTimeout(rec.timer);
     rec.timer = setTimeout(() => {
-      if (rec.dragging || rec.onBar || hoverChain.has(el3)) return;
-      setVisible(el3, false);
+      if (rec.dragging || rec.onBar || hoverChain.has(el2)) return;
+      setVisible(el2, false);
     }, HIDE_AFTER_MS);
   };
-  const drop = (el3) => {
-    const rec = managed.get(el3);
+  const drop = (el2) => {
+    const rec = managed.get(el2);
     if (!rec) return;
     clearTimeout(rec.timer);
     rec.v?.bar.remove();
     rec.h?.bar.remove();
-    managed.delete(el3);
+    managed.delete(el2);
   };
   const scrollChain = (target) => {
     const out = /* @__PURE__ */ new Set();
-    for (let el3 = target instanceof Element ? target : target?.parentElement; el3 && el3 !== doc.documentElement; el3 = el3.parentElement) {
-      if (el3.closest?.(".twm-autoscroll-layer")) return out;
-      if (eligible(el3) && (scrollsOn(el3, "y") || scrollsOn(el3, "x"))) out.add(el3);
-      if (el3 === root) break;
+    for (let el2 = target instanceof Element ? target : target?.parentElement; el2 && el2 !== doc.documentElement; el2 = el2.parentElement) {
+      if (el2.closest?.(".twm-autoscroll-layer")) return out;
+      if (eligible(el2) && (scrollsOn(el2, "y") || scrollsOn(el2, "x"))) out.add(el2);
+      if (el2 === root) break;
     }
     return out;
   };
   const onOver = (e) => {
     if (e.target?.closest?.(".twm-autoscroll-layer")) return;
     const next = scrollChain(e.target);
-    for (const el3 of hoverChain) if (!next.has(el3)) hideLater(el3);
-    for (const el3 of next) show2(el3);
+    for (const el2 of hoverChain) if (!next.has(el2)) hideLater(el2);
+    for (const el2 of next) show2(el2);
     hoverChain = next;
   };
   const onLeaveWindow = (e) => {
     if (e.relatedTarget) return;
-    for (const el3 of hoverChain) hideLater(el3);
+    for (const el2 of hoverChain) hideLater(el2);
     hoverChain = /* @__PURE__ */ new Set();
   };
   const onScroll = (e) => {
-    const el3 = e.target === doc ? null : e.target;
-    if (el3 && eligible(el3)) {
-      show2(el3);
-      hideLater(el3);
+    const el2 = e.target === doc ? null : e.target;
+    if (el2 && eligible(el2)) {
+      show2(el2);
+      hideLater(el2);
     }
-    for (const other of managed.keys()) if (other !== el3) place(other);
+    for (const other of managed.keys()) if (other !== el2) place(other);
   };
   let raf = 0;
   const onResize = () => {
     cancelAnimationFrame(raf);
     raf = requestAnimationFrame(() => {
-      for (const el3 of managed.keys()) place(el3);
+      for (const el2 of managed.keys()) place(el2);
     });
   };
   const sweep = new MutationObserver((mutations) => {
     if (!managed.size || !mutations.some((m) => m.removedNodes.length)) return;
-    for (const el3 of [...managed.keys()]) {
-      if (!el3.isConnected) {
-        drop(el3);
-        hoverChain.delete(el3);
+    for (const el2 of [...managed.keys()]) {
+      if (!el2.isConnected) {
+        drop(el2);
+        hoverChain.delete(el2);
       }
     }
   });
@@ -9186,7 +8468,7 @@ function installAutoScrollbars(root = document.body, { exclude = null } = {}) {
       win.removeEventListener("resize", onResize);
       doc.removeEventListener("focusin", onResize, true);
       sweep.disconnect();
-      for (const el3 of [...managed.keys()]) drop(el3);
+      for (const el2 of [...managed.keys()]) drop(el2);
       root.classList.remove(ROOT_CLASS);
     }
   };
@@ -9208,12 +8490,12 @@ var TEXT_INPUTS = /* @__PURE__ */ new Set([
   "week",
   "time"
 ]);
-function isEditable(el3) {
-  if (!el3 || el3.nodeType !== 1) return false;
-  const tag = el3.tagName;
+function isEditable(el2) {
+  if (!el2 || el2.nodeType !== 1) return false;
+  const tag = el2.tagName;
   if (tag === "TEXTAREA" || tag === "SELECT") return true;
-  if (tag === "INPUT") return TEXT_INPUTS.has(String(el3.getAttribute("type") || "").toLowerCase());
-  return !!el3.closest?.('[contenteditable=""],[contenteditable="true"],[contenteditable="plaintext-only"]');
+  if (tag === "INPUT") return TEXT_INPUTS.has(String(el2.getAttribute("type") || "").toLowerCase());
+  return !!el2.closest?.('[contenteditable=""],[contenteditable="true"],[contenteditable="plaintext-only"]');
 }
 function onSelection(target, doc) {
   const sel = doc?.getSelection?.();
@@ -9566,8 +8848,8 @@ function installWorkspaceScrollbars(workspace, options = {}) {
   return update;
 }
 function installCollapsibleScrollbars(root = document.body) {
-  const installOnElement = (el3) => {
-    installOverlayScrollbar(el3, {
+  const installOnElement = (el2) => {
+    installOverlayScrollbar(el2, {
       orientation: "vertical",
       setOverflow: false,
       watchSubtree: true
@@ -9578,9 +8860,9 @@ function installCollapsibleScrollbars(root = document.body) {
   const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
       if (mutation.type === "attributes" && mutation.attributeName === "class") {
-        const el3 = mutation.target;
-        if (el3.classList.contains("twm-collapsible-content") && el3.classList.contains("visible")) {
-          installOnElement(el3);
+        const el2 = mutation.target;
+        if (el2.classList.contains("twm-collapsible-content") && el2.classList.contains("visible")) {
+          installOnElement(el2);
         }
         continue;
       }
@@ -9604,8 +8886,8 @@ function installCollapsibleScrollbars(root = document.body) {
 function installTabsScrollbars(selectors = [".tabs"]) {
   const selector = selectors.join(", ");
   const classes = selectors.filter((s) => s.startsWith(".")).map((s) => s.slice(1));
-  const installOnElement = (el3) => {
-    installOverlayScrollbar(el3, {
+  const installOnElement = (el2) => {
+    installOverlayScrollbar(el2, {
       orientation: "horizontal",
       className: "tabs-scrollbar",
       setOverflow: false,
@@ -9613,11 +8895,11 @@ function installTabsScrollbars(selectors = [".tabs"]) {
       watchSubtree: true
     });
   };
-  const cleanupElement = (el3) => {
-    el3.__overlayScrollbarInstalled?.horizontal?.cleanup?.();
-    delete el3.__overlayScrollbarInstalled;
+  const cleanupElement = (el2) => {
+    el2.__overlayScrollbarInstalled?.horizontal?.cleanup?.();
+    delete el2.__overlayScrollbarInstalled;
   };
-  const matches = (el3) => classes.some((c) => el3.classList?.contains(c));
+  const matches = (el2) => classes.some((c) => el2.classList?.contains(c));
   document.querySelectorAll(selector).forEach(installOnElement);
   const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
@@ -9647,48 +8929,48 @@ function createScrollLock({ axis = "y", enabled = true } = {}) {
   function copyFrom(source) {
     last = { top: source.scrollTop, left: source.scrollLeft };
     if (!on) return;
-    for (const [el3, state] of members) {
-      if (el3 === source) continue;
-      const top = doY ? last.top : el3.scrollTop;
-      const left = doX ? last.left : el3.scrollLeft;
-      if (el3.scrollTop === top && el3.scrollLeft === left) continue;
+    for (const [el2, state] of members) {
+      if (el2 === source) continue;
+      const top = doY ? last.top : el2.scrollTop;
+      const left = doX ? last.left : el2.scrollLeft;
+      if (el2.scrollTop === top && el2.scrollLeft === left) continue;
       state.wrote = { top, left };
-      if (doY) el3.scrollTop = top;
-      if (doX) el3.scrollLeft = left;
+      if (doY) el2.scrollTop = top;
+      if (doX) el2.scrollLeft = left;
     }
   }
   function onScroll(event) {
-    const el3 = event.currentTarget;
-    const state = members.get(el3);
+    const el2 = event.currentTarget;
+    const state = members.get(el2);
     if (!state) return;
     const wrote = state.wrote;
     state.wrote = null;
-    if (wrote && Math.abs(el3.scrollTop - wrote.top) < 1 && Math.abs(el3.scrollLeft - wrote.left) < 1) return;
-    copyFrom(el3);
+    if (wrote && Math.abs(el2.scrollTop - wrote.top) < 1 && Math.abs(el2.scrollLeft - wrote.left) < 1) return;
+    copyFrom(el2);
   }
   const lock = {
     /** Join the group. Returns the function that leaves it. */
-    attach(el3) {
-      if (!el3 || typeof el3.addEventListener !== "function") return () => {
+    attach(el2) {
+      if (!el2 || typeof el2.addEventListener !== "function") return () => {
       };
-      if (members.has(el3)) return () => lock.detach(el3);
+      if (members.has(el2)) return () => lock.detach(el2);
       const state = { wrote: null };
-      members.set(el3, state);
-      el3.addEventListener("scroll", onScroll, { passive: true });
+      members.set(el2, state);
+      el2.addEventListener("scroll", onScroll, { passive: true });
       if (on && (last.top || last.left)) {
         state.wrote = {
-          top: doY ? last.top : el3.scrollTop,
-          left: doX ? last.left : el3.scrollLeft
+          top: doY ? last.top : el2.scrollTop,
+          left: doX ? last.left : el2.scrollLeft
         };
-        if (doY) el3.scrollTop = last.top;
-        if (doX) el3.scrollLeft = last.left;
+        if (doY) el2.scrollTop = last.top;
+        if (doX) el2.scrollLeft = last.left;
       }
-      return () => lock.detach(el3);
+      return () => lock.detach(el2);
     },
-    detach(el3) {
-      if (!members.has(el3)) return;
-      members.delete(el3);
-      el3.removeEventListener("scroll", onScroll);
+    detach(el2) {
+      if (!members.has(el2)) return;
+      members.delete(el2);
+      el2.removeEventListener("scroll", onScroll);
     },
     /** Lock (true) or let the members scroll freely (false). Locking again
      *  brings every member level with the one scrolled last. */
@@ -9697,7 +8979,7 @@ function createScrollLock({ axis = "y", enabled = true } = {}) {
       on = !!value;
       if (on && !was) {
         const source = [...members.keys()].find(
-          (el3) => el3.scrollTop === last.top && el3.scrollLeft === last.left
+          (el2) => el2.scrollTop === last.top && el2.scrollLeft === last.left
         ) || members.keys().next().value;
         if (source) copyFrom(source);
       }
@@ -9710,7 +8992,7 @@ function createScrollLock({ axis = "y", enabled = true } = {}) {
       return members.size;
     },
     dispose() {
-      for (const el3 of [...members.keys()]) lock.detach(el3);
+      for (const el2 of [...members.keys()]) lock.detach(el2);
     }
   };
   return lock;
@@ -9879,8 +9161,8 @@ function startMouseCheck() {
 function attachListeners() {
   if (listenersAttached) return;
   listenersAttached = true;
-  document.querySelectorAll(".twm-has-tooltip, .has-latex-tooltip").forEach((el3) => {
-    el3.removeAttribute("title");
+  document.querySelectorAll(".twm-has-tooltip, .has-latex-tooltip").forEach((el2) => {
+    el2.removeAttribute("title");
   });
   document.addEventListener("mousemove", (event) => {
     lastMousePosition.x = event.clientX;
@@ -9937,8 +9219,8 @@ function setTooltip(element, text, isLatex = false) {
   }
 }
 function refreshTooltips(container = document) {
-  container.querySelectorAll(".twm-has-tooltip, .has-latex-tooltip").forEach((el3) => {
-    el3.removeAttribute("title");
+  container.querySelectorAll(".twm-has-tooltip, .has-latex-tooltip").forEach((el2) => {
+    el2.removeAttribute("title");
   });
 }
 var TooltipService = {

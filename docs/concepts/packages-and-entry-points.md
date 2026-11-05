@@ -2,7 +2,7 @@
 
 > **Install:** see the [quickstart](../quickstart.md) · **Component pages:** [docs index](../README.md#components) · [All docs](../README.md)
 
-## Nine entry points
+## Ten entry points
 
 Because someone who wants a DataTable should not have to download a window
 manager, and neither of them should drag in a plotting engine or a code editor.
@@ -18,6 +18,7 @@ manager, and neither of them should drag in a plotting engine or a code editor.
 | `@flexdesk/editor` | 62 kB | Monaco loader + factory, multi-file tab bar, search, split panes, undo manager |
 | `@flexdesk/canvas` | 14 kB | The canvas kernel: a pannable, zoomable surface, the edge router, a generic graph layer ([Flow editors](../components/flow-editors.md#flow-editors)) |
 | `@flexdesk/flow` | 381 kB | The flow-editor kit and the canvas, outline and lane editors ([Flow editors](../components/flow-editors.md#flow-editors)) |
+| `@flexdesk/git` | 46 kB | A source-control panel, an SVG commit graph and a diff viewer, over a written adapter contract ([Git panel](../components/git.md)) |
 
 The sizes of `@flexdesk/canvas` and `@flexdesk/flow` are the entry files as
 `node build.mjs` reported them for the flow editors' integration build; like

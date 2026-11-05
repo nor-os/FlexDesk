@@ -27,6 +27,7 @@
         "editor.js",
         "canvas.js",
         "flow.js",
+        "git.js",
         "css",
         "docs",
         "README.md",
@@ -73,6 +74,10 @@
         "./flow": {
             "import": "./dist/flow.js",
             "development": "./flow.js"
+        },
+        "./git": {
+            "import": "./dist/git.js",
+            "development": "./git.js"
         }
     },
     "scripts": {

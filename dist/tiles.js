@@ -20,7 +20,7 @@ import {
 import {
   openModal,
   showContextMenu
-} from "./chunk-RSXHAN2M.js";
+} from "./chunk-NFZJ6P42.js";
 import {
   buildHistogramTrace,
   buildLegendLayout,

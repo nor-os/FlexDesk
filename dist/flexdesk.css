@@ -5147,6 +5147,10 @@ body.twm-window-maximized .twm-resize-handle {
     width: calc(100% - 2 * var(--space-md));
     margin: var(--space-xs) var(--space-md);
 }
+.twm-wspicker__more[aria-disabled="true"] {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
 .twm-wspicker__more-label {
     min-width: 0;
     overflow: hidden;

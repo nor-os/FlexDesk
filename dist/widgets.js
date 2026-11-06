@@ -23,7 +23,7 @@ import {
   toastInfo,
   toastSuccess,
   toastWarn
-} from "./chunk-UGLZ2NWZ.js";
+} from "./chunk-3BLIVOFD.js";
 import {
   StateMachine
 } from "./chunk-3PHCPZHT.js";
@@ -59,7 +59,7 @@ import {
   openForm,
   openModal,
   showContextMenu
-} from "./chunk-RSXHAN2M.js";
+} from "./chunk-NFZJ6P42.js";
 import {
   ACTIONS,
   AutocompleteField,
@@ -4137,13 +4137,13 @@ function createFilterModel({
     }
     if (op.arity === 0) return;
     const say = (what) => errors.push(`${field.label} ${op.label}: ${what}`);
-    if (op.multi) {
-      if (!Array.isArray(node2.value) || node2.value.length === 0) say("pick at least one value");
+    if (op.multi && (!Array.isArray(node2.value) || node2.value.length === 0)) {
+      say("pick at least one value");
       return;
     }
-    const values = op.arity === 2 ? arr(node2.value).slice(0, 2) : [first(node2.value)];
+    const values = op.multi ? node2.value : op.arity === 2 ? arr(node2.value).slice(0, 2) : [first(node2.value)];
     const needed = op.arity === 2 ? 2 : 1;
-    if (values.length < needed || values.some(isBlank)) {
+    if (!op.multi && (values.length < needed || values.some(isBlank))) {
       say(needed === 2 ? "needs two values" : "needs a value");
       return;
     }
@@ -9259,8 +9259,11 @@ function keyedChildren(container, build, update) {
       if (!next.has(key)) entry.node.remove();
     }
     drawn = next;
+    const focused = document.activeElement;
     nodes.forEach((node2, index) => {
-      if (container.children[index] !== node2) {
+      if (node2.contains(focused)) {
+        while (container.children[index] !== node2) container.append(container.children[index]);
+      } else if (container.children[index] !== node2) {
         container.insertBefore(node2, container.children[index] || null);
       }
     });
@@ -9689,7 +9692,8 @@ function createPickerSwitcher({
     }
     if (!moved || !stops.some((s) => s.key === activeKey)) {
       reveal = moved;
-      if (moved && isOpen && document.activeElement === document.body) input.focus();
+      const at = document.activeElement;
+      if (moved && isOpen && (at === document.body || panel.contains(at) && at !== input)) input.focus();
       moved = false;
       activeKey = stops.find((s) => s.primary)?.key ?? null;
     }
@@ -9703,9 +9707,9 @@ function createPickerSwitcher({
     paintActive();
   }
   function move(step) {
-    const walk = [input, ...stops.map((s) => s.node).filter((node2) => !node2.disabled)];
-    const at = walk.indexOf(document.activeElement);
-    const next = walk[at === -1 ? step > 0 ? 0 : walk.length - 1 : (at + step + walk.length) % walk.length];
+    const walk = [input, ...stops.map((s) => s.node)];
+    const from = document.activeElement === input && moved ? activeNode : document.activeElement;
+    const next = walk[(walk.indexOf(from) + step + walk.length) % walk.length];
     if (next === input) {
       input.focus();
       return;
@@ -9734,7 +9738,7 @@ function createPickerSwitcher({
     if (remaining > 0) {
       setText2(moreLabel, labels.loadMore({ next: Math.min(pageSize, remaining), shown: items.length, total }));
     }
-    more.disabled = loading || loadingMore;
+    more.setAttribute("aria-disabled", String(loading || loadingMore));
     collectStops(rowEntries, actionEntries, shown);
     settleActive();
   }
@@ -10008,6 +10012,7 @@ function createPickerSwitcher({
     if (!stop) return;
     activeKey = stop.key;
     moved = true;
+    selectId = null;
     const prefix = ["row:", "action:"].find((p) => stop.key.startsWith(p));
     if (prefix) rovingKeys[prefix] = stop.key;
     syncTabStops();
@@ -11578,6 +11583,7 @@ var listenersAttached = false;
 var mouseCheckInterval = null;
 var lastMousePosition = { x: 0, y: 0 };
 var focusTarget = null;
+var byKeyboard = false;
 function createTooltipElement() {
   if (tooltipElement) return tooltipElement;
   tooltipElement = document.createElement("div");
@@ -11656,11 +11662,12 @@ function showTooltip(target) {
   const hasLatex = target.classList && target.classList.contains("has-latex-tooltip");
   const hasPlain = target.classList && target.classList.contains("twm-has-tooltip");
   if (!hasLatex && !hasPlain) return;
+  if (!target.getAttribute(hasLatex ? "data-latex-tooltip" : "data-tooltip")) return;
+  stopMouseCheck();
   currentTarget = target;
   const tooltip = createTooltipElement();
   if (hasLatex) {
     const latex = target.getAttribute("data-latex-tooltip");
-    if (!latex) return;
     try {
       if (typeof katex !== "undefined") {
         katex.render(latex, tooltip, {
@@ -11677,7 +11684,6 @@ function showTooltip(target) {
     }
   } else if (hasPlain) {
     const text = target.getAttribute("data-tooltip");
-    if (!text) return;
     const formattedText = text.replace(/&#10;/g, "\n");
     const lines = formattedText.split("\n");
     tooltip.innerHTML = "";
@@ -11708,15 +11714,33 @@ function hideTooltip() {
   }
   currentTarget = null;
   focusTarget = null;
+  stopMouseCheck();
+}
+function stopMouseCheck() {
   if (mouseCheckInterval) {
     clearInterval(mouseCheckInterval);
     mouseCheckInterval = null;
   }
 }
+function pointerGone() {
+  const held = focusTarget;
+  if (held && held === currentTarget) return;
+  hideTooltip();
+  if (!held) return;
+  focusTarget = held;
+  showTooltip(held);
+  requestAnimationFrame(() => {
+    if (held === focusTarget && held === currentTarget) followFocus();
+  });
+}
+function followFocus() {
+  const { left, top, width, height } = focusTarget.getBoundingClientRect();
+  const inSight = focusTarget.contains(document.elementFromPoint(left + width / 2, top + height / 2));
+  tooltipElement.classList.toggle("visible", inSight);
+  if (inSight) positionTooltip(focusTarget, tooltipElement);
+}
 function startMouseCheck() {
-  if (mouseCheckInterval) {
-    clearInterval(mouseCheckInterval);
-  }
+  stopMouseCheck();
   mouseCheckInterval = setInterval(() => {
     if (!currentTarget) {
       clearInterval(mouseCheckInterval);
@@ -11727,10 +11751,10 @@ function startMouseCheck() {
     if (elementUnderMouse) {
       const isStillOnTarget = elementUnderMouse === currentTarget || currentTarget.contains(elementUnderMouse) || elementUnderMouse.closest(".twm-has-tooltip, .has-latex-tooltip") === currentTarget;
       if (!isStillOnTarget) {
-        hideTooltip();
+        pointerGone();
       }
     } else {
-      hideTooltip();
+      pointerGone();
     }
   }, 3e3);
 }
@@ -11756,11 +11780,17 @@ function attachListeners() {
     if (!(target instanceof Element)) return;
     const tooltipTarget = target.closest(".has-latex-tooltip, .twm-has-tooltip");
     if (!tooltipTarget) return;
-    hideTooltip();
+    pointerGone();
+  }, true);
+  window.addEventListener("keydown", (event) => {
+    if (!event.ctrlKey && !event.metaKey && !event.altKey) byKeyboard = true;
+  }, true);
+  window.addEventListener("pointerdown", () => {
+    byKeyboard = false;
   }, true);
   document.addEventListener("focusin", (event) => {
     const target = event.target;
-    if (!(target instanceof Element) || !target.matches(":focus-visible")) return;
+    if (!(target instanceof Element) || !byKeyboard) return;
     const tooltipTarget = target.closest(".has-latex-tooltip, .twm-has-tooltip");
     if (!tooltipTarget) return;
     focusTarget = tooltipTarget;
@@ -11770,9 +11800,13 @@ function attachListeners() {
     if (!focusTarget) return;
     const next = event.relatedTarget;
     if (next instanceof Node && focusTarget.contains(next)) return;
-    hideTooltip();
+    if (focusTarget === currentTarget) hideTooltip();
+    else focusTarget = null;
   }, true);
-  document.addEventListener("scroll", hideTooltip, true);
+  document.addEventListener("scroll", () => {
+    if (focusTarget && focusTarget === currentTarget) followFocus();
+    else pointerGone();
+  }, true);
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       hideTooltip();

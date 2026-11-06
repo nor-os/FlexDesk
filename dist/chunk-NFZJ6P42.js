@@ -874,7 +874,10 @@ function openModal({
       }
     });
     win.show();
-    if (dismissOnBackdrop) win.backdropElement.addEventListener("click", () => win.close());
+    if (dismissOnBackdrop) {
+      win.backdropElement.addEventListener("mousedown", (e) => e.preventDefault());
+      win.backdropElement.addEventListener("click", () => win.close());
+    }
     if (maximizable && typeof onMaximizeChange === "function") {
       _onMax = (e) => {
         if (e.detail?.id !== win.id) return;
@@ -1399,4 +1402,4 @@ export {
   showContextMenu,
   hideContextMenu
 };
-//# sourceMappingURL=chunk-RSXHAN2M.js.map
+//# sourceMappingURL=chunk-NFZJ6P42.js.map

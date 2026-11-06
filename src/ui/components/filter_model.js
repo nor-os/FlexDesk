@@ -319,6 +319,34 @@ export function createFilterModel({
         return clause;
     }
 
+    /** Does `clause`'s value still mean something on `field`, under `op`? */
+    function valueFits(field, op, value) {
+        const errors = [];
+        validateClause({ field: field.key, op: op.id, value }, errors, '');
+        if (errors.length) return false;
+        // A list the editor offers: a text field's single value is typed freely.
+        const options = op.multi || field.type === 'enum' ? filterOptions(field) : [];
+        return !options.length || arr(value).every((v) => options.some((o) => o.value === v));
+    }
+
+    /**
+     * `clause` moved to the field `key`: its operator stays when that field offers
+     * it, and its value when the value still fits; otherwise they start as
+     * `newClause(key)`'s do. Null when the catalogue has no such field.
+     */
+    function moveClause(clause, key) {
+        const next = newClause(key);
+        if (!next) return null;
+        const field = byKey.get(key);
+        const op = operatorsFor(key).find((o) => o.id === clause.op);
+        if (!op) return next;
+        next.op = op.id;
+        delete next.value;
+        const value = op.arity && valueFits(field, op, clause.value) ? clause.value : defaultValue(field, op);
+        if (value !== undefined) next.value = value;
+        return next;
+    }
+
     /* Compiled per type so a clause does its type dispatch ONCE, not on every row. */
     function compileClause(clause) {
         const field = byKey.get(clause?.field);
@@ -475,35 +503,50 @@ export function createFilterModel({
             const [a, b] = arr(value);
             return `${shown(a)} and ${shown(b)}`;
         }
-        return shown(first(value));
+        // Every value of a list, even under an operator that takes one: a saved
+        // or foreign condition may hold several, and the sentence must not hide them.
+        return Array.isArray(value) ? value.map(shown).join(', ') : shown(value);
     }
 
-    function describeNode(node, depth, format) {
+    function describeNode(node, depth, opts) {
         if (!node) return '';
         if (node.kind === 'clause') {
             const field = byKey.get(node.field);
+            const op = catalogue.get(node.op) ?? { label: node.op ?? '', arity: 1 };
             // A field that has gone is SAID, so a filter matching nothing reads
-            // as broken, not as empty.
-            if (!field) return `⚠ unknown field “${unknownName(String(node.field ?? ''))}”`;
-            const op = catalogue.get(node.op);
-            if (!op) return `${field.label} ${node.op ?? ''}`.trim();
-            const val = describeValue(field, op, node.value, format);
-            return val ? `${field.label} ${op.label} ${val}` : `${field.label} ${op.label}`;
+            // as broken, not as empty, and what it asked stays readable.
+            const subject = field ? field.label : `⚠ unknown field “${unknownName(String(node.field ?? ''))}”`;
+            const value = describeValue(field, op, node.value, field ? opts.formatValue : null);
+            return [subject, op.label, value].filter(Boolean).join(' ');
         }
         if (node.kind !== 'group') return `⚠ ${JSON.stringify(node.node ?? node)}`;
         const parts = (Array.isArray(node.children) ? node.children : [])
-            .map((c) => describeNode(c, depth + 1, format)).filter(Boolean);
+            .map((c) => describeNode(c, depth + 1, opts)).filter(Boolean);
         if (!parts.length) return emptyMatches(node) !== !!node.negate ? 'everything' : 'nothing';
         const joined = parts.join(String(node.op || 'AND').toUpperCase() === 'OR' ? ' OR ' : ' AND ');
+        const many = parts.length > 1;
+        if (opts.groupBrackets) {
+            const group = many ? `(${joined})` : joined;
+            return node.negate ? `NOT ${group}` : group;
+        }
         if (node.negate) return `NOT (${joined})`;
-        return depth > 0 && parts.length > 1 ? `(${joined})` : joined;
+        return depth > 0 && many ? `(${joined})` : joined;
     }
 
     /**
      * One line of words. `formatValue(value, field)` names each value (a key shown
-     * as a person's name, say); without it a value is shown as itself.
+     * as a person's name, say); without it a value is shown as itself. A condition
+     * on a field the catalogue does not know says so, with its operator and value,
+     * and its value is shown as itself.
+     *
+     * Brackets go where the sentence would misread without them: a nested group of
+     * two or more, and whatever a NOT covers. `groupBrackets` brackets every group of
+     * two or more, the root too, and leaves a NOT of one thing unbracketed: `(A AND B)`,
+     * `NOT A`, for a surface that reads a group by its brackets.
      */
-    const describeFilter = (expr, { formatValue = null } = {}) => describeNode(expr, 0, formatValue);
+    const describeFilter = (expr, { formatValue = null, groupBrackets = false } = {}) => (
+        describeNode(expr, 0, { formatValue, groupBrackets })
+    );
 
     /** The field keys an expression names that the catalogue does not know. */
     function unknownFields(expr) {
@@ -581,6 +624,29 @@ export function createFilterModel({
         return { ok: errors.length === 0, errors };
     }
 
+    /**
+     * What is said of each range in `expr` with one end filled: it is not blank, so
+     * `pruneFilter` keeps it, and what it asks (between 5 and nothing) matches nothing.
+     */
+    function partialRanges(expr) {
+        const said = [];
+        const walk = (node) => {
+            if (node?.kind === 'group') {
+                (Array.isArray(node.children) ? node.children : []).forEach(walk);
+                return;
+            }
+            if (node?.kind !== 'clause') return;
+            const field = byKey.get(node.field);
+            const op = catalogue.get(node.op);
+            if (!field || op?.arity !== 2 || op.multi) return;
+            const ends = arr(node.value).slice(0, 2);
+            const filled = ends.filter((v) => !isBlank(v)).length;
+            if (filled === 1) said.push(`${field.label} ${op.label}: needs two values`);
+        };
+        walk(expr);
+        return said;
+    }
+
     /* ── prune: what is left once half-built rows are dropped ───────────── */
 
     function prune(node) {
@@ -603,12 +669,14 @@ export function createFilterModel({
     /**
      * A copy with empty groups and conditions with nothing to compare against
      * dropped, or null when nothing is left. A condition this catalogue cannot
-     * read, and a carried node, are kept: they were not built here.
+     * read, and a carried node, are kept: they were not built here. So is a range
+     * with one end filled, which `partialRanges` names: someone meant that.
      */
     const pruneFilter = (expr) => prune(cloneFilter(expr));
 
     return Object.freeze({
-        fields, noun, fieldByKey, operatorsFor, operatorById, defaultValue, newClause, emptyMatches,
+        fields, noun, fieldByKey, operatorsFor, operatorById, defaultValue, newClause, moveClause, emptyMatches,
         unknownName, matcherFor, evaluateFilter, describeFilter, validateFilter, unknownFields, pruneFilter,
+        partialRanges,
     });
 }

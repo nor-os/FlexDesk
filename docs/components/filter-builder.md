@@ -92,13 +92,23 @@ A field naming an operator the catalogue lacks throws when the model is created.
 |---|---|
 | `matcherFor(expr)` | `(row) => boolean`, compiled once and cached by the expression's JSON. An unknown field or operator matches nothing and warns. |
 | `evaluateFilter(expr, row)` | One row. |
-| `describeFilter(expr, { formatValue })` | One line of words. `formatValue(value, field)` names each value (a key shown as a name, say). An unknown field is said: `⚠ unknown field “gone”`; the `unknownName(key)` option of `createFilterModel` shapes the key shown. |
+| `describeFilter(expr, { formatValue, groupBrackets })` | One line of words. [What it says](#what-a-sentence-says-0181). |
 | `validateFilter(expr)` | `{ ok, errors }`, listing every problem, not the first. |
 | `unknownFields(expr)` | The keys it names that the catalogue lacks, for a marker wherever a saved filter is listed. |
-| `pruneFilter(expr)` | A copy without empty groups and conditions with nothing to compare against, or null when nothing is left. A condition the catalogue cannot read is kept. |
+| `pruneFilter(expr)` | A copy without empty groups and conditions with nothing to compare against, or null when nothing is left. A condition the catalogue cannot read is kept, and so is a range with one end filled. |
+| `partialRanges(expr)` | What is said of each range with one end filled: `Count between: needs two values`. [The dialog refuses one](#a-range-with-one-end-filled-is-refused-0181). |
+| `moveClause(clause, key)` | The condition on another field. [What it keeps](#what-a-condition-keeps-when-its-field-changes-0181). Null when the catalogue has no such field. |
 | `operatorsFor(key)`, `operatorById(id)`, `newClause(key?)`, `defaultValue(field, op)`, `fieldByKey(key)` | What the builder uses. |
 
 `coerceFilterValue(field, text)` is the one place a control's string becomes a value. A `number` field writes a number when the string is a plain decimal a double holds exactly. It leaves the string alone when converting would change the filter: an empty box, a half-typed `-`, or a decimal wider than a double.
+
+### What a sentence says (0.18.1)
+
+`formatValue(value, field)` names each value (a key shown as a name, say); without it a value is shown as itself.
+
+- **Every value of a list**, under any operator: `Tags contains a, b`, not the first alone. A saved condition or one from elsewhere may hold several under an operator that takes one.
+- **A field the catalogue does not know is said, with what the condition asks:** `⚠ unknown field “gone” is x`. The `unknownName(key)` option of `createFilterModel` shapes the key shown. `formatValue` is not asked about it, because there is no field to hand it. An operator the catalogue does not know is said as its id, with its value.
+- **Brackets** go where the sentence would misread without them: a nested group of two or more, and whatever a NOT covers: `A AND (B OR C)`, `NOT (A)`. With `groupBrackets: true` every group of two or more has them, the root too, and a NOT of one thing has none: `(A AND (B OR C))`, `NOT A`. That is for a surface that reads a group by its brackets.
 
 ## The condition tree (0.18.0)
 
@@ -179,6 +189,15 @@ Each group has an AND/OR toggle, NOT, `+ Condition` and `+ Group`; each conditio
 
 **It rewrites nothing it cannot read.** A condition on a field the catalogue lacks, an operator it lacks, an operator this field is not offered, an `enum` value no longer offered and a carried node all stay exactly as they are until someone changes or removes them: the selects show them as their own entry (`⚠ unknown field “gone”`, `made_up (unknown)`), and a value it cannot interpret is shown read-only. Opening and closing a builder leaves the expression byte-identical, with one exception: an `enum` condition with no value takes the first option, because a select cannot show nothing.
 
+### What a condition keeps when its field changes (0.18.1)
+
+Choosing another field for a condition goes through `model.moveClause(clause, key)`:
+
+- The **operator** stays when the new field offers it. Otherwise the condition starts on the field's first operator, as `newClause(key)` does.
+- The **value** stays when it still fits: it passes `validateFilter` on the new field and, where the editor offers a list (an `enum` field, a `multi` operator on a field with `options`), it is on that list. Otherwise it starts as `defaultValue(field, op)`.
+
+A condition whose field or operator cannot be drawn shows the value it holds read-only: an unknown field, an unknown operator, or a known operator its field does not offer. A box drawn for that operator would look empty over a value the result still carries. A custom editor is not asked about one. An unknown field's whole warning is the field select's tooltip, and the select takes its width from it where the row can spare that.
+
 ### A custom value editor (0.18.0)
 
 `field.editor` replaces the value control. It is a factory, called each time the value cell is drawn:
@@ -226,20 +245,47 @@ const result = await openFilterDialog({
 | Option | |
 |---|---|
 | `model`, `value` | As the builder's. `value` is copied, so dismissing loses nothing. |
-| `seedField` | A field key: adds a new condition on it, for "filter by this". |
+| `seedField` | A field key: adds a new condition on it, for "filter by this". [Beside a negated root](#a-seed-beside-a-negated-root-0181), not inside it. |
 | `title`, `icon`, `width`, `height` | The window. |
 | `head` | An element drawn above the conditions. |
-| `name` | `{ value, label, placeholder, required }` adds a name box. `required` defaults to true and holds the submit button off until it is filled. The result's `name` is trimmed. |
+| `name` | `{ value, label, placeholder, required }` adds a name box, which opens with focus and [its text selected](#the-name-box-opens-selected-0181). `required` defaults to true and holds the submit button off until it is filled. The result's `name` is trimmed. |
 | `iconChoice` | `{ value, options }` adds a searchable grid over those Material Symbols names. |
 | `preview` | `(host, { expr, sentence, signal })`: yours to draw into. Called on open and, debounced, after each change, while the expression can be submitted; otherwise the slot is emptied and hidden and the errors are shown. `signal` aborts when this drawing is superseded or the dialog closes, for a preview that asks a server. The dialog shows `sentence` above the slot. |
-| `requireValid` | Default true: the submit button is off, and the errors are listed, while `validateFilter` objects. False submits regardless. |
+| `requireValid` | Default true: the submit button is off, and the errors are listed, while `validateFilter` objects. False submits regardless, except [a range with one end filled](#a-range-with-one-end-filled-is-refused-0181). |
 | `prune` | Validate, preview and submit `model.pruneFilter(...)`, so a half-built row is dropped rather than refused. `expr` is null when nothing is left. |
 | `confirmDiscard` | Ask before Cancel, Esc or the X throws away a change. |
+| `dismissOnBackdrop` | [A click on the dimmed page beside the dialog dismisses it](#a-click-beside-the-dialog-dismissonbackdrop-0181), as Esc does. |
 | `submitLabel`, `onSubmit` | `onSubmit(result)` may be async: until it settles every button is off and Esc and the X do nothing, so the answer always says what happened. If it throws, the message is shown and the dialog stays. A promise that never settles holds the dialog open, so give a call that can hang its own timeout. |
 | `clearLabel` | Adds a button answering `{ action: 'clear', expr: null }`, for a caller to whom "no filter" and "leave it alone" are different answers. |
-| `actions` | More buttons, before Cancel: `{ label, value, danger, icon, confirm, run }`. `confirm` is `openConfirm`'s options, asked first, and `run` behaves as `onSubmit` does. |
+| `actions` | More buttons, before Cancel: `{ label, value, danger, icon, confirm, run }`. `confirm` is `openConfirm`'s options, asked first, [with a `message` that may be computed](#a-question-that-quotes-what-was-typed-0181), and `run` behaves as `onSubmit` does. |
 
 `confirmDiscard` asks through [`openModal`'s `beforeClose`](forms-and-dialogs.md#a-modal-that-can-refuse-to-close-beforeclose-0180).
+
+### A range with one end filled is refused (0.18.1)
+
+`between` with `[5, null]` is not blank, so `prune` keeps it, and it matches nothing: with `requireValid: false` it used to leave the dialog, and a filter that a server compiles to `BETWEEN 5 AND NULL` emptied the view with no word why. The submit button is now off and the dialog says `Count between: needs two values`, whatever `requireValid` and `prune` say. A range with both ends blank is still a half-built row, which `prune` drops.
+
+`model.pruneFilter` keeps such a range for a caller without the dialog, and `model.partialRanges(expr)` names them.
+
+### A seed beside a negated root (0.18.1)
+
+A new condition narrows what the filter already says. Pushed into a negated root it would become `NOT (title is x AND qty is 7)`, and rows the filter excluded would come back. So `seedField` on a negated root wraps it: `(NOT (title is x)) AND qty is 7`.
+
+### The name box opens selected (0.18.1)
+
+The name box takes focus when the dialog opens, with its text selected: editing a name usually means replacing it, and `Mine (copy)` always does. The rest of the library's dialogs keep the caret at the end, and [`openModal` leaves focus where `onMount` put it](forms-and-dialogs.md#focus-placed-by-onmount-stays-0181).
+
+### A click beside the dialog: `dismissOnBackdrop` (0.18.1)
+
+`openFilterDialog({ dismissOnBackdrop: true })` dismisses on a click on the dimmed page beside it, through [`openModal`'s option of that name](forms-and-dialogs.md#a-click-beside-a-modal-dismissonbackdrop-0181). `confirmDiscard` still asks, and an action in flight still holds it open.
+
+### A question that quotes what was typed (0.18.1)
+
+`confirm.message` may be `(result) => string`, called when the question is asked with what the dialog would answer (`{ action, expr, name?, icon? }`):
+
+```js
+confirm: { title: 'Delete this filter?', message: ({ name }) => `Delete “${name}”?`, confirmLabel: 'Delete', danger: true },
+```
 
 ## Styling
 

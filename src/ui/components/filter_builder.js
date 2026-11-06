@@ -12,9 +12,9 @@
  * the node and redraws nothing, so the caret survives.
  *
  * WHAT IT DOES NOT REWRITE. A condition on a field the catalogue does not know, an
- * operator it does not know and a node it cannot read stay exactly as they are
- * until someone changes or removes them: the selects show them as their own marked
- * entry and the value is read-only.
+ * operator it does not know or its field does not offer, and a node it cannot read
+ * stay exactly as they are until someone changes or removes them: the selects show
+ * them as their own entry and the value is read-only.
  */
 
 import { cloneFilter, coerceFilterValue, emptyFilter, filterOptions } from './filter_model.js';
@@ -215,21 +215,25 @@ export function createFilterBuilder(host, { model, value = null, onChange = null
     function operatorChoices(clause) {
         const offered = model.operatorsFor(clause.field);
         const held = model.operatorById(clause.op);
-        const list = held && model.fieldByKey(clause.field) && !offered.includes(held)
-            ? [...offered, held] : offered;
+        const list = held && !offered.includes(held) ? [...offered, held] : offered;
         return list.map((op) => ({ value: op.id, label: op.label }));
     }
 
     function clauseEl(clause) {
         const row = el('div', 'twm-filter-builder__row');
+        const known = !!model.fieldByKey(clause.field);
+        const unknownWords = `⚠ unknown field “${model.unknownName(String(clause.field ?? ''))}”`;
 
         const fieldSelect = selectBox(fieldChoices(clause.field), clause.field, {
             label: 'Field',
-            className: `${SELECT_CLASS} twm-filter-builder__select--field`,
-            notFound: () => `⚠ unknown field “${model.unknownName(String(clause.field ?? ''))}”`,
+            className: `${SELECT_CLASS} twm-filter-builder__select--field${known ? '' : ' twm-filter-builder__select--unknown'}`,
+            notFound: () => unknownWords,
         });
+        // Its width follows the words, and when the row cannot spare that the
+        // tooltip still says the whole name.
+        if (!known) fieldSelect.box.title = unknownWords;
         fieldSelect.box.addEventListener('change', () => {
-            const next = model.newClause(fieldSelect.valueOf());
+            const next = model.moveClause(clause, fieldSelect.valueOf());
             for (const key of ['op', 'value']) delete clause[key];
             Object.assign(clause, next);
             restructure(clause, 'field');
@@ -269,7 +273,9 @@ export function createFilterBuilder(host, { model, value = null, onChange = null
     function drawValue(clause, cellEl, cell, drawCell) {
         const field = model.fieldByKey(clause.field);
         const op = model.operatorById(clause.op);
-        if (!field || !op) {
+        // A box drawn for an operator it was not made for would show nothing, or
+        // a field's own type, over a value that is still what Apply returns.
+        if (!field || !op || (op.arity && !model.operatorsFor(clause.field).includes(op))) {
             if (clause.value !== undefined) {
                 cellEl.appendChild(el('span', 'twm-filter-builder__carried', JSON.stringify(clause.value)));
             }
@@ -327,6 +333,7 @@ export function createFilterBuilder(host, { model, value = null, onChange = null
         if (numeric) {
             input.type = 'number';
             input.step = 'any';
+            if (op.input === 'days') input.min = '0';
         } else if (field.type === 'date') {
             input.type = field.time ? 'datetime-local' : 'date';
         } else {
@@ -508,12 +515,13 @@ function createIconPicker({ value, options, onChange }) {
  * @param {object}   options.model      from `createFilterModel`
  * @param {object}   [options.value]    the expression to edit (copied; Cancel is lossless)
  * @param {string}   [options.seedField]  a field key: a new empty condition on it is
- *   added, so "filter by this" lands on a form about that field
+ *   added, so "filter by this" lands on a form about that field. Beside a negated
+ *   root, not inside it: a new condition narrows what the filter already says.
  * @param {string}   [options.title]
  * @param {string}   [options.icon]     the window's icon
  * @param {HTMLElement} [options.head]  drawn above the conditions
  * @param {{value?: string, label?: string, placeholder?: string, required?: boolean}} [options.name]
- *   adds a name box; the result carries `name`
+ *   adds a name box, which opens with its text selected; the result carries `name`
  * @param {{value?: string, options: string[]}} [options.iconChoice]
  *   adds an icon picker over those Material Symbols names; the result carries `icon`
  * @param {(host: HTMLElement, state: {expr: object, sentence: string, signal: AbortSignal}) => void} [options.preview]
@@ -521,10 +529,13 @@ function createIconPicker({ value, options, onChange }) {
  *   while the expression can be submitted. `signal` aborts when this drawing is
  *   superseded or the dialog closes, for a preview that asks a server.
  * @param {boolean}  [options.requireValid]  submit only a valid expression (default
- *   true); its errors are listed. False lets one with an unknown field through.
+ *   true); its errors are listed. False lets one with an unknown field through. A
+ *   range with one end filled is refused either way (`model.partialRanges`).
  * @param {boolean}  [options.prune]    drop half-built rows from what is validated,
  *   previewed and submitted (`model.pruneFilter`); `expr` is null when nothing is left
  * @param {boolean}  [options.confirmDiscard]  ask before closing with unsaved changes
+ * @param {boolean}  [options.dismissOnBackdrop]  a click on the dimmed page beside the
+ *   dialog dismisses it, as Esc does (`confirmDiscard` still asks)
  * @param {string}   [options.submitLabel]
  * @param {(result: object) => any} [options.onSubmit]  may be async: until it settles
  *   every button is off and Esc and the X do nothing, so the answer is what happened.
@@ -532,8 +543,9 @@ function createIconPicker({ value, options, onChange }) {
  * @param {string}   [options.clearLabel]  adds a button answering `{ action: 'clear', expr: null }`
  * @param {Array<{label: string, value: string, danger?: boolean, icon?: string,
  *   confirm?: object, run?: (result: object) => any}>} [options.actions]
- *   more buttons, before Cancel. `confirm` is `openConfirm`'s options, asked first;
- *   `run` is like `onSubmit`.
+ *   more buttons, before Cancel. `confirm` is `openConfirm`'s options, asked first; its
+ *   `message` may be `(result) => string`, computed when it is asked, so it can quote
+ *   what was typed. `run` is like `onSubmit`.
  * @param {number}   [options.width]
  * @param {number}   [options.height]
  * @returns {Promise<{action: string, expr: object|null, name?: string, icon?: string}|null>}
@@ -542,16 +554,17 @@ function createIconPicker({ value, options, onChange }) {
 export async function openFilterDialog({
     model, value = null, seedField = null, title = 'Filter', icon = 'filter_alt', head = null,
     name = null, iconChoice = null, preview = null,
-    requireValid = true, prune = false, confirmDiscard = false,
+    requireValid = true, prune = false, confirmDiscard = false, dismissOnBackdrop = false,
     submitLabel = 'Apply', onSubmit = null, clearLabel = null, actions = [],
     width = preview ? 920 : 760, height = 560,
 } = {}) {
     if (!model) throw new Error('[FilterDialog] needs a filter model');
 
-    const start = asRoot(value);
-    if (seedField) {
-        const seeded = model.newClause(seedField);
-        if (seeded) start.children.push(seeded);
+    let start = asRoot(value);
+    const seeded = seedField ? model.newClause(seedField) : null;
+    if (seeded) {
+        if (start.negate) start = { kind: 'group', op: 'AND', children: [start, seeded] };
+        else start.children.push(seeded);
     }
 
     const content = el('div', 'twm-filter-dialog');
@@ -630,10 +643,14 @@ export async function openFilterDialog({
         const expr = builder.getValue();
         return prune ? model.pruneFilter(expr) : expr;
     }
-    const checkOf = (expr) => (expr ? model.validateFilter(expr) : { ok: true, errors: [] });
+    /** Why `expr` may not be submitted. */
+    const refusals = (expr) => {
+        if (!expr) return [];
+        return requireValid ? model.validateFilter(expr).errors : model.partialRanges(expr);
+    };
 
     const nameMissing = () => !!nameInput && name.required !== false && !nameInput.value.trim();
-    const canSubmit = () => !busy && !nameMissing() && (!requireValid || checkOf(current()).ok);
+    const canSubmit = () => !busy && !nameMissing() && !refusals(current()).length;
 
     function refresh() {
         if (!controls) return;
@@ -653,11 +670,11 @@ export async function openFilterDialog({
 
     function drawPreview() {
         const expr = current();
-        const { ok, errors } = checkOf(expr);
+        const errors = refusals(expr);
         previewRun?.abort();
         previewRun = null;
-        const blocked = requireValid && !ok;
-        showErrors(blocked ? errors : []);
+        const blocked = errors.length > 0;
+        showErrors(errors);
         if (!preview) return;
         slot.hidden = blocked;
         if (blocked) {
@@ -702,13 +719,17 @@ export async function openFilterDialog({
         showFailure('');
         busy = true;
         try {
-            // Its question stacks over this window, so the buttons stay as they
-            // are until it is answered and focus has a button to come back to.
-            if (action.confirm && !await openConfirm(action.confirm)) return;
-            refresh();
             const result = { action: action.value, expr: action.value === CLEAR ? null : current() };
             if (nameInput) result.name = nameInput.value.trim();
             if (picker) result.icon = picker.value();
+            // Its question stacks over this window, so the buttons stay as they
+            // are until it is answered and focus has a button to come back to.
+            if (action.confirm) {
+                const { message } = action.confirm;
+                const asked = typeof message === 'function' ? { ...action.confirm, message: message(result) } : action.confirm;
+                if (!await openConfirm(asked)) return;
+            }
+            refresh();
             await action.run?.(result);
             close(result);
         } catch (err) {
@@ -749,9 +770,13 @@ export async function openFilterDialog({
         height,
         maximizable: true,
         beforeClose: mayDiscard,
+        dismissOnBackdrop,
         onMount: (_body, modalControls) => {
             controls = modalControls;
             refresh();
+            // Editing a name usually means replacing it, and " (copy)" always does.
+            nameInput?.focus();
+            nameInput?.select();
         },
     });
     drawPreview();

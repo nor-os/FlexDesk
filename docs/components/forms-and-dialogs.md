@@ -332,6 +332,14 @@ answering false keeps it open. An action button does not ask it. A modal it lets
 close resolves `null`, as any dismissal does. `openFilterDialog`'s `confirmDiscard`
 is built on it.
 
+## A click beside a modal: `dismissOnBackdrop` (0.18.1)
+
+`openModal({ dismissOnBackdrop: true })` dismisses on a click on the dimmed page beside the modal, as Esc does: `beforeClose` is asked, and the modal resolves `null`. A drag that starts in the modal and ends on the page is no click on the backdrop. Default `false`: the backdrop only blocks, which is what it has always done, whatever older comments in the source said.
+
+## Focus placed by `onMount` stays (0.18.1)
+
+`openModal` focuses the first field, or the primary button, a frame after `onMount` ran. It now leaves focus alone when `onMount` already put it inside the modal, with its selection. Before, the first field took it and the caret went to the end.
+
 ## Windows: closing, focus and Esc (0.17.16)
 
 Every dialog above is a `ManagedWindow`, and so is any window you build

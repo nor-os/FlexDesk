@@ -444,7 +444,7 @@ export function openForm({ title, fields = [], defaults = {}, submitLabel = 'OK'
 
 /**
  * `openConfirm` — a yes/no modal. Resolves `true` on confirm, `false` on
- * cancel, Esc, X or backdrop.
+ * cancel, Esc or X.
  *
  * `message`, `confirmLabel` and `cancelLabel` are TEXT, never markup: callers
  * put user-named things in them ("Delete flow "<name>"?"), so they are set
@@ -531,7 +531,8 @@ export function openConfirm({
  *                 omitted, defaults to a single `[Close]` action that
  *                 resolves with `null`. The first action with
  *                 `primary: true` is the rightmost; otherwise the
- *                 last action wins. Esc / X / backdrop resolve with
+ *                 last action wins. Esc / X (and, with
+ *                 `dismissOnBackdrop`, a click on the backdrop) resolve with
  *                 `null` regardless of what's in `actions`. `icon` is
  *                 an optional material-symbols-outlined ligature drawn
  *                 BEFORE the label; when it is given the label lives in
@@ -558,6 +559,9 @@ export function openConfirm({
  *   - `beforeClose`      `() => boolean | Promise<boolean>`: asked when Esc or
  *                 the X would dismiss; answering false keeps the modal open. An
  *                 action button does not ask it.
+ *   - `dismissOnBackdrop` a click on the dimmed page beside the modal dismisses
+ *                 it, as Esc does, so `beforeClose` is asked. Default `false`:
+ *                 the backdrop only blocks.
  *
  * ══ C29. WHY A DIALOG'S MAXIMISE IS THE GEOMETRIC ONE ═══════════════════
  *
@@ -600,6 +604,7 @@ export function openModal({
     maximizable      = false,
     onMaximizeChange = null,
     beforeClose      = null,
+    dismissOnBackdrop = false,
 } = {}) {
     return new Promise((resolve) => {
         const body = document.createElement('div');
@@ -610,8 +615,8 @@ export function openModal({
         if (content instanceof HTMLElement) bodyInner.appendChild(content);
         body.appendChild(bodyInner);
 
-        // Actions row — default = single Close button. Esc / backdrop /
-        // X all bypass this and resolve with null.
+        // Actions row — default = single Close button. Esc and X (and an
+        // opted-in backdrop) bypass this and resolve with null.
         const acts = Array.isArray(actions) && actions.length > 0
             ? actions
             : [{ label: 'Close', value: null }];
@@ -706,16 +711,19 @@ export function openModal({
             defaultWidth:  width,
             defaultHeight: height,
             beforeClose,
-            // Esc, the X and the backdrop all land here without passing through
-            // `close`, so the listener is dropped here as well as there — the
-            // three dismissals a user reaches for most are exactly the ones
-            // that would otherwise leak it.
+            // Esc, the X and an opted-in backdrop all land here without passing
+            // through `close`, so the listener is dropped here as well as there —
+            // the dismissals a user reaches for most are exactly the ones that
+            // would otherwise leak it.
             onClose: () => {
                 _dropMaxListener();
                 if (!_resolved) { _resolved = true; resolve(null); }
             },
         });
         win.show();
+        // A click, not a press: a drag that starts in the window and ends on the
+        // page (selecting text, resizing) has no click on the backdrop.
+        if (dismissOnBackdrop) win.backdropElement.addEventListener('click', () => win.close());
 
         // C29. THE STATE, FOR A CALLER WHOSE LAYOUT DEPENDS ON IT.
         //
@@ -818,7 +826,11 @@ export function openModal({
         // whose first control is a read-only statement panel (C27's disabled
         // primary is the sibling case) would swallow the caret into a box that
         // cannot take it.
+        //
+        // AN `onMount` THAT PLACED FOCUS KEEPS IT, with its selection: it ran in
+        // the frame before this one, and it knows the field better than "the first".
         requestAnimationFrame(() => {
+            if (bodyInner.contains(document.activeElement)) return;
             const field = bodyInner.querySelector(
                 'input:not([type="hidden"]):not([disabled]):not([readonly]),'
               + ' textarea:not([disabled]):not([readonly]),'

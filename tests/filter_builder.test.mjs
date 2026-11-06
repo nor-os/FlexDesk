@@ -178,8 +178,20 @@ section('§2 describe, validate, prune, count, coerce, serialise');
     check('describe empty', model.describeFilter(emptyFilter()), 'everything');
     check('describe negated empty', model.describeFilter({ ...emptyFilter(), negate: true }), 'nothing');
     check('describe an empty OR under emptyOr: nothing', createFilterModel({ fields: [], emptyOr: 'nothing' }).describeFilter(group('OR')), 'nothing');
-    check('an unknown field is said', model.describeFilter(clause('gone', 'is', 'x')), '⚠ unknown field “gone”');
-    check('unknownName shapes it', createFilterModel({ fields: [], unknownName: (k) => k.slice(3) }).describeFilter(clause('cf.gone', 'is', 'x')), '⚠ unknown field “gone”');
+    check('an unknown field is said, with what it asks', model.describeFilter(clause('gone', 'is', 'x')), '⚠ unknown field “gone” is x');
+    check('an unknown field under no value', model.describeFilter(clause('gone', 'is_empty')), '⚠ unknown field “gone” is empty');
+    check('an unknown field under an unknown operator', model.describeFilter(clause('gone', 'nope', 'x')), '⚠ unknown field “gone” nope x');
+    check('an unknown operator keeps its value', model.describeFilter(clause('name', 'nope', 'x')), 'Name nope x');
+    check('unknownName shapes it', createFilterModel({ fields: [], unknownName: (k) => k.slice(3) }).describeFilter(clause('cf.gone', 'is', 'x')), '⚠ unknown field “gone” is x');
+    check('formatValue is not asked about a field nobody knows', model.describeFilter(clause('gone', 'is', 'x'), { formatValue: (v, f) => f.key }), '⚠ unknown field “gone” is x');
+    check('every value of a list under a single-value operator', model.describeFilter(clause('tags', 'contains', ['a', 'b'])), 'Tags contains a, b');
+    check('named too', model.describeFilter(clause('tags', 'contains', ['a', 'b']), { formatValue: (v) => v.toUpperCase() }), 'Tags contains A, B');
+    const nested = group('AND', clause('name', 'is', 'x'), group('OR', clause('count', 'gt', 1), clause('count', 'lt', 0)));
+    check('groupBrackets: the root too', model.describeFilter(nested, { groupBrackets: true }), '(Name is x AND (Count > 1 OR Count < 0))');
+    check('groupBrackets: a group of one has none', model.describeFilter(group('AND', clause('name', 'is', 'x')), { groupBrackets: true }), 'Name is x');
+    check('groupBrackets: NOT of one', model.describeFilter({ ...group('AND', clause('name', 'is', 'x')), negate: true }, { groupBrackets: true }), 'NOT Name is x');
+    check('groupBrackets: NOT of two', model.describeFilter({ ...group('OR', clause('name', 'is', 'x'), clause('name', 'is', 'y')), negate: true }, { groupBrackets: true }), 'NOT (Name is x OR Name is y)');
+    check('without it the root has none', model.describeFilter(nested), 'Name is x AND (Count > 1 OR Count < 0)');
     check('formatValue names values', model.describeFilter(group('AND', clause('name', 'one_of', ['a', 'b'])), { formatValue: (v, f) => `${f.key}:${v.toUpperCase()}` }), 'Name one of name:A, name:B');
     check('a carried node shows as data', model.describeFilter({ kind: 'opaque', node: { op: 'xor' } }), '⚠ {"op":"xor"}');
 
@@ -398,7 +410,9 @@ const btn = (root, text) => qa(root, 'button').find((b) => b.textContent === tex
     ok('focus returns to the operator', document.activeElement === q(host, '.twm-filter-builder__select--op'));
 
     setSelect(q(host, '.twm-filter-builder__select--field'), 'Count');
-    check('a new field starts on its first operator', builder.getValue().children[0], clause('count', 'is', null));
+    check('a new field keeps an operator it offers', builder.getValue().children[0], clause('count', 'is_empty'));
+    setSelect(q(host, '.twm-filter-builder__select--op'), 'is');
+    check('a number starts blank', builder.getValue().children[0], clause('count', 'is', null));
     const num = q(host, '.twm-filter-builder__value input');
     check('a number box', num.type, 'number');
     typeIn(num, '1000');
@@ -422,6 +436,8 @@ const btn = (root, text) => qa(root, 'button').find((b) => b.textContent === tex
     check('days start at 7', builder.getValue().children[0].value, 7);
     check('as a number box', q(host, '.twm-filter-builder__value input').type, 'number');
     setSelect(q(host, '.twm-filter-builder__select--field'), 'At');
+    check('the days stay, on a date field that offers them', builder.getValue().children[0], clause('at', 'in_last_days', 7));
+    setSelect(q(host, '.twm-filter-builder__select--op'), 'before');
     check('a date and time box', q(host, '.twm-filter-builder__value input').type, 'datetime-local');
 
     setSelect(q(host, '.twm-filter-builder__select--field'), 'Size');
@@ -482,6 +498,10 @@ const btn = (root, text) => qa(root, 'button').find((b) => b.textContent === tex
     check('an unknown field keeps its own entry', fields[0].selectedOptions[0].textContent, '⚠ unknown field “gone”');
     check('its value is shown read-only', q(host, '.twm-filter-builder__value .twm-filter-builder__carried').textContent, '"kept"');
     const ops = qa(host, '.twm-filter-builder__select--op');
+    check('a catalogue operator on an unknown field reads as itself', ops[0].selectedOptions[0].textContent, 'is');
+    check('the whole warning is its tooltip', fields[0].title, '⚠ unknown field “gone”');
+    ok('and the select takes its width from it', fields[0].classList.contains('twm-filter-builder__select--unknown'));
+    ok('a known field neither', !fields[1].title && !fields[1].classList.contains('twm-filter-builder__select--unknown'));
     check('an unknown operator keeps its own entry', ops[1].selectedOptions[0].textContent, 'made_up (unknown)');
     check('a known operator this field is not offered is kept, in words', ops[2].selectedOptions[0].textContent, 'has no value');
     check('an enum value no longer offered is kept', q(host, '.twm-filter-builder__select--value').selectedOptions[0].textContent, 'vanished (unknown)');
@@ -489,7 +509,7 @@ const btn = (root, text) => qa(root, 'button').find((b) => b.textContent === tex
     btn(host, '+ Condition').click();
     check('editing elsewhere leaves them alone', builder.getValue().children.slice(0, 5), held.children);
     setSelect(qa(host, '.twm-filter-builder__select--field')[0], 'Name');
-    check('choosing a real field replaces the condition', builder.getValue().children[0], clause('name', 'is', ''));
+    check('choosing a real field makes it a condition on that field', builder.getValue().children[0], clause('name', 'is', 'kept'));
     qa(host, '.twm-filter-builder__row--carried .twm-filter-builder__remove')[0].click();
     check('a carried node can be removed', builder.getValue().children.some((c) => c.kind === 'opaque'), false);
     builder.destroy();
@@ -607,6 +627,109 @@ const pressEsc = () => document.dispatchEvent(new window.KeyboardEvent('keydown'
     check('the seed adds a condition', qa(lastModal(), '.twm-filter-builder__row').length, 2);
     action('Apply').click();
     check('it submits with an unknown field', await open, { action: 'submit', expr: group('AND', clause('gone', 'is', 'kept'), clause('size', 'is', 's')) });
+
+    // A range with one end filled: it is not blank, and it matches nothing.
+    {
+        const half = group('AND', clause('count', 'between', [5, null]));
+        for (const [words, extra] of [['prune, requireValid false', { prune: true, requireValid: false }],
+                                      ['requireValid false', { requireValid: false }]]) {
+            open = openFilterDialog({ model, value: half, ...extra });
+            await nextFrame();
+            ok(`${words}: Apply is refused`, action('Apply').disabled);
+            check(`${words}: and says why`, q(lastModal(), '.twm-filter-dialog__errors').textContent, 'Count between: needs two values');
+            const boxes = qa(lastModal(), '.twm-filter-builder__value input');
+            typeIn(boxes[1], '9');
+            ok(`${words}: filling it frees Apply`, !action('Apply').disabled);
+            action('Apply').click();
+            check(`${words}: and it leaves whole`, await open, { action: 'submit', expr: group('AND', clause('count', 'between', [5, 9])) });
+        }
+        open = openFilterDialog({ model, prune: true, requireValid: false, value: group('AND', clause('count', 'between', [null, null])) });
+        await nextFrame();
+        action('Apply').click();
+        check('a range with neither end is still pruned', await open, { action: 'submit', expr: null });
+        check('the model names them', model.partialRanges(group('OR', clause('count', 'between', [null, 3]), clause('when', 'between', ['', '']), clause('gone', 'between', [1, null]))), ['Count between: needs two values']);
+        check('pruneFilter keeps one', model.pruneFilter(half), half);
+    }
+
+    // A seed beside a negated root: it narrows the filter and does not undo it.
+    {
+        const negated = { ...group('AND', clause('name', 'is', 'x')), negate: true };
+        open = openFilterDialog({ model, seedField: 'count', value: negated });
+        await nextFrame();
+        typeIn(qa(lastModal(), '.twm-filter-builder__value input').at(-1), '7');
+        action('Apply').click();
+        check('a seed goes beside a negated root', (await open).expr, group('AND', negated, clause('count', 'is', 7)));
+    }
+
+    // The name box opens selected.
+    {
+        open = openFilterDialog({ model, name: { value: 'Mine' } });
+        await nextFrame();
+        await nextFrame();
+        const box = q(lastModal(), '.twm-filter-dialog__name input');
+        check('the name box opens with focus and its text selected', [document.activeElement === box, box.selectionStart, box.selectionEnd], [true, 0, 4]);
+        action('Cancel').click();
+        await open;
+    }
+
+    // A click beside the dialog, opted in.
+    {
+        const backdrop = () => [...document.querySelectorAll('.twm-managed-window__backdrop')].at(-1);
+        open = openFilterDialog({ model });
+        await nextFrame();
+        const stays = lastModal();
+        backdrop().click();
+        await nextFrame();
+        ok('by default the backdrop only blocks', stays.isConnected);
+        action('Cancel').click();
+        await open;
+
+        open = openFilterDialog({ model, dismissOnBackdrop: true });
+        await nextFrame();
+        backdrop().click();
+        check('with dismissOnBackdrop a click beside it dismisses', await open, null);
+
+        open = openFilterDialog({ model, dismissOnBackdrop: true, confirmDiscard: true, value: group('AND', clause('name', 'is', 'x')) });
+        await nextFrame();
+        const asking = lastModal();
+        typeIn(q(asking, '.twm-filter-builder__value input'), 'changed');
+        backdrop().click();
+        await nextFrame();
+        check('and confirmDiscard still asks', q(lastModal(), '.twm-modal__body--text').textContent, 'This filter has unsaved changes. Closing now throws them away.');
+        q(lastModal(), '[data-action="cancel"]').click();
+        await nextFrame();
+        ok('kept: it stays', asking.isConnected);
+        backdrop().click();
+        await nextFrame();
+        q(lastModal(), '[data-action="confirm"]').click();
+        check('discarded: it is dismissed', await open, null);
+    }
+
+    // A question that quotes what was typed.
+    {
+        const asked = [];
+        open = openFilterDialog({
+            model,
+            name: { value: 'Old' },
+            actions: [{
+                label: 'Delete',
+                value: 'delete',
+                confirm: {
+                    title: 'Delete?',
+                    message: (result) => { asked.push(result); return `Delete "${result.name}"?`; },
+                    confirmLabel: 'Delete',
+                },
+            }],
+        });
+        await nextFrame();
+        typeIn(q(lastModal(), '.twm-filter-dialog__name input'), 'Typed');
+        action('Delete').click();
+        await nextFrame();
+        check('a confirm message is computed when it is asked', q(lastModal(), '.twm-modal__body--text').textContent, 'Delete "Typed"?');
+        check('from the result', [asked.length, asked[0].action], [1, 'delete']);
+        q(lastModal(), '[data-action="confirm"]').click();
+        check('and the result is what comes back', (await open).name, 'Typed');
+    }
     open = openFilterDialog({ model, requireValid: false, prune: true, value: group('AND', clause('name', 'is', '')) });
     await nextFrame();
     action('Apply').click();
@@ -897,8 +1020,69 @@ section('§7 exports, CSS, domain words');
     check('no application word in the code', js.match(words)?.[0] ?? null, null);
     check('nor in the block', block.match(words)?.[0] ?? null, null);
     check('nor in the docs', doc.match(words)?.[0] ?? null, null);
-    ok('the docs carry the version', /\(0\.18\.0\)/.test(doc));
+    ok('the docs carry the version', /\(0\.18\.0\)/.test(doc) && /\(0\.18\.1\)/.test(doc));
     ok('the docs index links the page', readFileSync(join(ROOT, 'docs/README.md'), 'utf8').includes('components/filter-builder.md'));
+}
+
+section('§8 what a condition keeps');
+{
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const fieldsel = () => q(host, '.twm-filter-builder__select--field');
+    const value = () => builder.getValue().children[0];
+    const wider = createFilterModel({ fields: [...FIELDS(), { key: 'title', label: 'Title', type: 'text' }] });
+    const builder = createFilterBuilder(host, { model: wider, value: group('AND', clause('name', 'is', 'keepme')) });
+
+    setSelect(fieldsel(), 'Title');
+    check('a field offering the operator keeps it and the value', value(), clause('title', 'is', 'keepme'));
+    setSelect(fieldsel(), 'Count');
+    check('a value the new field cannot hold starts blank', value(), clause('count', 'is', null));
+    typeIn(q(host, '.twm-filter-builder__value input'), '5');
+    setSelect(fieldsel(), 'Name');
+    check('one it can hold stays', value(), clause('name', 'is', 5));
+    setSelect(fieldsel(), 'Size');
+    check('a value not among the options falls to the first', value(), clause('size', 'is', 's'));
+    setSelect(fieldsel(), 'Name');
+    check('from there it is text', value(), clause('name', 'is', 's'));
+    setSelect(fieldsel(), 'Done');
+    check('an operator the field does not offer goes to its first', value(), clause('done', 'is_true'));
+    builder.setValue(group('AND', clause('name', 'one_of', ['a', 'b'])));
+    setSelect(fieldsel(), 'Tags');
+    check('a list stays', value(), clause('tags', 'one_of', ['a', 'b']));
+    setSelect(fieldsel(), 'Size');
+    check('a list no longer offered starts empty', value(), clause('size', 'one_of', []));
+    builder.setValue(group('AND', clause('count', 'between', [1, 2])));
+    setSelect(fieldsel(), 'When');
+    check('a range that is not dates starts blank', value(), clause('when', 'between', ['', '']));
+    builder.destroy();
+
+    check('moveClause on no such field is null', wider.moveClause(clause('name', 'is', 'x'), 'gone'), null);
+}
+{
+    // A held condition under an operator its field does not offer.
+    const strict = createFilterModel({ fields: [
+        { key: 'qty', label: 'Qty', type: 'number', operators: ['is', 'gt'] },
+        { key: 'on', label: 'On', type: 'date' },
+    ] });
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const held = group('AND', clause('qty', 'contains', 'abc'), clause('on', 'contains', 'xyz'), clause('qty', 'is_empty'));
+    const builder = createFilterBuilder(host, { model: strict, value: held });
+    const cells = qa(host, '.twm-filter-builder__value');
+    check('a number field shows the value it holds', cells[0].querySelector('.twm-filter-builder__carried')?.textContent, '"abc"');
+    check('and draws no box', cells[0].querySelectorAll('input').length, 0);
+    check('a date field too', cells[1].querySelector('.twm-filter-builder__carried')?.textContent, '"xyz"');
+    check('an operator with no value draws nothing', cells[2].childElementCount, 0);
+    check('the value stands', builder.getValue(), held);
+    builder.destroy();
+
+    // A days box.
+    const days = document.createElement('div');
+    const dayBuilder = createFilterBuilder(days, { model, value: group('AND', clause('when', 'in_last_days', 7), clause('count', 'gt', 1)) });
+    const inputs = qa(days, '.twm-filter-builder__value input');
+    check('a days box stops at zero', inputs[0].min, '0');
+    check('a number box does not', inputs[1].min, '');
+    dayBuilder.destroy();
 }
 
 console.warn = realWarn;

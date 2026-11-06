@@ -5392,6 +5392,9 @@ body.twm-window-maximized .twm-resize-handle {
 .twm-filter-builder__select--field {
     flex: 0 1 140px;
 }
+.twm-filter-builder__select--unknown {
+    flex: 0 1 auto;
+}
 .twm-filter-builder__select--op {
     flex: 0 1 120px;
 }

@@ -689,6 +689,20 @@ const pressEsc = () => document.dispatchEvent(new window.KeyboardEvent('keydown'
         backdrop().click();
         check('with dismissOnBackdrop a click beside it dismisses', await open, null);
 
+        // The press would blur the field, and a refused dismissal would leave the
+        // keyboard on nothing.
+        const press = () => backdrop().dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+        open = openFilterDialog({ model });
+        await nextFrame();
+        ok('by default a press on the backdrop is the browser\'s', press());
+        action('Cancel').click();
+        await open;
+        open = openFilterDialog({ model, dismissOnBackdrop: true });
+        await nextFrame();
+        ok('with dismissOnBackdrop the press takes no focus', !press());
+        backdrop().click();
+        await open;
+
         open = openFilterDialog({ model, dismissOnBackdrop: true, confirmDiscard: true, value: group('AND', clause('name', 'is', 'x')) });
         await nextFrame();
         const asking = lastModal();

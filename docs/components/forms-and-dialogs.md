@@ -334,7 +334,7 @@ is built on it.
 
 ## A click beside a modal: `dismissOnBackdrop` (0.18.1)
 
-`openModal({ dismissOnBackdrop: true })` dismisses on a click on the dimmed page beside the modal, as Esc does: `beforeClose` is asked, and the modal resolves `null`. A drag that starts in the modal and ends on the page is no click on the backdrop. Default `false`: the backdrop only blocks, which is what it has always done, whatever older comments in the source said.
+`openModal({ dismissOnBackdrop: true })` dismisses on a click on the dimmed page beside the modal, as Esc does: `beforeClose` is asked, and the modal resolves `null`. A drag that starts in the modal and ends on the page is no click on the backdrop. The press takes no focus from the modal, so when `beforeClose` refuses, the caret is where it was. Default `false`: the backdrop only blocks, which is what it has always done, whatever older comments in the source said.
 
 ## Focus placed by `onMount` stays (0.18.1)
 

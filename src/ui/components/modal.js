@@ -723,7 +723,12 @@ export function openModal({
         win.show();
         // A click, not a press: a drag that starts in the window and ends on the
         // page (selecting text, resizing) has no click on the backdrop.
-        if (dismissOnBackdrop) win.backdropElement.addEventListener('click', () => win.close());
+        // The press takes no focus from the window: `beforeClose` may refuse, and
+        // the person goes on typing where they were.
+        if (dismissOnBackdrop) {
+            win.backdropElement.addEventListener('mousedown', (e) => e.preventDefault());
+            win.backdropElement.addEventListener('click', () => win.close());
+        }
 
         // C29. THE STATE, FOR A CALLER WHOSE LAYOUT DEPENDS ON IT.
         //

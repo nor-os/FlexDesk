@@ -1071,6 +1071,16 @@ section('§8 what a condition keeps');
     builder.destroy();
 
     check('moveClause on no such field is null', wider.moveClause(clause('name', 'is', 'x'), 'gone'), null);
+
+    // Every value of a list is checked as a single one is.
+    check('text in a list on a number field is refused', wider.validateFilter(clause('count', 'one_of', [1, 'abc'])).errors, ['Count one of: value must be a number']);
+    check('numbers as they are typed pass', wider.validateFilter(clause('count', 'one_of', ['5', 6])).ok, true);
+    const listed = createFilterModel({ fields: [{ key: 'when', label: 'When', type: 'date', operators: ['one_of'] }] });
+    check('a list on a date field that offers one is checked too', listed.validateFilter(clause('when', 'one_of', ['2024-01-05', 'soon'])).errors, ['When one of: value must be a date (YYYY-MM-DD)']);
+    check('dates in one pass', listed.validateFilter(clause('when', 'one_of', ['2024-01-05'])).ok, true);
+    check('an empty list still says so', wider.validateFilter(clause('count', 'one_of', [])).errors, ['Count one of: pick at least one value']);
+    check('a list that is not numbers does not move to a number field', wider.moveClause(clause('name', 'one_of', ['abc']), 'count').value, []);
+    check('one that is does', wider.moveClause(clause('name', 'one_of', ['5']), 'count').value, ['5']);
 }
 {
     // A held condition under an operator its field does not offer.

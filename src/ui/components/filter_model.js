@@ -578,13 +578,13 @@ export function createFilterModel({
         }
         if (op.arity === 0) return;
         const say = (what) => errors.push(`${field.label} ${op.label}: ${what}`);
-        if (op.multi) {
-            if (!Array.isArray(node.value) || node.value.length === 0) say('pick at least one value');
+        if (op.multi && (!Array.isArray(node.value) || node.value.length === 0)) {
+            say('pick at least one value');
             return;
         }
-        const values = op.arity === 2 ? arr(node.value).slice(0, 2) : [first(node.value)];
+        const values = op.multi ? node.value : op.arity === 2 ? arr(node.value).slice(0, 2) : [first(node.value)];
         const needed = op.arity === 2 ? 2 : 1;
-        if (values.length < needed || values.some(isBlank)) {
+        if (!op.multi && (values.length < needed || values.some(isBlank))) {
             say(needed === 2 ? 'needs two values' : 'needs a value');
             return;
         }

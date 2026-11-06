@@ -194,7 +194,7 @@ Each group has an AND/OR toggle, NOT, `+ Condition` and `+ Group`; each conditio
 Choosing another field for a condition goes through `model.moveClause(clause, key)`:
 
 - The **operator** stays when the new field offers it. Otherwise the condition starts on the field's first operator, as `newClause(key)` does.
-- The **value** stays when it still fits: it passes `validateFilter` on the new field and, where the editor offers a list (an `enum` field, a `multi` operator on a field with `options`), it is on that list. Otherwise it starts as `defaultValue(field, op)`.
+- The **value** stays when it still fits: it passes `validateFilter` on the new field and, where the editor offers a list (an `enum` field, a `multi` operator on a field with `options`), it is on that list. Otherwise it starts as `defaultValue(field, op)`. `validateFilter` checks every value of a `multi` operator as it does a single one, so `one_of ['abc']` on a number field is refused and does not move there. A value that does fit is kept as it stands: `is '5'` moved to a number field is still the string `'5'`.
 
 A condition whose field or operator cannot be drawn shows the value it holds read-only: an unknown field, an unknown operator, or a known operator its field does not offer. A box drawn for that operator would look empty over a value the result still carries. A custom editor is not asked about one. An unknown field's whole warning is the field select's tooltip, and the select takes its width from it where the row can spare that.
 

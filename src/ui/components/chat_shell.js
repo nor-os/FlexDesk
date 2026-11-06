@@ -703,13 +703,18 @@ export function mountChatShell(host, {
         changed();
     }
 
-    /** Stops the reply: the chat can send again at once, and that send waits for `runEnding`. */
+    /**
+     * Stops the reply: the chat can send again at once. That send waits for
+     * `runEnding`, unless this turn was itself still waiting for it: the person
+     * has now said twice that they will not wait, so the next send goes out.
+     */
     function cancel() {
         if (!turn) return false;
         const { request, sent } = turn;
         closeReply('stopped');
         machine.cancel();
         if (sent) callCancel(request);
+        else runEnding = null;
         syncWelcome();
         changed();
         return true;
@@ -789,6 +794,7 @@ export function mountChatShell(host, {
     const modelBtn = el('button', 'twm-chat-shell__model-btn');
     modelBtn.type = 'button';
     modelBtn.setAttribute('aria-haspopup', 'menu');
+    modelBtn.setAttribute('aria-expanded', 'false');
     const modelDot = el('span', 'twm-chat-shell__status');
     const modelLabel = el('span', 'twm-chat-shell__model-label');
     modelBtn.append(modelDot, modelLabel, icon('expand_more', 'twm-chat-shell__model-chevron'));

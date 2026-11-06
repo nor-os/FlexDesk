@@ -314,8 +314,8 @@ console.log('§3b a backend with no run id');
     const stops = backend.stops;
     await flush();
     ok('stopping a turn still waiting tells the backend nothing', chat.cancel() === true && backend.stops === stops);
-    chat.send('after');
     backend.finish(() => bridge.onError({ error: 'cancelled' }));
+    chat.send('after');
     await flush();
     ok('the stopped one is never asked, the next one is',
         !backend.asked.includes('waiting') && backend.asked.at(-1) === 'after');
@@ -342,6 +342,22 @@ console.log('§3b a backend with no run id');
     await flush();
     ok('and goes when it has', rejected.requests.at(-1)?.text === 'two');
     r.chat.destroy();
+
+    // A cancel that never settles, or a run-over that is lost: Stop is the way out.
+    const stuck = fakeTransport();
+    stuck.cancel = () => new Promise(() => {});
+    const s = mount({ transport: stuck });
+    s.chat.send('A');
+    s.chat.cancel();
+    s.chat.send('B');
+    await flush();
+    ok('the next turn waits for the run to end', stuck.requests.length === 1 && s.chat.isBusy());
+    ok('and Stop stops it', s.chat.cancel() === true && !s.chat.isBusy());
+    s.chat.send('C');
+    ok('so the send after it goes out at once', stuck.requests.map((q) => q.text).join() === 'A,C');
+    await flush();
+    ok('and the one that was stopped never does', !stuck.requests.some((q) => q.text === 'B'));
+    s.chat.destroy();
 
     const plain = fakeTransport();
     const p = mount({ transport: plain });
@@ -704,8 +720,10 @@ console.log('§10 the model picker');
         && options()[1].querySelector('.twm-option-icon').textContent === 'radio_button_unchecked');
     ok('an action has its own icon', options()[2].querySelector('.twm-option-icon').textContent === 'tune');
     ok('a separator', menu().querySelector('.twm-action-dropdown-separator') !== null);
+    ok('closed, the button says so', btn.getAttribute('aria-expanded') === 'false');
     click(btn);
     ok('the button opens it', menu().hidden === false);
+    ok('open, the button says so', btn.getAttribute('aria-expanded') === 'true');
     click(options()[1]);
     ok('selecting hands your item back', picked[0].id === 'b');
     ok('it is controlled: nothing moved', ctx.q('.twm-chat-shell__model-label').textContent === 'A <b>big</b>');

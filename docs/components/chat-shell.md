@@ -62,7 +62,7 @@ So a transport that gives each run its own callback, and calls that run's `emit`
 
 #### A backend with no run id
 
-A backend that pushes to a global has one place to send a frame, and the frame does not say which run it is from. The adapter holds the latest `emit`, so the chat cannot tell an old run's chunk from the new reply's. Runs must therefore not overlap, and `cancel` is how: it answers a promise that settles when the cancelled run is over and the backend takes a new request. The next turn shows at once, with its typing dots, and its `send` is called when the promise settles. A promise that rejects is logged and counts as settled; one that never settles leaves the next turn waiting until the user stops it.
+A backend that pushes to a global has one place to send a frame, and the frame does not say which run it is from. The adapter holds the latest `emit`, so the chat cannot tell an old run's chunk from the new reply's. Runs must therefore not overlap, and `cancel` is how: it answers a promise that settles when the cancelled run is over and the backend takes a new request. The next turn shows at once, with its typing dots, and its `send` is called when the promise settles. A promise that rejects is logged and counts as settled. One that never settles, or a run-over that is lost, holds the next turn only until the user stops it: [Stop releases a turn that is waiting](#stop-releases-a-turn-that-is-waiting-0181).
 
 ```js
 let emit = null;
@@ -99,6 +99,12 @@ const transport = {
 
 While the run winds down, `emit` is still the cancelled turn's, so its late chunks and its report that it was cancelled are dropped, with no check of yours. The promise must not settle before the backend would accept a request: if the backend sends its last frame and only then frees itself, have it send the end of the run after that, and settle on that instead. A `cancel` that answers no promise says there is nothing to wait for, and `send` is called at once.
 
+#### Stop releases a turn that is waiting (0.18.1)
+
+A send made after a Stop waits for `cancel`'s promise. If that promise never settles, because the backend stalled or its run-over was lost, the turn shows its typing dots with nothing behind them. Stop on that turn releases the wait: it was never sent, so `transport.cancel` is not called for it, and the next send goes out at once.
+
+The person has then said twice that they will not wait, and the chat does what they ask. So a backend whose old run may still be alive can see a request while it runs. One that takes one run at a time should refuse the overlapping request: the refusal shows as an error with Retry. One that accepts it will mix the old run's frames into the new reply, because they arrive through the one `emit` the adapter holds.
+
 ### A turn
 
 The user's message goes in, then a streamed assistant message that shows the typing dots while it is empty. While the turn runs, Send is Cancel and Esc cancels, as in the conversation view, and the New and Clear buttons are disabled. A turn ends in one of three ways:
@@ -125,7 +131,7 @@ A reply still empty is not in a snapshot, and a tool that was `running` when a s
 |---|---|
 | `send(text)`, `cancel()` → bool | As the user would; false when refused |
 | `isBusy()`, `messages()`, `snapshot()` | A turn is running; the messages in front; everything to keep |
-| `activeConversation()`, `newConversation()` → id, `switchTo(id)`, `close(id)`, `rename(id, title)`, `reset()` | The tabs. `reset` empties the one in front. Refused ones answer false (`newConversation`: null) |
+| `activeConversation()` → id, `newConversation()` → id, `switchTo(id)`, `close(id)`, `rename(id, title)`, `reset()` | The tabs. `activeConversation` answers the id of the one in front, not the conversation; `snapshot()` holds its messages. `reset` empties the one in front. Refused ones answer false (`newConversation`: null) |
 | `setConversationId(tabId, id)` | Your backend's id for a conversation |
 | `setMessages(tabId, messages)` | Replaces a conversation's messages, when your backend knows better. The one a turn is writing to refuses |
 | `updateMeta(id, patch)`, `refreshControls(id)`, `controlsSlot(id)` | A message's controls, below |

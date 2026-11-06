@@ -235,3 +235,27 @@ fires a bubbling `change` on the input, for a form around it.
 also means "this one", such as the tag input's comma.
 
 `tests/select_combobox_popover.test.mjs` covers these and the tag input's options in jsdom.
+
+## A list under a name being edited: `attachInlineRenamer` (0.18.1)
+
+`attachInlineRenamer`'s `onStart` now runs before the renamer adds its own key listeners, and is handed the input as `{ value, triggerEvent, input }`. So what it attaches hears each key first, which is what [`attachInputOptions`](#a-text-box-that-also-offers-a-list-createcombobox-0180) asks for:
+
+```js
+const renamer = attachInlineRenamer({
+    label,
+    onStart: ({ input }) => {
+        list = attachInputOptions(input, {
+            options: names,
+            onPick: (option) => {
+                input.value = option.value;
+                renamer.commit('pick');
+            },
+        });
+    },
+    onCommit: (name) => save(name),
+    onFinish: () => list.destroy(),
+    onCancel: () => list.destroy(),
+});
+```
+
+Enter on an arrow-highlighted row commits the row; with no row highlighted it commits what was typed. Esc with the list open closes only the list, and the next one cancels. Taking the field off the page ends the edit first, so the blur a browser fires for it commits nothing after a commit or an Esc.

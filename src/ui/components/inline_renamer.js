@@ -32,11 +32,12 @@ export function attachInlineRenamer(options = {}) {
     let originalText = label.textContent || '';
 
     const cleanup = () => {
-        if (input && input.parentNode === label) {
-            input.remove();
-        }
+        // `input` goes first: taking a focused field off the page fires its blur,
+        // and a blur with the field still held would commit an edit that just ended.
+        const gone = input;
         input = null;
         editing = false;
+        if (gone && gone.parentNode === label) gone.remove();
     };
 
     const cancel = () => {
@@ -68,8 +69,8 @@ export function attachInlineRenamer(options = {}) {
                 return;
             }
             const finalValue = result.newValue ?? next ?? '';
-            label.textContent = finalValue;
             cleanup();
+            label.textContent = finalValue;
             options.onFinish?.({ value: finalValue });
         } catch (err) {
             window.logger?.warn('inline-renamer', 'onCommit failed', err);
@@ -89,6 +90,11 @@ export function attachInlineRenamer(options = {}) {
         input.addEventListener('mousedown', stopEvents);
         input.addEventListener('click', stopEvents);
 
+        // Before the renamer's own keys, so that what it attaches to the input
+        // hears them first: `attachInputOptions` takes Enter on a highlighted row
+        // and Esc with its list open, and the renamer never sees either.
+        options.onStart?.({ value: originalText, triggerEvent, input });
+
         input.addEventListener('keydown', (ev) => {
             if (ev.key === 'Enter') {
                 ev.preventDefault();
@@ -101,7 +107,6 @@ export function attachInlineRenamer(options = {}) {
 
         input.addEventListener('blur', () => commit('blur'));
 
-        options.onStart?.({ value: originalText, triggerEvent });
         setTimeout(() => {
             input?.focus();
             input?.select?.();

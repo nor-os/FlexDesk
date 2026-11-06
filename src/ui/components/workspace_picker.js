@@ -45,9 +45,11 @@
  *
  * Opening puts the caret in the input. The arrows walk focus over every stop,
  * wrapping: the input, the rows a person can choose (a disabled one is stepped
- * over), Load more, the action rows, the card's buttons, the footer's. Tab is
- * shorter: the rows are ONE tab stop (the row last focused, else the current one,
- * else the first), and so are the action rows.
+ * over), Load more, the action rows, the card's buttons, the footer's; after
+ * `open({ select })` they start from the row it chose. Tab is shorter: the rows are
+ * ONE tab stop (the row last focused, else the current one, else the first), and so
+ * are the action rows. An answer or a redraw leaves focus where it is, on a row that
+ * moved too; Load more stays focusable while it loads.
  *
  * Typing always types: a character pressed anywhere in the panel goes to the input.
  * In the input, the first row or action row of what is shown wears the highlight,
@@ -133,7 +135,9 @@ function button(className) {
  * Keep `container`'s children one per key: `build()` makes `{ node, ... }` for
  * a new key, `update(entry, item)` brings any entry up to date, a key that went
  * loses its node, and a node already in its place is not moved (moving one
- * under a pressed pointer is half of rebuilding it).
+ * under a pressed pointer is half of rebuilding it). The node holding focus is
+ * never moved, wherever it belongs now: the others go round it, because moving it
+ * would drop the keyboard on the body.
  * @returns {(items: object[], keyOf: (item: object) => unknown) => Map<string, object>}
  */
 function keyedChildren(container, build, update) {
@@ -151,8 +155,11 @@ function keyedChildren(container, build, update) {
             if (!next.has(key)) entry.node.remove();
         }
         drawn = next;
+        const focused = document.activeElement;
         nodes.forEach((node, index) => {
-            if (container.children[index] !== node) {
+            if (node.contains(focused)) {
+                while (container.children[index] !== node) container.append(container.children[index]);
+            } else if (container.children[index] !== node) {
                 container.insertBefore(node, container.children[index] || null);
             }
         });
@@ -697,9 +704,11 @@ export function createPickerSwitcher({
         }
         if (!moved || !stops.some((s) => s.key === activeKey)) {
             reveal = moved;
-            // The stop that held focus went with its node: the keyboard must not
-            // be left on the body, where none of this panel's keys are heard.
-            if (moved && isOpen && document.activeElement === document.body) input.focus();
+            // The stop that held focus went, with its node or by being hidden: the
+            // keyboard must not be left on the body, where none of this panel's keys
+            // are heard, or on what no longer is a stop.
+            const at = document.activeElement;
+            if (moved && isOpen && (at === document.body || (panel.contains(at) && at !== input))) input.focus();
             moved = false;
             activeKey = stops.find((s) => s.primary)?.key ?? null;
         }
@@ -716,9 +725,11 @@ export function createPickerSwitcher({
     }
 
     function move(step) {
-        const walk = [input, ...stops.map((s) => s.node).filter((node) => !node.disabled)];
-        const at = walk.indexOf(document.activeElement);
-        const next = walk[at === -1 ? (step > 0 ? 0 : walk.length - 1) : (at + step + walk.length) % walk.length];
+        const walk = [input, ...stops.map((s) => s.node)];
+        // `open({ select })` chose a row and left the caret in the input: the arrows
+        // go on from that row.
+        const from = document.activeElement === input && moved ? activeNode : document.activeElement;
+        const next = walk[(walk.indexOf(from) + step + walk.length) % walk.length];
         if (next === input) {
             input.focus();
             return;
@@ -752,7 +763,8 @@ export function createPickerSwitcher({
         if (remaining > 0) {
             setText(moreLabel, labels.loadMore({ next: Math.min(pageSize, remaining), shown: items.length, total }));
         }
-        more.disabled = loading || loadingMore;
+        // Not `disabled`: that would drop focus on the body. `loadMore` refuses for itself.
+        more.setAttribute('aria-disabled', String(loading || loadingMore));
 
         collectStops(rowEntries, actionEntries, shown);
         settleActive();
@@ -1065,6 +1077,8 @@ export function createPickerSwitcher({
         if (!stop) return;
         activeKey = stop.key;
         moved = true;
+        // The reader has gone on: an answer still to land does not pull the highlight back.
+        selectId = null;
         const prefix = ['row:', 'action:'].find((p) => stop.key.startsWith(p));
         if (prefix) rovingKeys[prefix] = stop.key;
         syncTabStops();

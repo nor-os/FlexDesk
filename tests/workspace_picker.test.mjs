@@ -452,6 +452,171 @@ section('§5 the keyboard');
     ime.destroy();
 }
 
+section('§5d an answer leaves focus where it is (0.18.1)');
+{
+    const [a, b, c, d] = ITEMS();
+    let list = [a, b, c, d];
+    const sw = createPickerSwitcher({
+        load: () => list,
+        describe,
+        footer: () => ({ end: [{ id: 'f', label: 'All', run: () => {} }, { id: 'g', label: 'Some', run: () => {} }] }),
+    });
+    sw.open();
+    await tick();
+    keyIn(sw, 'ArrowDown');
+    keyIn(sw, 'ArrowDown');
+    const south = document.activeElement;
+    check('on the second row', activeText(sw.panel), 'South');
+    list = [b, a, c, d];
+    sw.reload();
+    await tick();
+    check('it came up first', rowNames(sw.panel)[0], 'South');
+    ok('and kept focus', document.activeElement === south);
+    keyIn(sw, 'ArrowDown');
+    check('the arrows go on from it', activeText(sw.panel), 'North');
+    keyIn(sw, 'ArrowUp');
+    ok('and back', document.activeElement === south);
+    list = [a, c, d, b];
+    sw.reload();
+    await tick();
+    check('down to the last, the others round it', [rowNames(sw.panel), document.activeElement === south],
+        [['North', 'West', 'East', 'South'], true]);
+    sw.close();
+
+    // Any keyed part: a footer button that changes places.
+    let footOrder = ['f', 'g'];
+    const foot = createPickerSwitcher({
+        load: () => [a],
+        describe,
+        footer: () => ({ end: footOrder.map((id) => ({ id, label: id, run: () => {} })) }),
+    });
+    foot.open();
+    await tick();
+    keyIn(foot, 'ArrowUp');
+    const g = document.activeElement;
+    check('on the footer\'s last', g.textContent.trim(), 'g');
+    footOrder = ['g', 'f'];
+    foot.refresh();
+    check('a footer button that moves keeps focus', [document.activeElement === g, [...foot.panel.querySelectorAll('.twm-wspicker__foot-btn')].map((n) => n.textContent.trim())], [true, ['g', 'f']]);
+    foot.destroy();
+
+    // open({ select }) chose a row; the arrows start from it.
+    list = [a, b, c, d];
+    sw.open({ select: 'b' });
+    await tick();
+    check('select leaves the caret in the input', [activeText(sw.panel), document.activeElement === sw.input], ['South', true]);
+    keyIn(sw, 'ArrowDown');
+    check('down goes on from the row it chose', activeText(sw.panel), 'East');
+    sw.close();
+    sw.open({ select: 'd' });
+    await tick();
+    keyIn(sw, 'ArrowDown');
+    check('down from the last row goes on to the footer', document.activeElement.textContent.trim(), 'All');
+    sw.close();
+    sw.open({ select: 'd' });
+    await tick();
+    keyIn(sw, 'ArrowUp');
+    check('up goes back from it', activeText(sw.panel), 'South');
+    keyIn(sw, 'ArrowDown');
+    keyIn(sw, 'ArrowDown');
+    keyIn(sw, 'ArrowDown');
+    keyIn(sw, 'ArrowDown');
+    ok('the walk reaches the input', document.activeElement === sw.input);
+    keyIn(sw, 'ArrowDown');
+    check('and from there starts at the first row', activeText(sw.panel), 'North');
+    sw.close();
+    sw.open();
+    await tick();
+    keyIn(sw, 'ArrowDown');
+    check('without select the first down is the first row', activeText(sw.panel), 'North');
+    sw.close();
+
+    // A reader who went on before the answer landed keeps their place.
+    let release;
+    let waits = false;
+    const late = createPickerSwitcher({
+        load: () => (waits ? new Promise((r) => { release = () => r(list); }) : list),
+        describe,
+    });
+    list = [a, b];
+    late.open();
+    await tick();
+    late.close();
+    waits = true;
+    list = [a, b, c, d];
+    late.open({ select: 'd' });
+    await tick();
+    keyIn(late, 'ArrowDown');
+    const reader = document.activeElement;
+    release();
+    await tick();
+    check('an answer does not pull the highlight from where focus went', [activeText(late.panel), document.activeElement === reader], ['North', true]);
+    late.destroy();
+    sw.destroy();
+}
+{
+    // Load more holds focus while it loads, and while the list is asked again.
+    const all = Array.from({ length: 12 }, (_, i) => ({ id: `r${i}`, name: `Row ${i}` }));
+    const asks = [];
+    let hold = null;
+    let fail = false;
+    const sw = createPickerSwitcher({
+        search: 'remote',
+        pageSize: 5,
+        describe,
+        load: async ({ offset, limit }) => {
+            asks.push(offset);
+            if (hold) await hold;
+            if (fail) throw new Error('no');
+            return { items: all.slice(offset, offset + limit), total: all.length };
+        },
+    });
+    sw.open();
+    await tick();
+    const more = sw.panel.querySelector('.twm-wspicker__more');
+    for (let i = 0; i < 6; i += 1) keyIn(sw, 'ArrowDown');
+    ok('on Load more', document.activeElement === more);
+
+    let release;
+    hold = new Promise((r) => { release = r; });
+    sw.reload();
+    await tick();
+    check('asked again: not disabled, so focus stays', [more.disabled, more.getAttribute('aria-disabled'), document.activeElement === more], [false, 'true', true]);
+    asks.length = 0;
+    more.click();
+    keyIn(sw, 'Enter');
+    await tick();
+    check('and it refuses for itself', asks, []);
+    hold = null;
+    release();
+    await tick();
+    check('answered: it is live, and focus is still on it', [more.getAttribute('aria-disabled'), document.activeElement === more], ['false', true]);
+
+    hold = new Promise((r) => { release = r; });
+    keyIn(sw, 'Enter');
+    await tick();
+    ok('loading by key: focus stays on it', document.activeElement === more);
+    keyIn(sw, 'ArrowUp');
+    check('and the arrows work meanwhile', activeText(sw.panel), 'Row 4');
+    hold = null;
+    release();
+    await tick();
+    check('the answer leaves the reader there', [activeText(sw.panel), rows(sw.panel).length], ['Row 4', 10]);
+    keyIn(sw, 'ArrowDown');
+    keyIn(sw, 'ArrowDown');
+    keyIn(sw, 'ArrowDown');
+    keyIn(sw, 'ArrowDown');
+    keyIn(sw, 'ArrowDown');
+    keyIn(sw, 'ArrowDown');
+    ok('on Load more again', document.activeElement === more);
+
+    fail = true;
+    sw.reload();
+    await tick();
+    ok('hidden by a failure, with focus on it: the input takes focus', more.hidden && document.activeElement === sw.input);
+    sw.destroy();
+}
+
 section('§5b a trigger of the caller\'s');
 {
     const trigger = anchorEl();

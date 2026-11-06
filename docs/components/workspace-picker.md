@@ -115,7 +115,7 @@ Focus is real: what the keyboard is on is `document.activeElement`, so a screen 
 
 | Key | |
 |---|---|
-| The arrows | Walk focus over every stop, wrapping: the input, the rows that can be chosen (a disabled one is stepped over), Load more, the action rows, the card's buttons, the footer's. |
+| The arrows | Walk focus over every stop, wrapping: the input, the rows that can be chosen (a disabled one is stepped over), Load more, the action rows, the card's buttons, the footer's. After `open({ select })` they start from the row it chose. An answer or a redraw leaves focus where it is, on a row that moved too. |
 | Tab | The rows are one tab stop: the row last focused, else the current one, else the first. So are the action rows. Out of the panel closes it. |
 | A character | Goes to the input from anywhere in the panel, and to nothing else: a keymap does not read it as a shortcut. |
 | Enter in the input | Takes what wears the highlight: the first row or action row of what is shown, or, while the answer to what was typed is on its way, the first one when it lands. |
@@ -124,7 +124,7 @@ Focus is real: what the keyboard is on is `document.activeElement`, so a screen 
 | Backspace | The input's in the input. Elsewhere it stops at the panel, where a window manager's keymap would read it as "up one level". |
 | Esc | Closes, and gives focus back to where it was. |
 
-A press outside closes and leaves focus where it was pressed. A row that held focus and went away, because an answer no longer holds it, gives focus to the input.
+A press outside closes and leaves focus where it was pressed. A row that held focus and went away, because an answer no longer holds it, gives focus to the input. Load more keeps focus while something loads: it is `aria-disabled` then, not `disabled`, and refuses the press itself.
 
 ### A trigger of your own (0.18.1)
 

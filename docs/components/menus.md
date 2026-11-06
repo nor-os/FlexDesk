@@ -33,6 +33,10 @@ items they hold:
 
 Nothing changes in how you call them.
 
+## A press inside no longer disarms a context menu (0.18.1)
+
+`showContextMenu` kept its outside-press listener for one press. A press inside the menu (a separator, the padding, a disabled row) used it up, and from then on a press outside was ignored until Escape. It now listens until the menu closes. A consumer's own outside-press listener for this can go.
+
 ## A menu bar: `createMenuBar` (0.17.0)
 
 File / Edit / View menus from one declarative model, instead of hand-built

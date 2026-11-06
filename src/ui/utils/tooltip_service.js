@@ -13,6 +13,8 @@ let currentTarget = null;
 let listenersAttached = false;
 let mouseCheckInterval = null;
 let lastMousePosition = { x: 0, y: 0 };
+/** The target keyboard focus is showing a tooltip for: no pointer holds it up. */
+let focusTarget = null;
 
 /**
  * Create or get the tooltip DOM element.
@@ -197,11 +199,13 @@ function showTooltip(target) {
 
     // Position and show
     requestAnimationFrame(() => {
+        // Gone in the frame's wait: focus passing through, or the pointer leaving.
+        if (currentTarget !== target) return;
         positionTooltip(target, tooltip);
         tooltip.classList.add('visible');
 
-        // Start mouse position check for auto-hide
-        startMouseCheck();
+        // Start mouse position check for auto-hide, unless focus is what holds it.
+        if (focusTarget !== target) startMouseCheck();
     });
 }
 
@@ -213,6 +217,7 @@ function hideTooltip() {
         tooltipElement.classList.remove('visible');
     }
     currentTarget = null;
+    focusTarget = null;
 
     // Clear mouse check interval
     if (mouseCheckInterval) {
@@ -289,6 +294,25 @@ function attachListeners() {
         if (!(target instanceof Element)) return;
         const tooltipTarget = target.closest('.has-latex-tooltip, .twm-has-tooltip');
         if (!tooltipTarget) return;
+        hideTooltip();
+    }, true);
+
+    // Keyboard focus shows what hovering shows. `:focus-visible` is the browser's
+    // own word for "by the keyboard": the focus a click leaves on a button would
+    // keep a tooltip standing after the pointer has gone.
+    document.addEventListener('focusin', (event) => {
+        const target = event.target;
+        if (!(target instanceof Element) || !target.matches(':focus-visible')) return;
+        const tooltipTarget = target.closest('.has-latex-tooltip, .twm-has-tooltip');
+        if (!tooltipTarget) return;
+        focusTarget = tooltipTarget;
+        showTooltip(tooltipTarget);
+    }, true);
+
+    document.addEventListener('focusout', (event) => {
+        if (!focusTarget) return;
+        const next = event.relatedTarget;
+        if (next instanceof Node && focusTarget.contains(next)) return;
         hideTooltip();
     }, true);
 

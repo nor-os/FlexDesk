@@ -37,6 +37,7 @@ import { placeMenuInViewport, moveMenuFocus, focusMenuItem } from '../utils/menu
 
 let _activeMenu = null;
 let _returnFocusTo = null;
+let _armTimer = null;
 
 export function showContextMenu(x, y, items, onAction) {
     hideContextMenu();
@@ -104,8 +105,11 @@ export function showContextMenu(x, y, items, onAction) {
 
     // Close on outside click / scroll / Escape. A scroll INSIDE the menu is
     // the menu being read, not the page moving under it.
-    setTimeout(() => {
-        document.addEventListener('mousedown', _outsideHandler, { once: true, capture: true });
+    // Armed a tick later, so the press that opened it is not its first outside
+    // press, and held until the menu closes: a press inside (a separator, the
+    // padding, a disabled row) closes nothing and must leave the next one heard.
+    _armTimer = setTimeout(() => {
+        document.addEventListener('mousedown', _outsideHandler, { capture: true });
     }, 0);
     document.addEventListener('keydown', _keyHandler);
     window.addEventListener('scroll', _scrollHandler, { capture: true });
@@ -122,6 +126,8 @@ export function hideContextMenu() {
     _activeMenu.remove();
     _activeMenu = null;
     _returnFocusTo = null;
+    clearTimeout(_armTimer);
+    document.removeEventListener('mousedown', _outsideHandler, { capture: true });
     document.removeEventListener('keydown', _keyHandler);
     window.removeEventListener('scroll', _scrollHandler, { capture: true });
     // Only take focus back if the menu still had it. A click elsewhere has

@@ -37,6 +37,10 @@ await createShell({
 });
 ```
 
+## Keyboard focus shows a tooltip (0.18.1)
+
+`TooltipService` shows a `twm-has-tooltip` element's tooltip (or a `has-latex-tooltip` element's) when it takes keyboard focus, as hovering does, and hides it when focus leaves the element, on a scroll or on Esc. Focus moving inside the element keeps it. The focus a click leaves on a button shows nothing: the browser's `:focus-visible` decides. A consumer that wires `focusin` to `TooltipService.show` itself can stop.
+
 ## The pages as a vertical rail: `chrome.rail` (0.18.0)
 
 `chrome.topNav` paints the pages as a strip in the top bar. `chrome.rail` paints

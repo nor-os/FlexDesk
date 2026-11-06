@@ -4899,14 +4899,14 @@ body.twm-window-maximized .twm-resize-handle {
 .twm-wspicker-field--open {
     outline: none;
     background: var(--state-active);
-    border-color: var(--accent-bright);
+    border-color: var(--twm-wspicker-field-focus-border);
 }
 .twm-wspicker-field [hidden] {
     display: none;
 }
 .twm-wspicker-field__icon.material-symbols-outlined {
     flex: none;
-    color: var(--accent-bright);
+    color: var(--twm-wspicker-field-icon);
     font-size: 15px;
     opacity: 0.85;
 }
@@ -4921,11 +4921,11 @@ body.twm-window-maximized .twm-resize-handle {
     white-space: nowrap;
 }
 .twm-wspicker-field--muted .twm-wspicker-field__name {
-    font-style: italic;
-    opacity: 0.55;
+    font-style: var(--twm-wspicker-field-muted-style);
+    opacity: var(--twm-wspicker-field-muted-opacity);
 }
 .twm-wspicker-field--muted .twm-wspicker-field__icon.material-symbols-outlined {
-    color: var(--text-muted);
+    color: var(--twm-wspicker-field-muted-icon);
 }
 .twm-wspicker-field__key {
     flex: none;
@@ -5062,6 +5062,10 @@ body.twm-window-maximized .twm-resize-handle {
 .twm-wspicker__row.twm-wspicker__stop--active {
     background: var(--state-selected);
     color: var(--text-bright);
+}
+/* A row with focus wears the highlight; no ring as well. */
+.twm-wspicker__row:focus {
+    outline: none;
 }
 .twm-wspicker__row--disabled {
     color: var(--text-dim);

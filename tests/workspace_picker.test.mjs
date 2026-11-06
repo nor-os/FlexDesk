@@ -82,7 +82,8 @@ const typeInto = (input, text) => {
     input.value = text;
     input.dispatchEvent(new window.Event('input', { bubbles: true }));
 };
-const keyIn = (sw, k, init) => key(sw.input, k, init);
+/** A key where a key lands: on what has focus, while the panel has it. */
+const keyIn = (sw, k, init) => key(sw.panel.contains(document.activeElement) ? document.activeElement : sw.input, k, init);
 
 section('§1 the field');
 {
@@ -300,28 +301,70 @@ section('§5 the keyboard');
     });
     sw.open();
     await tick();
+    check('in the input, Enter\'s row wears the highlight', activeText(sw.panel), 'North');
     keyIn(sw, 'ArrowDown');
-    check('down', activeText(sw.panel), 'South');
+    check('down: focus is on the first row', [activeText(sw.panel), document.activeElement === rows(sw.panel)[0]], ['North', true]);
     keyIn(sw, 'ArrowDown');
-    check('steps over a disabled row', activeText(sw.panel), 'East');
+    check('down', [activeText(sw.panel), document.activeElement === rows(sw.panel)[1]], ['South', true]);
     keyIn(sw, 'ArrowDown');
-    check('on to the actions', activeText(sw.panel), 'Act');
+    check('steps over a disabled row', [activeText(sw.panel), document.activeElement === rows(sw.panel)[3]], ['East', true]);
     keyIn(sw, 'ArrowDown');
-    check('on to the footer', activeText(sw.panel).includes('All of them'), true);
+    check('on to the actions', [activeText(sw.panel), document.activeElement === actionRows(sw.panel)[0]], ['Act', true]);
     keyIn(sw, 'ArrowDown');
-    check('wraps', activeText(sw.panel), 'North');
+    check('on to the footer', [activeText(sw.panel).includes('All of them'), document.activeElement === sw.panel.querySelector('.twm-wspicker__foot-btn')], [true, true]);
+    keyIn(sw, 'ArrowDown');
+    check('wraps to the input', [document.activeElement === sw.input, activeText(sw.panel)], [true, 'North']);
     keyIn(sw, 'ArrowUp');
-    check('wraps back', activeText(sw.panel).includes('All of them'), true);
+    check('wraps back', [activeText(sw.panel).includes('All of them'), document.activeElement === sw.panel.querySelector('.twm-wspicker__foot-btn')], [true, true]);
     keyIn(sw, 'Enter');
     check('Enter runs a footer verb', picks, ['foot']);
     ok('having closed', !sw.isOpen);
 
     sw.open();
     await tick();
-    ok('aria-activedescendant follows', sw.input.getAttribute('aria-activedescendant') === active(sw.panel).id);
+    ok('aria-activedescendant names Enter\'s row', sw.input.getAttribute('aria-activedescendant') === active(sw.panel).id);
+    keyIn(sw, 'ArrowDown');
     keyIn(sw, 'ArrowDown');
     keyIn(sw, 'Enter');
-    check('Enter picks the highlighted row', picks, ['foot', 'b']);
+    check('Enter picks the focused row', picks, ['foot', 'b']);
+
+    sw.open();
+    await tick();
+    keyIn(sw, 'ArrowDown');
+    keyIn(sw, ' ');
+    check('so does Space', picks, ['foot', 'b', 'a']);
+
+    // One tab stop for the rows, and the arrows and Tab agree.
+    sw.setCurrent(ITEMS()[3]);
+    sw.open();
+    await tick();
+    const stops = () => rows(sw.panel).map((r) => r.tabIndex);
+    check('the rows are one tab stop: the current one', stops(), [-1, -1, -1, 0]);
+    rows(sw.panel)[1].focus();
+    check('a row focused becomes it', stops(), [-1, 0, -1, -1]);
+    check('and wears the highlight', activeText(sw.panel), 'South');
+    check('the action rows are one more', actionRows(sw.panel).map((r) => r.tabIndex), [0]);
+    sw.input.focus();
+    check('back in the input, the highlight is Enter\'s again', activeText(sw.panel), 'North');
+    rows(sw.panel)[3].focus();
+    keyIn(sw, 'ArrowUp');
+    check('the arrows go from where focus is', document.activeElement === rows(sw.panel)[1], true);
+
+    // Typing always types.
+    const beyond = [];
+    const hear = (e) => beyond.push(e.key);
+    document.addEventListener('keydown', hear);
+    const letter = new window.KeyboardEvent('keydown', { key: 's', bubbles: true, cancelable: true });
+    rows(sw.panel)[1].dispatchEvent(letter);
+    document.removeEventListener('keydown', hear);
+    check('a character on a row goes to the input', [document.activeElement === sw.input, letter.defaultPrevented], [true, false]);
+    check('and no keymap reads it as a shortcut', beyond, []);
+    const held = new window.KeyboardEvent('keydown', { key: 'p', ctrlKey: true, bubbles: true, cancelable: true });
+    rows(sw.panel)[1].focus();
+    rows(sw.panel)[1].dispatchEvent(held);
+    ok('a chord does not', document.activeElement === rows(sw.panel)[1]);
+    sw.setCurrent(null);
+    sw.close();
 
     a.focus();
     sw.open();
@@ -363,8 +406,12 @@ section('§5 the keyboard');
     const onUp = () => { up += 1; };
     document.addEventListener('keydown', onUp);
     backspace.dispatchEvent(ev);
-    document.removeEventListener('keydown', onUp);
     check('Backspace on a button stops at the panel', up, 0);
+    rows(sw.panel)[0].dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true }));
+    check('and on a row', up, 0);
+    sw.input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true }));
+    check('in the input it is the input\'s', up, 1);
+    document.removeEventListener('keydown', onUp);
     sw.close();
 
     const elsewhere = document.createElement('button');
@@ -405,6 +452,54 @@ section('§5 the keyboard');
     ime.destroy();
 }
 
+section('§5b a trigger of the caller\'s');
+{
+    const trigger = anchorEl();
+    trigger.className = 'my-select';
+    const picks = [];
+    const sw = createPickerSwitcher({
+        anchor: trigger,
+        placement: 'below',
+        load: () => ITEMS(),
+        describe,
+        onPick: (item) => picks.push(item.id),
+        onOpenChange: (open) => trigger.setAttribute('aria-expanded', String(open)),
+    });
+    trigger.addEventListener('click', () => sw.toggle());
+    trigger.focus();
+    mouse('mousedown', trigger);
+    click(trigger);
+    await tick();
+    ok('a click on it opens, below it', sw.isOpen && sw.panel.classList.contains('twm-wspicker--below'));
+    check('it says so', trigger.getAttribute('aria-expanded'), 'true');
+    mouse('mousedown', trigger);
+    click(trigger);
+    ok('a second click closes; the press itself did not', !sw.isOpen);
+    check('and focus is on it', document.activeElement === trigger, true);
+    click(trigger);
+    await tick();
+    keyIn(sw, 'ArrowDown');
+    keyIn(sw, 'Enter');
+    check('a pick', picks, ['a']);
+    check('gives focus back to it', document.activeElement === trigger, true);
+    sw.destroy();
+}
+
+section('§5c the field\'s tokens');
+{
+    const sheet = stripComments(readFileSync(resolvePath(HERE, '../css/flexdesk.css'), 'utf8'));
+    const rule = (selector) => sheet.slice(sheet.indexOf(`${selector} {`), sheet.indexOf('}', sheet.indexOf(`${selector} {`)));
+    ok('its icon', rule('.twm-wspicker-field__icon.material-symbols-outlined').includes('var(--twm-wspicker-field-icon)'));
+    ok('its border, focused and open', rule('.twm-wspicker-field--open').includes('var(--twm-wspicker-field-focus-border)'));
+    const muted = rule('.twm-wspicker-field--muted .twm-wspicker-field__name');
+    ok('its muted name', muted.includes('var(--twm-wspicker-field-muted-style)') && muted.includes('var(--twm-wspicker-field-muted-opacity)'));
+    ok('its muted icon', rule('.twm-wspicker-field--muted .twm-wspicker-field__icon.material-symbols-outlined').includes('var(--twm-wspicker-field-muted-icon)'));
+    const tokens = readFileSync(resolvePath(HERE, '../css/tokens.css'), 'utf8');
+    for (const name of ['icon', 'focus-border', 'muted-icon', 'muted-style', 'muted-opacity']) {
+        ok(`--twm-wspicker-field-${name} has its default`, tokens.includes(`--twm-wspicker-field-${name}:`));
+    }
+}
+
 section('§6 remove');
 {
     let list = ITEMS();
@@ -424,21 +519,37 @@ section('§6 remove');
     const bins = rows(sw.panel).map((r) => r.querySelector('.twm-wspicker__row-remove'));
     check('a bin where removable', bins.map((b) => b.hidden), [false, false, false, true]);
     check('its words are the caller\'s', bins[0].getAttribute('aria-label'), 'Forget North');
-    keyIn(sw, 'ArrowDown');
     keyIn(sw, 'Delete', { shiftKey: true });
     await tick();
     await tick();
-    check('Shift+Delete removes the highlighted row', removed, ['b']);
-    check('the row goes', rowNames(sw.panel), ['North', 'West', 'East']);
+    check('Shift+Delete removes the highlighted row', removed, ['a']);
+    check('the row goes', rowNames(sw.panel), ['South', 'West', 'East']);
     check('it asked again', loads, 2);
-    check('the highlight moves on to the next one', activeText(sw.panel), 'East');
+    check('the highlight moves on to the next one', activeText(sw.panel), 'South');
     ok('the panel stays', sw.isOpen);
     ok('focus stays in the input', document.activeElement === sw.input);
     click(rows(sw.panel)[0].querySelector('.twm-wspicker__row-remove'));
     await tick();
     await tick();
-    check('the bin removes, and does not pick', [removed, sw.isOpen], [['b', 'a'], true]);
+    check('the bin removes, and does not pick', [removed, sw.isOpen], [['a', 'b'], true]);
     sw.destroy();
+
+    // Removing the row that holds focus.
+    let more = ITEMS();
+    const onRow = createPickerSwitcher({
+        load: () => more,
+        describe,
+        onRemove: (item) => { more = more.filter((x) => x.id !== item.id); },
+    });
+    onRow.open();
+    await tick();
+    keyIn(onRow, 'ArrowDown');
+    keyIn(onRow, 'ArrowDown');
+    keyIn(onRow, 'Delete', { shiftKey: true });
+    await tick();
+    await tick();
+    check('Shift+Delete on a focused row: focus goes on to the next', [rowNames(onRow.panel), document.activeElement === rows(onRow.panel)[2]], [['North', 'West', 'East'], true]);
+    onRow.destroy();
 
     const none = createPickerSwitcher({ load: () => ITEMS(), describe });
     none.open();
@@ -715,11 +826,13 @@ section('§8 remote search');
     const stubbornMore = stubborn.panel.querySelector('.twm-wspicker__more');
     keyIn(stubborn, 'ArrowDown');
     keyIn(stubborn, 'ArrowDown');
-    check('Load more is a stop', active(stubborn.panel) === stubbornMore, true);
+    keyIn(stubborn, 'ArrowDown');
+    check('Load more is a stop', [active(stubborn.panel) === stubbornMore, document.activeElement === stubbornMore], [true, true]);
     keyIn(stubborn, 'Enter');
     await tick();
     check('it asked', calls, 2);
     ok('handing back what is drawn means there is no more', stubbornMore.hidden);
+    ok('and focus is not left on what went', stubborn.panel.contains(document.activeElement));
     stubborn.destroy();
 
     // A failed page keeps what is drawn
@@ -820,7 +933,7 @@ section('§8 the list scrolls only for the keyboard');
     const paged = createPickerSwitcher({ load: pages, describe, search: 'remote' });
     paged.open();
     await tick();
-    for (let i = 0; i < 20; i += 1) keyIn(paged, 'ArrowDown');
+    for (let i = 0; i < 21; i += 1) keyIn(paged, 'ArrowDown');
     check('the arrows reach Load more', active(paged.panel) === paged.panel.querySelector('.twm-wspicker__more'), true);
     reveals.length = 0;
     keyIn(paged, 'Enter');
@@ -829,7 +942,7 @@ section('§8 the list scrolls only for the keyboard');
     reveals.length = 0;
     keyIn(paged, 'Enter');
     await tick();
-    check('the last page: the highlight is on the first row it brought', activeText(paged.panel), 'Row 40');
+    check('the last page: focus is on the first row it brought', [activeText(paged.panel), document.activeElement === active(paged.panel)], ['Row 40', true]);
     check('and in view', reveals.at(-1) === active(paged.panel), true);
     check('without a stop at the top on the way', reveals.includes(rows(paged.panel)[0]), false);
     paged.close();
@@ -837,7 +950,7 @@ section('§8 the list scrolls only for the keyboard');
     // The mouse on Load more while the highlight is on it.
     paged.open();
     await tick();
-    for (let i = 0; i < 20; i += 1) keyIn(paged, 'ArrowDown');
+    for (let i = 0; i < 21; i += 1) keyIn(paged, 'ArrowDown');
     reveals.length = 0;
     click(paged.panel.querySelector('.twm-wspicker__more'));
     await tick();
@@ -862,6 +975,7 @@ section('§8 the list scrolls only for the keyboard');
     shrinking.reload();
     await tick();
     check('its highlight falls to the first row, shown', [activeText(shrinking.panel), reveals.at(-1) === active(shrinking.panel)], ['Row 0', true]);
+    check('and focus to the input, not the body', document.activeElement === shrinking.input, true);
     shrinking.destroy();
     paged.destroy();
     sw.destroy();

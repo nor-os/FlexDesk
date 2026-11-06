@@ -107,9 +107,53 @@ A centred field's `hostEl` must be positioned. It measures again whenever `hostE
 
 `refresh()` asks `actions`, `card` and `footer` again. `reload()` asks `load` again. `open({ select })` highlights the row with that `id` when the answer lands. `setCurrent(item)` takes the item whether or not any page holds it.
 
-**The keyboard.** The caret stays in the input. The arrows walk a highlight over the rows, Load more, the action rows, the card's buttons and the footer's, wrapping. Until they move, the highlight is the first row or action row, and Enter takes it, or, while the answer to what was typed is on its way, the first one when it lands. Esc closes and gives focus back to where it was. A press outside closes and leaves focus where it was pressed. Tab goes to the panel's buttons, and out of the panel closes it.
-
 **Nothing is rebuilt under a pointer.** Every part is reconciled by key, so an answer landing while a row is being pressed leaves that row's node in place and the click still fires.
+
+### The keyboard (0.18.1)
+
+Focus is real: what the keyboard is on is `document.activeElement`, so a screen reader says each stop, the card's and the footer's buttons included, and Tab and the arrows agree about where the reader is.
+
+| Key | |
+|---|---|
+| The arrows | Walk focus over every stop, wrapping: the input, the rows that can be chosen (a disabled one is stepped over), Load more, the action rows, the card's buttons, the footer's. |
+| Tab | The rows are one tab stop: the row last focused, else the current one, else the first. So are the action rows. Out of the panel closes it. |
+| A character | Goes to the input from anywhere in the panel, and to nothing else: a keymap does not read it as a shortcut. |
+| Enter in the input | Takes what wears the highlight: the first row or action row of what is shown, or, while the answer to what was typed is on its way, the first one when it lands. |
+| Enter or Space elsewhere | Takes the row or runs the button with focus. |
+| Shift+Delete | Removes the row with focus, or the highlighted one from the input. Focus goes on to the next row. |
+| Backspace | The input's in the input. Elsewhere it stops at the panel, where a window manager's keymap would read it as "up one level". |
+| Esc | Closes, and gives focus back to where it was. |
+
+A press outside closes and leaves focus where it was pressed. A row that held focus and went away, because an answer no longer holds it, gives focus to the input.
+
+### A trigger of your own (0.18.1)
+
+The field is optional. `createPickerSwitcher` opens on any anchor, so a control of yours can be the trigger:
+
+```js
+const switcher = createPickerSwitcher({
+    anchor: trigger,
+    placement: 'below',
+    visibleRows: 5,
+    load, describe, onPick, card, footer,
+    onOpenChange: (open) => trigger.setAttribute('aria-expanded', String(open)),
+});
+trigger.addEventListener('click', () => switcher.toggle());
+```
+
+A press on the anchor does not count as a press outside, and Esc, a pick or a verb give focus back to it when it had focus. `setCurrent(item)` on the switcher marks the row; naming it on your trigger is yours.
+
+## The field's look: tokens (0.18.1)
+
+Set these over FlexDesk's defaults (`css/tokens.css`) instead of overriding the field's rules:
+
+| Token | Default | |
+|---|---|---|
+| `--twm-wspicker-field-icon` | `var(--accent-bright)` | Its icon. |
+| `--twm-wspicker-field-focus-border` | `var(--accent-bright)` | Its border, focused by keyboard and while open. |
+| `--twm-wspicker-field-muted-icon` | `var(--text-muted)` | Its icon while it names nothing (`muted`). |
+| `--twm-wspicker-field-muted-style` | `italic` | Its name's `font-style` while muted. |
+| `--twm-wspicker-field-muted-opacity` | `0.55` | Its name's opacity while muted. |
 
 ## Recently opened: `createRecentItems` (0.18.0)
 

@@ -39,16 +39,25 @@
  *
  * ══ THE KEYBOARD ═══════════════════════════════════════════════════════════
  *
- * The caret stays in the input, so typing always types. The arrows walk a
- * highlight over every stop, wrapping: the rows a person can choose (a disabled
- * one is stepped over), Load more, the action rows, the card's buttons, the
- * footer's. Until they move, the highlight is the first row or action row of
- * what is shown, and Enter takes it, or, while the answer to what was typed is
- * on its way, takes the first one when it lands. Shift+Delete removes the
- * highlighted row. Esc closes and gives focus back to where it was, as does a
- * pick or a verb, before it runs, so a dialog it opens opens over nothing. A
- * press outside closes and leaves focus where it was pressed. Tab leaves the
- * input for the panel's buttons, and out of the panel closes it.
+ * Focus is real: what the keyboard is on is `document.activeElement`, so a screen
+ * reader says each stop, a button in the card or the footer included, and Tab and
+ * the arrows agree about where the reader is.
+ *
+ * Opening puts the caret in the input. The arrows walk focus over every stop,
+ * wrapping: the input, the rows a person can choose (a disabled one is stepped
+ * over), Load more, the action rows, the card's buttons, the footer's. Tab is
+ * shorter: the rows are ONE tab stop (the row last focused, else the current one,
+ * else the first), and so are the action rows.
+ *
+ * Typing always types: a character pressed anywhere in the panel goes to the input.
+ * In the input, the first row or action row of what is shown wears the highlight,
+ * and Enter takes it, or, while the answer to what was typed is on its way, takes
+ * the first one when it lands. Enter or Space on a row takes that row. Shift+Delete
+ * removes the highlighted row, and focus goes on to the next. Backspace away from
+ * the input stops at the panel. Esc closes and gives focus back to where it was, as
+ * does a pick or a verb, before it runs, so a dialog it opens opens over nothing. A
+ * press outside closes and leaves focus where it was pressed. Tab out of the panel
+ * closes it.
  *
  * ══ NOTHING IS REBUILT UNDER A POINTER ═════════════════════════════════════
  *
@@ -58,8 +67,9 @@
  * Which node holds what lives in maps here, never in DOM attributes.
  *
  * Nor is a list moved under one. The list scrolls to the highlight only when the
- * keyboard moved the highlight, `open({ select })` asked for a row, or the row
- * the arrows chose went away; typing and a new query's answer go back to the top.
+ * keyboard moved it, `open({ select })` asked for a row, or the row the arrows chose
+ * went away (focus then goes to the input); typing and a new query's answer go back
+ * to the top.
  * A redraw, Load more by the mouse and a removal leave the scroll where it is.
  *
  * ══ AN ASYNC REMOVE MAY ASK ════════════════════════════════════════════════
@@ -402,6 +412,8 @@ export function createPickerSwitcher({
     let activeNode = null;
     /** The arrows chose the highlight; an answer does not move it. */
     let moved = false;
+    /** The row last focused, per list of rows. */
+    const rovingKeys = {};
     let nextEntryId = 0;
     const kept = new Map();
 
@@ -482,6 +494,7 @@ export function createPickerSwitcher({
         const node = part('div', 'twm-wspicker__row');
         node.id = `${uid}-row-${++nextEntryId}`;
         node.setAttribute('role', 'option');
+        node.tabIndex = -1;
         const icon = glyph('', 'twm-wspicker__row-icon');
         const text = part('span', 'twm-wspicker__row-text');
         const name = part('span', 'twm-wspicker__row-name');
@@ -523,6 +536,7 @@ export function createPickerSwitcher({
         const disabled = !!model.disabled;
         paintRow(entry, { ...model, disabled, isCurrentRow: isCurrent(item) });
         entry.run = disabled ? null : () => pick(item);
+        if (disabled) entry.node.tabIndex = -1;
         const removable = !!onRemove && model.removable !== false;
         entry.remove = removable ? () => removeItem(item) : null;
         show(entry.bin, removable);
@@ -646,6 +660,18 @@ export function createPickerSwitcher({
         }
         for (const [key, entry] of drawnFoot) next.push({ key: `foot:${key}`, node: entry.node, run: entry.run });
         stops = next;
+        syncTabStops();
+    }
+
+    /** One tab stop per list of rows: the row last focused, else the current one, else the first. */
+    function syncTabStops() {
+        const currentKey = current == null ? null : `row:${idOf(current)}`;
+        for (const prefix of ['row:', 'action:']) {
+            const rows = stops.filter((s) => s.key.startsWith(prefix));
+            const chosen = rows.find((s) => s.key === rovingKeys[prefix])
+                ?? rows.find((s) => s.key === currentKey) ?? rows[0];
+            for (const stop of rows) stop.node.tabIndex = stop === chosen ? 0 : -1;
+        }
     }
 
     function paintActive() {
@@ -671,6 +697,9 @@ export function createPickerSwitcher({
         }
         if (!moved || !stops.some((s) => s.key === activeKey)) {
             reveal = moved;
+            // The stop that held focus went with its node: the keyboard must not
+            // be left on the body, where none of this panel's keys are heard.
+            if (moved && isOpen && document.activeElement === document.body) input.focus();
             moved = false;
             activeKey = stops.find((s) => s.primary)?.key ?? null;
         }
@@ -678,13 +707,23 @@ export function createPickerSwitcher({
         if (reveal) revealActive();
     }
 
-    function move(step) {
-        if (!stops.length) return;
-        const at = stops.findIndex((s) => s.key === activeKey);
-        const next = at === -1 ? (step > 0 ? 0 : stops.length - 1) : (at + step + stops.length) % stops.length;
-        activeKey = stops[next].key;
+    /** Focus on `stop`, without the browser's own scroll: `revealActive` is the one that may. */
+    function focusStop(stop) {
+        activeKey = stop.key;
         moved = true;
+        stop.node.focus({ preventScroll: true });
         paintActive();
+    }
+
+    function move(step) {
+        const walk = [input, ...stops.map((s) => s.node).filter((node) => !node.disabled)];
+        const at = walk.indexOf(document.activeElement);
+        const next = walk[at === -1 ? (step > 0 ? 0 : walk.length - 1) : (at + step + walk.length) % walk.length];
+        if (next === input) {
+            input.focus();
+            return;
+        }
+        focusStop(stops.find((s) => s.node === next));
         revealActive();
     }
 
@@ -806,8 +845,8 @@ export function createPickerSwitcher({
             failure = labels.failedMore(err);
         }
         loadingMore = false;
-        // The highlight stays on Load more while there is more, else goes to
-        // the first row it brought that can be chosen.
+        // Focus stays on Load more while there is more, else goes to the first
+        // row it brought that can be chosen. Only the keyboard scrolls to it.
         const stayed = activeKey === 'more';
         if (stayed && items.length >= total) {
             const first = added.find((item) => !modelOf(item).disabled);
@@ -817,7 +856,11 @@ export function createPickerSwitcher({
             }
         }
         renderEverything();
-        if (byKey && stayed) revealActive();
+        if (stayed) {
+            const stop = stops.find((s) => s.key === activeKey);
+            if (stop) focusStop(stop);
+            if (byKey) revealActive();
+        }
     }
 
     more.addEventListener('click', () => loadMore());
@@ -834,6 +877,7 @@ export function createPickerSwitcher({
         const at = stops.findIndex((s) => s.key === removedKey);
         const following = stops.slice(at + 1).find((s) => s.key.startsWith('row:'))
             ?? stops.slice(0, Math.max(at, 0)).reverse().find((s) => s.key.startsWith('row:'));
+        const fromRow = stops[at]?.node === document.activeElement;
         // Before the call: a dialog it opens takes focus before it returns.
         setBusy(true);
         let outcome;
@@ -858,6 +902,11 @@ export function createPickerSwitcher({
                 moved = true;
             }
             ask(remote ? answered : '');
+            if (fromRow && following) {
+                focusStop(following);
+                revealActive();
+                return;
+            }
         }
         input.focus();
     }
@@ -935,6 +984,8 @@ export function createPickerSwitcher({
         pickFirst = false;
         moved = false;
         activeKey = null;
+        delete rovingKeys['row:'];
+        delete rovingKeys['action:'];
         const last = kept.get(cacheKey());
         items = last ? [...last.items] : [];
         total = last ? last.total : null;
@@ -994,9 +1045,30 @@ export function createPickerSwitcher({
         close({ restoreFocus: true });
     }
 
-    // The caret stays in the input whatever is pressed in the panel.
+    // A press in the panel leaves focus where it is: on a row or a button it is
+    // about to act and close; anywhere else it would drop the keyboard on nothing.
     panel.addEventListener('mousedown', (event) => {
         if (event.target !== input) event.preventDefault();
+    });
+
+    // Focus gets here by the arrows, Tab or a script, and the highlight goes with it.
+    panel.addEventListener('focusin', ({ target, relatedTarget }) => {
+        if (target === input) {
+            // Back from a stop, not in from outside: `open({ select })` chose first.
+            if (panel.contains(relatedTarget)) {
+                moved = false;
+                settleActive();
+            }
+            return;
+        }
+        const stop = stops.find((s) => s.node === target);
+        if (!stop) return;
+        activeKey = stop.key;
+        moved = true;
+        const prefix = ['row:', 'action:'].find((p) => stop.key.startsWith(p));
+        if (prefix) rovingKeys[prefix] = stop.key;
+        syncTabStops();
+        paintActive();
     });
 
     input.addEventListener('input', () => {
@@ -1020,23 +1092,35 @@ export function createPickerSwitcher({
             event.preventDefault();
             event.stopPropagation();
         };
+        const stop = stops.find((s) => s.node === target);
         if (key === 'Escape') {
             handled();
             close({ restoreFocus: true });
         } else if (key === 'ArrowDown' || key === 'ArrowUp') {
             handled();
-            if (document.activeElement !== input) input.focus();
             move(key === 'ArrowDown' ? 1 : -1);
         } else if (key === 'Enter' && target === input) {
             handled();
             enter();
-        } else if (key === 'Delete' && shiftKey && target === input) {
+        } else if ((key === 'Enter' || key === ' ') && stop) {
+            // A row is no button, because it holds one; and Load more scrolls for
+            // a key and not for a click.
+            handled();
+            stop.run();
+        } else if (key === 'Delete' && shiftKey) {
             handled();
             stops.find((s) => s.key === activeKey)?.remove?.();
         } else if (key === 'Backspace' && target !== input) {
             // A window manager's keymap reads Backspace on anything that is not
-            // a field as "up one level"; a button of this panel is not a field.
+            // a field as "up one level"; a row or a button here is not a field.
             handled();
+        } else if (target !== input && key.length === 1 && key !== ' '
+                   && !event.ctrlKey && !event.metaKey && !event.altKey) {
+            // Moved before the press lands, so the character lands in the input;
+            // and no further, because a keymap would read it as a shortcut: the
+            // press began on something that is not a field.
+            event.stopPropagation();
+            input.focus();
         }
     });
 

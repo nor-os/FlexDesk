@@ -91,6 +91,9 @@ function emptyMessageFor(message, subplot, results, index) {
  * @param {Object} [options]
  * @param {Function} [options.resolveSeries] - `(series, results, subplot) => { y, x? } | null`;
  *        default resolveSeriesData. Also resolves the x variable, as `{ variable }`.
+ * @param {Function} [options.resolveConstant] - `(name) => number | undefined`: the value of a
+ *        reference line that stores a name (renderPlotConfigEditor's `constantsProvider`),
+ *        asked at each draw. A name it does not know draws no line; so does any name without it.
  * @param {Object} [options.overlays] - `{ [series.id]: { years, values } }`, drawn for
  *        every series with an `overlay` description.
  * @param {Object} [options.seriesTransforms] - `{ [id]: transform }` (series_transforms.js).
@@ -326,7 +329,9 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
             ? 'top' : (sp.legendPosition ?? 'hidden');
         const xRange = !useX && time.length >= 2 ? [time[0], time[time.length - 1]] : undefined;
         const { shapes, annotations } = buildOverlayShapes({
-            referenceLines: sp.referenceLines,
+            referenceLines: (sp.referenceLines ?? []).map((line) => (typeof line.value === 'string'
+                ? { ...line, value: opts.resolveConstant?.(line.value) }
+                : line)),
             shadedBands: sp.shadedBands,
             yRefByAxisId,
         });

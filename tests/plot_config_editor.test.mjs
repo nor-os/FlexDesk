@@ -36,6 +36,10 @@
  *       control's label and describes it; a bad spec is skipped with a
  *       warning; only an array is specs; a bare series opens unchanged; an
  *       overlay's colour field is disposed when its details redraw (BUG-0052)
+ *   §14 `hide` takes away the 3D chart types with the z axis, the stack group and
+ *       the x axis section; nothing else changes without it (STORY-0109)
+ *   §15 with `constantsProvider` a reference line's value offers names, stores a
+ *       name or a number; without it, the number box of old (STORY-0109)
  *
  * ── HOW TO RUN ───────────────────────────────────────────────────────────
  *
@@ -1058,6 +1062,154 @@ console.log('\ncharts: renderPlotConfigEditor\n');
         ColorField.prototype.dispose = orig;
         ColorField.prototype.render = origRender;
     }
+}
+
+{
+    console.log('\n§14 hide: parts of the editor an embedder has no use for (STORY-0109)');
+    const heads = (root) => [...root.querySelectorAll('.twm-plot-config__body > .twm-plot-config__section > .twm-plot-config__heading')]
+        .map((h) => h.textContent);
+    const open = (config, options) => {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        return { el: host, config, editor: renderPlotConfigEditor(host, config, options) };
+    };
+    const typesOf = (root) => [...control(sectionOf(root, 'Display'), 'Chart type').options].map((o) => o.textContent);
+
+    const plain = open(oneByOne(), {});
+    click(buttonText(plain.el, 'Add series'));
+    ok('without it: every chart type', typesOf(plain.el).includes('3D Scatter'));
+    ok('every section', heads(plain.el).includes('X axis'));
+    ok('and the stack group', !!plain.el.querySelector('input[aria-label="Stack group"]'));
+    plain.editor.dispose();
+
+    const third = oneByOne();
+    third.subplots[0].chartType = 'scatter3d';
+    const h3 = open(third, { hide: ['3d'] });
+    ok('3d: no Z axis, even on a subplot saved as 3D', !heads(h3.el).includes('Z axis'));
+    ok('no 3D chart types offered', typesOf(h3.el).filter((t) => t.startsWith('3D')).length === 0
+        && typesOf(h3.el).includes('Line'));
+    ok('what it holds stays and is marked, not rewritten', third.subplots[0].chartType === 'scatter3d');
+    pick(control(sectionOf(h3.el, 'Display'), 'Chart type'), 'Line');
+    check('choosing a 2D type drops the z axis', third.subplots[0].zAxis, null);
+    ok('the rest stands', heads(h3.el).includes('X axis'));
+    h3.editor.dispose();
+
+    const stacked = oneByOne();
+    const hs = open(stacked, { hide: ['stackGroup'] });
+    click(buttonText(hs.el, 'Add series'));
+    check('stackGroup: no stack group box', hs.el.querySelector('input[aria-label="Stack group"]'), null);
+    ok('the width and dash stand', !!hs.el.querySelector('input[aria-label="Line width"]') && !!hs.el.querySelector('select[aria-label="Dash"]'));
+    hs.editor.dispose();
+
+    const against = oneByOne();
+    against.subplots[0].xAxis = { useTime: false, variable: 'gdp' };
+    const hx = open(against, { hide: ['xAxis'] });
+    ok('xAxis: no section', !heads(hx.el).includes('X axis'));
+    check('the subplot plots against time', against.subplots[0].xAxis.useTime, true);
+    hx.editor.dispose();
+
+    const all = oneByOne();
+    const ha = open(all, { hide: ['3d', 'stackGroup', 'xAxis'] });
+    check('all three: the sections left', heads(ha.el), ['Subplot', 'Display', 'Y axes', 'Reference lines', 'Shaded bands']);
+    check('and a subplot on time keeps its x axis as it was', all.subplots[0].xAxis, makeDefaultSubplot(0).xAxis);
+    ha.editor.dispose();
+
+    let refused = null;
+    try { open(oneByOne(), { hide: ['xaxis'] }); } catch (error) { refused = error.message; }
+    check('a name it does not know is refused', refused, '[plot config editor] cannot hide "xaxis"');
+}
+
+{
+    console.log('\n§15 a reference line naming a constant (STORY-0109)');
+    const CONSTANTS = [
+        { name: 'bank.rate', value: 0.25, label: 'Bank rate', group: 'bank' },
+        { name: 'bank.floor3', value: 3, group: 'bank' },
+        { name: 'target', value: 100 },
+    ];
+    const open = (config, constantsProvider = () => CONSTANTS) => {
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        const changes = [];
+        const editor = renderPlotConfigEditor(host, config, { constantsProvider, onChange: () => changes.push(1) });
+        return { el: host, editor, changes };
+    };
+    const rows = () => [...document.querySelectorAll('.twm-option-panel .twm-option-list__row, .twm-option-panel [role="option"]')];
+    const box = (el) => sectionOf(el, 'Reference lines').querySelector('input[aria-label="Value"]');
+    const said = (el) => sectionOf(el, 'Reference lines').querySelector('.twm-plot-config__constant-value').textContent;
+    const keyOn = (node, k) => node.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+    const moved = (node) => {
+        node.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+        return ticks();
+    };
+
+    const config = oneByOne();
+    const line = () => config.subplots[0].referenceLines[0];
+    const { el, editor, changes } = open(config);
+    click(buttonText(el, 'Add reference line'));
+    check('a new line is at 0, as ever', line().value, 0);
+    check('in a text box', box(el).type, 'text');
+
+    const input = box(el);
+    input.value = '';
+    input.focus();
+    await ticks();
+    check('focus offers every name', rows().map((r) => r.textContent).length, 3);
+    ok('a name shows its value', rows().some((r) => r.textContent.includes('= 100')));
+    ok('and its label', rows().some((r) => r.textContent.includes('Bank rate')));
+    ok('groups are drawn', [...document.querySelectorAll('.twm-option-panel')].some((p) => p.textContent.includes('bank')));
+
+    input.value = 'tar';
+    await moved(input);
+    check('typing narrows them', rows().length, 1);
+    keyOn(input, 'Enter');
+    await ticks();
+    check('Enter takes the row: the name is stored', line().value, 'target');
+    check('its value is shown', said(el), '= 100');
+    ok('and it reported', changes.length > 0);
+
+    input.value = '3';
+    await moved(input);
+    keyOn(input, 'Enter');
+    await ticks();
+    check('a number stays a number, though a name holds it', line().value, 3);
+    check('and shows no value', said(el), '');
+
+    input.value = 'not.yet';
+    commit(input);
+    check('a name nobody knows yet is kept', line().value, 'not.yet');
+    input.value = '';
+    commit(input);
+    check('an empty box is null, as ever', line().value, null);
+    input.dispatchEvent(new dom.window.Event('blur'));
+    editor.dispose();
+    ok('dispose takes the list with it', !document.querySelector('.twm-option-panel'));
+
+    const saved = oneByOne();
+    saved.subplots[0].referenceLines = [{ yAxisId: saved.subplots[0].yAxes[0].id, value: 'target', label: '', lineStyle: 'dashed' }];
+    const reopened = open(saved);
+    check('a saved name opens as it was', [box(reopened.el).value, said(reopened.el)], ['target', '= 100']);
+    check('and opening writes nothing', reopened.changes.length, 0);
+    reopened.editor.dispose();
+
+    let live = [{ name: 'moving', value: 1 }];
+    const growing = oneByOne();
+    growing.subplots[0].referenceLines = [{ yAxisId: growing.subplots[0].yAxes[0].id, value: 'moving' }];
+    const g = open(growing, () => live);
+    live = [{ name: 'moving', value: 2 }, { name: 'late', value: 9 }];
+    box(g.el).focus();
+    box(g.el).value = '';
+    await moved(box(g.el));
+    check('the provider is asked each time', rows().length, 2);
+    g.editor.dispose();
+
+    const without = oneByOne();
+    const plainHost = document.createElement('div');
+    document.body.appendChild(plainHost);
+    const plain = renderPlotConfigEditor(plainHost, without, {});
+    click(buttonText(plainHost, 'Add reference line'));
+    check('without it: the number box of old', box(plainHost).type, 'number');
+    check('and no value beside it', plainHost.querySelector('.twm-plot-config__constant'), null);
+    plain.dispose();
 }
 
 await ticks();

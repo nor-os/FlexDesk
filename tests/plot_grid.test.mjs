@@ -913,6 +913,42 @@ async function figureOf(subplot, results = RESULTS, options = {}) {
     await settle();
 }
 
+{
+    console.log('\n§ a reference line naming a constant (STORY-0109)');
+    const named = sp(['a']);
+    named.yAxes[0].id = 'left';
+    named.referenceLines = [
+        { yAxisId: 'left', value: 'known', label: 'Known' },
+        { yAxisId: 'left', value: 'nobody', label: 'Nobody' },
+        { yAxisId: 'left', value: 7, label: 'Seven' },
+    ];
+    const ys = (fig) => (fig.layout.shapes ?? []).filter((s) => s.type === 'line').map((s) => s.y0);
+    const labels = (fig) => (fig.layout.annotations ?? []).map((a) => a.text);
+
+    let f = await figureOf(named, RESULTS, { resolveConstant: (name) => (name === 'known' ? 42 : undefined) });
+    check('a name is drawn at the resolver\'s value', ys(f), [42, 7]);
+    check('one it does not know draws no line, and no label', labels(f), ['Known', 'Seven']);
+    check('the config still holds the name', named.referenceLines[0].value, 'known');
+
+    f = await figureOf(named, RESULTS, {});
+    check('without a resolver a name draws nothing, and nothing throws', ys(f), [7]);
+
+    resetPlotly();
+    let value = 1;
+    const host = mountHost();
+    const grid = renderPlotGrid(host, { layout: '1x1', subplots: [named] }, RESULTS, {
+        resolveConstant: (name) => (name === 'known' ? value : undefined),
+    });
+    await settle();
+    check('the first draw', ys(lastFigureFor(grid.charts[0])), [1, 7]);
+    value = 2;
+    await grid.update({ results: RESULTS });
+    await settle();
+    check('a redraw asks again', ys(lastFigureFor(grid.charts[0])), [2, 7]);
+    grid.dispose();
+    host.remove();
+}
+
 await settle();
 check('no unhandled rejections', unhandled, 0);
 

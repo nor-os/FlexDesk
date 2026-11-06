@@ -12379,6 +12379,23 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 .twm-plot-config__row > .twm-plot-config__input--select {
     flex: 0 1 auto;
 }
+/* A reference line's value that may name a constant, and what the name is now. */
+.twm-plot-config__constant {
+    display: inline-flex;
+    flex: 1 1 140px;
+    align-items: center;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+.twm-plot-config__constant > .twm-plot-config__input {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.twm-plot-config__constant-value {
+    flex: none;
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+}
 /* On a field line a colour is the swatch and a hex box sized to `#rrggbb`. */
 .twm-plot-config__field > .twm-color-field {
     flex: 0 1 auto;

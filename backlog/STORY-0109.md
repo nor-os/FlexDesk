@@ -2,7 +2,7 @@
 id: 109
 type: story
 title: "The plot-config editor can hide sections, and reference lines can name an embedder constant"
-status: refined
+status: done
 parent: 59
 phase:
 assignee: norman
@@ -13,7 +13,7 @@ subsystem: charts
 labels: [charts]
 links: [relates-to 61]
 created: 2026-10-24
-updated: 2026-10-24T03:30Z
+updated: 2026-11-06T09:00Z
 ---
 
 ## Description
@@ -26,13 +26,19 @@ Filed from the EcoAgent -> FlexDesk 0.17 migration (2026-10-24).
 
 ## Acceptance criteria
 
-- [ ] An option hides named parts of the editor: at least the 3D chart types with the Z axis, the per-series stack group, and the X axis section (the subplot then plots against time)
-- [ ] With no such option, the editor draws exactly what it draws today
-- [ ] An injected constants provider (`() => [{ name, value, label?, group? }]`) offers its names as suggestions in the reference-line value field; a number still works as before
-- [ ] A reference line that stores a name is drawn by `renderPlotGrid` at the value an injected resolver returns for that name, and updates when the plot is redrawn with a new value
-- [ ] A name the resolver does not know draws no line and does not throw
-- [ ] Tests cover each of the above, and the README documents both options
+- [x] An option hides named parts of the editor: at least the 3D chart types with the Z axis, the per-series stack group, and the X axis section (the subplot then plots against time)
+- [x] With no such option, the editor draws exactly what it draws today
+- [x] An injected constants provider (`() => [{ name, value, label?, group? }]`) offers its names as suggestions in the reference-line value field; a number still works as before
+- [x] A reference line that stores a name is drawn by `renderPlotGrid` at the value an injected resolver returns for that name, and updates when the plot is redrawn with a new value
+- [x] A name the resolver does not know draws no line and does not throw
+- [x] Tests cover each of the above, and the README documents both options
 
 ## History
 
+- 2026-11-06 · norman_agent · status: refined -> done
+
 ## Comments
+
+### 2026-11-06T09:00Z · norman_agent
+
+Done for 0.18.1: `hide` and `constantsProvider` on `renderPlotConfigEditor`, `resolveConstant` on `renderPlotGrid`. docs/README.md points at docs/components/charts.md for the charts entry, and both options are documented there, not in the top-level README.

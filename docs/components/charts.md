@@ -414,6 +414,10 @@ config it was given and then calls `onChange(config)`.
   is disposed. A `dispose()` that throws is reported to `logger.warn` and does
   not stop the rest of the editor being disposed.
 
+- [`hide`](#hiding-parts-of-the-editor-hide-0181) takes parts of the editor away,
+  and [`constantsProvider`](#a-reference-line-that-names-a-constant-constantsprovider-resolveconstant-0181)
+  lets a reference line name a constant.
+
 It returns `{ dispose, refresh, selectSubplot, activeSubplot }`: `dispose()`
 disposes every field it created (every `AutocompleteField` among them) and
 removes the editor; `refresh()` redraws it after the config was changed from
@@ -431,3 +435,39 @@ const win = await openPlotPopoutWindow({ id, title, plotConfig, getResults, serv
 
 Its classes are under `.twm-plot-config` in `flexdesk.css`.
 `tests/plot_config_editor.test.mjs` pins all of it.
+
+## Hiding parts of the editor: `hide` (0.18.1)
+
+An embedder whose plots are always 2D time series has no use for some of the editor:
+
+```js
+renderPlotConfigEditor(el, plotConfig, { hide: ['3d', 'stackGroup', 'xAxis'] });
+```
+
+| Name | What goes |
+|---|---|
+| `'3d'` | The 3D chart types and the z axis section. A subplot saved as 3D keeps its chart type, marked as one the list does not offer, until someone picks a 2D one. |
+| `'stackGroup'` | Each series' stack group box. A saved stack group stays in the config and is drawn. |
+| `'xAxis'` | The x axis section. The subplot then plots against time: `xAxis.useTime` is set to true when it opens, and `xAxis.variable` is left as it was. |
+
+Any other name throws. Without `hide` the editor draws what it always did.
+
+## A reference line that names a constant: `constantsProvider`, `resolveConstant` (0.18.1)
+
+A reference line's value is a number, so it cannot follow a parameter whose value changes between runs. With `constantsProvider` it may also name one:
+
+```js
+renderPlotConfigEditor(el, plotConfig, {
+    constantsProvider: () => [{ name: 'bank.rate', value: 0.25, label: 'Bank rate', group: 'bank' }],
+});
+renderPlotGrid(host, plotConfig, results, {
+    resolveConstant: (name) => constants.get(name),   // a number, or undefined
+});
+```
+
+The value box then offers the names, with their values and under their groups, as `attachInputOptions` does. It is asked each time the list is drawn. What is stored is a number when what was typed is one, even when it is part of a name on the list, and the name as a string otherwise; beside a name it knows, the box shows `= 0.25`. An empty box stores `null`, as the number box does. A click shows every name.
+
+`renderPlotGrid` asks `resolveConstant(name)` each time it draws a subplot, so a redraw follows a new value, and `grid.update({ results })` is enough. A name it does not know draws no line and no label, and so does any name without `resolveConstant`. The config keeps the name.
+
+Without `constantsProvider` the box is the number box it always was.
+

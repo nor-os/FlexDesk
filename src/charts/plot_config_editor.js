@@ -28,6 +28,14 @@
  * added. A 2D chart type removes the z axis (`zAxis: null`, as in
  * makeDefaultSubplot).
  *
+ * `hide` takes parts of the editor away, for an embedder whose plots never use
+ * them: '3d' (the 3D chart types and the z axis), 'stackGroup' (a series' stack
+ * group), 'xAxis' (the x axis section; the subplot then plots against time).
+ *
+ * A reference line's value is a number. With `constantsProvider` it may also name
+ * a constant: the box offers the names, and stores a name as a string, which
+ * renderPlotGrid's `resolveConstant` turns into a value at each draw.
+ *
  * Series names come from `seriesProvider`, through an AutocompleteField per
  * picker: it is asked `{ value, role, subplot }` (`role` is 'series', 'x' or
  * 'z') and answers AutocompleteField items (`{ label, insertText?, type? }`)
@@ -43,6 +51,7 @@
  */
 
 import { AutocompleteField } from '../ui/components/autocomplete_field.js';
+import { attachInputOptions } from '../ui/components/combobox.js';
 import { ColorField } from '../ui/components/color_field.js';
 import { ToggleField } from '../ui/components/toggle_field.js';
 import { selectBox } from '../ui/components/choice_controls.js';
@@ -55,6 +64,7 @@ const CHART_TYPE_OPTIONS = Object.freeze([
     { group: '2D', options: CHART_TYPES_2D },
     { group: '3D', options: CHART_TYPES_3D },
 ]);
+const HIDEABLE = Object.freeze(['3d', 'stackGroup', 'xAxis']);
 const SCALES = Object.freeze([{ value: 'linear', label: 'Linear' }, { value: 'log', label: 'Log' }]);
 const POSITIONS = Object.freeze([{ value: 'left', label: 'Left' }, { value: 'right', label: 'Right' }]);
 const DASHES = Object.freeze([
@@ -200,6 +210,10 @@ let editorCount = 0;
  *        or return an ARRAY of field specs `{ label: string, control: HTMLElement,
  *        hint? }` / `{ label: string, render(slot) => { dispose? } | void, hint? }`,
  *        laid out after anything drawn into `el`. A bad spec is skipped with a warning.
+ * @param {Array<'3d'|'stackGroup'|'xAxis'>} [options.hide] - Parts of the editor not to
+ *        draw. See the file's header. Any other name throws.
+ * @param {Function} [options.constantsProvider] - `() => [{ name, value, label?, group? }]`:
+ *        the names a reference line's value may take, asked each time the list is drawn.
  * @param {Object} [options.logger] - Given to every AutocompleteField (provider errors);
  *   its `warn` also hears a part (an `extraSeriesFields` handle, say) that throws on dispose.
  * @returns {{ dispose: Function, refresh: Function, selectSubplot: Function,
@@ -212,9 +226,15 @@ function renderPlotConfigEditor(container, config, options = {}) {
         overlaySources: null,
         seriesTransforms: null,
         extraSeriesFields: null,
+        hide: [],
+        constantsProvider: null,
         logger: null,
         ...options,
     };
+    for (const part of opts.hide) {
+        if (!HIDEABLE.includes(part)) throw new TypeError(`[plot config editor] cannot hide "${part}"`);
+    }
+    const hidden = new Set(opts.hide);
     const editorId = `twm-plot-config-${++editorCount}`;
     let fieldCount = 0;
     let active = 0;
@@ -380,6 +400,7 @@ function renderPlotConfigEditor(container, config, options = {}) {
 
     function normalise(sp) {
         if (!sp.xAxis) sp.xAxis = { useTime: true, variable: '' };
+        if (hidden.has('xAxis')) sp.xAxis.useTime = true;
         if (!Array.isArray(sp.yAxes) || !sp.yAxes.length) sp.yAxes = [makeDefaultYAxis(0)];
         for (const axis of sp.yAxes) if (!Array.isArray(axis.series)) axis.series = [];
         if (is3DChart(sp.chartType) && !sp.zAxis) sp.zAxis = makeZAxis();
@@ -403,9 +424,9 @@ function renderPlotConfigEditor(container, config, options = {}) {
             section('Subplot', field('Title', textInput(sp.displayName, (v) => { sp.displayName = v; notify(); },
                                                         { placeholder: 'Untitled' }))),
             section('Display', ...displayFields(sp)),
-            section('X axis', ...xAxisFields(sp)),
+            hidden.has('xAxis') ? null : section('X axis', ...xAxisFields(sp)),
             section('Y axes', yAxesEditor(sp, is3D, overlaySources)),
-            is3D ? section('Z axis', ...zAxisFields(sp)) : null,
+            is3D && !hidden.has('3d') ? section('Z axis', ...zAxisFields(sp)) : null,
             section('Reference lines', referenceLinesEditor(sp)),
             section('Shaded bands', shadedBandsEditor(sp)),
             transformsSection(sp),
@@ -414,7 +435,7 @@ function renderPlotConfigEditor(container, config, options = {}) {
 
     function displayFields(sp) {
         return [
-            field('Chart type', select(CHART_TYPE_OPTIONS, sp.chartType ?? 'line', (v) => {
+            field('Chart type', select(hidden.has('3d') ? CHART_TYPES_2D : CHART_TYPE_OPTIONS, sp.chartType ?? 'line', (v) => {
                 const was3D = is3DChart(sp.chartType);
                 sp.chartType = v;
                 const now3D = is3DChart(v);
@@ -543,9 +564,11 @@ function renderPlotConfigEditor(container, config, options = {}) {
             field('Width', numberInput(s.lineWidth ?? 2, (v) => { s.lineWidth = v ?? 2; notify(); },
                                        { placeholder: '2', label: 'Line width', min: 1, max: 10, step: 1 })),
             field('Dash', select(DASHES, s.lineStyle ?? 'solid', (v) => { s.lineStyle = v; notify(); }, { label: 'Dash' })),
-            field('Stack group', textInput(s.stackGroup, (v) => { s.stackGroup = v || null; notify(); },
-                                           { placeholder: 'None', label: 'Stack group' })),
         );
+        if (!hidden.has('stackGroup')) {
+            fields.appendChild(field('Stack group', textInput(s.stackGroup, (v) => { s.stackGroup = v || null; notify(); },
+                                                              { placeholder: 'None', label: 'Stack group' })));
+        }
         if (opts.extraSeriesFields) fields.appendChild(extraFields(sp, axis, s));
         if (opts.overlaySources) fields.appendChild(overlayEditor(s, overlaySources));
         row.append(head, fields);
@@ -655,6 +678,67 @@ function renderPlotConfigEditor(container, config, options = {}) {
         return wrap;
     }
 
+    /**
+     * A reference line's value as a number or a constant's name. What was typed
+     * settles on change, on Enter or Tab, or on a pick; a typed number stays a number
+     * even when it is part of a constant's name, so Enter does not take that row.
+     */
+    function constantValueField(line) {
+        const wrap = el('div', 'twm-plot-config__constant');
+        const input = el('input', 'twm-plot-config__input');
+        input.type = 'text';
+        input.spellcheck = false;
+        input.placeholder = 'Number or name';
+        input.setAttribute('aria-label', 'Value');
+        input.value = line.value ?? '';
+        const now = el('span', 'twm-plot-config__constant-value');
+        wrap.append(input, now);
+
+        const isNumber = (text) => text !== '' && Number.isFinite(Number(text));
+        const sayValue = () => {
+            const named = opts.constantsProvider().find((c) => c.name === input.value.trim());
+            now.textContent = named ? `= ${named.value}` : '';
+        };
+        const settle = () => {
+            const text = input.value.trim();
+            const next = isNumber(text) ? Number(text) : text || null;
+            sayValue();
+            if (next === (line.value ?? null)) return;
+            line.value = next;
+            notify();
+        };
+        const offered = (query) => {
+            const words = (query ?? '').trim().toLowerCase();
+            const groups = new Map();
+            for (const c of opts.constantsProvider()) {
+                const text = c.label ?? c.name;
+                if (words && !`${c.name} ${text}`.toLowerCase().includes(words)) continue;
+                if (!groups.has(c.group)) groups.set(c.group, []);
+                groups.get(c.group).push({ value: c.name, label: text, hint: `= ${c.value}` });
+            }
+            return [...groups].flatMap(([group, rows]) => (group ? [{ group, options: rows }] : rows));
+        };
+        const list = attachInputOptions(input, {
+            options: offered,
+            debounce: 0,
+            autoHighlight: true,
+            isCandidate: (typed) => isNumber(typed.trim()),
+            openOnFocus: true,
+            isCurrent: (option) => option.value === input.value.trim(),
+            onPick: (option) => {
+                input.value = option.value;
+                settle();
+            },
+            onSettle: settle,
+        });
+        input.addEventListener('change', settle);
+        // After the list's own keys, which take Enter while a row is active.
+        input.addEventListener('keydown', (event) => { if (event.key === 'Enter') settle(); });
+        track(() => list.destroy());
+        sayValue();
+        return wrap;
+    }
+
     function referenceLinesEditor(sp) {
         const axisOptions = sp.yAxes.map((a, i) => ({ value: a.id, label: a.label || `Y axis ${i + 1}` }));
         return listEditor(sp, 'referenceLines', {
@@ -663,7 +747,9 @@ function renderPlotConfigEditor(container, config, options = {}) {
             fields: (line) => [
                 select(axisOptions, line.yAxisId ?? sp.yAxes[0].id, (v) => { line.yAxisId = v; notify(); },
                        { label: 'Axis' }),
-                numberInput(line.value, (v) => { line.value = v; notify(); }, { placeholder: 'Value', label: 'Value' }),
+                opts.constantsProvider
+                    ? constantValueField(line)
+                    : numberInput(line.value, (v) => { line.value = v; notify(); }, { placeholder: 'Value', label: 'Value' }),
                 textInput(line.label, (v) => { line.label = v; notify(); }, { placeholder: 'Label', label: 'Label' }),
                 colorField(line.color, (v) => { if (v) line.color = v; else delete line.color; }, 'Colour'),
                 select(DASHES, line.lineStyle ?? 'dashed', (v) => { line.lineStyle = v; notify(); }, { label: 'Dash' }),

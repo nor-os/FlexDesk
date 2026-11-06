@@ -23,7 +23,7 @@ import {
   toastInfo,
   toastSuccess,
   toastWarn
-} from "./chunk-5W4EEKSK.js";
+} from "./chunk-UGLZ2NWZ.js";
 import {
   StateMachine
 } from "./chunk-3PHCPZHT.js";
@@ -54,15 +54,12 @@ import {
 import {
   ColorListField,
   SortableList,
-  attachInputOptions,
-  createCombobox,
-  createOptionList,
   hideContextMenu,
   openConfirm,
   openForm,
   openModal,
   showContextMenu
-} from "./chunk-RKVYIXDC.js";
+} from "./chunk-RSXHAN2M.js";
 import {
   ACTIONS,
   AutocompleteField,
@@ -109,7 +106,7 @@ import {
   resolvePaging,
   toTSV,
   tsvCell
-} from "./chunk-U5GKJUOC.js";
+} from "./chunk-QRBOIUU3.js";
 import {
   ROW_CONTROL_SELECTOR,
   endsTextSelection,
@@ -122,10 +119,13 @@ import {
   DEFAULT_WINDOW_STORAGE_KEY,
   ManagedWindow,
   ToggleField,
+  attachInputOptions,
+  createCombobox,
+  createOptionList,
   fireEvent,
   isHexColor,
   normalizeHex
-} from "./chunk-ZL3VKINP.js";
+} from "./chunk-HL3IIHU3.js";
 import {
   choiceSections,
   filterSections,
@@ -3142,6 +3142,7 @@ function mountChatShell(host, {
     closeReply("stopped");
     machine.cancel();
     if (sent) callCancel(request);
+    else runEnding = null;
     syncWelcome();
     changed();
     return true;
@@ -3213,6 +3214,7 @@ function mountChatShell(host, {
   const modelBtn = el3("button", "twm-chat-shell__model-btn");
   modelBtn.type = "button";
   modelBtn.setAttribute("aria-haspopup", "menu");
+  modelBtn.setAttribute("aria-expanded", "false");
   const modelDot = el3("span", "twm-chat-shell__status");
   const modelLabel = el3("span", "twm-chat-shell__model-label");
   modelBtn.append(modelDot, modelLabel, icon2("expand_more", "twm-chat-shell__model-chevron"));
@@ -3887,6 +3889,25 @@ function createFilterModel({
     if (value !== void 0) clause.value = value;
     return clause;
   }
+  function valueFits(field, op, value) {
+    const errors = [];
+    validateClause({ field: field.key, op: op.id, value }, errors, "");
+    if (errors.length) return false;
+    const options = op.multi || field.type === "enum" ? filterOptions(field) : [];
+    return !options.length || arr(value).every((v) => options.some((o) => o.value === v));
+  }
+  function moveClause(clause, key) {
+    const next = newClause(key);
+    if (!next) return null;
+    const field = byKey.get(key);
+    const op = operatorsFor(key).find((o) => o.id === clause.op);
+    if (!op) return next;
+    next.op = op.id;
+    delete next.value;
+    const value = op.arity && valueFits(field, op, clause.value) ? clause.value : defaultValue(field, op);
+    if (value !== void 0) next.value = value;
+    return next;
+  }
   function compileClause(clause) {
     const field = byKey.get(clause?.field);
     if (!field) {
@@ -4066,26 +4087,30 @@ function createFilterModel({
       const [a, b] = arr(value);
       return `${shown(a)} and ${shown(b)}`;
     }
-    return shown(first(value));
+    return Array.isArray(value) ? value.map(shown).join(", ") : shown(value);
   }
-  function describeNode(node2, depth, format) {
+  function describeNode(node2, depth, opts) {
     if (!node2) return "";
     if (node2.kind === "clause") {
       const field = byKey.get(node2.field);
-      if (!field) return `\u26A0 unknown field \u201C${unknownName(String(node2.field ?? ""))}\u201D`;
-      const op = catalogue.get(node2.op);
-      if (!op) return `${field.label} ${node2.op ?? ""}`.trim();
-      const val = describeValue(field, op, node2.value, format);
-      return val ? `${field.label} ${op.label} ${val}` : `${field.label} ${op.label}`;
+      const op = catalogue.get(node2.op) ?? { label: node2.op ?? "", arity: 1 };
+      const subject = field ? field.label : `\u26A0 unknown field \u201C${unknownName(String(node2.field ?? ""))}\u201D`;
+      const value = describeValue(field, op, node2.value, field ? opts.formatValue : null);
+      return [subject, op.label, value].filter(Boolean).join(" ");
     }
     if (node2.kind !== "group") return `\u26A0 ${JSON.stringify(node2.node ?? node2)}`;
-    const parts = (Array.isArray(node2.children) ? node2.children : []).map((c) => describeNode(c, depth + 1, format)).filter(Boolean);
+    const parts = (Array.isArray(node2.children) ? node2.children : []).map((c) => describeNode(c, depth + 1, opts)).filter(Boolean);
     if (!parts.length) return emptyMatches(node2) !== !!node2.negate ? "everything" : "nothing";
     const joined = parts.join(String(node2.op || "AND").toUpperCase() === "OR" ? " OR " : " AND ");
+    const many = parts.length > 1;
+    if (opts.groupBrackets) {
+      const group = many ? `(${joined})` : joined;
+      return node2.negate ? `NOT ${group}` : group;
+    }
     if (node2.negate) return `NOT (${joined})`;
-    return depth > 0 && parts.length > 1 ? `(${joined})` : joined;
+    return depth > 0 && many ? `(${joined})` : joined;
   }
-  const describeFilter = (expr, { formatValue = null } = {}) => describeNode(expr, 0, formatValue);
+  const describeFilter = (expr, { formatValue = null, groupBrackets = false } = {}) => describeNode(expr, 0, { formatValue, groupBrackets });
   function unknownFields(expr) {
     const out = /* @__PURE__ */ new Set();
     const walk = (n) => {
@@ -4154,6 +4179,24 @@ function createFilterModel({
     validateNode(expr, errors, "expr");
     return { ok: errors.length === 0, errors };
   }
+  function partialRanges(expr) {
+    const said = [];
+    const walk = (node2) => {
+      if (node2?.kind === "group") {
+        (Array.isArray(node2.children) ? node2.children : []).forEach(walk);
+        return;
+      }
+      if (node2?.kind !== "clause") return;
+      const field = byKey.get(node2.field);
+      const op = catalogue.get(node2.op);
+      if (!field || op?.arity !== 2 || op.multi) return;
+      const ends = arr(node2.value).slice(0, 2);
+      const filled = ends.filter((v) => !isBlank(v)).length;
+      if (filled === 1) said.push(`${field.label} ${op.label}: needs two values`);
+    };
+    walk(expr);
+    return said;
+  }
   function prune(node2) {
     if (!node2 || typeof node2 !== "object") return null;
     if (node2.kind === "clause") {
@@ -4177,6 +4220,7 @@ function createFilterModel({
     operatorById,
     defaultValue,
     newClause,
+    moveClause,
     emptyMatches,
     unknownName,
     matcherFor,
@@ -4184,7 +4228,8 @@ function createFilterModel({
     describeFilter,
     validateFilter,
     unknownFields,
-    pruneFilter
+    pruneFilter,
+    partialRanges
   });
 }
 
@@ -4532,18 +4577,21 @@ function createFilterBuilder(host, { model, value = null, onChange = null } = {}
   function operatorChoices(clause) {
     const offered = model.operatorsFor(clause.field);
     const held = model.operatorById(clause.op);
-    const list = held && model.fieldByKey(clause.field) && !offered.includes(held) ? [...offered, held] : offered;
+    const list = held && !offered.includes(held) ? [...offered, held] : offered;
     return list.map((op) => ({ value: op.id, label: op.label }));
   }
   function clauseEl(clause) {
     const row = el("div", "twm-filter-builder__row");
+    const known = !!model.fieldByKey(clause.field);
+    const unknownWords = `\u26A0 unknown field \u201C${model.unknownName(String(clause.field ?? ""))}\u201D`;
     const fieldSelect = selectBox(fieldChoices(clause.field), clause.field, {
       label: "Field",
-      className: `${SELECT_CLASS} twm-filter-builder__select--field`,
-      notFound: () => `\u26A0 unknown field \u201C${model.unknownName(String(clause.field ?? ""))}\u201D`
+      className: `${SELECT_CLASS} twm-filter-builder__select--field${known ? "" : " twm-filter-builder__select--unknown"}`,
+      notFound: () => unknownWords
     });
+    if (!known) fieldSelect.box.title = unknownWords;
     fieldSelect.box.addEventListener("change", () => {
-      const next = model.newClause(fieldSelect.valueOf());
+      const next = model.moveClause(clause, fieldSelect.valueOf());
       for (const key of ["op", "value"]) delete clause[key];
       Object.assign(clause, next);
       restructure(clause, "field");
@@ -4581,7 +4629,7 @@ function createFilterBuilder(host, { model, value = null, onChange = null } = {}
   function drawValue(clause, cellEl, cell, drawCell) {
     const field = model.fieldByKey(clause.field);
     const op = model.operatorById(clause.op);
-    if (!field || !op) {
+    if (!field || !op || op.arity && !model.operatorsFor(clause.field).includes(op)) {
       if (clause.value !== void 0) {
         cellEl.appendChild(el("span", "twm-filter-builder__carried", JSON.stringify(clause.value)));
       }
@@ -4635,6 +4683,7 @@ function createFilterBuilder(host, { model, value = null, onChange = null } = {}
     if (numeric) {
       input.type = "number";
       input.step = "any";
+      if (op.input === "days") input.min = "0";
     } else if (field.type === "date") {
       input.type = field.time ? "datetime-local" : "date";
     } else {
@@ -4814,6 +4863,7 @@ async function openFilterDialog({
   requireValid = true,
   prune = false,
   confirmDiscard = false,
+  dismissOnBackdrop = false,
   submitLabel = "Apply",
   onSubmit = null,
   clearLabel = null,
@@ -4822,10 +4872,11 @@ async function openFilterDialog({
   height = 560
 } = {}) {
   if (!model) throw new Error("[FilterDialog] needs a filter model");
-  const start = asRoot(value);
-  if (seedField) {
-    const seeded = model.newClause(seedField);
-    if (seeded) start.children.push(seeded);
+  let start = asRoot(value);
+  const seeded = seedField ? model.newClause(seedField) : null;
+  if (seeded) {
+    if (start.negate) start = { kind: "group", op: "AND", children: [start, seeded] };
+    else start.children.push(seeded);
   }
   const content = el("div", "twm-filter-dialog");
   if (head) content.appendChild(head);
@@ -4895,9 +4946,12 @@ async function openFilterDialog({
     const expr = builder.getValue();
     return prune ? model.pruneFilter(expr) : expr;
   }
-  const checkOf = (expr) => expr ? model.validateFilter(expr) : { ok: true, errors: [] };
+  const refusals = (expr) => {
+    if (!expr) return [];
+    return requireValid ? model.validateFilter(expr).errors : model.partialRanges(expr);
+  };
   const nameMissing = () => !!nameInput && name.required !== false && !nameInput.value.trim();
-  const canSubmit = () => !busy && !nameMissing() && (!requireValid || checkOf(current()).ok);
+  const canSubmit = () => !busy && !nameMissing() && !refusals(current()).length;
   function refresh() {
     if (!controls) return;
     for (const { value: value2 } of modalActions) {
@@ -4914,11 +4968,11 @@ async function openFilterDialog({
   }
   function drawPreview() {
     const expr = current();
-    const { ok, errors } = checkOf(expr);
+    const errors = refusals(expr);
     previewRun?.abort();
     previewRun = null;
-    const blocked = requireValid && !ok;
-    showErrors(blocked ? errors : []);
+    const blocked = errors.length > 0;
+    showErrors(errors);
     if (!preview) return;
     slot.hidden = blocked;
     if (blocked) {
@@ -4954,11 +5008,15 @@ async function openFilterDialog({
     showFailure("");
     busy = true;
     try {
-      if (action.confirm && !await openConfirm(action.confirm)) return;
-      refresh();
       const result = { action: action.value, expr: action.value === CLEAR ? null : current() };
       if (nameInput) result.name = nameInput.value.trim();
       if (picker) result.icon = picker.value();
+      if (action.confirm) {
+        const { message } = action.confirm;
+        const asked = typeof message === "function" ? { ...action.confirm, message: message(result) } : action.confirm;
+        if (!await openConfirm(asked)) return;
+      }
+      refresh();
       await action.run?.(result);
       close(result);
     } catch (err) {
@@ -4999,9 +5057,12 @@ async function openFilterDialog({
     height,
     maximizable: true,
     beforeClose: mayDiscard,
+    dismissOnBackdrop,
     onMount: (_body, modalControls) => {
       controls = modalControls;
       refresh();
+      nameInput?.focus();
+      nameInput?.select();
     }
   });
   drawPreview();
@@ -9375,6 +9436,7 @@ function createPickerSwitcher({
   let activeKey = null;
   let activeNode = null;
   let moved = false;
+  const rovingKeys = {};
   let nextEntryId = 0;
   const kept = /* @__PURE__ */ new Map();
   const idOf = (item) => String(describe(item, { current: false }).id);
@@ -9444,6 +9506,7 @@ function createPickerSwitcher({
     const node2 = part("div", "twm-wspicker__row");
     node2.id = `${uid}-row-${++nextEntryId}`;
     node2.setAttribute("role", "option");
+    node2.tabIndex = -1;
     const icon2 = glyph("", "twm-wspicker__row-icon");
     const text = part("span", "twm-wspicker__row-text");
     const name = part("span", "twm-wspicker__row-name");
@@ -9483,6 +9546,7 @@ function createPickerSwitcher({
     const disabled = !!model.disabled;
     paintRow(entry, { ...model, disabled, isCurrentRow: isCurrent(item) });
     entry.run = disabled ? null : () => pick(item);
+    if (disabled) entry.node.tabIndex = -1;
     const removable = !!onRemove && model.removable !== false;
     entry.remove = removable ? () => removeItem(item) : null;
     show(entry.bin, removable);
@@ -9594,6 +9658,15 @@ function createPickerSwitcher({
     }
     for (const [key, entry] of drawnFoot) next.push({ key: `foot:${key}`, node: entry.node, run: entry.run });
     stops = next;
+    syncTabStops();
+  }
+  function syncTabStops() {
+    const currentKey = current == null ? null : `row:${idOf(current)}`;
+    for (const prefix of ["row:", "action:"]) {
+      const rows = stops.filter((s) => s.key.startsWith(prefix));
+      const chosen = rows.find((s) => s.key === rovingKeys[prefix]) ?? rows.find((s) => s.key === currentKey) ?? rows[0];
+      for (const stop of rows) stop.node.tabIndex = stop === chosen ? 0 : -1;
+    }
   }
   function paintActive() {
     const stop = stops.find((s) => s.key === activeKey) ?? null;
@@ -9616,19 +9689,28 @@ function createPickerSwitcher({
     }
     if (!moved || !stops.some((s) => s.key === activeKey)) {
       reveal = moved;
+      if (moved && isOpen && document.activeElement === document.body) input.focus();
       moved = false;
       activeKey = stops.find((s) => s.primary)?.key ?? null;
     }
     paintActive();
     if (reveal) revealActive();
   }
-  function move(step) {
-    if (!stops.length) return;
-    const at = stops.findIndex((s) => s.key === activeKey);
-    const next = at === -1 ? step > 0 ? 0 : stops.length - 1 : (at + step + stops.length) % stops.length;
-    activeKey = stops[next].key;
+  function focusStop(stop) {
+    activeKey = stop.key;
     moved = true;
+    stop.node.focus({ preventScroll: true });
     paintActive();
+  }
+  function move(step) {
+    const walk = [input, ...stops.map((s) => s.node).filter((node2) => !node2.disabled)];
+    const at = walk.indexOf(document.activeElement);
+    const next = walk[at === -1 ? step > 0 ? 0 : walk.length - 1 : (at + step + walk.length) % walk.length];
+    if (next === input) {
+      input.focus();
+      return;
+    }
+    focusStop(stops.find((s) => s.node === next));
     revealActive();
   }
   function render() {
@@ -9745,7 +9827,11 @@ function createPickerSwitcher({
       }
     }
     renderEverything();
-    if (byKey && stayed) revealActive();
+    if (stayed) {
+      const stop = stops.find((s) => s.key === activeKey);
+      if (stop) focusStop(stop);
+      if (byKey) revealActive();
+    }
   }
   more.addEventListener("click", () => loadMore());
   function setBusy(waiting) {
@@ -9758,6 +9844,7 @@ function createPickerSwitcher({
     const removedKey = `row:${idOf(item)}`;
     const at = stops.findIndex((s) => s.key === removedKey);
     const following = stops.slice(at + 1).find((s) => s.key.startsWith("row:")) ?? stops.slice(0, Math.max(at, 0)).reverse().find((s) => s.key.startsWith("row:"));
+    const fromRow = stops[at]?.node === document.activeElement;
     setBusy(true);
     let outcome;
     try {
@@ -9781,6 +9868,11 @@ function createPickerSwitcher({
         moved = true;
       }
       ask(remote ? answered : "");
+      if (fromRow && following) {
+        focusStop(following);
+        revealActive();
+        return;
+      }
     }
     input.focus();
   }
@@ -9847,6 +9939,8 @@ function createPickerSwitcher({
     pickFirst = false;
     moved = false;
     activeKey = null;
+    delete rovingKeys["row:"];
+    delete rovingKeys["action:"];
     const last = kept.get(cacheKey());
     items = last ? [...last.items] : [];
     total = last ? last.total : null;
@@ -9902,6 +9996,23 @@ function createPickerSwitcher({
   panel.addEventListener("mousedown", (event) => {
     if (event.target !== input) event.preventDefault();
   });
+  panel.addEventListener("focusin", ({ target, relatedTarget }) => {
+    if (target === input) {
+      if (panel.contains(relatedTarget)) {
+        moved = false;
+        settleActive();
+      }
+      return;
+    }
+    const stop = stops.find((s) => s.node === target);
+    if (!stop) return;
+    activeKey = stop.key;
+    moved = true;
+    const prefix = ["row:", "action:"].find((p) => stop.key.startsWith(p));
+    if (prefix) rovingKeys[prefix] = stop.key;
+    syncTabStops();
+    paintActive();
+  });
   input.addEventListener("input", () => {
     moved = false;
     scroller.scrollTop = 0;
@@ -9922,21 +10033,27 @@ function createPickerSwitcher({
       event.preventDefault();
       event.stopPropagation();
     };
+    const stop = stops.find((s) => s.node === target);
     if (key === "Escape") {
       handled();
       close({ restoreFocus: true });
     } else if (key === "ArrowDown" || key === "ArrowUp") {
       handled();
-      if (document.activeElement !== input) input.focus();
       move(key === "ArrowDown" ? 1 : -1);
     } else if (key === "Enter" && target === input) {
       handled();
       enter();
-    } else if (key === "Delete" && shiftKey && target === input) {
+    } else if ((key === "Enter" || key === " ") && stop) {
+      handled();
+      stop.run();
+    } else if (key === "Delete" && shiftKey) {
       handled();
       stops.find((s) => s.key === activeKey)?.remove?.();
     } else if (key === "Backspace" && target !== input) {
       handled();
+    } else if (target !== input && key.length === 1 && key !== " " && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.stopPropagation();
+      input.focus();
     }
   });
   panel.addEventListener("focusout", (event) => {
@@ -11460,6 +11577,7 @@ var currentTarget = null;
 var listenersAttached = false;
 var mouseCheckInterval = null;
 var lastMousePosition = { x: 0, y: 0 };
+var focusTarget = null;
 function createTooltipElement() {
   if (tooltipElement) return tooltipElement;
   tooltipElement = document.createElement("div");
@@ -11578,9 +11696,10 @@ function showTooltip(target) {
   const widthOverride = target.getAttribute("data-tooltip-max-width");
   tooltip.style.maxWidth = widthOverride || "";
   requestAnimationFrame(() => {
+    if (currentTarget !== target) return;
     positionTooltip(target, tooltip);
     tooltip.classList.add("visible");
-    startMouseCheck();
+    if (focusTarget !== target) startMouseCheck();
   });
 }
 function hideTooltip() {
@@ -11588,6 +11707,7 @@ function hideTooltip() {
     tooltipElement.classList.remove("visible");
   }
   currentTarget = null;
+  focusTarget = null;
   if (mouseCheckInterval) {
     clearInterval(mouseCheckInterval);
     mouseCheckInterval = null;
@@ -11636,6 +11756,20 @@ function attachListeners() {
     if (!(target instanceof Element)) return;
     const tooltipTarget = target.closest(".has-latex-tooltip, .twm-has-tooltip");
     if (!tooltipTarget) return;
+    hideTooltip();
+  }, true);
+  document.addEventListener("focusin", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element) || !target.matches(":focus-visible")) return;
+    const tooltipTarget = target.closest(".has-latex-tooltip, .twm-has-tooltip");
+    if (!tooltipTarget) return;
+    focusTarget = tooltipTarget;
+    showTooltip(tooltipTarget);
+  }, true);
+  document.addEventListener("focusout", (event) => {
+    if (!focusTarget) return;
+    const next = event.relatedTarget;
+    if (next instanceof Node && focusTarget.contains(next)) return;
     hideTooltip();
   }, true);
   document.addEventListener("scroll", hideTooltip, true);

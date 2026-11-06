@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.18.1 (2026-11-06)
+
+A patch release: what four applications asked for when they adopted 0.18.0. The
+entries under "Changed behaviour" change what embedders see; the workspace picker's
+keyboard is the one to read first.
+
+### Added
+
+- [`hide` on `renderPlotConfigEditor`](docs/components/charts.md#hiding-parts-of-the-editor-hide-0181): takes away the 3D chart types with the z axis, the stack group and the x axis section (STORY-0109).
+- [A reference line that names a constant](docs/components/charts.md#a-reference-line-that-names-a-constant-constantsprovider-resolveconstant-0181): `constantsProvider` on `renderPlotConfigEditor`, `resolveConstant` on `renderPlotGrid` (STORY-0109).
+- [`dismissOnBackdrop` on `openModal`](docs/components/forms-and-dialogs.md#a-click-beside-a-modal-dismissonbackdrop-0181) and [on `openFilterDialog`](docs/components/filter-builder.md#a-click-beside-the-dialog-dismissonbackdrop-0181): a click on the dimmed page beside it dismisses it, through `beforeClose`.
+- [`confirm.message` as a function](docs/components/filter-builder.md#a-question-that-quotes-what-was-typed-0181) on `openFilterDialog`'s `actions`, computed when it is asked.
+- [`groupBrackets` on `describeFilter`](docs/components/filter-builder.md#what-a-sentence-says-0181); [`model.partialRanges`](docs/components/filter-builder.md#a-range-with-one-end-filled-is-refused-0181) and [`model.moveClause`](docs/components/filter-builder.md#what-a-condition-keeps-when-its-field-changes-0181).
+- [Tokens for the picker field's look](docs/components/workspace-picker.md#the-fields-look-tokens-0181), and [a trigger of your own on `createPickerSwitcher`](docs/components/workspace-picker.md#a-trigger-of-your-own-0181), written down and tested.
+- `attachInlineRenamer`'s `onStart` is handed the input: [`{ value, triggerEvent, input }`](docs/components/input-fields.md#a-list-under-a-name-being-edited-attachinlinerenamer-0181).
+
+### Changed behaviour
+
+- **[The workspace picker's keyboard moves real focus](docs/components/workspace-picker.md#the-keyboard-0181).** It used to keep the caret in the input and walk a highlight, so the card's and the footer's buttons were never announced. The arrows now move `document.activeElement` over every stop, the input among them; the rows are one tab stop; a character typed anywhere in the panel goes to the input. **The first ArrowDown from the input lands on the first row, not the second**, so a sequence of arrows reaches one stop later than before: `ArrowDown, Enter` takes the first row. A test dispatching keys on the input keeps working, one arrow longer. Enter in the input, Esc, a press outside and Shift+Delete do as they did, and Shift+Delete also works on a focused row.
+- **[Stop releases a turn that is waiting](docs/components/chat-shell.md#stop-releases-a-turn-that-is-waiting-0181).** A cancel promise that never settles, or a lost run-over, no longer hangs later sends: stopping the waiting turn sends the next one at once. A backend without a lock can then see two runs overlap; one that takes one run at a time should refuse the second.
+- **[Keyboard focus shows a tooltip](docs/components/shell.md#keyboard-focus-shows-a-tooltip-0181)**: `TooltipService` listens to `focusin` and `focusout` as well as the mouse. A consumer's own wiring of the same can go.
+- **[A press inside no longer disarms a context menu](docs/components/menus.md#a-press-inside-no-longer-disarms-a-context-menu-0181).** `showContextMenu`'s outside-press listener lasts until the menu closes.
+- **[`attachInlineRenamer` runs `onStart` before adding its own key listeners](docs/components/input-fields.md#a-list-under-a-name-being-edited-attachinlinerenamer-0181)**, so what it attaches hears a key first and Enter on a highlighted row commits the row. Taking its field off the page no longer fires a second commit through blur after a commit or an Esc, so a consumer's guard against that can go.
+- **[`openFilterDialog` refuses a range with one end filled](docs/components/filter-builder.md#a-range-with-one-end-filled-is-refused-0181)**, whatever `requireValid` and `prune` say. Such a filter used to leave the dialog and match nothing.
+- **[A seed goes beside a negated root](docs/components/filter-builder.md#a-seed-beside-a-negated-root-0181)**, not inside it, where it undid the filter.
+- **[Changing a condition's field keeps its operator and value](docs/components/filter-builder.md#what-a-condition-keeps-when-its-field-changes-0181)** when the new field offers the one and the other still fits. It used to start over, and `prune` then dropped the row.
+- **[A held condition under an operator its field does not offer shows its value read-only](docs/components/filter-builder.md#what-a-condition-keeps-when-its-field-changes-0181)**, where a box looked empty over a value the result still carried, and a custom `editor` is not asked about one. Its operator select reads as the catalogue's label on an unknown field too: `is`, not `is (unknown)`. An unknown field's whole warning is the select's tooltip.
+- **[`describeFilter` says more](docs/components/filter-builder.md#what-a-sentence-says-0181)**: every value of a list under a single-value operator, and an unknown field's operator and value (`⚠ unknown field “gone” is x`). A consumer's test on the old sentence sees the difference.
+- [The filter dialog's name box opens with its text selected](docs/components/filter-builder.md#the-name-box-opens-selected-0181), and a days box has `min="0"`.
+- [`openModal` leaves focus where `onMount` put it](docs/components/forms-and-dialogs.md#focus-placed-by-onmount-stays-0181), with its selection, rather than moving it to the first field.
+- `mountChatShell`'s model button has `aria-expanded`, so its open state is announced.
+- `activeConversation()` [answers an id](docs/components/chat-shell.md#conversations), as it always did; the docs read as if it answered a conversation.
+
+### Removed or renamed exports
+
+None. New: the `hide` and `constantsProvider` options, the `resolveConstant` option, `dismissOnBackdrop`, `groupBrackets`, `model.partialRanges`, `model.moveClause`. Custom properties in `tokens.css`: `--twm-wspicker-field-icon`, `--twm-wspicker-field-focus-border`, `--twm-wspicker-field-muted-icon`, `--twm-wspicker-field-muted-style`, `--twm-wspicker-field-muted-opacity`. Classes: `.twm-filter-builder__select--unknown`, `.twm-plot-config__constant`, `.twm-plot-config__constant-value`.
+
 ## 0.18.0 (2026-11-05)
 
 A minor release. A new entry point, `@flexdesk/git`, and six new components for

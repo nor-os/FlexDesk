@@ -2177,11 +2177,10 @@ function attachInlineRenamer(options = {}) {
   let destroyed = false;
   let originalText = label.textContent || "";
   const cleanup = () => {
-    if (input && input.parentNode === label) {
-      input.remove();
-    }
+    const gone = input;
     input = null;
     editing = false;
+    if (gone && gone.parentNode === label) gone.remove();
   };
   const cancel = () => {
     if (destroyed) return;
@@ -2210,8 +2209,8 @@ function attachInlineRenamer(options = {}) {
         return;
       }
       const finalValue = result.newValue ?? next ?? "";
-      label.textContent = finalValue;
       cleanup();
+      label.textContent = finalValue;
       options.onFinish?.({ value: finalValue });
     } catch (err) {
       window.logger?.warn("inline-renamer", "onCommit failed", err);
@@ -2228,6 +2227,7 @@ function attachInlineRenamer(options = {}) {
     const stopEvents = (ev) => ev.stopPropagation();
     input.addEventListener("mousedown", stopEvents);
     input.addEventListener("click", stopEvents);
+    options.onStart?.({ value: originalText, triggerEvent, input });
     input.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") {
         ev.preventDefault();
@@ -2238,7 +2238,6 @@ function attachInlineRenamer(options = {}) {
       }
     });
     input.addEventListener("blur", () => commit("blur"));
-    options.onStart?.({ value: originalText, triggerEvent });
     setTimeout(() => {
       input?.focus();
       input?.select?.();
@@ -10745,4 +10744,4 @@ export {
   resolvePaging,
   DataTable
 };
-//# sourceMappingURL=chunk-U5GKJUOC.js.map
+//# sourceMappingURL=chunk-QRBOIUU3.js.map

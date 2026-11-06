@@ -20,7 +20,7 @@ import {
 import {
   openModal,
   showContextMenu
-} from "./chunk-RKVYIXDC.js";
+} from "./chunk-RSXHAN2M.js";
 import {
   buildHistogramTrace,
   buildLegendLayout,
@@ -35,13 +35,13 @@ import {
   purge,
   resize,
   strideDownsampleShared
-} from "./chunk-P74F6I6P.js";
-import "./chunk-U5GKJUOC.js";
+} from "./chunk-4X4SY3CP.js";
+import "./chunk-QRBOIUU3.js";
 import "./chunk-VLOAI3HS.js";
 import {
   fireEvent,
   isHexColor
-} from "./chunk-ZL3VKINP.js";
+} from "./chunk-HL3IIHU3.js";
 import {
   modalHost
 } from "./chunk-Q7BALEPX.js";

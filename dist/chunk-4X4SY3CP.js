@@ -1,10 +1,10 @@
 import {
   DataTable,
   createRafResizeObserver
-} from "./chunk-U5GKJUOC.js";
+} from "./chunk-QRBOIUU3.js";
 import {
   ManagedWindow
-} from "./chunk-ZL3VKINP.js";
+} from "./chunk-HL3IIHU3.js";
 import {
   flatChoices,
   selectBox
@@ -1565,7 +1565,7 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
     const legendPos = opts.alwaysShowLegend && (sp.legendPosition ?? "hidden") === "hidden" ? "top" : sp.legendPosition ?? "hidden";
     const xRange = !useX && time.length >= 2 ? [time[0], time[time.length - 1]] : void 0;
     const { shapes, annotations } = buildOverlayShapes({
-      referenceLines: sp.referenceLines,
+      referenceLines: (sp.referenceLines ?? []).map((line) => typeof line.value === "string" ? { ...line, value: opts.resolveConstant?.(line.value) } : line),
       shadedBands: sp.shadedBands,
       yRefByAxisId
     });
@@ -2853,4 +2853,4 @@ export {
   openPlotPopoutWindow,
   openRawTracesWindow
 };
-//# sourceMappingURL=chunk-P74F6I6P.js.map
+//# sourceMappingURL=chunk-4X4SY3CP.js.map

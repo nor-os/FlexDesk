@@ -55,17 +55,18 @@ import {
   strideIndices,
   uid,
   updateChart
-} from "./chunk-P74F6I6P.js";
+} from "./chunk-4X4SY3CP.js";
 import {
   AutocompleteField,
   createRafResizeObserver
-} from "./chunk-U5GKJUOC.js";
+} from "./chunk-QRBOIUU3.js";
 import "./chunk-VLOAI3HS.js";
 import {
   ColorField,
   ManagedWindow,
-  ToggleField
-} from "./chunk-ZL3VKINP.js";
+  ToggleField,
+  attachInputOptions
+} from "./chunk-HL3IIHU3.js";
 import {
   selectBox
 } from "./chunk-Q7BALEPX.js";
@@ -709,6 +710,7 @@ var CHART_TYPE_OPTIONS = Object.freeze([
   { group: "2D", options: CHART_TYPES_2D },
   { group: "3D", options: CHART_TYPES_3D }
 ]);
+var HIDEABLE = Object.freeze(["3d", "stackGroup", "xAxis"]);
 var SCALES = Object.freeze([{ value: "linear", label: "Linear" }, { value: "log", label: "Log" }]);
 var POSITIONS = Object.freeze([{ value: "left", label: "Left" }, { value: "right", label: "Right" }]);
 var DASHES = Object.freeze([
@@ -829,9 +831,15 @@ function renderPlotConfigEditor(container, config, options = {}) {
     overlaySources: null,
     seriesTransforms: null,
     extraSeriesFields: null,
+    hide: [],
+    constantsProvider: null,
     logger: null,
     ...options
   };
+  for (const part of opts.hide) {
+    if (!HIDEABLE.includes(part)) throw new TypeError(`[plot config editor] cannot hide "${part}"`);
+  }
+  const hidden = new Set(opts.hide);
   const editorId = `twm-plot-config-${++editorCount}`;
   let fieldCount = 0;
   let active = 0;
@@ -985,6 +993,7 @@ function renderPlotConfigEditor(container, config, options = {}) {
   }
   function normalise(sp) {
     if (!sp.xAxis) sp.xAxis = { useTime: true, variable: "" };
+    if (hidden.has("xAxis")) sp.xAxis.useTime = true;
     if (!Array.isArray(sp.yAxes) || !sp.yAxes.length) sp.yAxes = [makeDefaultYAxis(0)];
     for (const axis of sp.yAxes) if (!Array.isArray(axis.series)) axis.series = [];
     if (is3DChart(sp.chartType) && !sp.zAxis) sp.zAxis = makeZAxis();
@@ -1009,9 +1018,9 @@ function renderPlotConfigEditor(container, config, options = {}) {
         { placeholder: "Untitled" }
       ))),
       section("Display", ...displayFields(sp)),
-      section("X axis", ...xAxisFields(sp)),
+      hidden.has("xAxis") ? null : section("X axis", ...xAxisFields(sp)),
       section("Y axes", yAxesEditor(sp, is3D, overlaySources)),
-      is3D ? section("Z axis", ...zAxisFields(sp)) : null,
+      is3D && !hidden.has("3d") ? section("Z axis", ...zAxisFields(sp)) : null,
       section("Reference lines", referenceLinesEditor(sp)),
       section("Shaded bands", shadedBandsEditor(sp)),
       transformsSection(sp)
@@ -1019,7 +1028,7 @@ function renderPlotConfigEditor(container, config, options = {}) {
   }
   function displayFields(sp) {
     return [
-      field("Chart type", select(CHART_TYPE_OPTIONS, sp.chartType ?? "line", (v) => {
+      field("Chart type", select(hidden.has("3d") ? CHART_TYPES_2D : CHART_TYPE_OPTIONS, sp.chartType ?? "line", (v) => {
         const was3D = is3DChart(sp.chartType);
         sp.chartType = v;
         const now3D = is3DChart(v);
@@ -1206,16 +1215,18 @@ function renderPlotConfigEditor(container, config, options = {}) {
       field("Dash", select(DASHES, s.lineStyle ?? "solid", (v) => {
         s.lineStyle = v;
         notify();
-      }, { label: "Dash" })),
-      field("Stack group", textInput(
+      }, { label: "Dash" }))
+    );
+    if (!hidden.has("stackGroup")) {
+      fields.appendChild(field("Stack group", textInput(
         s.stackGroup,
         (v) => {
           s.stackGroup = v || null;
           notify();
         },
         { placeholder: "None", label: "Stack group" }
-      ))
-    );
+      )));
+    }
     if (opts.extraSeriesFields) fields.appendChild(extraFields(sp, axis, s));
     if (opts.overlaySources) fields.appendChild(overlayEditor(s, overlaySources));
     row.append(head, fields);
@@ -1333,6 +1344,61 @@ function renderPlotConfigEditor(container, config, options = {}) {
     });
     return wrap;
   }
+  function constantValueField(line) {
+    const wrap = el("div", "twm-plot-config__constant");
+    const input = el("input", "twm-plot-config__input");
+    input.type = "text";
+    input.spellcheck = false;
+    input.placeholder = "Number or name";
+    input.setAttribute("aria-label", "Value");
+    input.value = line.value ?? "";
+    const now = el("span", "twm-plot-config__constant-value");
+    wrap.append(input, now);
+    const isNumber = (text) => text !== "" && Number.isFinite(Number(text));
+    const sayValue = () => {
+      const named = opts.constantsProvider().find((c) => c.name === input.value.trim());
+      now.textContent = named ? `= ${named.value}` : "";
+    };
+    const settle = () => {
+      const text = input.value.trim();
+      const next = isNumber(text) ? Number(text) : text || null;
+      sayValue();
+      if (next === (line.value ?? null)) return;
+      line.value = next;
+      notify();
+    };
+    const offered = (query) => {
+      const words = (query ?? "").trim().toLowerCase();
+      const groups = /* @__PURE__ */ new Map();
+      for (const c of opts.constantsProvider()) {
+        const text = c.label ?? c.name;
+        if (words && !`${c.name} ${text}`.toLowerCase().includes(words)) continue;
+        if (!groups.has(c.group)) groups.set(c.group, []);
+        groups.get(c.group).push({ value: c.name, label: text, hint: `= ${c.value}` });
+      }
+      return [...groups].flatMap(([group, rows]) => group ? [{ group, options: rows }] : rows);
+    };
+    const list = attachInputOptions(input, {
+      options: offered,
+      debounce: 0,
+      autoHighlight: true,
+      isCandidate: (typed) => isNumber(typed.trim()),
+      openOnFocus: true,
+      isCurrent: (option) => option.value === input.value.trim(),
+      onPick: (option) => {
+        input.value = option.value;
+        settle();
+      },
+      onSettle: settle
+    });
+    input.addEventListener("change", settle);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") settle();
+    });
+    track(() => list.destroy());
+    sayValue();
+    return wrap;
+  }
   function referenceLinesEditor(sp) {
     const axisOptions = sp.yAxes.map((a, i) => ({ value: a.id, label: a.label || `Y axis ${i + 1}` }));
     return listEditor(sp, "referenceLines", {
@@ -1348,7 +1414,7 @@ function renderPlotConfigEditor(container, config, options = {}) {
           },
           { label: "Axis" }
         ),
-        numberInput(line.value, (v) => {
+        opts.constantsProvider ? constantValueField(line) : numberInput(line.value, (v) => {
           line.value = v;
           notify();
         }, { placeholder: "Value", label: "Value" }),

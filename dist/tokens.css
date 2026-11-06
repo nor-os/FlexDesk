@@ -138,6 +138,13 @@
     --twm-rail-icon:    #9e9e9e;              /* an item at rest */
     --twm-rail-icon-on: var(--text-bright);   /* hovered, and the active item with its bar */
 
+    /* The workspace picker's field (0.18.1). */
+    --twm-wspicker-field-icon:           var(--accent-bright);
+    --twm-wspicker-field-focus-border:   var(--accent-bright);   /* focused by keyboard, and open */
+    --twm-wspicker-field-muted-icon:     var(--text-muted);      /* naming nothing */
+    --twm-wspicker-field-muted-style:    italic;
+    --twm-wspicker-field-muted-opacity:  0.55;
+
     /* ── Overlay scrollbars (installOverlayScrollbar) ─────────── */
     --scrollbar-size:         6px;
     --scrollbar-radius:       3px;

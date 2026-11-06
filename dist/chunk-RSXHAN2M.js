@@ -2,20 +2,17 @@ import {
   ColorField,
   ManagedWindow,
   ToggleField,
+  createCombobox,
   fireEvent,
   isHexColor,
   normalizeHex
-} from "./chunk-ZL3VKINP.js";
+} from "./chunk-HL3IIHU3.js";
 import {
   choiceList,
-  choiceSections,
-  filterSections,
   findChoice,
   flatChoices,
   modalHost,
-  openAnchoredLayer,
   selectBox,
-  shownValue,
   toggleChips
 } from "./chunk-Q7BALEPX.js";
 import {
@@ -448,490 +445,6 @@ var ColorListField = class {
   }
 };
 
-// src/ui/components/option_list.js
-var SEQ = 0;
-function node(tag, className, text) {
-  const n = document.createElement(tag);
-  if (className) n.className = className;
-  if (text !== void 0 && text !== null) n.textContent = String(text);
-  return n;
-}
-function marked(target, text, needle) {
-  const at = needle ? text.toLowerCase().indexOf(needle.toLowerCase()) : -1;
-  if (at < 0) {
-    target.textContent = text;
-    return;
-  }
-  target.append(
-    text.slice(0, at),
-    node("mark", "twm-option-list__match", text.slice(at, at + needle.length)),
-    text.slice(at + needle.length)
-  );
-}
-function createOptionList({ onPick, onActive = null }) {
-  const id = `twm-option-list-${++SEQ}`;
-  const el = node("div", "twm-option-list");
-  el.id = id;
-  el.setAttribute("role", "listbox");
-  let rows = [];
-  let active = -1;
-  const paintActive = () => {
-    rows.forEach(({ row: row2 }, i) => row2.classList.toggle("twm-option-list__row--active", i === active));
-    const row = rows[active]?.row;
-    row?.scrollIntoView?.({ block: "nearest" });
-    onActive?.(row ? row.id : null);
-  };
-  const rowFor = (option, { glyphs, mark, isCurrent }) => {
-    const row = node("div", "twm-option-list__row");
-    row.id = `${id}-${rows.length}`;
-    row.setAttribute("role", "option");
-    row.setAttribute("aria-selected", String(!!isCurrent?.(option)));
-    if (option.disabled) row.setAttribute("aria-disabled", "true");
-    row.title = option.description ? `${option.label} \u2014 ${option.description}` : option.label;
-    if (glyphs) {
-      const glyph = node("span", "twm-option-list__glyph material-symbols-outlined", option.icon || "");
-      glyph.setAttribute("aria-hidden", "true");
-      row.appendChild(glyph);
-    }
-    const words = node("span", "twm-option-list__words");
-    const label = node("span", "twm-option-list__label");
-    marked(label, option.label, mark);
-    words.appendChild(label);
-    if (option.description) words.appendChild(node("span", "twm-option-list__description", option.description));
-    if (option.disabled && option.reason) words.appendChild(node("span", "twm-choice__reason", option.reason));
-    row.appendChild(words);
-    if (option.hint) row.appendChild(node("span", "twm-option-list__hint", option.hint));
-    return row;
-  };
-  const enabled = () => rows.map((r, i) => r.option.disabled ? -1 : i).filter((i) => i >= 0);
-  el.addEventListener("mousedown", (ev) => ev.preventDefault());
-  el.addEventListener("click", (ev) => {
-    const row = ev.target.closest?.('[role="option"]');
-    const hit = rows.find((r) => r.row === row);
-    if (hit && !hit.option.disabled) onPick(hit.option);
-  });
-  return {
-    el,
-    id,
-    /**
-     * Draw `sections` (`[{ heading, items }]`, as `choiceSections` gives them).
-     * @param {object} [opts]
-     * @param {string} [opts.mark]  The text to mark in each label.
-     * @param {(option: object) => boolean} [opts.isCurrent]  Is this the current value?
-     */
-    setRows(sections, { mark = "", isCurrent = null } = {}) {
-      rows = [];
-      active = -1;
-      el.replaceChildren();
-      const glyphs = sections.some((s) => s.items.some((o) => o.icon));
-      for (const { heading, items } of sections) {
-        let parent = el;
-        if (heading != null) {
-          parent = node("div", "twm-option-list__section");
-          parent.setAttribute("role", "group");
-          parent.setAttribute("aria-label", heading);
-          const title = node("div", "twm-choice__group", heading);
-          title.setAttribute("aria-hidden", "true");
-          parent.appendChild(title);
-          el.appendChild(parent);
-        }
-        for (const option of items) {
-          const row = rowFor(option, { glyphs, mark, isCurrent });
-          rows.push({ option, row });
-          parent.appendChild(row);
-        }
-      }
-      paintActive();
-    },
-    /** One line of text in place of the rows: nothing matched, still loading, a failure. */
-    setMessage(text) {
-      rows = [];
-      active = -1;
-      el.replaceChildren(node("div", "twm-option-list__message", text));
-      paintActive();
-    },
-    /** How many rows are drawn. */
-    get size() {
-      return rows.length;
-    },
-    /** The drawn options, in order. */
-    options: () => rows.map((r) => r.option),
-    /** The active row's option, or null. */
-    activeOption: () => rows[active]?.option ?? null,
-    /** Make row `index` active; -1, or a row that is disabled, makes none active. */
-    setActive(index) {
-      active = rows[index] && !rows[index].option.disabled ? index : -1;
-      paintActive();
-    },
-    /** The next row that may be chosen, by `step`, wrapping. From none: the first or the last. */
-    move(step) {
-      const stops = enabled();
-      if (!stops.length) return;
-      const at = stops.indexOf(active);
-      const next = at < 0 ? step > 0 ? 0 : stops.length - 1 : (at + step + stops.length) % stops.length;
-      active = stops[next];
-      paintActive();
-    },
-    /** The first (`step` 1) or last (`step` -1) row that may be chosen. */
-    moveToEnd(step) {
-      const stops = enabled();
-      active = stops.length ? stops[step > 0 ? 0 : stops.length - 1] : -1;
-      paintActive();
-    }
-  };
-}
-
-// src/ui/components/combobox.js
-var DEBOUNCE_MS = 150;
-var SEQ2 = 0;
-function attachInputOptions(input, {
-  options = [],
-  onPick,
-  anchor = null,
-  isCurrent = null,
-  autoHighlight = false,
-  isCandidate = null,
-  normalise = (text) => text,
-  openOnFocus = false,
-  passEnter = false,
-  loadingText = "Loading\u2026",
-  errorText = "Could not load the options.",
-  debounce = DEBOUNCE_MS,
-  panelClassName = "",
-  onSettle = null
-} = {}) {
-  let source = options;
-  let layer = null;
-  let wanted = false;
-  let query = null;
-  let asked = 0;
-  let timer = null;
-  let controller = null;
-  let picking = false;
-  const list = createOptionList({
-    onPick: (option) => take(option),
-    onActive: (id) => {
-      if (id) input.setAttribute("aria-activedescendant", id);
-      else input.removeAttribute("aria-activedescendant");
-    }
-  });
-  const panel = document.createElement("div");
-  panel.className = `twm-option-panel${panelClassName ? ` ${panelClassName}` : ""}`;
-  panel.appendChild(list.el);
-  input.setAttribute("autocomplete", "off");
-  input.setAttribute("role", "combobox");
-  input.setAttribute("aria-autocomplete", "list");
-  input.setAttribute("aria-expanded", "false");
-  input.setAttribute("aria-controls", list.id);
-  const show = () => {
-    if (layer) {
-      layer.place();
-      return;
-    }
-    layer = openAnchoredLayer({
-      anchor: anchor || input,
-      el: panel,
-      gap: 4,
-      matchWidth: true,
-      returnFocus: false,
-      onClose() {
-        layer = null;
-        wanted = false;
-        input.setAttribute("aria-expanded", "false");
-        input.removeAttribute("aria-activedescendant");
-      }
-    });
-    if (!layer) {
-      wanted = false;
-      return;
-    }
-    input.setAttribute("aria-expanded", "true");
-  };
-  function forget() {
-    clearTimeout(timer);
-    asked += 1;
-    controller?.abort();
-    controller = null;
-  }
-  function close(reason = "closed") {
-    wanted = false;
-    forget();
-    layer?.close(reason);
-  }
-  function highlight(typed) {
-    const text = normalise(typed.trim());
-    if (!autoHighlight || !text) {
-      list.setActive(-1);
-      return;
-    }
-    const exact = list.options().findIndex((o) => normalise(shownValue(o.value)) === text);
-    if (exact >= 0) list.setActive(exact);
-    else if (isCandidate?.(text)) list.setActive(-1);
-    else list.moveToEnd(1);
-  }
-  function drawRows(sections) {
-    if (!wanted) return;
-    if (!sections.length) {
-      layer?.close("empty");
-      wanted = true;
-      return;
-    }
-    const text = query ?? "";
-    list.setRows(sections, { mark: normalise(text.trim()), isCurrent });
-    show();
-    highlight(text);
-  }
-  function ask(text) {
-    controller = new AbortController();
-    const token = asked;
-    const failed = (err) => {
-      if (token !== asked) return;
-      console.warn("[createCombobox] options failed", err);
-      if (!wanted) return;
-      list.setMessage(errorText);
-      show();
-    };
-    let answer;
-    try {
-      answer = source(text, { signal: controller.signal });
-    } catch (err) {
-      failed(err);
-      return;
-    }
-    if (typeof answer?.then !== "function") {
-      drawRows(choiceSections(answer));
-      return;
-    }
-    if (!list.size && wanted) {
-      list.setMessage(loadingText);
-      show();
-    }
-    answer.then((rows) => {
-      if (token === asked) drawRows(choiceSections(rows));
-    }, failed);
-  }
-  function refresh() {
-    forget();
-    if (typeof source !== "function") {
-      const all = choiceSections(source);
-      drawRows(query === null ? all : filterSections(all, query));
-      return;
-    }
-    const text = query ?? "";
-    if (query === null || debounce <= 0) {
-      ask(text);
-      return;
-    }
-    const token = asked;
-    timer = setTimeout(() => {
-      if (token === asked) ask(text);
-    }, debounce);
-  }
-  function take(option) {
-    close("pick");
-    picking = true;
-    onPick?.(option);
-    picking = false;
-  }
-  function takeActive() {
-    const option = layer && list.activeOption();
-    if (!option) return false;
-    take(option);
-    return true;
-  }
-  const openFor = (text) => {
-    query = text;
-    wanted = true;
-    refresh();
-  };
-  const onInput = () => openFor(input.value);
-  const onClick = () => openFor(null);
-  const onFocus = () => {
-    if (openOnFocus && !layer && !picking) openFor(input.value || null);
-  };
-  const onBlur = () => close("blur");
-  const onKey = (ev) => {
-    if (ev.isComposing) return;
-    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
-      ev.preventDefault();
-      ev.stopPropagation();
-      if (!layer) openFor(null);
-      list.move(ev.key === "ArrowDown" ? 1 : -1);
-      return;
-    }
-    if (ev.key === "Enter") {
-      if (!layer) return;
-      if (takeActive()) {
-        ev.preventDefault();
-        ev.stopImmediatePropagation();
-        return;
-      }
-      close();
-      if (passEnter) return;
-      ev.preventDefault();
-      ev.stopPropagation();
-      onSettle?.();
-      return;
-    }
-    if (ev.key === "Tab") {
-      close("blur");
-      onSettle?.();
-    }
-  };
-  input.addEventListener("input", onInput);
-  input.addEventListener("click", onClick);
-  input.addEventListener("focus", onFocus);
-  input.addEventListener("blur", onBlur);
-  input.addEventListener("keydown", onKey);
-  return {
-    get isOpen() {
-      return !!layer;
-    },
-    /** Open it showing everything, or for `text`. */
-    open(text = null) {
-      openFor(text);
-    },
-    close,
-    takeActive,
-    /** Replace the options; an open list redraws. */
-    setOptions(next) {
-      source = next;
-      if (wanted) refresh();
-    },
-    destroy() {
-      close();
-      input.removeEventListener("input", onInput);
-      input.removeEventListener("click", onClick);
-      input.removeEventListener("focus", onFocus);
-      input.removeEventListener("blur", onBlur);
-      input.removeEventListener("keydown", onKey);
-    }
-  };
-}
-function createCombobox({
-  options = [],
-  value = "",
-  onChange = null,
-  className = "",
-  panelClassName = "",
-  placeholder = "",
-  title = "",
-  ariaLabel = "",
-  name = null,
-  disabled = false,
-  normalise = (text) => text,
-  autoHighlight = true,
-  isCandidate = null,
-  validate = null,
-  loadingText,
-  errorText,
-  debounce
-} = {}) {
-  const handed = String(value ?? "");
-  let current = normalise(handed);
-  const el = document.createElement("div");
-  el.className = `twm-combobox${className ? ` ${className}` : ""}`;
-  const input = document.createElement("input");
-  input.type = "text";
-  input.className = "twm-combobox__input";
-  input.spellcheck = false;
-  input.value = current;
-  input.disabled = !!disabled;
-  if (name) input.name = name;
-  if (placeholder) input.placeholder = placeholder;
-  if (title) input.title = title;
-  if (ariaLabel) input.setAttribute("aria-label", ariaLabel);
-  const error = document.createElement("p");
-  error.className = "twm-combobox__error";
-  error.hidden = true;
-  error.id = `twm-combobox-error-${++SEQ2}`;
-  el.append(input, error);
-  function report(next, option) {
-    const settled = normalise(String(next ?? ""));
-    if (settled === current) return;
-    current = settled;
-    onChange?.(current, option ?? null);
-  }
-  const clearValidity = () => {
-    error.hidden = true;
-    error.textContent = "";
-    input.removeAttribute("aria-invalid");
-    input.removeAttribute("aria-describedby");
-  };
-  function paintValidity() {
-    const message = validate && current ? validate(current) || null : null;
-    if (!message) {
-      clearValidity();
-      return;
-    }
-    error.textContent = message;
-    error.hidden = false;
-    input.setAttribute("aria-invalid", "true");
-    input.setAttribute("aria-describedby", error.id);
-  }
-  function settle() {
-    report(input.value, null);
-    if (input.value !== current) input.value = current;
-    paintValidity();
-  }
-  input.addEventListener("input", () => {
-    report(input.value, null);
-    clearValidity();
-  });
-  const menu = attachInputOptions(input, {
-    options,
-    autoHighlight,
-    isCandidate,
-    normalise,
-    panelClassName,
-    loadingText,
-    errorText,
-    debounce,
-    isCurrent: (o) => normalise(shownValue(o.value)) === current,
-    onSettle: settle,
-    onPick(option) {
-      input.value = shownValue(option.value);
-      report(option.value, option.source);
-      settle();
-      input.focus();
-      fireEvent(input, "change", { bubbles: true });
-    }
-  });
-  input.addEventListener("blur", settle);
-  paintValidity();
-  if (onChange && current !== handed) onChange(current, null);
-  return {
-    el,
-    input,
-    get value() {
-      return current;
-    },
-    set value(next) {
-      current = normalise(String(next ?? ""));
-      input.value = current;
-      paintValidity();
-    },
-    /** The complaint on screen, or `null`. A caller that wants to refuse Save has this. */
-    get error() {
-      return error.hidden ? null : error.textContent;
-    },
-    get isOpen() {
-      return menu.isOpen;
-    },
-    setOptions: menu.setOptions,
-    /** Open the list showing everything, or for `text`. */
-    open: menu.open,
-    close: () => menu.close(),
-    focus() {
-      input.focus();
-    },
-    destroy() {
-      menu.destroy();
-      el.remove();
-    }
-  };
-}
-
 // src/ui/components/modal.js
 var _modalSeq = 1;
 function openForm({ title, fields = [], defaults = {}, submitLabel = "OK", onFieldChange = null } = {}) {
@@ -1278,7 +791,8 @@ function openModal({
   backdropOpacity = void 0,
   maximizable = false,
   onMaximizeChange = null,
-  beforeClose = null
+  beforeClose = null,
+  dismissOnBackdrop = false
 } = {}) {
   return new Promise((resolve) => {
     const body = document.createElement("div");
@@ -1347,10 +861,10 @@ function openModal({
       defaultWidth: width,
       defaultHeight: height,
       beforeClose,
-      // Esc, the X and the backdrop all land here without passing through
-      // `close`, so the listener is dropped here as well as there — the
-      // three dismissals a user reaches for most are exactly the ones
-      // that would otherwise leak it.
+      // Esc, the X and an opted-in backdrop all land here without passing
+      // through `close`, so the listener is dropped here as well as there —
+      // the dismissals a user reaches for most are exactly the ones that
+      // would otherwise leak it.
       onClose: () => {
         _dropMaxListener();
         if (!_resolved) {
@@ -1360,6 +874,7 @@ function openModal({
       }
     });
     win.show();
+    if (dismissOnBackdrop) win.backdropElement.addEventListener("click", () => win.close());
     if (maximizable && typeof onMaximizeChange === "function") {
       _onMax = (e) => {
         if (e.detail?.id !== win.id) return;
@@ -1423,6 +938,7 @@ function openModal({
       });
     }
     requestAnimationFrame(() => {
+      if (bodyInner.contains(document.activeElement)) return;
       const field = bodyInner.querySelector(
         'input:not([type="hidden"]):not([disabled]):not([readonly]), textarea:not([disabled]):not([readonly]), select:not([disabled])'
       );
@@ -1781,6 +1297,7 @@ function _esc(s) {
 // src/ui/components/context_menu.js
 var _activeMenu = null;
 var _returnFocusTo = null;
+var _armTimer = null;
 function showContextMenu(x, y, items, onAction) {
   hideContextMenu();
   _returnFocusTo = document.activeElement;
@@ -1824,8 +1341,8 @@ function showContextMenu(x, y, items, onAction) {
   menu.style.display = "block";
   _activeMenu = menu;
   placeMenuInViewport(menu, x, y);
-  setTimeout(() => {
-    document.addEventListener("mousedown", _outsideHandler, { once: true, capture: true });
+  _armTimer = setTimeout(() => {
+    document.addEventListener("mousedown", _outsideHandler, { capture: true });
   }, 0);
   document.addEventListener("keydown", _keyHandler);
   window.addEventListener("scroll", _scrollHandler, { capture: true });
@@ -1838,6 +1355,8 @@ function hideContextMenu() {
   _activeMenu.remove();
   _activeMenu = null;
   _returnFocusTo = null;
+  clearTimeout(_armTimer);
+  document.removeEventListener("mousedown", _outsideHandler, { capture: true });
   document.removeEventListener("keydown", _keyHandler);
   window.removeEventListener("scroll", _scrollHandler, { capture: true });
   if (held && returnTo?.isConnected) returnTo.focus?.({ preventScroll: true });
@@ -1874,13 +1393,10 @@ function escapeHtml(s) {
 export {
   SortableList,
   ColorListField,
-  createOptionList,
-  attachInputOptions,
-  createCombobox,
   openForm,
   openConfirm,
   openModal,
   showContextMenu,
   hideContextMenu
 };
-//# sourceMappingURL=chunk-RKVYIXDC.js.map
+//# sourceMappingURL=chunk-RSXHAN2M.js.map

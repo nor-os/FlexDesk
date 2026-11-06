@@ -15,6 +15,8 @@ let mouseCheckInterval = null;
 let lastMousePosition = { x: 0, y: 0 };
 /** The target keyboard focus is showing a tooltip for: no pointer holds it up. */
 let focusTarget = null;
+/** The last press was a key. Focus that follows a pointer's, or a script's after one, shows nothing. */
+let byKeyboard = false;
 
 /**
  * Create or get the tooltip DOM element.
@@ -142,14 +144,15 @@ function showTooltip(target) {
     const hasPlain = target.classList && target.classList.contains('twm-has-tooltip');
 
     if (!hasLatex && !hasPlain) return;
+    if (!target.getAttribute(hasLatex ? 'data-latex-tooltip' : 'data-tooltip')) return;
 
+    stopMouseCheck();
     currentTarget = target;
     const tooltip = createTooltipElement();
 
     if (hasLatex) {
         // Render LaTeX using KaTeX
         const latex = target.getAttribute('data-latex-tooltip');
-        if (!latex) return;
 
         try {
             if (typeof katex !== 'undefined') {
@@ -168,7 +171,6 @@ function showTooltip(target) {
     } else if (hasPlain) {
         // Plain text tooltip with line breaks preserved
         const text = target.getAttribute('data-tooltip');
-        if (!text) return;
 
         // Replace &#10; with actual line breaks, preserve formatting
         const formattedText = text.replace(/&#10;/g, '\n');
@@ -218,8 +220,10 @@ function hideTooltip() {
     }
     currentTarget = null;
     focusTarget = null;
+    stopMouseCheck();
+}
 
-    // Clear mouse check interval
+function stopMouseCheck() {
     if (mouseCheckInterval) {
         clearInterval(mouseCheckInterval);
         mouseCheckInterval = null;
@@ -227,14 +231,39 @@ function hideTooltip() {
 }
 
 /**
+ * The pointer has gone from what it showed, or a scroll took that away. What focus
+ * holds is not the pointer's to hide: it stays, or comes back from under the
+ * pointer's, as long as its target is in sight.
+ */
+function pointerGone() {
+    const held = focusTarget;
+    if (held && held === currentTarget) return;
+    hideTooltip();
+    if (!held) return;
+    focusTarget = held;
+    showTooltip(held);
+    requestAnimationFrame(() => {
+        if (held === focusTarget && held === currentTarget) followFocus();
+    });
+}
+
+/**
+ * A scroll while focus holds the tooltip, the one the focus itself caused included:
+ * the tooltip goes with its target, and waits while the target is out of sight.
+ */
+function followFocus() {
+    const { left, top, width, height } = focusTarget.getBoundingClientRect();
+    const inSight = focusTarget.contains(document.elementFromPoint(left + width / 2, top + height / 2));
+    tooltipElement.classList.toggle('visible', inSight);
+    if (inSight) positionTooltip(focusTarget, tooltipElement);
+}
+
+/**
  * Start the mouse position check interval.
  * Hides tooltip if mouse is no longer over the target element.
  */
 function startMouseCheck() {
-    // Clear any existing interval
-    if (mouseCheckInterval) {
-        clearInterval(mouseCheckInterval);
-    }
+    stopMouseCheck();
 
     // Check every 3 seconds if mouse is still on the target element
     mouseCheckInterval = setInterval(() => {
@@ -254,11 +283,11 @@ function startMouseCheck() {
                                      elementUnderMouse.closest('.twm-has-tooltip, .has-latex-tooltip') === currentTarget;
 
             if (!isStillOnTarget) {
-                hideTooltip();
+                pointerGone();
             }
         } else {
             // Mouse is outside the document
-            hideTooltip();
+            pointerGone();
         }
     }, 3000);
 }
@@ -294,15 +323,24 @@ function attachListeners() {
         if (!(target instanceof Element)) return;
         const tooltipTarget = target.closest('.has-latex-tooltip, .twm-has-tooltip');
         if (!tooltipTarget) return;
-        hideTooltip();
+        pointerGone();
     }, true);
 
-    // Keyboard focus shows what hovering shows. `:focus-visible` is the browser's
-    // own word for "by the keyboard": the focus a click leaves on a button would
-    // keep a tooltip standing after the pointer has gone.
+    // On the window, ahead of a chord handler that stops the event. A chord is not
+    // a person walking the page by keyboard: it says nothing either way.
+    window.addEventListener('keydown', (event) => {
+        if (!event.ctrlKey && !event.metaKey && !event.altKey) byKeyboard = true;
+    }, true);
+    window.addEventListener('pointerdown', () => {
+        byKeyboard = false;
+    }, true);
+
+    // Keyboard focus shows what hovering shows. The focus a click leaves, or that
+    // its handler moves into a field, would keep a tooltip standing after the pointer
+    // has gone. `:focus-visible` cannot tell: it is true for any text field.
     document.addEventListener('focusin', (event) => {
         const target = event.target;
-        if (!(target instanceof Element) || !target.matches(':focus-visible')) return;
+        if (!(target instanceof Element) || !byKeyboard) return;
         const tooltipTarget = target.closest('.has-latex-tooltip, .twm-has-tooltip');
         if (!tooltipTarget) return;
         focusTarget = tooltipTarget;
@@ -313,11 +351,16 @@ function attachListeners() {
         if (!focusTarget) return;
         const next = event.relatedTarget;
         if (next instanceof Node && focusTarget.contains(next)) return;
-        hideTooltip();
+        // A pointer's tooltip on another target is the pointer's to take down.
+        if (focusTarget === currentTarget) hideTooltip();
+        else focusTarget = null;
     }, true);
 
-    // Hide on scroll
-    document.addEventListener('scroll', hideTooltip, true);
+    // Hide on scroll, unless focus is what holds it.
+    document.addEventListener('scroll', () => {
+        if (focusTarget && focusTarget === currentTarget) followFocus();
+        else pointerGone();
+    }, true);
 
     // ESC key hides all tooltips application-wide (does not stop propagation)
     document.addEventListener('keydown', (event) => {

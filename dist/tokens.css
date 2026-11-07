@@ -60,13 +60,27 @@
     --line-height-relaxed: 1.7;
 
     /* ── Surfaces (background hierarchy) ────────────────────────────
-       Values match the most-frequent gray literals in use today. */
-    --surface-0: #1e1e1e;  /* page / tab background  (103 uses) */
-    --surface-1: #252526;  /* cards, panels          (56 uses)  */
-    --surface-2: #2d2d2d;  /* elevated, hover bg     (107 uses) */
-    --surface-3: #3c3c3c;  /* form-control bg        (240 uses) */
+       One ladder, lightest on top (0.18.3, docs/concepts/styling.md
+       "One surface ladder"):
+
+           page            --surface-0     a tab, a window's body, a settings page
+           bar, group      --surface-1     a header strip, a sidebar, a tile, a card
+           raised          --surface-2     a row or card over a group, a hover
+           sunken          --surface-well  a well below the page
+           control         --surface-control / --border-control
+                                           every text box, select and combobox
+
+       A FlexDesk component paints its own rung and leaves the one beneath it
+       alone; a part never paints a rung darker than the surface it sits on
+       unless it is a well. */
+    --surface-0: #1e1e1e;  /* page */
+    --surface-1: #252526;  /* bar, group (a tile, a card, a sidebar) */
+    --surface-2: #2d2d2d;  /* raised, hover bg */
+    --surface-3: #3c3c3c;  /* a hover over raised, a track, a separator; not a control */
     --surface-app: #121212; /* application chrome (root) */
     --surface-well: #0d0d0d; /* recessed wells / sunken areas */
+    --surface-control: #2b2b2c; /* a control's fill: text box, select, combobox */
+    --border-control:  #454545; /* a control's border */
 
     /* ── Borders ────────────────────────────────────────────────── */
     --border-subtle:  #2a2a2a;  /* dividers within cards (174 uses) */
@@ -229,11 +243,14 @@
     --ea-font-title:  11px;
     --ea-mono:        var(--font-family-mono);
 
-    --ea-bg-chrome:   #1a1a1a;
-    --ea-bg-content:  #212121;
-    --ea-bg-well:     #0d0d0d;
+    /* On the surface ladder (0.18.3): chrome is a bar, content a page, a
+       well is sunken and an input is a control. They were #1a1a1a, #212121
+       and --surface-3, so a bar was darker than the page under it. */
+    --ea-bg-chrome:   var(--surface-1);
+    --ea-bg-content:  var(--surface-0);
+    --ea-bg-well:     var(--surface-well);
     --ea-bg-strip:    var(--surface-2);
-    --ea-input-bg:    var(--surface-3);
+    --ea-input-bg:    var(--surface-control);
     --ea-border:      #333;
     --ea-border-soft: #2a2a2a;
     --ea-text:        var(--text-body);
@@ -312,9 +329,10 @@
 
     /* The kit's own surfaces and signal colours (the mocks' values). The
        focus ring is the canonical bright accent, so a consumer that restyles
-       the accent restyles it. */
-    --twm-flow-control-bg:     #2b2b2c;
-    --twm-flow-control-border: #454545;
+       the accent restyles it. A control is the library's one control
+       (0.18.3): the kit's names alias it. */
+    --twm-flow-control-bg:     var(--surface-control);
+    --twm-flow-control-border: var(--border-control);
     --twm-flow-muted:          #a6a6a6;
     --twm-flow-focus:          var(--accent-bright);
     /* C39: a matched character in the command palette (grouped layout). */

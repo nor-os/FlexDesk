@@ -1551,6 +1551,9 @@ body.twm-dt-col-resizing {
 }
 /* ══ end SLIDER FIELD COMPANIONS ══ */
 /* ===== Sortable List Component ===== */
+/* A row and the add button are raised (--surface-2) over the group the list
+   sits in, and a row's text box is a control (0.18.3; they were the literals
+   #2a2a2c and --surface-0). */
 .twm-sortable-list {
     display: flex;
     flex-direction: column;
@@ -1566,8 +1569,8 @@ body.twm-dt-col-resizing {
     align-items: center;
     gap: var(--space-md);
     padding: var(--space-sm) 8px;
-    background: #2a2a2c;
-    border: 1px solid #3a3a3c;
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
     border-radius: var(--radius-md);
     transition: border-color var(--transition-normal), background var(--transition-normal);
 }
@@ -1631,7 +1634,7 @@ body.twm-dt-col-resizing {
     padding: var(--space-md) 14px;
     border-radius: var(--radius-md);
     border: 1px solid #454547;
-    background: #2a2a2c;
+    background: var(--surface-2);
     color: #b0b0b0;
     font-size: var(--font-size-sm);
     font-weight: 500;
@@ -1653,16 +1656,16 @@ body.twm-dt-col-resizing {
     color: #6e6e70;
     font-size: var(--font-size-sm);
     font-style: italic;
-    border: 1px dashed #3a3a3c;
+    border: 1px dashed var(--border-strong);
     border-radius: var(--radius-md);
-    background: rgba(42, 42, 44, 0.5);
+    background: color-mix(in srgb, var(--surface-2) 50%, transparent);
 }
 .twm-sortable-list__input {
     flex: 1;
     min-width: 0;
     padding: var(--space-xs) 8px;
-    background: var(--surface-0);
-    border: 1px solid #3a3a3c;
+    background: var(--surface-control);
+    border: 1px solid var(--border-control);
     border-radius: var(--radius-sm);
     color: var(--text-secondary);
     font-size: var(--font-size-sm);
@@ -3938,12 +3941,15 @@ body.twm-window-maximized .twm-resize-handle {
 }
 
 /* ── the header strip ────────────────────────────────────────────────── */
+/* The strip takes the tile's own fill (0.18.3): it painted --surface-0 on a
+   --surface-1 tile, so the header was darker than the tile it heads. The rule
+   under it divides the two. */
 .tile-header {
     display: flex;
     align-items: center;
     gap: var(--space-xs);
     padding: 0 var(--space-sm);
-    background: var(--surface-0);
+    background: transparent;
     border-bottom: 1px solid var(--border-default);
     min-height: 22px;
     flex-shrink: 0;
@@ -5716,9 +5722,11 @@ body.twm-window-maximized .twm-resize-handle {
 
 /* ========== Window Container ========== */
 
+/* A window's body is a page (--surface-0) under its title bar (--surface-1).
+   It was #1a1a1a, darker than every page of the shell (0.18.3). */
 .twm-managed-window {
     position: fixed;
-    background: #1a1a1a;
+    background: var(--surface-0);
     border: 1px solid var(--surface-3);
     border-radius: 0;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
@@ -7199,9 +7207,9 @@ button.twm-about-dialog__btn--close:focus {
 .twm-managed-window--modal .twm-modal__row.twm-is-invalid > span:first-child {
     color: #f0a8a8;
 }
-/* Input wells — deeper than the body so the field reads as "the place
- * you type" against the panel. Sharp 1 px border with a 1 px inner
- * shadow that simulates being inset. */
+/* Inputs — controls, as every text box and select in the library is
+ * (0.18.3; they were #0a0a0a wells beside a combobox in --surface-3).
+ * Sharp 1 px border with a 1 px inner shadow that simulates being inset. */
 .twm-managed-window--modal .twm-modal__row input[type="text"],
 .twm-managed-window--modal .twm-modal__row input[type="number"],
 .twm-managed-window--modal .twm-modal__row input[type="password"],
@@ -7209,9 +7217,9 @@ button.twm-about-dialog__btn--close:focus {
 .twm-managed-window--modal .twm-modal__row input[type="email"],
 .twm-managed-window--modal .twm-modal__row select,
 .twm-managed-window--modal .twm-modal__row textarea {
-    background: #0a0a0a;
+    background: var(--surface-control);
     color: var(--ea-text);
-    border: 1px solid #3a3a3a;
+    border: 1px solid var(--border-control);
     border-radius: 0;
     /* Shared input padding (same token as `.ea-tin`). Was `0 8px` with a
      * line-height fudge for vertical centering — real padding instead. */
@@ -7588,9 +7596,9 @@ button.twm-about-dialog__btn--close:focus {
 .twm-modal__row input[type="email"],
 .twm-modal__row select,
 .twm-modal__row textarea {
-    background: var(--ea-bg-well);
+    background: var(--surface-control);
     color: var(--ea-text);
-    border: 1px solid var(--ea-border);
+    border: 1px solid var(--border-control);
     padding: 0 var(--ea-pad-snug);
     border-radius: 0;
     font: inherit;
@@ -7733,7 +7741,9 @@ button.twm-about-dialog__btn--close:focus {
     height: 100%;
     min-height: 0;
     overflow: hidden;          /* keep the actions strip anchored at the bottom */
-    background: var(--ea-bg-chrome);
+    /* The landing is a page; its pane heads, table heads and actions strip
+       are bars over it (0.18.3: it was chrome, and the strip a well). */
+    background: var(--ea-bg-content);
     color: var(--ea-text);
     font-size: var(--ea-font-body);
 }
@@ -7854,7 +7864,7 @@ button.twm-about-dialog__btn--close:focus {
     height: 30px;
     min-height: 30px;
     padding: 0 var(--ea-pad-snug);
-    background: var(--ea-bg-well);
+    background: var(--ea-bg-chrome);
     border-top: 1px solid var(--ea-border);
     flex: 0 0 30px;
     position: relative;
@@ -8900,8 +8910,8 @@ body.twm-dragging * { user-select: none; }
     box-sizing: border-box;
     width: 100%;
     padding: 3px var(--space-sm);
-    background: var(--surface-3);
-    border: 1px solid var(--border-strong);
+    background: var(--surface-control);
+    border: 1px solid var(--border-control);
     border-radius: var(--radius-sm);
     color: var(--text-primary);
     font: inherit;
@@ -11593,13 +11603,15 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 
 /* ══ SETTINGS VIEW (STORY-0050) ══════════════════════════════════════
  * SettingsView: a sidebar of categories with a filter box, beside the
- * chosen category's settings in groups. Tokens only.
+ * chosen category's settings in groups. Tokens only. The settings are the
+ * page (--surface-0) and the sidebar a bar beside it (--surface-1); it was the
+ * other way round until 0.18.3, a page lighter than its sidebar.
  */
 .twm-settings {
     display: flex;
     height: 100%;
     min-height: 0;
-    background: var(--surface-1);
+    background: var(--surface-0);
     color: var(--text-body);
     font-size: var(--font-size-sm);
 }
@@ -11611,7 +11623,7 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     gap: var(--space-sm);
     padding: var(--space-md);
     border-right: 1px solid var(--border-subtle);
-    background: var(--surface-0);
+    background: var(--surface-1);
 }
 .twm-settings__sidebar-title {
     display: flex;
@@ -11627,7 +11639,7 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     padding: 0 var(--space-sm);
     min-height: var(--ea-row-h);
     background: var(--ea-input-bg);
-    border: 1px solid var(--border-strong);
+    border: 1px solid var(--border-control);
     border-radius: var(--radius-sm);
     color: var(--text-muted);
 }
@@ -11769,7 +11781,7 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     min-height: var(--ea-row-h);
     padding: 0 var(--space-sm);
     background: var(--ea-input-bg);
-    border: 1px solid var(--border-strong);
+    border: 1px solid var(--border-control);
     border-radius: var(--radius-sm);
     color: var(--text-body);
     font: inherit;
@@ -11887,8 +11899,8 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     gap: var(--space-xs, 4px);
     min-width: 0;
     padding: 3px var(--space-xs, 4px);
-    background: var(--surface-3, #3c3c3c);
-    border: 1px solid var(--border-strong, #383838);
+    background: var(--surface-control);
+    border: 1px solid var(--border-control);
     border-radius: var(--radius-sm, 4px);
     cursor: text;
 }
@@ -11965,7 +11977,9 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
  * `createTagInput`'s suggestions share (option_list.js), and `openPopover`
  * (popover.js). Every panel here is placed by `positionAnchored`, which writes
  * top, left and max-height inline; each is `position: fixed` on --z-over-windows,
- * over the managed window it opened from. */
+ * over the managed window it opened from. The select and the combobox's box are
+ * controls: --surface-control and --border-control, as every other text box,
+ * select and the flow kit's fields are (0.18.3; they were --surface-3). */
 .twm-select-field { display: block; min-width: 0; }
 .twm-select {
     display: inline-flex;
@@ -11975,8 +11989,8 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     min-width: 0;
     box-sizing: border-box;
     padding: var(--space-xs) var(--space-sm);
-    background: var(--surface-3);
-    border: 1px solid var(--border-strong);
+    background: var(--surface-control);
+    border: 1px solid var(--border-control);
     border-radius: var(--radius-sm);
     color: var(--text-primary);
     font-family: inherit;
@@ -12012,8 +12026,8 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     width: 100%;
     box-sizing: border-box;
     padding: var(--space-xs) var(--space-sm);
-    background: var(--surface-3);
-    border: 1px solid var(--border-strong);
+    background: var(--surface-control);
+    border: 1px solid var(--border-control);
     border-radius: var(--radius-sm);
     color: var(--text-primary);
     font-family: inherit;
@@ -12183,9 +12197,9 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     width: 96px;
     margin-left: auto;
     padding: var(--space-xxs) var(--space-xs);
-    background: var(--surface-3);
+    background: var(--surface-control);
     color: var(--text-primary);
-    border: 1px solid var(--border-strong);
+    border: 1px solid var(--border-control);
     border-radius: var(--radius-sm);
 }
 .twm-series-transforms__param:disabled {
@@ -12282,9 +12296,9 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     flex: 1 1 auto;
     padding: var(--space-xxs) var(--space-xs);
     font: inherit;
-    background: var(--surface-3);
+    background: var(--surface-control);
     color: var(--text-primary);
-    border: 1px solid var(--border-strong);
+    border: 1px solid var(--border-control);
     border-radius: var(--radius-sm);
 }
 .twm-plot-config__input--number {
@@ -12413,9 +12427,9 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 .twm-plot-config .twm-color-field__hex {
     box-sizing: border-box;
     padding: var(--space-xxs) var(--space-xs);
-    background: var(--surface-3);
+    background: var(--surface-control);
     color: var(--text-primary);
-    border: 1px solid var(--border-strong);
+    border: 1px solid var(--border-control);
     border-radius: var(--radius-sm);
 }
 /* ... and still shows a hex that is not a colour (the well's border above
@@ -12781,7 +12795,7 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 .twm-chat__jump:hover { background: var(--state-hover); }
 .twm-chat__jump[hidden] { display: none; }
 .twm-chat__composer { flex: 0 0 auto; display: flex; align-items: flex-end; gap: var(--space-sm); padding: var(--space-sm) var(--space-md); border-top: 1px solid var(--border-subtle); }
-.twm-chat__input { flex: 1 1 auto; min-height: 30px; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--surface-3); border-radius: var(--radius-sm); background: var(--surface-1); color: var(--text-body); font: inherit; line-height: var(--line-height-normal); resize: none; overflow-y: hidden; }
+.twm-chat__input { flex: 1 1 auto; min-height: 30px; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--border-control); border-radius: var(--radius-sm); background: var(--surface-control); color: var(--text-body); font: inherit; line-height: var(--line-height-normal); resize: none; overflow-y: hidden; }
 .twm-chat__input:focus { outline: none; border-color: var(--accent-bright); }
 .twm-chat__send { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 0; border-radius: var(--radius-sm); background: var(--accent); color: var(--text-bright); cursor: pointer; }
 .twm-chat__send:hover { background: var(--accent-hover); }
@@ -13189,7 +13203,7 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     border: 1px solid var(--text-dim);
     border-radius: var(--radius-sm);
     outline: none;
-    background: var(--surface-3);
+    background: var(--surface-control);
     color: var(--text-secondary);
     font: inherit;
     resize: none;
@@ -13345,8 +13359,10 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
 
 /* ── The assistant chat shell (chat_shell.js) ─────────────────────────────
  * Conversation tabs, the conversation view, a bar with the mode toggle and the
- * model picker. It fills its host; the transcript scrolls inside it. */
-.twm-chat-shell { display: flex; flex-direction: column; flex: 1 1 auto; height: 100%; min-height: 0; background: var(--surface-1); color: var(--text-primary); font-size: var(--font-size-sm); }
+ * model picker. It fills its host; the transcript scrolls inside it. It paints
+ * no fill of its own (0.18.3; it painted --surface-1 over whatever held it): the
+ * host's surface shows through, a panel's or a window's. */
+.twm-chat-shell { display: flex; flex-direction: column; flex: 1 1 auto; height: 100%; min-height: 0; background: transparent; color: var(--text-primary); font-size: var(--font-size-sm); }
 .twm-chat-shell [hidden] { display: none !important; }
 .twm-chat-shell__tab-bar { position: relative; flex: 0 0 auto; display: flex; align-items: stretch; min-width: 0; border-bottom: 1px solid var(--border-subtle); }
 .twm-chat-shell__tabs { flex: 1 1 auto; min-width: 0; }

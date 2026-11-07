@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.18.3 (2026-11-07)
+
+A patch release: FlexDesk's components fill from one surface ladder, and a shell
+can show one page at a time (`pageSurfaces`, off unless asked for). Every entry
+under "Changed behaviour" is a colour embedders will see.
+
+### Added
+
+- [One page on screen at a time: `pageSurfaces`](docs/components/panels-and-desktops.md#one-page-on-screen-at-a-time-pagesurfaces-0183) on `createShell`. A desktop shows one top-nav page, and its tiles, splits and windows are that page's surface: opening another page swaps the whole surface and keeps the one left. A split divides the page it is in, and the panels (with what they have mounted) stay across a switch. `wm.activePage()` names the page; the rail lights it. Off by default; `tests/page_surfaces.test.mjs` holds it.
+- [One surface ladder](docs/concepts/styling.md#one-surface-ladder-0183): page `--surface-0`, bar and group `--surface-1`, raised `--surface-2`, sunken `--surface-well`, and a control token pair, `--surface-control` and `--border-control`, for every text box, select and combobox. `tokens.css` writes the ladder down; `tests/surface_ladder.test.mjs` holds it.
+
+### Changed behaviour
+
+- **[A tile's header takes the tile's fill](docs/concepts/styling.md#one-surface-ladder-0183).** `.tile-header` is `transparent`; it painted `--surface-0` on a `--surface-1` tile, so a header was darker than its tile. A selected or configuring tile's tint is unchanged.
+- **[The settings view is a page with a bar beside it](docs/concepts/styling.md#one-surface-ladder-0183).** `.twm-settings` is `--surface-0` and `.twm-settings__sidebar` `--surface-1`; they were the other way round.
+- **[`mountChatShell` paints no fill](docs/concepts/styling.md#one-surface-ladder-0183).** `.twm-chat-shell` is `transparent`, so the panel or window holding it shows through; it painted `--surface-1` over its host. An embedder that relied on it for a fill gives the host one.
+- **[A managed window's body is a page](docs/concepts/styling.md#one-surface-ladder-0183)**: `.twm-managed-window` is `--surface-0`, not `#1a1a1a`, under its `--surface-1` title bar.
+- **[The `--ea-*` surface tokens are on the ladder](docs/concepts/styling.md#one-surface-ladder-0183).** `--ea-bg-chrome` is `--surface-1` (was `#1a1a1a`), `--ea-bg-content` `--surface-0` (was `#212121`), `--ea-bg-well` `--surface-well` (the same `#0d0d0d`). A modal's title and actions strips, the landing's pane heads and table heads are now lighter than the body under them, not darker. The landing itself reads `--ea-bg-content` (it read `--ea-bg-chrome`), and its actions strip `--ea-bg-chrome` (it read `--ea-bg-well`, a strip darker than everything round it). An application that defines its own `--ea-*` values keeps its colours, with those two rules reading the other token.
+- **[A sortable list's rows are raised](docs/concepts/styling.md#one-surface-ladder-0183)**: a row and the add button are `--surface-2` with a `--border-strong` border, not the literals `#2a2a2c` and `#3a3a3c`; a row's text box is a control, not `--surface-0`. The `.twm-page-shell` skin is unchanged.
+- **[Every control is one control](docs/concepts/styling.md#one-surface-ladder-0183): `--surface-control` (`#2b2b2c`) with `--border-control` (`#454545`).** `createSelect`, `createCombobox`, the tag input, the chat composer, the editor's search box, the plot config's inputs and colour hex box, a series transform's parameter and the git panel's commit box were `--surface-3` (`#3c3c3c`), and are now darker, bordered `--border-control` (most were `--border-strong`; the git commit box keeps its border). A modal's text boxes and selects were `#0a0a0a` wells and are now lighter. `--ea-input-bg`, which the settings view's fields, the tile config's select and the attribute editor read, is `--surface-control` (was `--surface-3`). `--twm-flow-control-bg` and `--twm-flow-control-border` alias the pair and keep their values, so the flow kit looks as it did.
+
+### Removed or renamed exports
+
+None. New: the `pageSurfaces` option and `wm.activePage()`; a saved desktop may carry `page` and `surfaces`. Custom properties in `tokens.css`: `--surface-control`, `--border-control`. `--twm-flow-control-bg`, `--twm-flow-control-border`, `--ea-bg-chrome`, `--ea-bg-content`, `--ea-bg-well` and `--ea-input-bg` are now aliases of the ladder's tokens.
+
 ## 0.18.2 (2026-11-07)
 
 A patch release with one addition.

@@ -1,7 +1,9 @@
 import {
-  DataTable,
+  DataTable
+} from "./chunk-BTRCIFDV.js";
+import {
   createRafResizeObserver
-} from "./chunk-QRBOIUU3.js";
+} from "./chunk-GTJ6BXOX.js";
 import {
   ManagedWindow
 } from "./chunk-HL3IIHU3.js";
@@ -2853,4 +2855,4 @@ export {
   openPlotPopoutWindow,
   openRawTracesWindow
 };
-//# sourceMappingURL=chunk-4X4SY3CP.js.map
+//# sourceMappingURL=chunk-67UAH37A.js.map

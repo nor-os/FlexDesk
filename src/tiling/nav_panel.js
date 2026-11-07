@@ -21,10 +21,16 @@
  *     id, icon, label,
  *     mount(paneEl, { wm, eventBus }) -> {
  *        activate?(),       // called every time the mode is selected (may be async)
+ *        deactivate?(),     // called when another mode is selected (a pane that polls stops)
  *        filter?(query),    // the shared filter box changed
  *        destroy?(),
  *     }
  *   }
+ *
+ * `mount(paneEl, { wm, eventBus, setBadge })`: `setBadge(count, level?)` puts a
+ * count on the mode's strip button (0 or null removes it; `level` is a
+ * `twm-nav__badge--<level>` modifier such as 'warning'). The handle has the same
+ * as `setBadge(modeId, count, level?)`.
  *
  * `mount()` runs at most once, the first time its mode is selected.
  * `activate()` runs on every selection, INCLUDING the first — a pane that
@@ -120,9 +126,25 @@ export function mountNavPanel(hostEl, {
         return el;
     };
 
+    const setBadge = (id, count, level = null) => {
+        const btn = [...(modesEl?.querySelectorAll('[data-mode]') ?? [])].find((b) => b.dataset.mode === String(id));
+        if (!btn) return;
+        btn.querySelector('.twm-nav__badge')?.remove();
+        const n = Number(count);
+        if (!n) return;
+        const badge = document.createElement('span');
+        badge.className = `twm-nav__badge${level ? ` twm-nav__badge--${level}` : ''}`;
+        badge.textContent = n > 99 ? '99+' : String(n);
+        btn.appendChild(badge);
+    };
+
     const activate = async (next) => {
         const def = byId.get(next);
         if (!def) return;
+        if (next !== mode) {
+            try { panes[mode]?.deactivate?.(); }
+            catch (err) { console.warn('[nav] mode deactivate failed', mode, err); }
+        }
         mode = next;
         for (const m of modes) {
             ensureHost(m.id).style.display = (m.id === next) ? 'flex' : 'none';
@@ -139,7 +161,12 @@ export function mountNavPanel(hostEl, {
 
         const paneEl = ensureHost(next);
         if (!panes[next]) {
-            try { panes[next] = def.mount(paneEl, { wm, eventBus }) || {}; }
+            try {
+                panes[next] = def.mount(paneEl, {
+                    wm, eventBus,
+                    setBadge: (count, level) => setBadge(next, count, level),
+                }) || {};
+            }
             catch (err) {
                 console.error('[nav] mode mount failed', next, err);
                 panes[next] = {};
@@ -176,6 +203,7 @@ export function mountNavPanel(hostEl, {
         select: (modeId) => activate(modeId),
         active: () => mode,
         refresh: () => activate(mode),
+        setBadge,
         destroy: () => {
             for (const p of Object.values(panes)) {
                 try { p?.destroy?.(); } catch { /* ignore */ }

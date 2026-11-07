@@ -215,6 +215,75 @@ function _segments(kind, props, taxonomy, rootCrumb, rootLabel, navigate, trail)
 }
 
 /**
+ * Wrap a content factory in a page shell: `.twm-page-shell` with the tile
+ * breadcrumb on top and the content below. The wrapped factory is what a shell
+ * registers for a kind.
+ *
+ *     const page = withTileBreadcrumb('scenario', (hostEl, props, ctx) => {
+ *         ctx.setBreadcrumbProps({ label: 'Renamed' });   // the crumb repaints
+ *         return { destroy() {} };
+ *     });
+ *
+ * The content's ctx gains `setBreadcrumbProps(patch)`, which merges `patch`
+ * into the props the breadcrumb reads and repaints it (an entity renamed while
+ * its tile shows it), and always has `setChromeActions` and `setTitle`, no-ops
+ * where the host gives none (a floating window has neither an action strip nor a
+ * tile title). The content's handle is returned as it is, with `destroy()` also
+ * removing the breadcrumb and the shell.
+ *
+ * A breadcrumb navigates the tile that holds it, which means nothing in a
+ * standalone managed window, so `ctx.windowId` mounts the content with no crumb
+ * (`inWindow: 'crumb'` keeps it).
+ *
+ * @param {string} kind
+ * @param {(hostEl: HTMLElement, props: object, ctx: object) => object} factory
+ * @param {{ inWindow?: 'bare'|'crumb' }} [options]
+ * @returns {(hostEl: HTMLElement, props: object, ctx: object) => object}
+ */
+export function withTileBreadcrumb(kind, factory, { inWindow = 'bare' } = {}) {
+    return (hostEl, props, ctx) => {
+        const withCrumb = !ctx?.windowId || inWindow === 'crumb';
+        hostEl.classList.add('twm-page-shell');
+        const contentSlot = document.createElement('div');
+        contentSlot.className = 'twm-page-shell__content';
+        // Focusable by script, so `document.activeElement` lands in the page
+        // when its tile is activated.
+        contentSlot.tabIndex = -1;
+        let breadcrumbSlot = null;
+        let crumb = null;
+        const crumbProps = { ...props };
+        if (withCrumb) {
+            breadcrumbSlot = document.createElement('div');
+            breadcrumbSlot.className = 'twm-page-shell__breadcrumb';
+            hostEl.appendChild(breadcrumbSlot);
+            crumb = mountTileBreadcrumb(kind, crumbProps, ctx);
+            breadcrumbSlot.appendChild(crumb.el);
+        }
+        hostEl.appendChild(contentSlot);
+        const handle = factory(contentSlot, props, {
+            ...ctx,
+            setChromeActions: ctx?.setChromeActions ?? (() => {}),
+            setTitle: ctx?.setTitle ?? (() => {}),
+            setBreadcrumbProps: (patch) => {
+                Object.assign(crumbProps, patch);
+                crumb?.refresh?.();
+            },
+        }) || {};
+        return {
+            ...handle,
+            destroy: () => {
+                try { handle.destroy?.(); } finally {
+                    try { crumb?.destroy(); } catch { /* ignore */ }
+                    breadcrumbSlot?.remove();
+                    contentSlot.remove();
+                    hostEl.classList.remove('twm-page-shell');
+                }
+            },
+        };
+    };
+}
+
+/**
  * C37. THE SAME STRIP FOR A CONTENT'S OWN LEVELS — the markup every tile
  * breadcrumb draws, with segments the caller routes itself.
  *

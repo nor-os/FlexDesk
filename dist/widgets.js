@@ -10,6 +10,10 @@ import {
   StepProgress,
   formatElapsed,
   getToastBus,
+  installCollapsibleScrollbars,
+  installOverlayScrollbar,
+  installTabsScrollbars,
+  installWorkspaceScrollbars,
   mountJobProgress,
   reportBridgeError,
   setToastBus,
@@ -23,7 +27,7 @@ import {
   toastInfo,
   toastSuccess,
   toastWarn
-} from "./chunk-3BLIVOFD.js";
+} from "./chunk-AY5L3HOV.js";
 import {
   StateMachine
 } from "./chunk-3PHCPZHT.js";
@@ -81,7 +85,6 @@ import {
   createDateTimeEditor,
   createMultiTextEditor,
   createNumberEditor,
-  createRafResizeObserver,
   createTextEditor,
   dateOrder,
   detectSeries,
@@ -106,7 +109,10 @@ import {
   resolvePaging,
   toTSV,
   tsvCell
-} from "./chunk-QRBOIUU3.js";
+} from "./chunk-BTRCIFDV.js";
+import {
+  createRafResizeObserver
+} from "./chunk-GTJ6BXOX.js";
 import {
   ROW_CONTROL_SELECTOR,
   endsTextSelection,
@@ -5075,6 +5081,943 @@ async function openFilterDialog({
   }
 }
 
+// src/ui/components/tree_view.js
+function setText(root, selector, value) {
+  const el3 = root.querySelector(selector);
+  if (el3) el3.textContent = value == null ? "" : String(value);
+}
+function attrValue(value) {
+  return String(value).replace(/["\\]/g, "\\$&").replace(/[\n\r\f]/g, (c) => `\\${c.charCodeAt(0).toString(16)} `);
+}
+function createTreeCategory(options) {
+  const {
+    id,
+    label,
+    icon: icon2 = "folder",
+    iconClass = "",
+    count = 0,
+    expanded = false,
+    readonly = false
+  } = options;
+  const node2 = document.createElement("div");
+  node2.className = "twm-collapsible-box twm-tree-category";
+  node2.dataset.categoryId = id;
+  node2.dataset.collapsibleId = `tree-category-${id}`;
+  node2.dataset.collapsibleDefault = expanded ? "expanded" : "collapsed";
+  if (readonly) node2.dataset.readonly = "true";
+  node2.innerHTML = `
+        <div class="twm-collapsible-header" data-collapsible-header="true">
+            <button class="twm-arrow-toggle" type="button">
+                <span class="twm-collapsible-arrow material-symbols-outlined${expanded ? "" : " collapsed"}">expand_more</span>
+            </button>
+            <span class="twm-tree-category__icon ${iconClass}">
+                <span class="material-symbols-outlined">${icon2}</span>
+            </span>
+            <span class="twm-tree-category__label"></span>
+            <span class="twm-tree-category__count">(${count})</span>
+        </div>
+        <div class="twm-collapsible-content${expanded ? " visible" : ""}" data-collapsible-content="true"></div>
+    `;
+  setText(node2, ".twm-tree-category__label", label);
+  return node2;
+}
+function createTreeNode(options) {
+  const {
+    id,
+    label,
+    icon: icon2 = null,
+    count = 0,
+    expanded = false,
+    readonly = false,
+    actions = null
+  } = options;
+  const node2 = document.createElement("div");
+  node2.className = `twm-tree-node${readonly ? " readonly" : ""}`;
+  node2.dataset.nodeId = id;
+  const iconHtml = icon2 ? `<span class="twm-tree-node__icon"><span class="material-symbols-outlined">${icon2}</span></span>` : "";
+  const actionsHtml = actions ? '<span class="twm-tree-node__actions"></span>' : "";
+  node2.innerHTML = `
+        <div class="twm-tree-node__header">
+            <span class="twm-tree-node__toggle">
+                <span class="material-symbols-outlined">${expanded ? "expand_more" : "chevron_right"}</span>
+            </span>
+            ${iconHtml}
+            <span class="twm-tree-node__label"></span>
+            <span class="twm-tree-node__count">(${count})</span>
+            ${actionsHtml}
+        </div>
+        <div class="twm-tree-node__children" style="display: ${expanded ? "block" : "none"};"></div>
+    `;
+  setText(node2, ".twm-tree-node__label", label);
+  if (actions) appendActionButtons(node2.querySelector(".twm-tree-node__actions"), id, actions);
+  return node2;
+}
+function appendActionButtons(actionsEl, id, actions) {
+  Object.entries(actions).forEach(([actionId, actionConfig]) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "twm-tree-node__action-btn";
+    btn.dataset.action = actionId;
+    btn.title = actionConfig.title || actionId;
+    btn.innerHTML = `<span class="material-symbols-outlined">${actionConfig.icon}</span>`;
+    if (actionConfig.onClick) {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        actionConfig.onClick(id, e);
+      });
+      btn.addEventListener("dblclick", (e) => e.stopPropagation());
+    }
+    actionsEl.appendChild(btn);
+  });
+}
+function createTreeItem(options) {
+  const {
+    id,
+    label,
+    icon: icon2 = null,
+    isMaterialIcon = true,
+    readonly = false,
+    selected = false,
+    subtitle = null,
+    data = null,
+    badge = null,
+    actions = null
+  } = options;
+  const item = document.createElement("div");
+  item.className = `twm-tree-item${readonly ? " readonly" : ""}${selected ? " selected" : ""}`;
+  item.dataset.itemId = id;
+  if (data) {
+    Object.entries(data).forEach(([key, value]) => {
+      item.dataset[key] = value;
+    });
+  }
+  const iconHtml = icon2 ? isMaterialIcon ? `<span class="twm-tree-item__icon"><span class="material-symbols-outlined">${icon2}</span></span>` : `<span class="twm-tree-item__icon twm-tree-item__icon--symbol">${icon2}</span>` : "";
+  const subtitleHtml = subtitle ? '<span class="twm-tree-item__subtitle"></span>' : "";
+  let badgeHtml = "";
+  if (badge) {
+    const variant = badge.variant || "muted";
+    if (badge.text) {
+      badgeHtml = `<span class="twm-tree-item__badge twm-tree-item__badge--${variant}"></span>`;
+    } else {
+      badgeHtml = `<span class="twm-tree-item__status-dot twm-tree-item__status-dot--${variant}"></span>`;
+    }
+  }
+  item.innerHTML = `
+        ${iconHtml}
+        <span class="twm-tree-item__label"></span>
+        ${subtitleHtml}
+        ${badgeHtml}
+    `;
+  setText(item, ".twm-tree-item__label", label);
+  if (subtitle) setText(item, ".twm-tree-item__subtitle", subtitle);
+  if (badge?.text) setText(item, ".twm-tree-item__badge", badge.text);
+  if (actions) {
+    const actionsEl = document.createElement("span");
+    actionsEl.className = "twm-tree-item__actions";
+    appendActionButtons(actionsEl, id, actions);
+    item.appendChild(actionsEl);
+  }
+  return item;
+}
+function toggleCategory(categoryEl, force) {
+  if (!categoryEl) return;
+  const arrow = categoryEl.querySelector(":scope > .twm-collapsible-header .twm-collapsible-arrow");
+  const content = categoryEl.querySelector(":scope > .twm-collapsible-content");
+  if (!content) return;
+  const isCurrentlyExpanded = content.classList.contains("visible");
+  const shouldExpand = force !== void 0 ? force : !isCurrentlyExpanded;
+  if (shouldExpand) {
+    if (arrow) {
+      arrow.classList.remove("collapsed");
+    }
+    content.classList.add("visible");
+  } else {
+    if (arrow) {
+      arrow.classList.add("collapsed");
+    }
+    content.classList.remove("visible");
+  }
+}
+function toggleNode(nodeEl, force) {
+  if (!nodeEl) return;
+  const toggle = nodeEl.querySelector(":scope > .twm-tree-node__header .twm-tree-node__toggle .material-symbols-outlined");
+  const children = nodeEl.querySelector(":scope > .twm-tree-node__children");
+  if (!children) return;
+  const isExpanded = force !== void 0 ? force : children.style.display === "none";
+  if (isExpanded) {
+    children.style.display = "block";
+    if (toggle) toggle.textContent = "expand_more";
+  } else {
+    children.style.display = "none";
+    if (toggle) toggle.textContent = "chevron_right";
+  }
+}
+function filterTree(container, filter, options = {}) {
+  const { expandMatches = true } = options;
+  const normalizedFilter = (filter || "").toLowerCase().trim();
+  const visibleItems = /* @__PURE__ */ new Set();
+  container.querySelectorAll(".twm-tree-item").forEach((item) => {
+    const label = item.querySelector(".twm-tree-item__label")?.textContent || "";
+    const matches = !normalizedFilter || label.toLowerCase().includes(normalizedFilter);
+    item.style.display = matches ? "" : "none";
+    item.classList.toggle("twm-filter-match", matches && !!normalizedFilter);
+    if (matches) visibleItems.add(item);
+  });
+  const hasVisibleItem = (el3) => !normalizedFilter || [...el3.querySelectorAll(".twm-tree-item")].some((item) => visibleItems.has(item));
+  container.querySelectorAll(".twm-tree-node").forEach((node2) => {
+    const visible = hasVisibleItem(node2);
+    node2.style.display = visible ? "" : "none";
+    if (expandMatches && visible && normalizedFilter) toggleNode(node2, true);
+  });
+  container.querySelectorAll(".twm-tree-category").forEach((category) => {
+    const visible = hasVisibleItem(category);
+    category.style.display = visible ? "" : "none";
+    if (expandMatches && visible && normalizedFilter) toggleCategory(category, true);
+  });
+}
+function selectItem(container, itemId, options = {}) {
+  const { scrollIntoView = true, expandParents = true } = options;
+  container.querySelectorAll(".twm-tree-item.selected").forEach((el3) => {
+    el3.classList.remove("selected");
+  });
+  const item = container.querySelector(`.twm-tree-item[data-item-id="${attrValue(itemId)}"]`);
+  if (!item) return null;
+  item.classList.add("selected");
+  if (expandParents) {
+    let parent = item.parentElement;
+    while (parent && parent !== container) {
+      if (parent.classList.contains("twm-tree-node__children")) {
+        const node2 = parent.closest(".twm-tree-node");
+        if (node2) toggleNode(node2, true);
+      }
+      if (parent.classList.contains("twm-collapsible-content")) {
+        const category = parent.closest(".twm-tree-category");
+        if (category) toggleCategory(category, true);
+      }
+      parent = parent.parentElement;
+    }
+  }
+  if (scrollIntoView) {
+    item.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+  return item;
+}
+var TreeView = class {
+  constructor(container, options = {}) {
+    this.container = container;
+    this.options = {
+      onItemClick: null,
+      onItemDoubleClick: null,
+      onNodeToggle: null,
+      onCategoryToggle: null,
+      ...options
+    };
+    this._boundHandleClick = this._handleClick.bind(this);
+    this._boundHandleDblClick = this._handleDoubleClick.bind(this);
+    if (container) {
+      container.classList.add("twm-tree-view");
+      container.addEventListener("click", this._boundHandleClick);
+      container.addEventListener("dblclick", this._boundHandleDblClick);
+    }
+  }
+  _handleClick(e) {
+    const collapsibleHeader = e.target.closest(".twm-collapsible-header");
+    if (collapsibleHeader) {
+      const category = collapsibleHeader.closest(".twm-tree-category");
+      if (category) {
+        toggleCategory(category);
+        this.options.onCategoryToggle?.(category.dataset.categoryId, category);
+      }
+      return;
+    }
+    const nodeHeader = e.target.closest(".twm-tree-node__header");
+    if (nodeHeader) {
+      const node2 = nodeHeader.closest(".twm-tree-node");
+      if (node2) {
+        toggleNode(node2);
+        this.options.onNodeToggle?.(node2.dataset.nodeId, node2);
+      }
+      return;
+    }
+    const item = e.target.closest(".twm-tree-item");
+    if (item) {
+      this.select(item.dataset.itemId);
+      this.options.onItemClick?.(item.dataset.itemId, item, e);
+    }
+  }
+  _handleDoubleClick(e) {
+    const item = e.target.closest(".twm-tree-item");
+    if (item) {
+      this.options.onItemDoubleClick?.(item.dataset.itemId, item, e);
+    }
+  }
+  addCategory(options) {
+    const category = createTreeCategory(options);
+    this.container.appendChild(category);
+    return category;
+  }
+  addNode(categoryId, options) {
+    const category = this.container.querySelector(`.twm-tree-category[data-category-id="${attrValue(categoryId)}"]`);
+    const content = category?.querySelector(".twm-collapsible-content");
+    if (!content) return null;
+    const node2 = createTreeNode(options);
+    content.appendChild(node2);
+    return node2;
+  }
+  addItem(nodeId, options) {
+    const node2 = this.container.querySelector(`.twm-tree-node[data-node-id="${attrValue(nodeId)}"]`);
+    const children = node2?.querySelector(".twm-tree-node__children");
+    if (!children) return null;
+    const item = createTreeItem(options);
+    children.appendChild(item);
+    return item;
+  }
+  select(itemId) {
+    return selectItem(this.container, itemId);
+  }
+  filter(text) {
+    filterTree(this.container, text);
+  }
+  clear() {
+    this.container.innerHTML = "";
+  }
+  dispose() {
+    if (this.container) {
+      this.container.removeEventListener("click", this._boundHandleClick);
+      this.container.removeEventListener("dblclick", this._boundHandleDblClick);
+    }
+  }
+};
+
+// src/ui/components/file_tree.js
+var DRAG_TYPE = "application/x-twm-file-tree";
+var FOLDER_PREFIX = "folder:";
+var SECTION_PREFIX = "section:";
+var DOUBLE_CLICK_MS = 400;
+var collator = new Intl.Collator(void 0, { numeric: true, sensitivity: "base" });
+var cssEscape = (s) => String(s).replace(/["\\]/g, "\\$&").replace(/[\n\r\f]/g, (c) => `\\${c.charCodeAt(0).toString(16)} `);
+var baseName = (path) => path.split("/").pop();
+var parentOf = (path) => path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+function createFileTree(host, options = {}) {
+  let { rootLabel = "Project", emptyLabel = "No files" } = options;
+  const {
+    rootIcon = "account_tree",
+    folderIcon = "folder",
+    fileIcon = "description",
+    labelOf = (file) => baseName(file.path),
+    matchText = () => "",
+    compareFiles = (a, b) => collator.compare(a.path, b.path),
+    initiallyExpanded = (_path, facts2) => facts2.hasActive || facts2.hasOpen,
+    namePattern = /^[\w][\w.-]*$/,
+    keepExtension = true
+  } = options;
+  host.classList.add("twm-tree-view", "twm-file-tree");
+  host.tabIndex = 0;
+  let files = [];
+  let folders = [];
+  let sections = [];
+  let activePath = null;
+  let openPaths = /* @__PURE__ */ new Set();
+  let badges = /* @__PURE__ */ new Map();
+  let query = "";
+  let renamer = null;
+  let destroyed = false;
+  let focusedId = null;
+  let lastClick = { id: null, at: 0 };
+  const folderOpen = /* @__PURE__ */ new Map();
+  const fileByPath = /* @__PURE__ */ new Map();
+  const content = document.createElement("div");
+  content.className = "twm-file-tree__content";
+  host.appendChild(content);
+  const overlay = options.scrollbar === false ? null : installOverlayScrollbar(host, { orientation: "vertical", watchSubtree: true });
+  const buildTree = () => {
+    const root = { folders: /* @__PURE__ */ new Map(), files: [] };
+    const at = (path) => {
+      let node2 = root;
+      for (const part2 of path ? path.split("/") : []) {
+        if (!node2.folders.has(part2)) node2.folders.set(part2, { folders: /* @__PURE__ */ new Map(), files: [] });
+        node2 = node2.folders.get(part2);
+      }
+      return node2;
+    };
+    for (const path of folders) at(path);
+    for (const file of files) at(parentOf(file.path)).files.push(file);
+    return root;
+  };
+  const matches = (file) => {
+    if (!query) return true;
+    const q = query.toLowerCase();
+    return labelOf(file).toLowerCase().includes(q) || file.path.toLowerCase().includes(q) || String(matchText(file) ?? "").toLowerCase().includes(q);
+  };
+  const facts = (node2) => {
+    const here = node2.files.filter(matches);
+    let hasActive = here.some((f) => f.path === activePath);
+    let hasOpen = here.some((f) => openPaths.has(f.path));
+    const all = [...here];
+    for (const child of node2.folders.values()) {
+      const f = facts(child);
+      all.push(...f.files);
+      hasActive ||= f.hasActive;
+      hasOpen ||= f.hasOpen;
+    }
+    return { count: all.length, hasActive, hasOpen, files: all };
+  };
+  const canRename = (file) => file.canRename !== false && !!(options.onRename || options.onRenameRequest);
+  const canDelete = (file) => file.canDelete !== false && !!options.onDelete;
+  const canDuplicate = (file) => file.canDuplicate !== false && !!options.onDuplicate;
+  const canMove = (file) => file.canMove !== false && !!options.onMove;
+  const defaultFileMenu = (file) => [
+    ...options.onOpen ? [{ label: "Open", icon: "open_in_new", action: "open" }, { separator: true }] : [],
+    ...options.onRename || options.onRenameRequest ? [{ label: "Rename", icon: "edit", action: "rename", disabled: !canRename(file) }] : [],
+    ...options.onDuplicate ? [{ label: "Duplicate", icon: "content_copy", action: "duplicate", disabled: !canDuplicate(file) }] : [],
+    ...options.onMovePrompt ? [{ label: "Move to\u2026", icon: "drive_file_move", action: "move", disabled: !canMove(file) }] : [],
+    ...options.onDelete ? [{ label: "Delete", icon: "delete", action: "delete", disabled: !canDelete(file), danger: true }] : [],
+    ...options.onReveal ? [{ separator: true }, { label: "Reveal in Explorer", icon: "folder_open", action: "reveal" }] : []
+  ];
+  const newMenu = (folderPath) => options.newItems ? options.newItems(folderPath) : [];
+  const defaultFolderMenu = (folderPath) => {
+    const news = newMenu(folderPath);
+    const own = [
+      ...options.onMove ? [{ label: "Rename", icon: "edit", action: "rename" }] : [],
+      ...options.onMovePrompt ? [{ label: "Move to\u2026", icon: "drive_file_move", action: "move" }] : [],
+      ...options.onDeleteFolder ? [{ label: "Delete", icon: "delete", action: "delete", danger: true }] : [],
+      ...options.onReveal ? [{ separator: true }, { label: "Reveal in Explorer", icon: "folder_open", action: "reveal" }] : []
+    ];
+    return [...news, ...news.length && own.length ? [{ separator: true }] : [], ...own];
+  };
+  const cleanMenu = (items) => items.filter((it, i, all) => !it.separator || i > 0 && !all[i - 1].separator && i < all.length - 1);
+  const openMenu = (x, y, items, handle) => {
+    const clean = cleanMenu(items ?? []);
+    if (clean.length === 0) return;
+    showContextMenu(x, y, clean, (action) => handle(action));
+  };
+  const fileMenuAt = (x, y, file) => {
+    const defaults = defaultFileMenu(file);
+    openMenu(x, y, options.fileMenu ? options.fileMenu(file, defaults) : defaults, (action) => {
+      switch (action) {
+        case "open":
+          options.onOpen?.(file.path, null);
+          break;
+        case "rename":
+          startRename(file.path);
+          break;
+        case "duplicate":
+          options.onDuplicate?.(file.path);
+          break;
+        case "move":
+          options.onMovePrompt?.(file.path);
+          break;
+        case "delete":
+          options.onDelete?.(file.path);
+          break;
+        case "reveal":
+          options.onReveal?.(file.path);
+          break;
+        default:
+          options.onMenuAction?.(action, { path: file.path, kind: "file", x, y });
+      }
+    });
+  };
+  const folderMenuAt = (x, y, folderPath) => {
+    const defaults = defaultFolderMenu(folderPath);
+    openMenu(x, y, options.folderMenu ? options.folderMenu(folderPath, defaults) : defaults, (action) => {
+      switch (action) {
+        case "rename":
+          startFolderRename(folderPath);
+          break;
+        case "move":
+          options.onMovePrompt?.(folderPath);
+          break;
+        case "delete":
+          options.onDeleteFolder?.(folderPath);
+          break;
+        case "reveal":
+          options.onReveal?.(folderPath);
+          break;
+        default:
+          folderOpen.set(folderPath, true);
+          options.onMenuAction?.(action, { path: folderPath, kind: "folder", x, y });
+      }
+    });
+  };
+  const rootMenuAt = (x, y) => {
+    const defaults = newMenu("");
+    openMenu(x, y, options.rootMenu ? options.rootMenu(defaults) : defaults, (action) => {
+      options.onMenuAction?.(action, { path: "", kind: "root", x, y });
+    });
+  };
+  const makeDraggable = (el3, path) => {
+    el3.draggable = true;
+    el3.addEventListener("dragstart", (e) => {
+      e.stopPropagation();
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData(DRAG_TYPE, path);
+    });
+  };
+  const makeDropTarget = (el3, folderPath) => {
+    el3.addEventListener("dragover", (e) => {
+      if (!e.dataTransfer?.types?.includes(DRAG_TYPE)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = "move";
+      el3.classList.add("twm-file-tree__drop-target");
+    });
+    el3.addEventListener("dragleave", () => el3.classList.remove("twm-file-tree__drop-target"));
+    el3.addEventListener("drop", (e) => {
+      const source = e.dataTransfer?.getData(DRAG_TYPE);
+      el3.classList.remove("twm-file-tree__drop-target");
+      if (!source) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const target = folderPath ? `${folderPath}/${baseName(source)}` : baseName(source);
+      if (target === source || `${folderPath}/`.startsWith(`${source}/`)) return;
+      options.onMove?.(source, target);
+    });
+  };
+  const renderFile = (file) => {
+    const rename = canRename(file);
+    const remove = canDelete(file);
+    const actions = {};
+    if (rename) actions.rename = { icon: "edit", title: "Rename", onClick: () => startRename(file.path) };
+    if (remove) actions.delete = { icon: "delete", title: "Delete", onClick: () => options.onDelete(file.path) };
+    const badge = badges.get(file.path) ?? file.badge ?? null;
+    const item = createTreeItem({
+      id: file.path,
+      label: file.label ?? labelOf(file),
+      icon: file.icon ?? fileIcon,
+      selected: file.path === activePath,
+      badge,
+      subtitle: file.subtitle ?? null,
+      actions: Object.keys(actions).length ? actions : null
+    });
+    if (openPaths.has(file.path)) item.classList.add("open");
+    if (file.className) item.classList.add(...String(file.className).split(/\s+/).filter(Boolean));
+    if (file.tag) {
+      const tag = document.createElement("span");
+      tag.className = `twm-tree-item__tag${file.tag.variant ? ` twm-tree-item__tag--${file.tag.variant}` : ""}`;
+      tag.textContent = file.tag.text;
+      if (file.tag.title) tag.title = file.tag.title;
+      item.insertBefore(tag, item.querySelector(".twm-tree-item__actions"));
+    }
+    if (file.title) item.title = file.title;
+    if (options.onMove && canMove(file)) makeDraggable(item, file.path);
+    item.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      fileMenuAt(e.clientX, e.clientY, file);
+    });
+    return item;
+  };
+  const renderFolder = (parentEl, node2, path) => {
+    const pinned = options.pinFirst ? node2.files.filter((f) => options.pinFirst(f) && matches(f)).sort(compareFiles) : [];
+    for (const file of pinned) parentEl.appendChild(renderFile(file));
+    const names = [...node2.folders.keys()].sort(collator.compare);
+    for (const name of names) {
+      const child = node2.folders.get(name);
+      const folderPath = path ? `${path}/${name}` : name;
+      const f = facts(child);
+      if (query && f.count === 0) continue;
+      const expanded = query ? true : folderOpen.get(folderPath) ?? initiallyExpanded(folderPath, f);
+      const folderEl = createTreeNode({
+        id: `${FOLDER_PREFIX}${folderPath}`,
+        label: name,
+        icon: folderIcon,
+        count: f.count,
+        expanded
+      });
+      const header = folderEl.querySelector(":scope > .twm-tree-node__header");
+      header.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        folderMenuAt(e.clientX, e.clientY, folderPath);
+      });
+      if (options.onMove) makeDraggable(header, folderPath);
+      if (options.onMove) makeDropTarget(header, folderPath);
+      renderFolder(folderEl.querySelector(":scope > .twm-tree-node__children"), child, folderPath);
+      parentEl.appendChild(folderEl);
+    }
+    for (const file of [...node2.files].filter((f) => matches(f) && !pinned.includes(f)).sort(compareFiles)) {
+      parentEl.appendChild(renderFile(file));
+    }
+  };
+  const renderSection = (section) => {
+    const key = `${SECTION_PREFIX}${section.id}`;
+    const items = (section.items ?? []).filter((it) => !query || `${it.label} ${it.subtitle ?? ""}`.toLowerCase().includes(query.toLowerCase()));
+    if (query && items.length === 0) return null;
+    const node2 = createTreeNode({
+      id: key,
+      label: section.label,
+      icon: section.icon ?? "link",
+      count: items.length,
+      expanded: query ? true : folderOpen.get(key) ?? section.expanded ?? false,
+      readonly: true
+    });
+    const children = node2.querySelector(":scope > .twm-tree-node__children");
+    for (const it of items) {
+      const el3 = createTreeItem({
+        id: `${SECTION_PREFIX}${section.id}/${it.id}`,
+        label: it.label,
+        icon: it.icon ?? "menu_book",
+        readonly: true,
+        subtitle: it.subtitle ?? null
+      });
+      el3.title = it.title ?? it.label;
+      el3.addEventListener("click", (e) => {
+        e.stopPropagation();
+        section.onActivate?.(it);
+      });
+      el3.addEventListener("contextmenu", (e) => e.preventDefault());
+      children.appendChild(el3);
+    }
+    return node2;
+  };
+  const render = () => {
+    if (destroyed) return;
+    endRename();
+    const scrollTop = host.scrollTop;
+    content.replaceChildren();
+    const tree = buildTree();
+    const total = files.length;
+    let body = content;
+    if (rootLabel !== null) {
+      const category = createTreeCategory({
+        id: "root",
+        label: rootLabel,
+        icon: rootIcon,
+        count: total,
+        expanded: true
+      });
+      const header = category.querySelector(".twm-collapsible-header");
+      if (options.newItems) {
+        const add = document.createElement("button");
+        add.type = "button";
+        add.className = "twm-tree-node__action-btn";
+        add.title = "New\u2026";
+        add.innerHTML = '<span class="material-symbols-outlined">add</span>';
+        add.addEventListener("click", (e) => {
+          e.stopPropagation();
+          rootMenuAt(e.clientX, e.clientY);
+        });
+        header.appendChild(add);
+      }
+      header.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        rootMenuAt(e.clientX, e.clientY);
+      });
+      if (options.onMove) makeDropTarget(header, "");
+      content.appendChild(category);
+      body = category.querySelector(".twm-collapsible-content");
+    }
+    for (const section of sections) {
+      const el3 = renderSection(section);
+      if (el3) body.appendChild(el3);
+    }
+    renderFolder(body, tree, "");
+    if (total === 0 && sections.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "twm-file-tree__empty";
+      empty.textContent = emptyLabel;
+      body.appendChild(empty);
+    }
+    if (focusedId && rowOf(focusedId)) markFocus(focusedId);
+    else focusedId = null;
+    host.scrollTop = scrollTop;
+  };
+  host.addEventListener("click", (e) => {
+    const header = e.target.closest(".twm-tree-node__header");
+    if (header && host.contains(header)) {
+      const node2 = header.closest(".twm-tree-node");
+      const id2 = node2?.dataset.nodeId ?? "";
+      const key = id2.startsWith(FOLDER_PREFIX) ? id2.slice(FOLDER_PREFIX.length) : id2;
+      const children = node2?.querySelector(":scope > .twm-tree-node__children");
+      if (!children) return;
+      const open = children.style.display === "none";
+      children.style.display = open ? "block" : "none";
+      const arrow = header.querySelector(".twm-tree-node__toggle .material-symbols-outlined");
+      if (arrow) arrow.textContent = open ? "expand_more" : "chevron_right";
+      if (!query) folderOpen.set(key, open);
+      host.focus({ preventScroll: true });
+      markFocus(id2);
+      return;
+    }
+    const category = e.target.closest(".twm-collapsible-header");
+    if (category && host.contains(category)) {
+      const box = category.closest(".twm-tree-category");
+      const content2 = box?.querySelector(":scope > .twm-collapsible-content");
+      const arrow = category.querySelector(".twm-collapsible-arrow");
+      const open = !content2?.classList.contains("visible");
+      content2?.classList.toggle("visible", open);
+      arrow?.classList.toggle("collapsed", !open);
+      return;
+    }
+    const item = e.target.closest(".twm-tree-item");
+    if (!item || !host.contains(item) || item.classList.contains("readonly")) return;
+    const id = item.dataset.itemId;
+    host.focus({ preventScroll: true });
+    const now = performance.now();
+    if (id === lastClick.id && now - lastClick.at < DOUBLE_CLICK_MS) {
+      lastClick = { id: null, at: 0 };
+      options.onPin?.(id);
+    } else {
+      lastClick = { id, at: now };
+      markActiveDom(id);
+      options.onOpen?.(id, e);
+    }
+    markFocus(id);
+  });
+  const rows = () => [...host.querySelectorAll(".twm-tree-item:not(.readonly), .twm-tree-node:not(.readonly) > .twm-tree-node__header")].filter((el3) => !el3.closest('.twm-tree-node__children[style*="display: none"]'));
+  const idOf = (el3) => el3.dataset.itemId ?? el3.parentElement?.dataset.nodeId ?? null;
+  function rowOf(id) {
+    const el3 = [...host.querySelectorAll(".twm-tree-item, .twm-tree-node")].find((n) => (n.dataset.itemId ?? n.dataset.nodeId) === id);
+    return el3?.classList.contains("twm-tree-node") ? el3.querySelector(":scope > .twm-tree-node__header") : el3 ?? null;
+  }
+  function markFocus(id) {
+    focusedId = id;
+    host.querySelectorAll(".twm-file-tree__focus").forEach((el3) => el3.classList.remove("twm-file-tree__focus"));
+    if (!id) return;
+    const row = rowOf(id);
+    row?.classList.add("twm-file-tree__focus");
+    row?.scrollIntoView?.({ block: "nearest" });
+  }
+  ;
+  host.addEventListener("keydown", (e) => {
+    if (renamer || e.target !== host) return;
+    const current = focusedId ?? activePath;
+    const isFolder = typeof current === "string" && current.startsWith(FOLDER_PREFIX);
+    switch (e.key) {
+      case "F2":
+        if (!current) return;
+        e.preventDefault();
+        if (isFolder) startFolderRename(current.slice(FOLDER_PREFIX.length));
+        else startRename(current);
+        return;
+      case "Delete": {
+        const file = fileByPath.get(current);
+        if (file && canDelete(file)) {
+          e.preventDefault();
+          options.onDelete(file.path);
+        } else if (isFolder && options.onDeleteFolder) {
+          e.preventDefault();
+          options.onDeleteFolder(current.slice(FOLDER_PREFIX.length));
+        }
+        return;
+      }
+      case "Enter":
+        if (fileByPath.has(current)) {
+          e.preventDefault();
+          options.onOpen?.(current, e);
+        } else if (isFolder) {
+          e.preventDefault();
+          toggleFolderDom(current, void 0);
+        }
+        return;
+      case "ArrowDown":
+      case "ArrowUp": {
+        e.preventDefault();
+        const ids = rows().map(idOf);
+        if (!ids.length) return;
+        const at = ids.indexOf(current);
+        const next = e.key === "ArrowDown" ? Math.min(ids.length - 1, at + 1) : Math.max(0, at <= 0 ? 0 : at - 1);
+        markFocus(ids[next]);
+        return;
+      }
+      case "ArrowRight":
+      case "ArrowLeft":
+        if (isFolder) {
+          e.preventDefault();
+          toggleFolderDom(current, e.key === "ArrowRight");
+        }
+        return;
+      default:
+    }
+  });
+  const toggleFolderDom = (id, force) => {
+    const node2 = [...host.querySelectorAll(".twm-tree-node")].find((n) => n.dataset.nodeId === id);
+    const children = node2?.querySelector(":scope > .twm-tree-node__children");
+    if (!children) return;
+    const open = force ?? children.style.display === "none";
+    children.style.display = open ? "block" : "none";
+    const arrow = node2.querySelector(":scope > .twm-tree-node__header .twm-tree-node__toggle .material-symbols-outlined");
+    if (arrow) arrow.textContent = open ? "expand_more" : "chevron_right";
+    if (!query) folderOpen.set(id.slice(FOLDER_PREFIX.length), open);
+  };
+  const itemEl = (path) => host.querySelector(`.twm-tree-item[data-item-id="${cssEscape(path)}"]`);
+  const markActiveDom = (path) => {
+    host.querySelectorAll(".twm-tree-item.selected").forEach((el3) => el3.classList.remove("selected"));
+    if (path) itemEl(path)?.classList.add("selected");
+  };
+  const expandParents = (path) => {
+    for (let dir = parentOf(path); dir; dir = parentOf(dir)) {
+      folderOpen.set(dir, true);
+      toggleFolderDom(`${FOLDER_PREFIX}${dir}`, true);
+    }
+  };
+  function endRename(which = renamer?.renamer) {
+    if (!which || which !== renamer?.renamer) return;
+    const r = renamer;
+    renamer = null;
+    r.renamer.destroy();
+  }
+  function startRename(path) {
+    const file = fileByPath.get(path);
+    if (!file || !canRename(file)) return;
+    if (options.onRenameRequest) {
+      options.onRenameRequest(path);
+      return;
+    }
+    if (renamer?.label.isConnected) return;
+    endRename();
+    const label = itemEl(path)?.querySelector(".twm-tree-item__label");
+    if (!label) return;
+    const oldName = baseName(path);
+    const dot = path.lastIndexOf(".");
+    const suffix = keepExtension && dot > path.lastIndexOf("/") ? path.slice(dot) : "";
+    const pattern = typeof namePattern === "function" ? namePattern(file) : namePattern;
+    let committed = null;
+    const commit = async (typed) => {
+      const stem = suffix && typed.endsWith(suffix) ? typed.slice(0, -suffix.length) : typed;
+      const newName = `${stem}${suffix}`;
+      if (!stem || newName === oldName || !pattern.test(stem)) return { success: false };
+      const newPath = await options.onRename(path, newName);
+      if (!newPath) return { success: false };
+      return { success: true, newValue: options.labelAfterRename?.(file, newName, newPath) ?? file.label ?? newName };
+    };
+    const r = attachInlineRenamer({
+      label,
+      transformInput: (raw) => raw.trim(),
+      // Keys typed into the name stay in the field.
+      onStart: () => label.querySelector("input")?.addEventListener("keydown", (e) => e.stopPropagation()),
+      // Enter, and the blur that follows when the renamed tree is redrawn, commit once.
+      onCommit: (typed) => committed ??= commit(typed),
+      onFinish: () => endRename(r),
+      onCancel: () => endRename(r)
+    });
+    renamer = { label, renamer: r };
+    r.start();
+  }
+  function startFolderRename(folderPath) {
+    if (!options.onMove) return;
+    if (renamer?.label.isConnected) return;
+    endRename();
+    const node2 = [...host.querySelectorAll(".twm-tree-node")].find((n) => n.dataset.nodeId === `${FOLDER_PREFIX}${folderPath}`);
+    const label = node2?.querySelector(":scope > .twm-tree-node__header .twm-tree-node__label");
+    if (!label) return;
+    const oldName = baseName(folderPath);
+    const parent = folderPath.slice(0, folderPath.length - oldName.length);
+    let committed = null;
+    const commit = async (typed) => {
+      if (!typed || typed === oldName || !/^[\w][\w. -]*$/.test(typed)) return { success: false };
+      await options.onMove(folderPath, `${parent}${typed}`);
+      return { success: true, newValue: typed };
+    };
+    const r = attachInlineRenamer({
+      label,
+      transformInput: (raw) => raw.trim(),
+      onStart: () => label.querySelector("input")?.addEventListener("keydown", (e) => e.stopPropagation()),
+      onCommit: (typed) => committed ??= commit(typed),
+      onFinish: () => endRename(r),
+      onCancel: () => endRename(r)
+    });
+    renamer = { label, renamer: r };
+    r.start();
+  }
+  const index = () => {
+    fileByPath.clear();
+    for (const f of files) fileByPath.set(f.path, f);
+  };
+  const setBadgeDom = (path, badge) => {
+    const item = itemEl(path);
+    if (!item) return;
+    item.querySelector(".twm-tree-item__badge, .twm-tree-item__status-dot")?.remove();
+    if (!badge) return;
+    const variant = badge.variant || "muted";
+    const el3 = document.createElement("span");
+    if (badge.text) {
+      el3.className = `twm-tree-item__badge twm-tree-item__badge--${variant}`;
+      el3.textContent = badge.text;
+    } else {
+      el3.className = `twm-tree-item__status-dot twm-tree-item__status-dot--${variant}`;
+    }
+    item.insertBefore(el3, item.querySelector(".twm-tree-item__actions"));
+  };
+  return {
+    el: host,
+    /** The files and folders to show; the tree redraws, keeping what the user opened. */
+    setData(data = {}) {
+      files = [...data.files ?? []];
+      folders = [...data.folders ?? []];
+      index();
+      render();
+    },
+    /** Sections after the root's folders that are not files: `[{ id, label, icon?, items: [{id, label, icon?, subtitle?, title?}], expanded?, onActivate?(item) }]`. */
+    setSections(next) {
+      sections = [...next ?? []];
+      render();
+    },
+    /** Highlight a file (null clears it) and open its folders, without a redraw. */
+    setActive(path, { reveal = true } = {}) {
+      activePath = path ?? null;
+      if (activePath && reveal) expandParents(activePath);
+      markActiveDom(activePath);
+      if (activePath) markFocus(activePath);
+      else if (focusedId && !rowOf(focusedId)) focusedId = null;
+      if (activePath && reveal) itemEl(activePath)?.scrollIntoView?.({ block: "nearest" });
+    },
+    /** The paths shown bold as open. */
+    setOpen(paths) {
+      openPaths = new Set(paths ?? []);
+      host.querySelectorAll(".twm-tree-item.open").forEach((el3) => el3.classList.remove("open"));
+      for (const p of openPaths) itemEl(p)?.classList.add("open");
+    },
+    /** A badge (`{text?, variant}`, no text is a dot) on a file; null clears it. */
+    setBadge(path, badge) {
+      if (badge) badges.set(path, badge);
+      else badges.delete(path);
+      setBadgeDom(path, badge);
+    },
+    setBadges(map) {
+      for (const [path, badge] of map) this.setBadge(path, badge);
+    },
+    /** Show only files matching `text`, in folders opened to them. */
+    setFilter(text) {
+      const next = String(text ?? "").trim();
+      if (next === query) return;
+      query = next;
+      render();
+    },
+    /** Edit a file's name in place (after the tree has drawn it). */
+    startRename(path) {
+      requestAnimationFrame(() => startRename(path));
+    },
+    /** Edit a folder's name in place, opening it first. */
+    startFolderRename(path) {
+      folderOpen.set(path, true);
+      render();
+      startFolderRename(path);
+    },
+    /** Change the root's label and the empty-state text (a project's name) and redraw, keeping the open folders. */
+    setLabels(labels = {}) {
+      if ("rootLabel" in labels) rootLabel = labels.rootLabel;
+      if ("emptyLabel" in labels) emptyLabel = labels.emptyLabel;
+      render();
+    },
+    /** Open or close a folder. */
+    expand(path, open = true) {
+      folderOpen.set(path, open);
+      toggleFolderDom(path.startsWith(SECTION_PREFIX) ? path : `${FOLDER_PREFIX}${path}`, open);
+    },
+    refresh: render,
+    destroy() {
+      destroyed = true;
+      endRename();
+      overlay?.cleanup?.();
+      content.remove();
+      host.classList.remove("twm-tree-view", "twm-file-tree");
+    }
+  };
+}
+
 // src/ui/components/gallery_picker.js
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({
@@ -8263,314 +9206,6 @@ function createTableStateStore({ host, key, logger = console, debounceMs = 500 }
   };
 }
 
-// src/ui/components/tree_view.js
-function setText(root, selector, value) {
-  const el3 = root.querySelector(selector);
-  if (el3) el3.textContent = value == null ? "" : String(value);
-}
-function attrValue(value) {
-  return String(value).replace(/["\\]/g, "\\$&").replace(/[\n\r\f]/g, (c) => `\\${c.charCodeAt(0).toString(16)} `);
-}
-function createTreeCategory(options) {
-  const {
-    id,
-    label,
-    icon: icon2 = "folder",
-    iconClass = "",
-    count = 0,
-    expanded = false,
-    readonly = false
-  } = options;
-  const node2 = document.createElement("div");
-  node2.className = "twm-collapsible-box twm-tree-category";
-  node2.dataset.categoryId = id;
-  node2.dataset.collapsibleId = `tree-category-${id}`;
-  node2.dataset.collapsibleDefault = expanded ? "expanded" : "collapsed";
-  if (readonly) node2.dataset.readonly = "true";
-  node2.innerHTML = `
-        <div class="twm-collapsible-header" data-collapsible-header="true">
-            <button class="twm-arrow-toggle" type="button">
-                <span class="twm-collapsible-arrow material-symbols-outlined${expanded ? "" : " collapsed"}">expand_more</span>
-            </button>
-            <span class="twm-tree-category__icon ${iconClass}">
-                <span class="material-symbols-outlined">${icon2}</span>
-            </span>
-            <span class="twm-tree-category__label"></span>
-            <span class="twm-tree-category__count">(${count})</span>
-        </div>
-        <div class="twm-collapsible-content${expanded ? " visible" : ""}" data-collapsible-content="true"></div>
-    `;
-  setText(node2, ".twm-tree-category__label", label);
-  return node2;
-}
-function createTreeNode(options) {
-  const {
-    id,
-    label,
-    icon: icon2 = null,
-    count = 0,
-    expanded = false,
-    readonly = false,
-    actions = null
-  } = options;
-  const node2 = document.createElement("div");
-  node2.className = `twm-tree-node${readonly ? " readonly" : ""}`;
-  node2.dataset.nodeId = id;
-  const iconHtml = icon2 ? `<span class="twm-tree-node__icon"><span class="material-symbols-outlined">${icon2}</span></span>` : "";
-  const actionsHtml = actions ? '<span class="twm-tree-node__actions"></span>' : "";
-  node2.innerHTML = `
-        <div class="twm-tree-node__header">
-            <span class="twm-tree-node__toggle">
-                <span class="material-symbols-outlined">${expanded ? "expand_more" : "chevron_right"}</span>
-            </span>
-            ${iconHtml}
-            <span class="twm-tree-node__label"></span>
-            <span class="twm-tree-node__count">(${count})</span>
-            ${actionsHtml}
-        </div>
-        <div class="twm-tree-node__children" style="display: ${expanded ? "block" : "none"};"></div>
-    `;
-  setText(node2, ".twm-tree-node__label", label);
-  if (actions) appendActionButtons(node2.querySelector(".twm-tree-node__actions"), id, actions);
-  return node2;
-}
-function appendActionButtons(actionsEl, id, actions) {
-  Object.entries(actions).forEach(([actionId, actionConfig]) => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "twm-tree-node__action-btn";
-    btn.dataset.action = actionId;
-    btn.title = actionConfig.title || actionId;
-    btn.innerHTML = `<span class="material-symbols-outlined">${actionConfig.icon}</span>`;
-    if (actionConfig.onClick) {
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        actionConfig.onClick(id, e);
-      });
-      btn.addEventListener("dblclick", (e) => e.stopPropagation());
-    }
-    actionsEl.appendChild(btn);
-  });
-}
-function createTreeItem(options) {
-  const {
-    id,
-    label,
-    icon: icon2 = null,
-    isMaterialIcon = true,
-    readonly = false,
-    selected = false,
-    subtitle = null,
-    data = null,
-    badge = null,
-    actions = null
-  } = options;
-  const item = document.createElement("div");
-  item.className = `twm-tree-item${readonly ? " readonly" : ""}${selected ? " selected" : ""}`;
-  item.dataset.itemId = id;
-  if (data) {
-    Object.entries(data).forEach(([key, value]) => {
-      item.dataset[key] = value;
-    });
-  }
-  const iconHtml = icon2 ? isMaterialIcon ? `<span class="twm-tree-item__icon"><span class="material-symbols-outlined">${icon2}</span></span>` : `<span class="twm-tree-item__icon twm-tree-item__icon--symbol">${icon2}</span>` : "";
-  const subtitleHtml = subtitle ? '<span class="twm-tree-item__subtitle"></span>' : "";
-  let badgeHtml = "";
-  if (badge) {
-    const variant = badge.variant || "muted";
-    if (badge.text) {
-      badgeHtml = `<span class="twm-tree-item__badge twm-tree-item__badge--${variant}"></span>`;
-    } else {
-      badgeHtml = `<span class="twm-tree-item__status-dot twm-tree-item__status-dot--${variant}"></span>`;
-    }
-  }
-  item.innerHTML = `
-        ${iconHtml}
-        <span class="twm-tree-item__label"></span>
-        ${subtitleHtml}
-        ${badgeHtml}
-    `;
-  setText(item, ".twm-tree-item__label", label);
-  if (subtitle) setText(item, ".twm-tree-item__subtitle", subtitle);
-  if (badge?.text) setText(item, ".twm-tree-item__badge", badge.text);
-  if (actions) {
-    const actionsEl = document.createElement("span");
-    actionsEl.className = "twm-tree-item__actions";
-    appendActionButtons(actionsEl, id, actions);
-    item.appendChild(actionsEl);
-  }
-  return item;
-}
-function toggleCategory(categoryEl, force) {
-  if (!categoryEl) return;
-  const arrow = categoryEl.querySelector(":scope > .twm-collapsible-header .twm-collapsible-arrow");
-  const content = categoryEl.querySelector(":scope > .twm-collapsible-content");
-  if (!content) return;
-  const isCurrentlyExpanded = content.classList.contains("visible");
-  const shouldExpand = force !== void 0 ? force : !isCurrentlyExpanded;
-  if (shouldExpand) {
-    if (arrow) {
-      arrow.classList.remove("collapsed");
-    }
-    content.classList.add("visible");
-  } else {
-    if (arrow) {
-      arrow.classList.add("collapsed");
-    }
-    content.classList.remove("visible");
-  }
-}
-function toggleNode(nodeEl, force) {
-  if (!nodeEl) return;
-  const toggle = nodeEl.querySelector(":scope > .twm-tree-node__header .twm-tree-node__toggle .material-symbols-outlined");
-  const children = nodeEl.querySelector(":scope > .twm-tree-node__children");
-  if (!children) return;
-  const isExpanded = force !== void 0 ? force : children.style.display === "none";
-  if (isExpanded) {
-    children.style.display = "block";
-    if (toggle) toggle.textContent = "expand_more";
-  } else {
-    children.style.display = "none";
-    if (toggle) toggle.textContent = "chevron_right";
-  }
-}
-function filterTree(container, filter, options = {}) {
-  const { expandMatches = true } = options;
-  const normalizedFilter = (filter || "").toLowerCase().trim();
-  const visibleItems = /* @__PURE__ */ new Set();
-  container.querySelectorAll(".twm-tree-item").forEach((item) => {
-    const label = item.querySelector(".twm-tree-item__label")?.textContent || "";
-    const matches = !normalizedFilter || label.toLowerCase().includes(normalizedFilter);
-    item.style.display = matches ? "" : "none";
-    item.classList.toggle("twm-filter-match", matches && !!normalizedFilter);
-    if (matches) visibleItems.add(item);
-  });
-  const hasVisibleItem = (el3) => !normalizedFilter || [...el3.querySelectorAll(".twm-tree-item")].some((item) => visibleItems.has(item));
-  container.querySelectorAll(".twm-tree-node").forEach((node2) => {
-    const visible = hasVisibleItem(node2);
-    node2.style.display = visible ? "" : "none";
-    if (expandMatches && visible && normalizedFilter) toggleNode(node2, true);
-  });
-  container.querySelectorAll(".twm-tree-category").forEach((category) => {
-    const visible = hasVisibleItem(category);
-    category.style.display = visible ? "" : "none";
-    if (expandMatches && visible && normalizedFilter) toggleCategory(category, true);
-  });
-}
-function selectItem(container, itemId, options = {}) {
-  const { scrollIntoView = true, expandParents = true } = options;
-  container.querySelectorAll(".twm-tree-item.selected").forEach((el3) => {
-    el3.classList.remove("selected");
-  });
-  const item = container.querySelector(`.twm-tree-item[data-item-id="${attrValue(itemId)}"]`);
-  if (!item) return null;
-  item.classList.add("selected");
-  if (expandParents) {
-    let parent = item.parentElement;
-    while (parent && parent !== container) {
-      if (parent.classList.contains("twm-tree-node__children")) {
-        const node2 = parent.closest(".twm-tree-node");
-        if (node2) toggleNode(node2, true);
-      }
-      if (parent.classList.contains("twm-collapsible-content")) {
-        const category = parent.closest(".twm-tree-category");
-        if (category) toggleCategory(category, true);
-      }
-      parent = parent.parentElement;
-    }
-  }
-  if (scrollIntoView) {
-    item.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }
-  return item;
-}
-var TreeView = class {
-  constructor(container, options = {}) {
-    this.container = container;
-    this.options = {
-      onItemClick: null,
-      onItemDoubleClick: null,
-      onNodeToggle: null,
-      onCategoryToggle: null,
-      ...options
-    };
-    this._boundHandleClick = this._handleClick.bind(this);
-    this._boundHandleDblClick = this._handleDoubleClick.bind(this);
-    if (container) {
-      container.classList.add("twm-tree-view");
-      container.addEventListener("click", this._boundHandleClick);
-      container.addEventListener("dblclick", this._boundHandleDblClick);
-    }
-  }
-  _handleClick(e) {
-    const collapsibleHeader = e.target.closest(".twm-collapsible-header");
-    if (collapsibleHeader) {
-      const category = collapsibleHeader.closest(".twm-tree-category");
-      if (category) {
-        toggleCategory(category);
-        this.options.onCategoryToggle?.(category.dataset.categoryId, category);
-      }
-      return;
-    }
-    const nodeHeader = e.target.closest(".twm-tree-node__header");
-    if (nodeHeader) {
-      const node2 = nodeHeader.closest(".twm-tree-node");
-      if (node2) {
-        toggleNode(node2);
-        this.options.onNodeToggle?.(node2.dataset.nodeId, node2);
-      }
-      return;
-    }
-    const item = e.target.closest(".twm-tree-item");
-    if (item) {
-      this.select(item.dataset.itemId);
-      this.options.onItemClick?.(item.dataset.itemId, item, e);
-    }
-  }
-  _handleDoubleClick(e) {
-    const item = e.target.closest(".twm-tree-item");
-    if (item) {
-      this.options.onItemDoubleClick?.(item.dataset.itemId, item, e);
-    }
-  }
-  addCategory(options) {
-    const category = createTreeCategory(options);
-    this.container.appendChild(category);
-    return category;
-  }
-  addNode(categoryId, options) {
-    const category = this.container.querySelector(`.twm-tree-category[data-category-id="${attrValue(categoryId)}"]`);
-    const content = category?.querySelector(".twm-collapsible-content");
-    if (!content) return null;
-    const node2 = createTreeNode(options);
-    content.appendChild(node2);
-    return node2;
-  }
-  addItem(nodeId, options) {
-    const node2 = this.container.querySelector(`.twm-tree-node[data-node-id="${attrValue(nodeId)}"]`);
-    const children = node2?.querySelector(".twm-tree-node__children");
-    if (!children) return null;
-    const item = createTreeItem(options);
-    children.appendChild(item);
-    return item;
-  }
-  select(itemId) {
-    return selectItem(this.container, itemId);
-  }
-  filter(text) {
-    filterTree(this.container, text);
-  }
-  clear() {
-    this.container.innerHTML = "";
-  }
-  dispose() {
-    if (this.container) {
-      this.container.removeEventListener("click", this._boundHandleClick);
-      this.container.removeEventListener("dblclick", this._boundHandleDblClick);
-    }
-  }
-};
-
 // src/ui/components/window_taskbar.js
 var WindowTaskbarManager = class {
   constructor() {
@@ -11101,402 +11736,6 @@ function suppressNativeContextMenu({ root, allow } = {}) {
   } };
 }
 
-// src/ui/utils/overlay_scrollbar.js
-function normalizeOrientation(value) {
-  return String(value || "horizontal").toLowerCase() === "vertical" ? "vertical" : "horizontal";
-}
-function ensureInstallState(container) {
-  if (!container.__overlayScrollbarInstalled) {
-    Object.defineProperty(container, "__overlayScrollbarInstalled", {
-      value: {},
-      writable: true,
-      configurable: true
-    });
-  }
-}
-function installOverlayScrollbar(container, options = {}) {
-  if (!container) return null;
-  const orientation = normalizeOrientation(options.orientation);
-  const className = options.className || "overlay-scrollbar";
-  const isHorizontal = orientation !== "vertical";
-  const orientationKey = isHorizontal ? "horizontal" : "vertical";
-  ensureInstallState(container);
-  if (container.__overlayScrollbarInstalled[orientationKey]) {
-    return container.__overlayScrollbarInstalled[orientationKey];
-  }
-  if (options.setOverflow !== false) {
-    container.style.overflow = options.overflow || "auto";
-  }
-  if (options.setPosition !== false && getComputedStyle(container).position === "static") {
-    container.style.position = "relative";
-  }
-  const externalBar = !!options.externalBar;
-  const barHost = externalBar ? container.parentElement : container;
-  if (externalBar && barHost && getComputedStyle(barHost).position === "static") {
-    barHost.style.position = "relative";
-  }
-  const bar = document.createElement("div");
-  bar.className = className;
-  bar.classList.add(`overlay-scrollbar-${isHorizontal ? "h" : "v"}`);
-  const track = document.createElement("div");
-  track.className = "track";
-  const thumb = document.createElement("div");
-  thumb.className = "thumb";
-  bar.appendChild(track);
-  bar.appendChild(thumb);
-  (barHost || container).appendChild(bar);
-  const getScrollProps = () => ({
-    scrollSize: isHorizontal ? container.scrollWidth : container.scrollHeight,
-    clientSize: isHorizontal ? container.clientWidth : container.clientHeight,
-    scrollPos: isHorizontal ? container.scrollLeft || 0 : container.scrollTop || 0
-  });
-  let dragging = false;
-  let hovered = false;
-  let startPos = 0;
-  let thumbStartPos = 0;
-  let previousHasOverflow = null;
-  let previousClientSize = null;
-  let isResettingScroll = false;
-  const update = () => {
-    if (isResettingScroll) return;
-    const { scrollSize, clientSize, scrollPos } = getScrollProps();
-    const scrollLeft = container.scrollLeft || 0;
-    const scrollTop = container.scrollTop || 0;
-    const maxScroll = scrollSize - clientSize;
-    const hasOverflow = maxScroll > 2;
-    if (previousClientSize !== null && clientSize > previousClientSize && hasOverflow && scrollPos > 0) {
-      const delta = clientSize - previousClientSize;
-      const targetScroll = Math.max(0, scrollPos - delta);
-      if (targetScroll !== scrollPos) {
-        isResettingScroll = true;
-        if (isHorizontal) {
-          container.scrollLeft = targetScroll;
-        } else {
-          container.scrollTop = targetScroll;
-        }
-        requestAnimationFrame(() => {
-          isResettingScroll = false;
-          update();
-        });
-        previousClientSize = clientSize;
-        previousHasOverflow = hasOverflow;
-        return;
-      }
-    }
-    previousClientSize = clientSize;
-    if (previousHasOverflow === true && !hasOverflow && scrollPos > 0) {
-      isResettingScroll = true;
-      if (isHorizontal) {
-        container.scrollLeft = 0;
-      } else {
-        container.scrollTop = 0;
-      }
-      requestAnimationFrame(() => {
-        isResettingScroll = false;
-        update();
-      });
-      previousHasOverflow = hasOverflow;
-      return;
-    }
-    const clampedMaxScroll = Math.max(0, maxScroll);
-    if (hasOverflow && scrollPos > clampedMaxScroll) {
-      isResettingScroll = true;
-      if (isHorizontal) {
-        container.scrollLeft = clampedMaxScroll;
-      } else {
-        container.scrollTop = clampedMaxScroll;
-      }
-      requestAnimationFrame(() => {
-        isResettingScroll = false;
-        update();
-      });
-      previousHasOverflow = hasOverflow;
-      return;
-    }
-    previousHasOverflow = hasOverflow;
-    container.dataset.scrollable = hasOverflow ? "1" : "0";
-    if (externalBar) {
-      if (isHorizontal) {
-        bar.style.left = `${container.offsetLeft}px`;
-        bar.style.bottom = "auto";
-        bar.style.top = `${container.offsetTop + container.offsetHeight - 6}px`;
-        bar.style.width = `${container.clientWidth}px`;
-      } else {
-        bar.style.top = `${container.offsetTop}px`;
-        bar.style.right = "auto";
-        bar.style.left = `${container.offsetLeft + container.offsetWidth - 6}px`;
-        bar.style.height = `${container.clientHeight}px`;
-      }
-    } else {
-      if (isHorizontal) {
-        bar.style.left = `${scrollLeft}px`;
-        bar.style.top = `${scrollTop + container.clientHeight - bar.offsetHeight}px`;
-        bar.style.bottom = "auto";
-        bar.style.width = `${clientSize}px`;
-      } else {
-        bar.style.top = `${scrollTop}px`;
-        bar.style.left = `${scrollLeft + container.clientWidth - bar.offsetWidth}px`;
-        bar.style.right = "auto";
-        bar.style.height = `${clientSize}px`;
-      }
-    }
-    if (!hasOverflow) {
-      bar.style.opacity = "0";
-      bar.style.pointerEvents = "none";
-      thumb.style[isHorizontal ? "width" : "height"] = "0px";
-      thumb.style[isHorizontal ? "left" : "top"] = "0px";
-      return;
-    }
-    if (!dragging && !hovered) {
-      bar.style.opacity = "0";
-      bar.style.pointerEvents = "none";
-    }
-    const ratio = clientSize / scrollSize;
-    const thumbSize = Math.max(30, Math.floor(ratio * clientSize));
-    const maxThumbPos = clientSize - thumbSize;
-    const scrollRatio = maxScroll > 0 ? scrollPos / maxScroll : 0;
-    const thumbPos = Math.round(maxThumbPos * scrollRatio);
-    if (isHorizontal) {
-      thumb.style.width = `${thumbSize}px`;
-      thumb.style.left = `${thumbPos}px`;
-    } else {
-      thumb.style.height = `${thumbSize}px`;
-      thumb.style.top = `${thumbPos}px`;
-    }
-  };
-  const onScroll = () => update();
-  container.addEventListener("scroll", onScroll, { passive: true });
-  const onMouseEnter = () => {
-    hovered = true;
-    update();
-    if (container.dataset.scrollable === "1") {
-      bar.style.opacity = "1";
-      bar.style.pointerEvents = "";
-    }
-  };
-  const onMouseLeave = () => {
-    hovered = false;
-    if (dragging) return;
-    bar.style.opacity = "0";
-    bar.style.pointerEvents = "none";
-  };
-  container.addEventListener("mouseenter", onMouseEnter, { passive: true });
-  container.addEventListener("mouseleave", onMouseLeave, { passive: true });
-  if (externalBar) {
-    bar.addEventListener("mouseenter", onMouseEnter, { passive: true });
-    bar.addEventListener("mouseleave", onMouseLeave, { passive: true });
-  }
-  container.addEventListener("focusin", onMouseEnter, { passive: true });
-  container.addEventListener("focusout", onMouseLeave, { passive: true });
-  const resizeObserver = createRafResizeObserver(update);
-  try {
-    resizeObserver.observe(container);
-  } catch (_) {
-  }
-  const mo = new MutationObserver(update);
-  try {
-    mo.observe(container, { childList: true, subtree: options.watchSubtree !== false });
-  } catch (_) {
-  }
-  let resizeTimeout;
-  const onWindowResize = () => {
-    update();
-    clearTimeout(resizeTimeout);
-    resizeTimeout = setTimeout(update, 150);
-  };
-  window.addEventListener("resize", onWindowResize, { passive: true });
-  const onMouseDown = (e) => {
-    dragging = true;
-    startPos = isHorizontal ? e.clientX : e.clientY;
-    thumbStartPos = parseFloat(thumb.style[isHorizontal ? "left" : "top"]) || 0;
-    bar.style.opacity = "1";
-    bar.style.pointerEvents = "";
-    document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseup", onMouseUp, { once: true });
-    e.preventDefault();
-    e.stopPropagation();
-  };
-  const onMouseMove = (e) => {
-    if (!dragging) return;
-    e.preventDefault();
-    const { scrollSize, clientSize } = getScrollProps();
-    const maxScroll = scrollSize - clientSize;
-    if (maxScroll <= 0) return;
-    const thumbSize = parseFloat(thumb.style[isHorizontal ? "width" : "height"]) || 30;
-    const maxThumbPos = clientSize - thumbSize;
-    const delta = (isHorizontal ? e.clientX : e.clientY) - startPos;
-    let newThumbPos = thumbStartPos + delta;
-    newThumbPos = Math.max(0, Math.min(maxThumbPos, newThumbPos));
-    const thumbRatio = maxThumbPos > 0 ? newThumbPos / maxThumbPos : 0;
-    if (isHorizontal) {
-      container.scrollLeft = thumbRatio * maxScroll;
-    } else {
-      container.scrollTop = thumbRatio * maxScroll;
-    }
-  };
-  const onMouseUp = () => {
-    dragging = false;
-    document.removeEventListener("mousemove", onMouseMove);
-    const rect = container.getBoundingClientRect();
-    const isMouseOver = document.elementsFromPoint(
-      (rect.left + rect.right) / 2,
-      (rect.top + rect.bottom) / 2
-    ).includes(container);
-    if (!isMouseOver) {
-      bar.style.opacity = "0";
-      bar.style.pointerEvents = "none";
-    }
-  };
-  thumb.addEventListener("mousedown", onMouseDown);
-  let onWheel = null;
-  if (isHorizontal) {
-    onWheel = (e) => {
-      const { scrollSize, clientSize } = getScrollProps();
-      if (scrollSize <= clientSize) return;
-      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
-      if (container.scrollHeight > container.clientHeight) return;
-      e.preventDefault();
-      container.scrollLeft += e.deltaY;
-    };
-    container.addEventListener("wheel", onWheel, { passive: false });
-  }
-  requestAnimationFrame(() => {
-    requestAnimationFrame(update);
-  });
-  setTimeout(update, 50);
-  const cleanup = () => {
-    container.removeEventListener("scroll", onScroll);
-    container.removeEventListener("mouseenter", onMouseEnter);
-    container.removeEventListener("mouseleave", onMouseLeave);
-    container.removeEventListener("focusin", onMouseEnter);
-    container.removeEventListener("focusout", onMouseLeave);
-    if (externalBar) {
-      bar.removeEventListener("mouseenter", onMouseEnter);
-      bar.removeEventListener("mouseleave", onMouseLeave);
-    }
-    if (onWheel) container.removeEventListener("wheel", onWheel);
-    window.removeEventListener("resize", onWindowResize);
-    try {
-      resizeObserver.disconnect();
-    } catch (_) {
-    }
-    try {
-      mo.disconnect();
-    } catch (_) {
-    }
-    bar.remove();
-  };
-  const handle = { update, cleanup, bar, thumb };
-  container.__overlayScrollbarInstalled[orientationKey] = handle;
-  return handle;
-}
-function installWorkspaceScrollbars(workspace, options = {}) {
-  if (!workspace) return null;
-  if (workspace.__workspaceOverlayScrollbarsInstalled) return workspace.__workspaceOverlayScrollbarsUpdate;
-  installOverlayScrollbar(workspace, {
-    orientation: "vertical",
-    className: options.verticalClass || "panel-scrollbar",
-    watchSubtree: options.watchSubtree ?? true
-  });
-  installOverlayScrollbar(workspace, {
-    orientation: "horizontal",
-    className: options.horizontalClass || "tabs-scrollbar",
-    watchSubtree: options.watchSubtree ?? true
-  });
-  const update = () => {
-    const maxX = Math.max(0, workspace.scrollWidth - workspace.clientWidth);
-    const maxY = Math.max(0, workspace.scrollHeight - workspace.clientHeight);
-    workspace.dataset.scrollableX = maxX > 1 ? "1" : "0";
-    workspace.dataset.scrollableY = maxY > 1 ? "1" : "0";
-  };
-  workspace.__workspaceOverlayScrollbarsInstalled = true;
-  workspace.__workspaceOverlayScrollbarsUpdate = update;
-  workspace.addEventListener("scroll", update, { passive: true });
-  const ro = createRafResizeObserver(update);
-  try {
-    ro.observe(workspace);
-  } catch (_) {
-  }
-  const mo = new MutationObserver(update);
-  try {
-    mo.observe(workspace, { childList: true, subtree: true });
-  } catch (_) {
-  }
-  requestAnimationFrame(update);
-  return update;
-}
-function installCollapsibleScrollbars(root = document.body) {
-  const installOnElement = (el3) => {
-    installOverlayScrollbar(el3, {
-      orientation: "vertical",
-      setOverflow: false,
-      watchSubtree: true
-    });
-  };
-  if (root.matches?.(".twm-collapsible-content.visible")) installOnElement(root);
-  root.querySelectorAll(".twm-collapsible-content.visible").forEach(installOnElement);
-  const observer = new MutationObserver((mutations) => {
-    for (const mutation of mutations) {
-      if (mutation.type === "attributes" && mutation.attributeName === "class") {
-        const el3 = mutation.target;
-        if (el3.classList.contains("twm-collapsible-content") && el3.classList.contains("visible")) {
-          installOnElement(el3);
-        }
-        continue;
-      }
-      for (const node2 of mutation.addedNodes) {
-        if (node2.nodeType !== 1) continue;
-        if (node2.classList?.contains("twm-collapsible-content") && node2.classList?.contains("visible")) {
-          installOnElement(node2);
-        }
-        node2.querySelectorAll?.(".twm-collapsible-content.visible")?.forEach(installOnElement);
-      }
-    }
-  });
-  observer.observe(root, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    attributeFilter: ["class"]
-  });
-  return () => observer.disconnect();
-}
-function installTabsScrollbars(selectors = [".tabs"]) {
-  const selector = selectors.join(", ");
-  const classes = selectors.filter((s) => s.startsWith(".")).map((s) => s.slice(1));
-  const installOnElement = (el3) => {
-    installOverlayScrollbar(el3, {
-      orientation: "horizontal",
-      className: "tabs-scrollbar",
-      setOverflow: false,
-      externalBar: true,
-      watchSubtree: true
-    });
-  };
-  const cleanupElement = (el3) => {
-    el3.__overlayScrollbarInstalled?.horizontal?.cleanup?.();
-    delete el3.__overlayScrollbarInstalled;
-  };
-  const matches = (el3) => classes.some((c) => el3.classList?.contains(c));
-  document.querySelectorAll(selector).forEach(installOnElement);
-  const observer = new MutationObserver((mutations) => {
-    for (const mutation of mutations) {
-      for (const node2 of mutation.addedNodes) {
-        if (node2.nodeType !== 1) continue;
-        if (matches(node2)) installOnElement(node2);
-        node2.querySelectorAll?.(selector)?.forEach(installOnElement);
-      }
-      for (const node2 of mutation.removedNodes) {
-        if (node2.nodeType !== 1) continue;
-        if (matches(node2)) cleanupElement(node2);
-        node2.querySelectorAll?.(selector)?.forEach(cleanupElement);
-      }
-    }
-  });
-  observer.observe(document.body, { childList: true, subtree: true });
-  return () => observer.disconnect();
-}
-
 // src/ui/utils/scroll_lock.js
 function createScrollLock({ axis = "y", enabled = true } = {}) {
   const doY = axis === "y" || axis === "both";
@@ -11947,6 +12186,7 @@ export {
   createDetailHeader,
   createDocumentOutline,
   createFactTable,
+  createFileTree,
   createFilterBuilder,
   createFilterModel,
   createMenuBar,

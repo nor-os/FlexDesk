@@ -1,4 +1,7 @@
 import {
+  createRafResizeObserver
+} from "./chunk-GTJ6BXOX.js";
+import {
   isRowActivation,
   isRowControl
 } from "./chunk-VLOAI3HS.js";
@@ -1397,21 +1400,6 @@ var CellSelection = class {
     return !!this.focus && this.focus.row === row && this.focus.col === col;
   }
 };
-
-// src/ui/utils/raf_resize_observer.js
-function createRafResizeObserver(callback) {
-  let scheduled = false;
-  let latestEntries = [];
-  return new ResizeObserver((entries) => {
-    latestEntries = entries;
-    if (scheduled) return;
-    scheduled = true;
-    requestAnimationFrame(() => {
-      scheduled = false;
-      callback(latestEntries);
-    });
-  });
-}
 
 // src/ui/components/table_values.js
 var MONTHS = [
@@ -10719,7 +10707,6 @@ export {
   createChoiceEditor,
   CELL_EDITORS,
   CellSelection,
-  createRafResizeObserver,
   ISO_DATE,
   ISO_DATETIME,
   parseDateValue,
@@ -10744,4 +10731,4 @@ export {
   resolvePaging,
   DataTable
 };
-//# sourceMappingURL=chunk-QRBOIUU3.js.map
+//# sourceMappingURL=chunk-BTRCIFDV.js.map

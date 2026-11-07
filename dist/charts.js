@@ -55,11 +55,13 @@ import {
   strideIndices,
   uid,
   updateChart
-} from "./chunk-4X4SY3CP.js";
+} from "./chunk-67UAH37A.js";
 import {
-  AutocompleteField,
+  AutocompleteField
+} from "./chunk-BTRCIFDV.js";
+import {
   createRafResizeObserver
-} from "./chunk-QRBOIUU3.js";
+} from "./chunk-GTJ6BXOX.js";
 import "./chunk-VLOAI3HS.js";
 import {
   ColorField,

@@ -3475,9 +3475,27 @@ function mountNavPanel(hostEl, {
     hosts[id] = el;
     return el;
   };
+  const setBadge = (id, count, level = null) => {
+    const btn = [...modesEl?.querySelectorAll("[data-mode]") ?? []].find((b) => b.dataset.mode === String(id));
+    if (!btn) return;
+    btn.querySelector(".twm-nav__badge")?.remove();
+    const n = Number(count);
+    if (!n) return;
+    const badge = document.createElement("span");
+    badge.className = `twm-nav__badge${level ? ` twm-nav__badge--${level}` : ""}`;
+    badge.textContent = n > 99 ? "99+" : String(n);
+    btn.appendChild(badge);
+  };
   const activate = async (next) => {
     const def = byId.get(next);
     if (!def) return;
+    if (next !== mode) {
+      try {
+        panes[mode]?.deactivate?.();
+      } catch (err) {
+        console.warn("[nav] mode deactivate failed", mode, err);
+      }
+    }
     mode = next;
     for (const m of modes) {
       ensureHost(m.id).style.display = m.id === next ? "flex" : "none";
@@ -3491,7 +3509,11 @@ function mountNavPanel(hostEl, {
     const paneEl = ensureHost(next);
     if (!panes[next]) {
       try {
-        panes[next] = def.mount(paneEl, { wm, eventBus }) || {};
+        panes[next] = def.mount(paneEl, {
+          wm,
+          eventBus,
+          setBadge: (count, level) => setBadge(next, count, level)
+        }) || {};
       } catch (err) {
         console.error("[nav] mode mount failed", next, err);
         panes[next] = {};
@@ -3527,6 +3549,7 @@ function mountNavPanel(hostEl, {
     select: (modeId) => activate(modeId),
     active: () => mode,
     refresh: () => activate(mode),
+    setBadge,
     destroy: () => {
       for (const p of Object.values(panes)) {
         try {
@@ -3677,6 +3700,53 @@ function _segments(kind, props, taxonomy, rootCrumb, rootLabel, navigate, trail)
     });
   }
   return segs;
+}
+function withTileBreadcrumb(kind, factory, { inWindow = "bare" } = {}) {
+  return (hostEl, props, ctx) => {
+    const withCrumb = !ctx?.windowId || inWindow === "crumb";
+    hostEl.classList.add("twm-page-shell");
+    const contentSlot = document.createElement("div");
+    contentSlot.className = "twm-page-shell__content";
+    contentSlot.tabIndex = -1;
+    let breadcrumbSlot = null;
+    let crumb = null;
+    const crumbProps = { ...props };
+    if (withCrumb) {
+      breadcrumbSlot = document.createElement("div");
+      breadcrumbSlot.className = "twm-page-shell__breadcrumb";
+      hostEl.appendChild(breadcrumbSlot);
+      crumb = mountTileBreadcrumb(kind, crumbProps, ctx);
+      breadcrumbSlot.appendChild(crumb.el);
+    }
+    hostEl.appendChild(contentSlot);
+    const handle = factory(contentSlot, props, {
+      ...ctx,
+      setChromeActions: ctx?.setChromeActions ?? (() => {
+      }),
+      setTitle: ctx?.setTitle ?? (() => {
+      }),
+      setBreadcrumbProps: (patch) => {
+        Object.assign(crumbProps, patch);
+        crumb?.refresh?.();
+      }
+    }) || {};
+    return {
+      ...handle,
+      destroy: () => {
+        try {
+          handle.destroy?.();
+        } finally {
+          try {
+            crumb?.destroy();
+          } catch {
+          }
+          breadcrumbSlot?.remove();
+          contentSlot.remove();
+          hostEl.classList.remove("twm-page-shell");
+        }
+      }
+    };
+  };
 }
 function renderBreadcrumb(container, segments) {
   _renderInto(container, segments);
@@ -10550,6 +10620,7 @@ export {
   renderBreadcrumb,
   saveDesktops,
   uninstallPanelKeyRouter,
-  wireLandingPaneFocus
+  wireLandingPaneFocus,
+  withTileBreadcrumb
 };
 //# sourceMappingURL=wm.js.map

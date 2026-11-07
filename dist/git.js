@@ -1,9 +1,10 @@
 import {
+  installOverlayScrollbar,
   reportBridgeError,
   showConfirmDialog,
   showSelectDialog,
   toastInfo
-} from "./chunk-3BLIVOFD.js";
+} from "./chunk-AY5L3HOV.js";
 import {
   ActionDropdown
 } from "./chunk-PAI2ZUWV.js";
@@ -12,6 +13,7 @@ import {
   openModal,
   showContextMenu
 } from "./chunk-NFZJ6P42.js";
+import "./chunk-GTJ6BXOX.js";
 import "./chunk-HL3IIHU3.js";
 import "./chunk-Q7BALEPX.js";
 import "./chunk-HNU6MM2B.js";
@@ -744,6 +746,7 @@ function createGitPanel(host, options = {}) {
   let changesExpanded = options.changesExpanded ?? true;
   let graphExpanded = options.graphExpanded ?? false;
   let graph = null;
+  let filterText = "";
   const root = el2("div", "twm-git-panel");
   const messageView = el2("div", "twm-git-panel__empty");
   const mainView = el2("div", "twm-git-panel__main");
@@ -887,7 +890,14 @@ function createGitPanel(host, options = {}) {
     const files = status.files ?? [];
     changes.count.textContent = String(files.length);
     changes.body.replaceChildren(...files.length > 0 ? files.map(fileRow) : [el2("div", "twm-git-panel__no-changes", "No changes")]);
+    applyFilter();
     overflowDropdown.setOptions(overflowOptions());
+  };
+  const applyFilter = () => {
+    const q = filterText.trim().toLowerCase();
+    changes.body.querySelectorAll(".twm-git-panel__file").forEach((row) => {
+      row.hidden = !!q && !row.title.toLowerCase().includes(q);
+    });
   };
   const drawBusy = () => {
     busyBar.hidden = !busy;
@@ -1310,6 +1320,10 @@ function createGitPanel(host, options = {}) {
     refresh,
     startPolling,
     stopPolling,
+    setFilter(query) {
+      filterText = String(query ?? "");
+      applyFilter();
+    },
     setAdapter(next) {
       if (next) requireMethods(next);
       adapter = next ?? null;
@@ -1339,12 +1353,122 @@ function createGitPanel(host, options = {}) {
     }
   };
 }
+
+// src/git/git_pane.js
+function createGitPane(paneEl, options = {}) {
+  const {
+    getAdapter,
+    onOpenDiff = void 0,
+    setBadge = null,
+    emptyLabel = "No project open",
+    pollInterval = void 0,
+    scrollbar = true
+  } = options;
+  if (typeof getAdapter !== "function") throw new TypeError("createGitPane: getAdapter is required");
+  let panel = null;
+  let overlay = null;
+  let query = "";
+  let destroyed = false;
+  let adapter = null;
+  const host = document.createElement("div");
+  host.className = "twm-git-pane";
+  paneEl.appendChild(host);
+  return {
+    get panel() {
+      return panel;
+    },
+    activate() {
+      if (destroyed) return;
+      const next = getAdapter() ?? null;
+      if (!panel) {
+        adapter = next;
+        panel = createGitPanel(host, {
+          adapter: next,
+          emptyLabel,
+          onOpenDiff,
+          onCountChange: (count) => setBadge?.(count),
+          ...pollInterval === void 0 ? {} : { pollInterval }
+        });
+        panel.setFilter(query);
+        if (scrollbar) overlay = installOverlayScrollbar(host, { orientation: "vertical", watchSubtree: true });
+        return;
+      }
+      if (next !== adapter) {
+        adapter = next;
+        panel.setAdapter(next);
+      }
+      panel.startPolling();
+      panel.refresh();
+    },
+    deactivate() {
+      panel?.stopPolling();
+    },
+    filter(q) {
+      query = String(q ?? "");
+      panel?.setFilter(query);
+    },
+    refresh() {
+      return panel ? panel.refresh() : Promise.resolve();
+    },
+    destroy() {
+      destroyed = true;
+      overlay?.cleanup?.();
+      panel?.destroy();
+      panel = null;
+      host.remove();
+    }
+  };
+}
+
+// src/git/bridge_adapter.js
+var GIT_ADAPTER_METHODS = Object.freeze([
+  "isRepo",
+  "status",
+  "branches",
+  "log",
+  "commitFiles",
+  "diffFile",
+  "tags",
+  "remotes",
+  "init",
+  "stage",
+  "unstage",
+  "discard",
+  "commit",
+  "stash",
+  "stashPop",
+  "checkout",
+  "createBranch",
+  "deleteBranch",
+  "merge",
+  "rebase",
+  "cherryPick",
+  "createTag",
+  "deleteTag",
+  "fetch",
+  "pull",
+  "push",
+  "addRemote",
+  "removeRemote"
+]);
+function createBridgeGitAdapter(api, repoPath, { prefix = "git_" } = {}) {
+  if (!repoPath) return null;
+  const backend = () => typeof api === "function" ? api() : api;
+  const backendName = (name) => `${prefix}${name.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)}`;
+  return Object.fromEntries(GIT_ADAPTER_METHODS.map((name) => [
+    name,
+    (payload) => backend()[backendName(name)]({ repoPath, ...payload })
+  ]));
+}
 export {
+  GIT_ADAPTER_METHODS,
   LINE_DIFF_LIMIT,
   computeGraphLanes,
   computeLineDiff,
+  createBridgeGitAdapter,
   createDiffViewer,
   createGitGraph,
+  createGitPane,
   createGitPanel,
   diffStats,
   openDiffWindow,

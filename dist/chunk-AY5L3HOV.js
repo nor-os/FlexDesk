@@ -4,6 +4,9 @@ import {
   openModal
 } from "./chunk-NFZJ6P42.js";
 import {
+  createRafResizeObserver
+} from "./chunk-GTJ6BXOX.js";
+import {
   ManagedWindow
 } from "./chunk-HL3IIHU3.js";
 
@@ -697,6 +700,402 @@ function showRunProgressDialog(options = {}) {
   };
 }
 
+// src/ui/utils/overlay_scrollbar.js
+function normalizeOrientation(value) {
+  return String(value || "horizontal").toLowerCase() === "vertical" ? "vertical" : "horizontal";
+}
+function ensureInstallState(container) {
+  if (!container.__overlayScrollbarInstalled) {
+    Object.defineProperty(container, "__overlayScrollbarInstalled", {
+      value: {},
+      writable: true,
+      configurable: true
+    });
+  }
+}
+function installOverlayScrollbar(container, options = {}) {
+  if (!container) return null;
+  const orientation = normalizeOrientation(options.orientation);
+  const className = options.className || "overlay-scrollbar";
+  const isHorizontal = orientation !== "vertical";
+  const orientationKey = isHorizontal ? "horizontal" : "vertical";
+  ensureInstallState(container);
+  if (container.__overlayScrollbarInstalled[orientationKey]) {
+    return container.__overlayScrollbarInstalled[orientationKey];
+  }
+  if (options.setOverflow !== false) {
+    container.style.overflow = options.overflow || "auto";
+  }
+  if (options.setPosition !== false && getComputedStyle(container).position === "static") {
+    container.style.position = "relative";
+  }
+  const externalBar = !!options.externalBar;
+  const barHost = externalBar ? container.parentElement : container;
+  if (externalBar && barHost && getComputedStyle(barHost).position === "static") {
+    barHost.style.position = "relative";
+  }
+  const bar = document.createElement("div");
+  bar.className = className;
+  bar.classList.add(`overlay-scrollbar-${isHorizontal ? "h" : "v"}`);
+  const track = document.createElement("div");
+  track.className = "track";
+  const thumb = document.createElement("div");
+  thumb.className = "thumb";
+  bar.appendChild(track);
+  bar.appendChild(thumb);
+  (barHost || container).appendChild(bar);
+  const getScrollProps = () => ({
+    scrollSize: isHorizontal ? container.scrollWidth : container.scrollHeight,
+    clientSize: isHorizontal ? container.clientWidth : container.clientHeight,
+    scrollPos: isHorizontal ? container.scrollLeft || 0 : container.scrollTop || 0
+  });
+  let dragging = false;
+  let hovered = false;
+  let startPos = 0;
+  let thumbStartPos = 0;
+  let previousHasOverflow = null;
+  let previousClientSize = null;
+  let isResettingScroll = false;
+  const update = () => {
+    if (isResettingScroll) return;
+    const { scrollSize, clientSize, scrollPos } = getScrollProps();
+    const scrollLeft = container.scrollLeft || 0;
+    const scrollTop = container.scrollTop || 0;
+    const maxScroll = scrollSize - clientSize;
+    const hasOverflow = maxScroll > 2;
+    if (previousClientSize !== null && clientSize > previousClientSize && hasOverflow && scrollPos > 0) {
+      const delta = clientSize - previousClientSize;
+      const targetScroll = Math.max(0, scrollPos - delta);
+      if (targetScroll !== scrollPos) {
+        isResettingScroll = true;
+        if (isHorizontal) {
+          container.scrollLeft = targetScroll;
+        } else {
+          container.scrollTop = targetScroll;
+        }
+        requestAnimationFrame(() => {
+          isResettingScroll = false;
+          update();
+        });
+        previousClientSize = clientSize;
+        previousHasOverflow = hasOverflow;
+        return;
+      }
+    }
+    previousClientSize = clientSize;
+    if (previousHasOverflow === true && !hasOverflow && scrollPos > 0) {
+      isResettingScroll = true;
+      if (isHorizontal) {
+        container.scrollLeft = 0;
+      } else {
+        container.scrollTop = 0;
+      }
+      requestAnimationFrame(() => {
+        isResettingScroll = false;
+        update();
+      });
+      previousHasOverflow = hasOverflow;
+      return;
+    }
+    const clampedMaxScroll = Math.max(0, maxScroll);
+    if (hasOverflow && scrollPos > clampedMaxScroll) {
+      isResettingScroll = true;
+      if (isHorizontal) {
+        container.scrollLeft = clampedMaxScroll;
+      } else {
+        container.scrollTop = clampedMaxScroll;
+      }
+      requestAnimationFrame(() => {
+        isResettingScroll = false;
+        update();
+      });
+      previousHasOverflow = hasOverflow;
+      return;
+    }
+    previousHasOverflow = hasOverflow;
+    container.dataset.scrollable = hasOverflow ? "1" : "0";
+    if (externalBar) {
+      if (isHorizontal) {
+        bar.style.left = `${container.offsetLeft}px`;
+        bar.style.bottom = "auto";
+        bar.style.top = `${container.offsetTop + container.offsetHeight - 6}px`;
+        bar.style.width = `${container.clientWidth}px`;
+      } else {
+        bar.style.top = `${container.offsetTop}px`;
+        bar.style.right = "auto";
+        bar.style.left = `${container.offsetLeft + container.offsetWidth - 6}px`;
+        bar.style.height = `${container.clientHeight}px`;
+      }
+    } else {
+      if (isHorizontal) {
+        bar.style.left = `${scrollLeft}px`;
+        bar.style.top = `${scrollTop + container.clientHeight - bar.offsetHeight}px`;
+        bar.style.bottom = "auto";
+        bar.style.width = `${clientSize}px`;
+      } else {
+        bar.style.top = `${scrollTop}px`;
+        bar.style.left = `${scrollLeft + container.clientWidth - bar.offsetWidth}px`;
+        bar.style.right = "auto";
+        bar.style.height = `${clientSize}px`;
+      }
+    }
+    if (!hasOverflow) {
+      bar.style.opacity = "0";
+      bar.style.pointerEvents = "none";
+      thumb.style[isHorizontal ? "width" : "height"] = "0px";
+      thumb.style[isHorizontal ? "left" : "top"] = "0px";
+      return;
+    }
+    if (!dragging && !hovered) {
+      bar.style.opacity = "0";
+      bar.style.pointerEvents = "none";
+    }
+    const ratio = clientSize / scrollSize;
+    const thumbSize = Math.max(30, Math.floor(ratio * clientSize));
+    const maxThumbPos = clientSize - thumbSize;
+    const scrollRatio = maxScroll > 0 ? scrollPos / maxScroll : 0;
+    const thumbPos = Math.round(maxThumbPos * scrollRatio);
+    if (isHorizontal) {
+      thumb.style.width = `${thumbSize}px`;
+      thumb.style.left = `${thumbPos}px`;
+    } else {
+      thumb.style.height = `${thumbSize}px`;
+      thumb.style.top = `${thumbPos}px`;
+    }
+  };
+  const onScroll = () => update();
+  container.addEventListener("scroll", onScroll, { passive: true });
+  const onMouseEnter = () => {
+    hovered = true;
+    update();
+    if (container.dataset.scrollable === "1") {
+      bar.style.opacity = "1";
+      bar.style.pointerEvents = "";
+    }
+  };
+  const onMouseLeave = () => {
+    hovered = false;
+    if (dragging) return;
+    bar.style.opacity = "0";
+    bar.style.pointerEvents = "none";
+  };
+  container.addEventListener("mouseenter", onMouseEnter, { passive: true });
+  container.addEventListener("mouseleave", onMouseLeave, { passive: true });
+  if (externalBar) {
+    bar.addEventListener("mouseenter", onMouseEnter, { passive: true });
+    bar.addEventListener("mouseleave", onMouseLeave, { passive: true });
+  }
+  container.addEventListener("focusin", onMouseEnter, { passive: true });
+  container.addEventListener("focusout", onMouseLeave, { passive: true });
+  const resizeObserver = createRafResizeObserver(update);
+  try {
+    resizeObserver.observe(container);
+  } catch (_) {
+  }
+  const mo = new MutationObserver(update);
+  try {
+    mo.observe(container, { childList: true, subtree: options.watchSubtree !== false });
+  } catch (_) {
+  }
+  let resizeTimeout;
+  const onWindowResize = () => {
+    update();
+    clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(update, 150);
+  };
+  window.addEventListener("resize", onWindowResize, { passive: true });
+  const onMouseDown = (e) => {
+    dragging = true;
+    startPos = isHorizontal ? e.clientX : e.clientY;
+    thumbStartPos = parseFloat(thumb.style[isHorizontal ? "left" : "top"]) || 0;
+    bar.style.opacity = "1";
+    bar.style.pointerEvents = "";
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp, { once: true });
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  const onMouseMove = (e) => {
+    if (!dragging) return;
+    e.preventDefault();
+    const { scrollSize, clientSize } = getScrollProps();
+    const maxScroll = scrollSize - clientSize;
+    if (maxScroll <= 0) return;
+    const thumbSize = parseFloat(thumb.style[isHorizontal ? "width" : "height"]) || 30;
+    const maxThumbPos = clientSize - thumbSize;
+    const delta = (isHorizontal ? e.clientX : e.clientY) - startPos;
+    let newThumbPos = thumbStartPos + delta;
+    newThumbPos = Math.max(0, Math.min(maxThumbPos, newThumbPos));
+    const thumbRatio = maxThumbPos > 0 ? newThumbPos / maxThumbPos : 0;
+    if (isHorizontal) {
+      container.scrollLeft = thumbRatio * maxScroll;
+    } else {
+      container.scrollTop = thumbRatio * maxScroll;
+    }
+  };
+  const onMouseUp = () => {
+    dragging = false;
+    document.removeEventListener("mousemove", onMouseMove);
+    const rect = container.getBoundingClientRect();
+    const isMouseOver = document.elementsFromPoint(
+      (rect.left + rect.right) / 2,
+      (rect.top + rect.bottom) / 2
+    ).includes(container);
+    if (!isMouseOver) {
+      bar.style.opacity = "0";
+      bar.style.pointerEvents = "none";
+    }
+  };
+  thumb.addEventListener("mousedown", onMouseDown);
+  let onWheel = null;
+  if (isHorizontal) {
+    onWheel = (e) => {
+      const { scrollSize, clientSize } = getScrollProps();
+      if (scrollSize <= clientSize) return;
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+      if (container.scrollHeight > container.clientHeight) return;
+      e.preventDefault();
+      container.scrollLeft += e.deltaY;
+    };
+    container.addEventListener("wheel", onWheel, { passive: false });
+  }
+  requestAnimationFrame(() => {
+    requestAnimationFrame(update);
+  });
+  setTimeout(update, 50);
+  const cleanup = () => {
+    container.removeEventListener("scroll", onScroll);
+    container.removeEventListener("mouseenter", onMouseEnter);
+    container.removeEventListener("mouseleave", onMouseLeave);
+    container.removeEventListener("focusin", onMouseEnter);
+    container.removeEventListener("focusout", onMouseLeave);
+    if (externalBar) {
+      bar.removeEventListener("mouseenter", onMouseEnter);
+      bar.removeEventListener("mouseleave", onMouseLeave);
+    }
+    if (onWheel) container.removeEventListener("wheel", onWheel);
+    window.removeEventListener("resize", onWindowResize);
+    try {
+      resizeObserver.disconnect();
+    } catch (_) {
+    }
+    try {
+      mo.disconnect();
+    } catch (_) {
+    }
+    bar.remove();
+  };
+  const handle = { update, cleanup, bar, thumb };
+  container.__overlayScrollbarInstalled[orientationKey] = handle;
+  return handle;
+}
+function installWorkspaceScrollbars(workspace, options = {}) {
+  if (!workspace) return null;
+  if (workspace.__workspaceOverlayScrollbarsInstalled) return workspace.__workspaceOverlayScrollbarsUpdate;
+  installOverlayScrollbar(workspace, {
+    orientation: "vertical",
+    className: options.verticalClass || "panel-scrollbar",
+    watchSubtree: options.watchSubtree ?? true
+  });
+  installOverlayScrollbar(workspace, {
+    orientation: "horizontal",
+    className: options.horizontalClass || "tabs-scrollbar",
+    watchSubtree: options.watchSubtree ?? true
+  });
+  const update = () => {
+    const maxX = Math.max(0, workspace.scrollWidth - workspace.clientWidth);
+    const maxY = Math.max(0, workspace.scrollHeight - workspace.clientHeight);
+    workspace.dataset.scrollableX = maxX > 1 ? "1" : "0";
+    workspace.dataset.scrollableY = maxY > 1 ? "1" : "0";
+  };
+  workspace.__workspaceOverlayScrollbarsInstalled = true;
+  workspace.__workspaceOverlayScrollbarsUpdate = update;
+  workspace.addEventListener("scroll", update, { passive: true });
+  const ro = createRafResizeObserver(update);
+  try {
+    ro.observe(workspace);
+  } catch (_) {
+  }
+  const mo = new MutationObserver(update);
+  try {
+    mo.observe(workspace, { childList: true, subtree: true });
+  } catch (_) {
+  }
+  requestAnimationFrame(update);
+  return update;
+}
+function installCollapsibleScrollbars(root = document.body) {
+  const installOnElement = (el2) => {
+    installOverlayScrollbar(el2, {
+      orientation: "vertical",
+      setOverflow: false,
+      watchSubtree: true
+    });
+  };
+  if (root.matches?.(".twm-collapsible-content.visible")) installOnElement(root);
+  root.querySelectorAll(".twm-collapsible-content.visible").forEach(installOnElement);
+  const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      if (mutation.type === "attributes" && mutation.attributeName === "class") {
+        const el2 = mutation.target;
+        if (el2.classList.contains("twm-collapsible-content") && el2.classList.contains("visible")) {
+          installOnElement(el2);
+        }
+        continue;
+      }
+      for (const node of mutation.addedNodes) {
+        if (node.nodeType !== 1) continue;
+        if (node.classList?.contains("twm-collapsible-content") && node.classList?.contains("visible")) {
+          installOnElement(node);
+        }
+        node.querySelectorAll?.(".twm-collapsible-content.visible")?.forEach(installOnElement);
+      }
+    }
+  });
+  observer.observe(root, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["class"]
+  });
+  return () => observer.disconnect();
+}
+function installTabsScrollbars(selectors = [".tabs"]) {
+  const selector = selectors.join(", ");
+  const classes = selectors.filter((s) => s.startsWith(".")).map((s) => s.slice(1));
+  const installOnElement = (el2) => {
+    installOverlayScrollbar(el2, {
+      orientation: "horizontal",
+      className: "tabs-scrollbar",
+      setOverflow: false,
+      externalBar: true,
+      watchSubtree: true
+    });
+  };
+  const cleanupElement = (el2) => {
+    el2.__overlayScrollbarInstalled?.horizontal?.cleanup?.();
+    delete el2.__overlayScrollbarInstalled;
+  };
+  const matches = (el2) => classes.some((c) => el2.classList?.contains(c));
+  document.querySelectorAll(selector).forEach(installOnElement);
+  const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      for (const node of mutation.addedNodes) {
+        if (node.nodeType !== 1) continue;
+        if (matches(node)) installOnElement(node);
+        node.querySelectorAll?.(selector)?.forEach(installOnElement);
+      }
+      for (const node of mutation.removedNodes) {
+        if (node.nodeType !== 1) continue;
+        if (matches(node)) cleanupElement(node);
+        node.querySelectorAll?.(selector)?.forEach(cleanupElement);
+      }
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+  return () => observer.disconnect();
+}
+
 // src/ui/components/toast.js
 var toastBus = null;
 function setToastBus(bus) {
@@ -767,6 +1166,10 @@ export {
   showChoiceDialog,
   showSelectDialog,
   showRunProgressDialog,
+  installOverlayScrollbar,
+  installWorkspaceScrollbars,
+  installCollapsibleScrollbars,
+  installTabsScrollbars,
   setToastBus,
   getToastBus,
   toastError,
@@ -775,4 +1178,4 @@ export {
   toastSuccess,
   reportBridgeError
 };
-//# sourceMappingURL=chunk-3BLIVOFD.js.map
+//# sourceMappingURL=chunk-AY5L3HOV.js.map

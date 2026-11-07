@@ -6,6 +6,7 @@
  *     panel.setAdapter(otherRepository);   // or null: nothing to show
  *     panel.stopPolling();                 // while its tab is hidden
  *     panel.startPolling();
+ *     panel.setFilter('src/');             // show only the changed files whose path contains it
  *     panel.destroy();
  *
  * Every repository operation is a method of `adapter`, whose methods and
@@ -84,7 +85,7 @@ function requireMethods(adapter) {
  * @param {boolean} [options.graphExpanded=false]
  * @param {boolean} [options.showRemoteRefs=false] - As for createGitGraph.
  * @returns {{ el: HTMLElement, refresh(): Promise<void>, setAdapter(adapter: Object|null): void,
- *   startPolling(): void, stopPolling(): void, destroy(): void }}
+ *   setFilter(query: string): void, startPolling(): void, stopPolling(): void, destroy(): void }}
  */
 export function createGitPanel(host, options = {}) {
     const {
@@ -110,6 +111,7 @@ export function createGitPanel(host, options = {}) {
     let changesExpanded = options.changesExpanded ?? true;
     let graphExpanded = options.graphExpanded ?? false;
     let graph = null;
+    let filterText = '';
 
     // ── the elements ────────────────────────────────────────────────────
 
@@ -255,7 +257,16 @@ export function createGitPanel(host, options = {}) {
         changes.body.replaceChildren(...(files.length > 0
             ? files.map(fileRow)
             : [el('div', 'twm-git-panel__no-changes', 'No changes')]));
+        applyFilter();
         overflowDropdown.setOptions(overflowOptions());
+    };
+
+    /** Hide the changed-file rows whose path does not contain the filter text. */
+    const applyFilter = () => {
+        const q = filterText.trim().toLowerCase();
+        changes.body.querySelectorAll('.twm-git-panel__file').forEach((row) => {
+            row.hidden = !!q && !row.title.toLowerCase().includes(q);
+        });
     };
 
     const drawBusy = () => {
@@ -724,6 +735,10 @@ export function createGitPanel(host, options = {}) {
         refresh,
         startPolling,
         stopPolling,
+        setFilter(query) {
+            filterText = String(query ?? '');
+            applyFilter();
+        },
         setAdapter(next) {
             if (next) requireMethods(next);
             adapter = next ?? null;

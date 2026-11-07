@@ -9539,6 +9539,19 @@ body.twm-dragging * { user-select: none; }
     color: var(--text-bright);
     border-bottom-color: var(--accent-bright);
 }
+/* A count on a mode's strip button (`setBadge`). */
+.twm-nav__badge {
+    min-width: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: var(--accent-bright);
+    color: var(--text-bright);
+    font-size: 10px;
+    line-height: 16px;
+    text-align: center;
+}
+.twm-nav__badge--warning { background: var(--color-warning); }
+.twm-nav__badge--error { background: var(--color-error, #f44336); }
 /* Filter strip — inherits look from sidebar.css's .twm-sidebar-controls
  * primitive. Just tweak the bottom border to match our pane chrome. */
 .twm-nav .twm-sidebar-controls.twm-nav__filter {
@@ -13286,6 +13299,7 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     padding: var(--space-md) var(--space-lg);
     color: var(--text-muted);
 }
+.twm-git-panel__file[hidden] { display: none; }
 .twm-git-panel__file {
     position: relative;
     display: flex;
@@ -13480,6 +13494,41 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     .twm-chat .twm-chat-shell__tool--running .twm-chat-shell__tool-icon,
     .twm-chat-shell__status--pending { animation: none; }
 }
+
+/* ══ FILE TREE ═════════════════════════════════════════════════════════
+   `createFileTree` (file_tree.js): TreeView's pieces plus what a file tree
+   adds. The host is the scroll container. */
+.twm-file-tree {
+    min-height: 0;
+    padding: 4px 0;
+    outline: none;
+}
+.twm-file-tree__content > * { margin: 0; }
+.twm-file-tree .twm-tree-item.open .twm-tree-item__label { font-weight: 500; }
+.twm-file-tree__focus { box-shadow: inset 0 0 0 1px var(--accent-bright); }
+.twm-file-tree:not(:focus-within) .twm-file-tree__focus { box-shadow: none; }
+.twm-file-tree .twm-file-tree__drop-target {
+    background: color-mix(in srgb, var(--accent-bright) 25%, transparent);
+    outline: 1px dashed var(--accent-bright);
+}
+.twm-file-tree__empty {
+    padding: 16px 12px;
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+}
+.twm-tree-item__tag {
+    flex: none;
+    margin-left: auto;
+    padding: 0 5px;
+    border-radius: 3px;
+    background: var(--state-hover);
+    color: var(--text-secondary);
+    font-size: 10px;
+    line-height: 15px;
+}
+.twm-tree-item__tag--type { color: var(--text-muted); font-style: italic; }
+.twm-git-pane { min-height: 0; flex: 1 1 auto; height: 100%; }
+
 
 /* ══ FLOW · KIT ═══════════════════════════════════════════════════════ */
 /* The shared flow-editor kit (36 §3, §3.12): the settings panel and its

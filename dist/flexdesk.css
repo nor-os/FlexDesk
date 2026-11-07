@@ -13642,6 +13642,55 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     color: var(--twm-flow-warning-text);
 }
 
+/* ── the settings panel as a sheet (variant: 'sheet', 0.18.2) ──────────
+ * Flat: no fill and no chip. The title and the description sit in a margin at
+ * the left, the fields beside them; two sheets in a row are split by a rule, so
+ * a page of them reads as one form in sections. Narrower than 560px, the margin
+ * goes above the fields. */
+.twm-flow-panel--sheet {
+    container-type: inline-size;
+    gap: 0;
+    padding: 14px 0;
+    background: transparent;
+}
+.twm-flow-panel--sheet + .twm-flow-panel--sheet {
+    border-top: 1px solid var(--border-subtle);
+}
+.twm-flow-panel__sheet {
+    display: grid;
+    grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
+    gap: 10px 28px;
+    align-items: start;
+}
+.twm-flow-panel__margin {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    padding-top: 5px;
+}
+.twm-flow-panel__body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+}
+.twm-flow-panel--sheet .twm-flow-panel__icon { display: none; }
+.twm-flow-panel--sheet .twm-flow-panel__titles { flex-basis: auto; }
+.twm-flow-panel--sheet .twm-flow-panel__title,
+.twm-flow-panel--sheet .twm-flow-panel__title-input {
+    font-size: var(--font-size-md);
+}
+.twm-flow-panel--sheet .twm-flow-panel__description {
+    font-size: var(--font-size-xs);
+    color: var(--twm-flow-muted);
+}
+.twm-flow-panel--sheet .twm-flow-panel__fields { gap: 10px; }
+.twm-flow-panel--sheet .twm-flow-field__label { flex-basis: 110px; }
+@container (max-width: 560px) {
+    .twm-flow-panel__sheet { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* ── a field: its label, its control, its finding, its help ─────────── */
 .twm-flow-field {
     display: flex;
@@ -13787,6 +13836,7 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     resize: vertical;
 }
 .twm-flow-checkbox {
+    align-self: flex-start;
     margin: 6px 0 0;
     accent-color: var(--twm-flow-focus);
 }

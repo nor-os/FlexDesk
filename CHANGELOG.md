@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.18.2 (2026-11-07)
+
+A patch release with one addition.
+
+### Added
+
+- [A flat settings panel: `variant: 'sheet'` on `createSettingsPanel`](docs/components/flow-editors.md#a-flat-panel-variant-sheet-0182): no fill, the title and description in a margin at the left, the fields beside them, a rule between two sheets. For a settings page made of several panels.
+
+### Changed behaviour
+
+None. A panel created without `variant` is the card it was.
+
+### Fixed
+
+- A settings panel's checkbox (a `boolean` setting) sits at the start of its field, under the label's line; it was drawn in the middle of the field's width.
+
+### Removed or renamed exports
+
+None. New: the `variant` option. Classes: `.twm-flow-panel--sheet`, `.twm-flow-panel__sheet`, `.twm-flow-panel__margin`, `.twm-flow-panel__body`.
+
 ## 0.18.1 (2026-11-06)
 
 A patch release: what four applications asked for when they adopted 0.18.0. The

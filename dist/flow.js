@@ -2197,11 +2197,16 @@ function createSettingsPanel({
   values = null,
   valuesNote = null,
   columns = null,
-  host = null
+  host = null,
+  variant = "card"
 } = {}) {
   if (!widgets?.get) throw new Error("createSettingsPanel needs a widget registry (createWidgetRegistry()).");
+  if (variant !== "card" && variant !== "sheet") {
+    throw new Error(`createSettingsPanel's variant is 'card' or 'sheet', not ${JSON.stringify(variant)}.`);
+  }
+  const sheet = variant === "sheet";
   const S = createStrings(strings);
-  const root = el("section", "twm-flow-panel");
+  const root = el("section", sheet ? "twm-flow-panel twm-flow-panel--sheet" : "twm-flow-panel");
   root.setAttribute("role", "region");
   root.setAttribute("aria-label", say(S, "settings"));
   if (host) host.appendChild(root);
@@ -2316,15 +2321,22 @@ function createSettingsPanel({
     root.replaceChildren();
     if (!spec) return;
     if (isReadOnly() && readOnlyReason()) root.appendChild(el("p", "twm-flow-panel__readonly", readOnlyReason()));
-    root.appendChild(paintHeader());
-    if (spec.description) root.appendChild(el("p", "twm-flow-panel__description", spec.description));
-    if (spec.idLine) root.appendChild(el("div", "twm-flow-panel__id", spec.idLine));
+    const margin = sheet ? el("div", "twm-flow-panel__margin") : root;
+    const body = sheet ? el("div", "twm-flow-panel__body") : root;
+    if (sheet) {
+      const grid = el("div", "twm-flow-panel__sheet");
+      grid.append(margin, body);
+      root.appendChild(grid);
+    }
+    margin.appendChild(paintHeader());
+    if (spec.description) margin.appendChild(el("p", "twm-flow-panel__description", spec.description));
+    if (spec.idLine) body.appendChild(el("div", "twm-flow-panel__id", spec.idLine));
     findingsBox = el("ul", "twm-flow-panel__findings");
     findingsBox.hidden = true;
-    root.appendChild(findingsBox);
+    body.appendChild(findingsBox);
     slotBefore = el("div", "twm-flow-panel__slot");
     slotBefore.dataset.slot = "before";
-    root.appendChild(slotBefore);
+    body.appendChild(slotBefore);
     const list = el("div", "twm-flow-panel__fields");
     allFields = Array.isArray(spec.fields) ? spec.fields : fieldsFromSchema(spec.type?.config_schema);
     const drawn = visibleFields(allFields, current);
@@ -2361,10 +2373,10 @@ function createSettingsPanel({
       const anchor = placed(e);
       if (anchor === null || !keys.has(anchor)) drawExtra(e);
     }
-    root.appendChild(list);
+    body.appendChild(list);
     slotAfter = el("div", "twm-flow-panel__slot");
     slotAfter.dataset.slot = "after";
-    root.appendChild(slotAfter);
+    body.appendChild(slotAfter);
     paintSlots();
     applyFindings();
   }

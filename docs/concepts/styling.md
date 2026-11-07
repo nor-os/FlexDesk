@@ -197,3 +197,55 @@ animation, so the rings were drawn and stood still, and an embedder had to
 define the same four names itself to make them move. You can delete those definitions. If you keep
 one, `@keyframes` names are global and the later definition wins, which
 changes nothing unless yours is not a full turn.
+
+## One surface ladder (0.18.3)
+
+Every FlexDesk component fills from one ladder of surfaces, lightest on top:
+
+| Rung | Token | Painted by |
+|---|---|---|
+| page | `--surface-0` | a tab's content, a managed window's body, a modal's body, the settings view, the landing |
+| bar, group | `--surface-1` | a title bar, a header strip, a sidebar, a tile, a modal's title and actions strips, the landing's pane heads and actions strip |
+| raised | `--surface-2` | a row or card over a group (a sortable list's rows), a hover |
+| sunken | `--surface-well` | a well below the page |
+| control | `--surface-control`, `--border-control` | every text box, select and combobox: `createSelect`, `createCombobox`, the tag input, the chat composer, a form's and a modal's inputs, the settings view's fields, the flow kit's fields, the editor's search box, the plot config's inputs |
+
+A part paints its own rung and leaves the one under it alone: a part that sits
+on its parent's rung is `transparent`, so it takes whatever its parent is. A
+tile's header is one, and `mountChatShell` is one, so the shell takes the fill
+of the panel or window that holds it.
+
+`--surface-3` is not a rung. It is a hover over a raised surface, a toggle's
+track, a separator; no control is painted with it.
+
+To restyle the ladder, set the tokens on `:root`. The older names alias it,
+so setting one of them still restyles what reads it:
+
+```css
+:root {
+    --surface-control: #2b2b2c;   /* also --twm-flow-control-bg, --ea-input-bg */
+    --border-control:  #454545;   /* also --twm-flow-control-border */
+}
+```
+
+| Alias | Is |
+|---|---|
+| `--twm-flow-control-bg`, `--twm-flow-control-border` | `--surface-control`, `--border-control` |
+| `--ea-bg-chrome` | `--surface-1` (bar) |
+| `--ea-bg-content` | `--surface-0` (page) |
+| `--ea-bg-well` | `--surface-well` |
+| `--ea-input-bg` | `--surface-control` |
+
+Up to 0.18.2 the components broke the ladder in six places: a tile's header
+painted `--surface-0` on a `--surface-1` tile, the settings view was a
+`--surface-1` page beside a `--surface-0` sidebar, the chat shell painted
+`--surface-1` over its host, a managed window's body was `#1a1a1a`, the
+landing's and the modal's bars (`--ea-bg-chrome`, `#1a1a1a`) were darker than
+their bodies (`--ea-bg-content`, `#212121`), and a sortable list's rows were the
+literal `#2a2a2c`. A select, a combobox and the tag input were `--surface-3`
+(`#3c3c3c`) beside the flow kit's fields in `--twm-flow-control-bg`
+(`#2b2b2c`), and a modal's text boxes were `#0a0a0a` wells beside them. An
+application that defines its own `--ea-*` values keeps them; the rules that read
+them now read the rung they name, so the landing itself and its actions strip
+read `--ea-bg-content` and `--ea-bg-chrome` where they read `--ea-bg-chrome` and
+`--ea-bg-well`.

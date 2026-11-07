@@ -92,7 +92,7 @@ These have no page of their own: `ManagedWindow`, modals, `TreeView`, context me
 - [Domain neutrality](concepts/domain-neutrality.md): storage keys, theme names and MIME types are yours; no application globals.
 - [State guard](concepts/state-guard.md): who wrote that `data-*` attribute.
 - [Peer dependencies](concepts/peer-dependencies.md): Plotly and Monaco, and why there is no default path.
-- [Theming and CSS](concepts/styling.md): the three stylesheets and the class-name rules.
+- [Theming and CSS](concepts/styling.md): the three stylesheets, the class-name rules and [the surface ladder](concepts/styling.md#one-surface-ladder-0183).
 - [Build and packaging](concepts/building-and-packaging.md): why `dist/` is committed, and the `exports` map.
 
 ## Writing these docs

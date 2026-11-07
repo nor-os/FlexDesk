@@ -129,7 +129,7 @@ const btn = barEl.querySelector('.nb-search-bar__btn');
 t.check('its buttons are square, borderless-looking icon buttons',
     [cs(btn).display, cs(btn).cursor], ['inline-flex', 'pointer']);
 t.ok('its buttons read tokens', /var\(--radius-sm\)/.test(ruleBody(FLEX, '.nb-search-bar__btn') || ''));
-t.ok('its inputs read tokens', /var\(--surface-3\)/.test(ruleBody(FLEX, '.nb-search-bar__input') || ''));
+t.ok('its inputs are controls (0.18.3)', /var\(--surface-control\)/.test(ruleBody(FLEX, '.nb-search-bar__input') || ''));
 // The icon rule must out-rank Google's single-class `.material-symbols-outlined`.
 t.ok('the button glyph wins the Material Symbols tie',
     compareSpecificity(specificity('.nb-search-bar__btn .material-symbols-outlined'),

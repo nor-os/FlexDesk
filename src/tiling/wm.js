@@ -16,11 +16,12 @@
  *   wm.setPanelAvailability(side, o)  runtime override; null clears it
  *   wm.onPanelAvailabilityChange(fn)  subscribe; returns an unsubscribe
  *   wm.switchDesktop(idx) / wm.addDesktop() / wm.moveFocusedToDesktop(idx)
+ *   wm.activePage()                   the top-nav page the active desktop shows
  */
 
 import { DesktopManager, saveDesktops, loadDesktops, DESKTOPS_KEY } from './desktops.js';
 import { TileRenderer } from './tile_renderer.js';
-import { makeLeaf } from './tile_tree.js';
+import { TileTree, makeLeaf } from './tile_tree.js';
 import { PLACEHOLDER_KIND } from './content_registry.js';
 import { installPanelKeyRouter } from './panel_keys.js';
 import { ManagedWindow } from '../ui/components/managed_window.js';
@@ -40,7 +41,7 @@ export class WindowManager {
     constructor({ rootEl, api, ctx, onChange, eventBus, host, taxonomy, events, content,
                   logger = null, panelDefaults = null, snapPromotion = false,
                   promoteInPlace = false, tabLayout = null, backToOpenList = false,
-                  floatActiveTab = false, newTabButton = true }) {
+                  floatActiveTab = false, newTabButton = true, pageSurfaces = false }) {
         if (!taxonomy) throw new Error('WindowManager: a taxonomy is required');
         if (!content || typeof content.mount !== 'function') {
             throw new Error('WindowManager: a content registry is required '
@@ -111,6 +112,12 @@ export class WindowManager {
          *  does, and an existing embedder upgrading must not find tabs closing
          *  where they used to navigate. */
         this.backToOpenList = !!backToOpenList;
+        /** Whether each desktop shows one top-nav page at a time, every other
+         *  page it has shown kept whole as that page's surface (its tiles, its
+         *  splits and the windows standing on them). See `_enterSurface`.
+         *  Default off: it changes what opening another page does, and an
+         *  existing embedder upgrading must not find its tiles disappearing. */
+        this.pageSurfaces = !!pageSurfaces;
 
         // C34. BACK BELONGS TO WHAT YOU ARE LOOKING AT. A floating window is not a
         // tile, so the tree's focus never moves to it, and Backspace pressed while
@@ -292,16 +299,21 @@ export class WindowManager {
         // Normalize: managed windows don't survive a reload, so any
         // window-placeholder leaves restore their original content.
         for (const d of this.desktops.desktops) {
-            for (const leaf of d.tree.leaves()) {
-                if (leaf.content?.kind === PLACEHOLDER_KIND) {
-                    const p = leaf.content.props || {};
-                    if (p.originalKind) {
-                        d.tree.setLeafContent(leaf.id,
-                            { kind: p.originalKind, props: p.originalProps || {} },
-                            p.originalTitle || p.originalKind);
+            for (const tree of _desktopTrees(d)) {
+                for (const leaf of tree.leaves()) {
+                    if (leaf.content?.kind === PLACEHOLDER_KIND) {
+                        const p = leaf.content.props || {};
+                        if (p.originalKind) {
+                            tree.setLeafContent(leaf.id,
+                                { kind: p.originalKind, props: p.originalProps || {} },
+                                p.originalTitle || p.originalKind);
+                        }
                     }
                 }
             }
+        }
+        if (this.pageSurfaces) {
+            for (const d of this.desktops.desktops) this._separatePages(d);
         }
         // A window-only kind is never in a tile, and a single kind is open
         // once, whatever the saved layout says.
@@ -384,7 +396,9 @@ export class WindowManager {
      *    `{ where: 'window',  windowId, idx, desktopIdx }`
      *    `{ where: 'tab',     desktopIdx, leafId, idx }`
      *    `{ where: 'archive', desktopIdx, leafId, page, idx }` — a tab of a
-     *      top-nav page the tile has switched away from (`pageTabs`). */
+     *      top-nav page the tile has switched away from (`pageTabs`).
+     *    `{ where: 'surface', desktopIdx, page, leafId, idx }` — a tab of a
+     *      page surface the desktop has switched away from (`pageSurfaces`). */
     findInstance(kind, props = {}) {
         const on = this.taxonomy.isSinglePerDesktop(kind) ? this.desktops.activeIdx : null;
         return this._findInstance(kind, props, on);
@@ -415,6 +429,14 @@ export class WindowManager {
                 for (const [page, arc] of this._archivedPages(leaf)) {
                     const idx = arc.tabs.findIndex(same);
                     if (idx >= 0) return { where: 'archive', desktopIdx, leafId: leaf.id, page, idx };
+                }
+            }
+        }
+        for (const [desktopIdx, d] of desktops) {
+            for (const [page, tree] of Object.entries(d.surfaces || {})) {
+                for (const leaf of tree.leaves()) {
+                    const idx = (leaf.tabs || []).findIndex(same);
+                    if (idx >= 0) return { where: 'surface', desktopIdx, page, leafId: leaf.id, idx };
                 }
             }
         }
@@ -543,6 +565,9 @@ export class WindowManager {
             try { rec.window.show(); } catch (err) { console.warn('[wm] reveal: show failed', err); }
             return true;
         }
+        // A tab of another page's surface: that surface comes on screen
+        // first, and then the leaf is in the desktop's tree like any other.
+        if (loc.where === 'surface') this._enterSurface(loc.desktopIdx, loc.page);
         const tree = this.desktops.desktops[loc.desktopIdx]?.tree;
         const leaf = tree?.get(loc.leafId);
         if (!leaf || leaf.kind !== 'leaf') return false;
@@ -652,9 +677,11 @@ export class WindowManager {
         }
         for (const d of this.desktops.desktops) {
             const add = adder(d.tree === tree);
-            for (const leaf of d.tree.leaves()) {
-                if (d.tree === tree && leaf.id === leafId) continue;
-                (leaf.tabs || []).forEach(add);
+            for (const t of _desktopTrees(d)) {
+                for (const leaf of t.leaves()) {
+                    if (t === tree && leaf.id === leafId) continue;
+                    (leaf.tabs || []).forEach(add);
+                }
             }
         }
         return keys;
@@ -714,7 +741,7 @@ export class WindowManager {
     _pruneRestoredTabs(keep) {
         let dropped = false;
         for (const [desktopIdx, d] of this.desktops.desktops.entries()) {
-            const tree = d.tree;
+          for (const tree of _desktopTrees(d)) {
             for (const leaf of tree.leaves()) {
                 const tabs = Array.isArray(leaf.tabs) ? leaf.tabs : [];
                 let active = leaf.activeTabIdx || 0;
@@ -738,6 +765,7 @@ export class WindowManager {
                     if (spawned) this._seedHome(tree, spawned);
                 }
             }
+          }
         }
         for (const [desktopIdx, d] of this.desktops.desktops.entries()) {
             for (const leaf of d.tree.leaves()) {
@@ -1096,6 +1124,7 @@ export class WindowManager {
     navigateActiveTab(leafId, kind, props = {}) {
         if (this._openWindowOnly(kind, props)) return;
         if (this.revealInstance(kind, props)) return;
+        if (this._toPageOf(kind)) return this.openInPrimary(kind, props);
         const tree = this._tree();
         const leaf = tree.get(leafId);
         if (!leaf || leaf.kind !== 'leaf') {
@@ -1153,6 +1182,7 @@ export class WindowManager {
     openInLeaf(leafId, kind, props = {}) {
         if (this._openWindowOnly(kind, props)) return;
         if (this.revealInstance(kind, props)) return;
+        if (this._toPageOf(kind)) return this.openInPrimary(kind, props);
         const tree = this._tree();
         const leaf = tree.get(leafId);
         if (!leaf || leaf.kind !== 'leaf') {
@@ -1171,6 +1201,7 @@ export class WindowManager {
      *  and updates the window's title. */
     openInWindow(winId, kind, props = {}) {
         if (this._openWindowOnly(kind, props)) return;
+        if (this._toPageOf(kind)) return this.openInPrimary(kind, props);
         const rec = this._windowToLeaf.get(winId);
         if (!rec) { this.openInPrimary(kind, props); return; }
         // A window is on its own desktop, even a free-floating one drawn over
@@ -1220,7 +1251,11 @@ export class WindowManager {
      *  content leaf and canonicalize so the panels wrap it. */
     openInPrimary(kind, props = {}) {
         if (this._openWindowOnly(kind, props)) return;
+        // An instance that exists is revealed where it is, on whichever
+        // desktop and page surface holds it. Otherwise another page's kind puts
+        // that page's surface on screen, and opens in ITS primary tile.
         if (this.revealInstance(kind, props)) return;
+        this._toPageOf(kind);
         const tree = this._tree();
         let leafId = tree.primaryLeafId();
         let spawned = false;
@@ -1236,10 +1271,16 @@ export class WindowManager {
         // the leaf has no current page (just-spawned content leaf) —
         // the default branch initializes a fresh single tab.
         const leaf = tree.get(leafId);
-        const currentTopNav = leaf?.content?.kind
+        const leafTopNav = leaf?.content?.kind
             ? this.taxonomy.topNavFor(leaf.content.kind) || null
             : null;
         const targetTopNav  = this.taxonomy.topNavFor(kind) || kind;
+        // Under page surfaces a tile keeps no page archive of its own: the
+        // desktop keeps each page's whole surface instead, and a tile only ever
+        // trades content of its page for a kind of no page (the root, a
+        // welcome) or back. So such a trade archives nothing and restores
+        // nothing; within its page a tile navigates as it always has.
+        const currentTopNav = (this.pageSurfaces && leafTopNav !== targetTopNav) ? null : leafTopNav;
         const title = _tabTitle(kind, props);
         this._swapToPage(tree, leafId,
             { kind, props, title },
@@ -1263,6 +1304,170 @@ export class WindowManager {
         this.renderer.render();
         this._persist();
         this._notifyChange();
+    }
+
+    // ── Page surfaces (`createShell({ pageSurfaces: true })`) ───────
+    //
+    // A desktop shows ONE top-nav page at a time. Its tile tree is that page's
+    // surface: the tiles, splits and tabs the user arranged for it, and the
+    // windows standing on them. Every other page the desktop has shown keeps
+    // its surface whole in `desktop.surfaces`, and opening a kind of that page
+    // (the rail, the palette, `navigate`, any open verb) puts it back on screen
+    // before the kind opens. So two pages never share the screen, a split only
+    // ever divides the page it is in (the new pane is the taxonomy root, which
+    // belongs to no page), and coming back to a page restores it as it was.
+    //
+    // The PANELS are not part of a surface. They are the desktop's: their
+    // open/closed flags and shares are on the desktop already, and their
+    // LEAVES move from the surface left to the one entered, so the renderer
+    // keeps their mounted bodies (it caches a tile by leaf id) and a navigator,
+    // an inspector or a console survives a page switch with everything in it.
+    //
+    // Windows: one holding a kind of the page left goes back into that page's
+    // tiles first (Back to tile), the way a reload puts it there, and opens as
+    // a tab of the page when it comes back. A window of no page (a tool) stays
+    // where it is.
+
+    /** The top-nav page the active desktop shows: its surface's page with
+     *  page surfaces, else the page of the primary tile. Null for none. */
+    activePage() {
+        if (this.pageSurfaces) return this.desktops.active().page ?? null;
+        return this._pageOfTree(this._tree());
+    }
+
+    /** The page of `kind`, or null for a kind under no top-nav page. */
+    _pageOf(kind) {
+        return kind ? (this.taxonomy.topNavFor(kind) || null) : null;
+    }
+
+    /** The page of the first of `specs` (tab specs) that belongs to one. */
+    _pageOfSpecs(specs) {
+        for (const t of specs || []) {
+            const page = this._pageOf(t?.kind);
+            if (page) return page;
+        }
+        return null;
+    }
+
+    /** The page `tree` shows: its primary tile's, else the first tile's that
+     *  has one. A tile holding a floated window's place stands for that
+     *  window's content. */
+    _pageOfTree(tree) {
+        const kindOf = (leaf) => {
+            const c = leaf?.content;
+            return c?.kind === PLACEHOLDER_KIND ? c.props?.originalKind : c?.kind;
+        };
+        const primary = tree.primaryLeafId();
+        const own = primary ? this._pageOf(kindOf(tree.get(primary))) : null;
+        if (own) return own;
+        for (const leaf of tree.leaves()) {
+            const page = this._pageOf(kindOf(leaf));
+            if (page) return page;
+        }
+        return null;
+    }
+
+    /** Put the page of `kind` on the active desktop's screen. Answers whether
+     *  another page's surface was left for it, in which case every tile id
+     *  the caller held is gone and it opens `kind` in the primary tile. A
+     *  desktop showing no page yet takes this one without switching. */
+    _toPageOf(kind) {
+        if (!this.pageSurfaces) return false;
+        const page = this._pageOf(kind);
+        if (!page) return false;
+        return this._enterSurface(this.desktops.activeIdx, page);
+    }
+
+    /** Show `page`'s surface on desktop `idx`, keeping the one it showed.
+     *  Quiet: the caller renders and notifies. Answers whether the surface
+     *  changed. */
+    _enterSurface(idx, page) {
+        const d = this.desktops.desktops[idx];
+        if (!d || !page || d.page === page) return false;
+        if (!d.page) { d.page = page; return false; }
+        this._quietDepth += 1;
+        try {
+            this._settleWindows(idx, d.page);
+            const leaving = d.tree;
+            // A surface holding nothing of its page any more (its tiles show the
+            // root or a kind of no page, a welcome, say) is not worth keeping:
+            // it becomes the arriving page's surface when that page has none,
+            // and is let go when it has one.
+            if (!this._pageOfTree(leaving) && !d.surfaces[page]) {
+                d.page = page;
+                return false;
+            }
+            const keepLeaving = !!this._pageOfTree(leaving);
+            this._recordPanelShares(leaving, d);
+            const carried = _panelLeaves(leaving);
+            _detachPanels(leaving, carried);
+            for (const leaf of Object.values(carried)) leaving.nodes.delete(leaf.id);
+            if (keepLeaving) d.surfaces[d.page] = leaving;
+            let arriving = d.surfaces[page];
+            delete d.surfaces[page];
+            if (!arriving) {
+                arriving = new TileTree();
+                arriving.setRoot(makeLeaf(this._rootLeaf()));
+            }
+            d.tree = arriving;
+            d.page = page;
+            this._canonicalize(arriving, d, carried);
+            if (idx === this.desktops.activeIdx) this.renderer.tree = arriving;
+        } finally {
+            this._quietDepth -= 1;
+        }
+        this._persist();
+        return true;
+    }
+
+    /** Every window on desktop `idx` holding a kind of `page` goes back into
+     *  that page's tiles, before its surface is put away. */
+    _settleWindows(idx, page) {
+        for (const [winId, rec] of [...this._windowToLeaf]) {
+            if (rec.desktopIdx !== idx) continue;
+            if (!_windowTabSpecs(rec).some((t) => this._pageOf(t?.kind) === page)) continue;
+            this.bringBackWindow(winId);
+        }
+    }
+
+    /** A layout saved before page surfaces were on, or by hand, can hold
+     *  several pages on one desktop. Each page's tiles go to its own surface
+     *  (their tabs joining that surface's primary tile), the desktop showing
+     *  the page of its primary tile; and the tiles' own page archives
+     *  (`pageTabs`), which a page surface replaces, are dropped. */
+    _separatePages(d) {
+        for (const tree of _desktopTrees(d)) {
+            for (const leaf of tree.leaves()) leaf.pageTabs = {};
+        }
+        if (!d.page) d.page = this._pageOfTree(d.tree);
+        if (!d.page) return;
+        const tree = d.tree;
+        for (const leaf of [...tree.leaves()]) {
+            const kind = leaf.content?.kind;
+            if (!kind || kind.startsWith('panel:')) continue;
+            const page = this._pageOf(kind);
+            if (!page || page === d.page) continue;
+            let surface = d.surfaces[page];
+            const fresh = !surface || !surface.primaryLeafId();
+            if (fresh) {
+                surface = new TileTree();
+                surface.setRoot(makeLeaf(this._rootLeaf()));
+                d.surfaces[page] = surface;
+            }
+            const dest = surface.primaryLeafId();
+            const tabs = leaf.tabs?.length ? leaf.tabs : [{ ...leaf.content, title: leaf.title }];
+            tabs.forEach((tab, i) => {
+                const content = { kind: tab.kind, props: tab.props || {} };
+                if (i === 0 && fresh) surface.setLeafContent(dest, content, tab.title || tab.kind);
+                else surface.appendLeafTab(dest, content, tab.title || tab.kind);
+            });
+            tree.close(leaf.id);
+        }
+        if (!tree.rootId) tree.setRoot(makeLeaf(this._rootLeaf()));
+        if (!tree.leaves().some((l) => !String(l.content?.kind || '').startsWith('panel:'))) {
+            const spawned = this._spawnContentLeaf(tree);
+            if (spawned) this._seedHome(tree, spawned);
+        }
     }
 
     // ── Split / close / focus / move ────────────────────────────────
@@ -1305,6 +1510,9 @@ export class WindowManager {
     splitLeafWith(leafId, dir, kind, props = {}, title = '') {
         if (this._openWindowOnly(kind, props)) return null;
         if (this.revealInstance(kind, props)) return null;
+        // A split divides a tile of the page on screen: another page's kind
+        // opens on its own surface instead, beside nothing.
+        if (this._toPageOf(kind)) { this.openInPrimary(kind, props); return null; }
         const tree = this._tree();
         leafId = this._contentLeafId(leafId);
         const src = leafId ? tree.get(leafId) : null;
@@ -3325,6 +3533,10 @@ export class WindowManager {
         // A desktop holds a `single: 'desktop'` kind once.
         if (this.desktopMoveRefusal({ windowId }, targetIdx)) return;
         this.desktops.ensureCount(targetIdx + 1);
+        // Page surfaces: a window of a page stands on that page's surface of
+        // the target desktop.
+        const windowPage = this._pageOfSpecs(_windowTabSpecs(rec));
+        if (windowPage) this._enterSurface(targetIdx, windowPage);
         rec.desktopIdx = targetIdx;
         if (!rec.homeContainer && rec.homeLeafId) {
             const target = this.desktops.desktops[targetIdx]?.tree;
@@ -3778,7 +3990,7 @@ export class WindowManager {
      *
      *  Existing panel leaves are detached + re-attached (same id), so the
      *  renderer cache keeps the mounted content (nav filter state, etc.). */
-    _canonicalize(tree, desktop) {
+    _canonicalize(tree, desktop, carried = null) {
         // 0. Which panels this tree shows: the ones the user has open AND the
         //    primary content offers. A withheld panel is left out without
         //    forgetting it was open (`desktop.panels` is not written).
@@ -3787,8 +3999,12 @@ export class WindowManager {
             open[side] = !!desktop.panels[side] && this.getPanelAvailability(side, tree).available;
         }
 
-        // 1. Find existing panel leaves.
-        const panel = _panelLeaves(tree);
+        // 1. Find existing panel leaves. `carried` are the panel leaves of the
+        //    page surface just left (`_enterSurface`): they take the place of
+        //    any this tree holds, so the panels' mounted bodies survive the
+        //    switch. They are not in this tree, and were measured there.
+        const own = _panelLeaves(tree);
+        const panel = carried || own;
 
         // 2. Measure each panel that has no share yet BEFORE anything is
         //    detached. Detaching collapses the panel's split, so this is the
@@ -3799,31 +4015,13 @@ export class WindowManager {
         //    held back (step 5), and only a drag (_onSplitResized) changes
         //    what the user asked for. A tree a structural change has just
         //    left non-canonical measures nothing; see _recordPanelShares.
-        this._recordPanelShares(tree, desktop);
+        if (!carried) this._recordPanelShares(tree, desktop);
         const share = desktop.panelShares;
 
         // 3. Detach each panel leaf from its current parent. (We don't
         //    use tree.close because that deletes the node; we want to
         //    preserve identity so the renderer keeps the mounted body.)
-        const detach = (leaf) => {
-            if (!leaf) return;
-            const pid = leaf.parentId;
-            if (!pid) {
-                tree.rootId = null;
-                leaf.parentId = null;
-                return;
-            }
-            const parent = tree.get(pid);
-            if (!parent) return;
-            const idx = parent.children.indexOf(leaf.id);
-            if (idx >= 0) {
-                parent.children.splice(idx, 1);
-                parent.sizes.splice(idx, 1);
-            }
-            leaf.parentId = null;
-            tree._collapse(parent);
-        };
-        detach(panel.left); detach(panel.right); detach(panel.bottom);
+        _detachPanels(tree, own);
 
         // 4. The content subtree may legitimately be empty — the user
         //    is allowed to close the last main tile and let panels
@@ -4162,6 +4360,11 @@ export class WindowManager {
         // the target already has stays where it is.
         if (this.desktopMoveRefusal({ leafId: focused.id }, idx)) return;
         this.desktops.ensureCount(idx + 1);
+        // Page surfaces: the pane belongs to the page on screen, so it lands
+        // on that page's surface of the target desktop.
+        if (this.pageSurfaces && this.desktops.active().page) {
+            this._enterSurface(idx, this.desktops.active().page);
+        }
         const target = this.desktops.desktops[idx];
         // C40. THE PANE'S TABS JOIN THE TARGET'S PRIMARY LEAF, ALL OF THEM. It
         // used to `setLeafContent` the ACTIVE tab over that leaf — which threw
@@ -4454,6 +4657,9 @@ export class WindowManager {
      *  source leaf — closing the window just disposes the content. */
     _navigateWindow(kind, props) {
         if (this.revealInstance(kind, props)) return;
+        // A window stands on a page's surface: another page's kind opens its
+        // window over that page.
+        this._toPageOf(kind);
         const size = this.taxonomy.windowSize?.(kind);
         // A window-only kind's window maximises as any window does and never
         // snaps into a tile (STORY-0127)
@@ -4595,6 +4801,7 @@ export class WindowManager {
     openInTabFromContext(ctx, kind, props = {}, transient = false, background = false) {
         if (this._openWindowOnly(kind, props)) return;
         if (this.revealInstance(kind, props)) return;
+        if (this._toPageOf(kind)) return this.openInPrimary(kind, props);
         // Managed-window content: just open in the window — managed
         // windows aren't tabbed (one window = one content).
         if (ctx?.windowId && this._windowToLeaf.has(ctx.windowId)) {
@@ -4632,6 +4839,7 @@ export class WindowManager {
     openInTabInPrimary(kind, props = {}, transient = false, background = false) {
         if (this._openWindowOnly(kind, props)) return;
         if (this.revealInstance(kind, props)) return;
+        if (this._toPageOf(kind)) return this.openInPrimary(kind, props);
         const tree = this._tree();
         const leafId = tree.primaryLeafId();
         // No content tile on this desktop (e.g. a panels-only layout) —
@@ -4650,6 +4858,36 @@ export class WindowManager {
     }
 }
 
+
+/** Every tile tree of desktop `d`: the one on screen, then each page surface
+ *  it keeps (`pageSurfaces`). */
+function _desktopTrees(d) {
+    return [d.tree, ...Object.values(d.surfaces || {})];
+}
+
+/** Take `panel`'s leaves (`_panelLeaves`) out of `tree`'s structure, keeping
+ *  their identity: a panel's split collapses around it and the leaf is left
+ *  unparented, so the renderer still holds its mounted body. */
+function _detachPanels(tree, panel) {
+    for (const leaf of [panel.left, panel.right, panel.bottom]) {
+        if (!leaf) continue;
+        const pid = leaf.parentId;
+        if (!pid) {
+            tree.rootId = null;
+            leaf.parentId = null;
+            continue;
+        }
+        const parent = tree.get(pid);
+        if (!parent) continue;
+        const idx = parent.children.indexOf(leaf.id);
+        if (idx >= 0) {
+            parent.children.splice(idx, 1);
+            parent.sizes.splice(idx, 1);
+        }
+        leaf.parentId = null;
+        tree._collapse(parent);
+    }
+}
 
 /** The panel leaves of `tree`, by side. */
 function _panelLeaves(tree) {

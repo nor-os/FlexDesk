@@ -123,6 +123,15 @@ import { openForm } from '../ui/components/modal.js';
  *                                      whose new tab has nowhere useful to go
  *                                      passes `false`. `wm.newTab()` is there
  *                                      either way.
+ * @param {boolean}    [cfg.pageSurfaces] Whether each desktop shows one
+ *                                      top-nav page at a time. Opening a kind
+ *                                      of another page puts that page's whole
+ *                                      surface on screen (its tiles, splits and
+ *                                      windows) and keeps the one left for
+ *                                      when it comes back; a split divides the
+ *                                      page it is in; the panels stay as they
+ *                                      are. `wm.activePage()` names the page
+ *                                      and the rail lights it. Default off.
  * @param {object}     [cfg.desktopBar] C40. `{ switchOnAdd?: boolean }` — the
  *                                      bar's `+` also puts the new desktop on
  *                                      screen. Default off: `+` only adds, as
@@ -186,6 +195,7 @@ export async function createShell({
     floatActiveTab = false,
     tabLayout = null,
     newTabButton = true,
+    pageSurfaces = false,
     desktopBar = {},
     menuBar: menuBarCfg = null,
     chrome = {},
@@ -258,6 +268,7 @@ export async function createShell({
         floatActiveTab,
         tabLayout,
         newTabButton,
+        pageSurfaces,
         // `ctx` is the delivery vehicle for leaf-mounted chrome: tile_renderer
         // spreads it into every content factory, which is how the breadcrumb
         // gets `taxonomy` + `rootCrumb` without a content factory knowing they
@@ -416,14 +427,15 @@ function mountTopNav(hostEl, taxonomy, wm) {
     };
 }
 
-/** The page the primary tile is on. topNavFor maps an entity kind onto its owning
- *  top-nav category. Falls back to the primary kind so unknown kinds at least try
- *  to match a button. */
+/** The page on screen: `wm.activePage()`, which is the desktop's page surface
+ *  under `pageSurfaces` and the primary tile's page otherwise. Without a page,
+ *  the primary kind, so an unknown kind at least tries to match a button. */
 function activePageKind(wm) {
+    const page = wm.activePage();
+    if (page) return page;
     const tree = wm.desktops.active().tree;
     const primaryId = tree.primaryLeafId();
-    const primaryKind = primaryId ? tree.get(primaryId)?.content?.kind : null;
-    return wm.taxonomy.topNavFor(primaryKind) || primaryKind;
+    return primaryId ? tree.get(primaryId)?.content?.kind ?? null : null;
 }
 
 function syncTopNav(hostEl, wm) {

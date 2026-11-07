@@ -5,8 +5,14 @@
  * `resolvePath`); this module only names it.
  *
  * Each desktop = { id, label, tree (TileTree), windows ([]), panels,
- * panelShares }.
+ * panelShares, page, surfaces }.
  * Switching desktops swaps the active tree under the renderer.
+ *
+ * `page` and `surfaces` are read only under `createShell({ pageSurfaces: true })`
+ * (see `WindowManager._enterSurface`): `page` is the top-nav page the desktop
+ * shows, or null before one was opened on it, and `surfaces` maps every other
+ * page the desktop has shown to its tile tree, kept without the panel tiles,
+ * which belong to the desktop rather than to a page.
  */
 
 import { TileTree, makeLeaf } from './tile_tree.js';
@@ -75,6 +81,10 @@ function _makeDesktop(label, seed, panelDefaults = DEFAULT_PANEL_STATE) {
         // C40. Both unset is a desktop exactly as it always was.
         group: null,
         fixed: false,
+        // Page surfaces: the page on screen, and the tile tree of each other
+        // page this desktop has shown.
+        page: null,
+        surfaces: {},
     };
 }
 
@@ -191,6 +201,13 @@ export class DesktopManager {
                 // byte-for-byte the blob it always was.
                 ...(d.group ? { group: d.group } : {}),
                 ...(d.fixed ? { fixed: true } : {}),
+                // Page surfaces, written only when there is one, like the keys
+                // above.
+                ...(d.page ? { page: d.page } : {}),
+                ...(Object.keys(d.surfaces).length
+                    ? { surfaces: Object.fromEntries(Object.entries(d.surfaces)
+                        .map(([page, tree]) => [page, tree.serialize()])) }
+                    : {}),
                 // windows serialized at WM level since we don't own
                 // managed-window state in this module.
             })),
@@ -218,7 +235,8 @@ export class DesktopManager {
      *
      * And strict is not hostile to an old blob. A key the loader has always given
      * a default may be absent: a desktop's `id`, `label`, `tree` and `panels`, the
-     * keys later releases added (`panelShares`, `group`, `fixed`), and a leaf's
+     * keys later releases added (`panelShares`, `group`, `fixed`, `page`,
+     * `surfaces`), and a leaf's
      * `tabs` and `pageTabs`. What `serialize()` has always written and the loader
      * cannot do without (`desktops`, a split's `dir`, `children` and `sizes`) may
      * not.
@@ -243,6 +261,18 @@ export class DesktopManager {
             // is not one, so the panel opens at its default.
             _expect(raw.panelShares == null || _isRecord(raw.panelShares),
                 `${at}.panelShares`, 'an object', raw.panelShares);
+            _expect(raw.page == null || (typeof raw.page === 'string' && raw.page !== ''),
+                `${at}.page`, 'a page kind', raw.page);
+            _expect(raw.surfaces == null || _isRecord(raw.surfaces),
+                `${at}.surfaces`, 'an object of page -> tree', raw.surfaces);
+            const surfaces = {};
+            for (const [page, tree] of Object.entries(raw.surfaces || {})) {
+                const where = `${at}.surfaces[${JSON.stringify(page)}]`;
+                // `null` is a page whose content tiles were all closed.
+                _expect(tree == null || (_isRecord(tree) && _isRecord(tree.root)),
+                    where, '{ root }, or null for a page with no tiles', tree);
+                surfaces[page] = tree ? TileTree.deserialize(tree, where) : new TileTree();
+            }
             return {
                 id: raw.id || `desk-${Math.random().toString(36).slice(2,8)}`,
                 label: raw.label || '?',
@@ -256,6 +286,8 @@ export class DesktopManager {
                 panelShares: { ...(raw.panelShares || {}) },
                 group: raw.group || null,
                 fixed: !!raw.fixed,
+                page: raw.page || null,
+                surfaces,
             };
         });
         // Empty tree → seed with the taxonomy root so the desktop is usable.

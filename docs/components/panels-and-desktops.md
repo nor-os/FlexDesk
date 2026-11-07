@@ -11,6 +11,7 @@ The shell's left, right and bottom panels, and its virtual desktops. A kind says
 - [A navigation panel you drive yourself: `mountNavPanel` (0.17.0)](#a-navigation-panel-you-drive-yourself-mountnavpanel-0170)
 - [Your desktops beside the app's (0.10.0)](#your-desktops-beside-the-apps-0100)
 - [A page that opens on the desktop you are on (0.17.17)](#a-page-that-opens-on-the-desktop-you-are-on-01717)
+- [One page on screen at a time: `pageSurfaces` (0.18.3)](#one-page-on-screen-at-a-time-pagesurfaces-0183)
 - [A saved layout that cannot be read (0.17.14)](#a-saved-layout-that-cannot-be-read-01714)
 
 ## Panels a page does not offer (0.17.0)
@@ -148,6 +149,58 @@ desktop 1 shows its own; clicking it again reveals desktop 2's. Each desktop's
 instance is saved with its layout and restored there. The details, and what
 counts as a window on a desktop, are in
 [Shell and navigation](shell.md#a-kind-that-exists-once-per-desktop-single-desktop-01717).
+
+## One page on screen at a time: `pageSurfaces` (0.18.3)
+
+With `createShell({ pageSurfaces: true })` a desktop shows one top-nav page at a
+time. Everything arranged for that page is its *surface*: its tiles, their splits
+and tabs, and the windows standing on them. Opening a kind of another page, from
+the rail, the palette, `navigate` or any open verb, puts that page's surface on
+screen and keeps the one left behind. Coming back to the page restores it as it
+was.
+
+```js
+await createShell({
+    // …everything above…
+    pageSurfaces: true,
+});
+wm.activePage();   // 'model': the page the active desktop shows, or null before one opened
+```
+
+What that gives the user:
+
+- **Two pages never share the screen.** A rail click no longer swaps only the
+  focused tile: the whole surface goes, and the other page's surface comes.
+- **A split divides the page it is in.** The new pane holds the taxonomy root,
+  which belongs to no page, so the page does not change and `activePage()`, the
+  rail and a navigator that follows the page all stay where they were. A split
+  that names another page's kind (`navigate(kind, props, { dest: 'split-h' })`)
+  opens that page on its own surface instead, beside nothing.
+- **The panels are the desktop's, not a page's.** Their open or closed state and
+  their sizes stay as they are across a page switch, and the panel tiles
+  themselves move to the arriving surface, so whatever the left, right and
+  bottom panels have mounted (a navigator, a chat, a console) stays mounted.
+- **Windows stand on a surface.** A window holding a kind of the page you leave
+  goes back into that page's tiles first, as Back to tile does, and is a tab
+  there when you return. A window of no page, such as a `windowOnly` tool,
+  stays open.
+- **A kind of no page** (the root, a welcome) opens in the surface on screen. A
+  surface left holding nothing of its page any more becomes the next page's
+  surface when that page has none, and is let go when it has one.
+- **Each desktop has its own surfaces.** A `single: true` kind kept in another
+  desktop's surface is revealed there: that desktop and that surface come on
+  screen. *Move to desktop* puts a pane on the same page's surface of the
+  target desktop.
+
+A tile keeps no page archive of its own under `pageSurfaces`: the per-tile
+`pageTabs` that let one tile switch between pages are replaced by the desktop's
+surfaces. A saved layout holding several pages on one desktop is separated on
+load: the desktop shows the page of its primary tile, every other page's tiles go
+to that page's surface, and the tiles' own page archives are dropped. The
+surfaces are saved with the layout, as `page` and `surfaces` on each desktop.
+
+Without the option nothing changes, and `activePage()` answers the primary tile's
+page.
 
 ## A saved layout that cannot be read (0.17.14)
 

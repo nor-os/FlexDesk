@@ -30,6 +30,7 @@ await createShell({
     floatActiveTab: true,    // floating a tile takes the tab on screen, not the whole pane
     tabLayout: 'header',     // tabs in the tile header, in place of its title, with a + (0.8.0)
     newTabButton: false,     // …and without the + (0.8.1)
+    pageSurfaces: true,      // one page on screen per desktop; a split stays in its page (0.18.3)
     chrome: {
         topNav: document.getElementById('nav'),
         zoom:   document.getElementById('status-bar'),   // content zoom, 50–200%

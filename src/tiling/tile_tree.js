@@ -470,6 +470,10 @@ export class TileTree {
         const cur = tabs[idx];
         if (!cur) return false;
         cur.props = { ...(cur.props || {}), ...(patch || {}) };
+        // `content` mirrors the active tab, and is saved with the layout: left
+        // behind, a saved surface (`pageSurfaces`) kept the props this write
+        // took away, and a reload put them back.
+        if (n.content && n.content.kind === cur.kind) n.content = { ...n.content, props: { ...cur.props } };
         return true;
     }
 

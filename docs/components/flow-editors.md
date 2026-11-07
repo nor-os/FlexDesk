@@ -81,6 +81,26 @@ be used is disabled and its reason is shown next to it, not only in a tooltip.
 `extra` holds the editor's own fields (a port shown as a setting) and notes,
 placed with `after: '<key>'` or `at: 'start'`.
 
+### A flat panel: `variant: 'sheet'` (0.18.2)
+
+`createSettingsPanel({ ..., variant: 'sheet' })` draws the panel flat, as one
+section of a page of them: no fill and no icon chip, the title and the
+description in a margin at the left, the id line, findings, slots and fields
+beside them. Two sheets in a row are split by a rule, so a settings page built of
+several panels (one per subject: *Run*, *Solver*, *Metadata*) reads as one form.
+Narrower than 560px the margin goes above the fields. Everything else is the
+card's: `show()`, the repaints, focus, findings and slots behave the same.
+`variant` is `'card'` (the default) or `'sheet'`; any other value is refused when
+the panel is created.
+
+```js
+for (const section of sections) {
+    const panel = createSettingsPanel({ widgets, host: page, variant: 'sheet', onChange: section.write });
+    panel.show({ title: section.title, description: section.hint, type: { config_schema: section.schema },
+                 value: section.read() });
+}
+```
+
 **The widgets.** A schema type with no `x-ui-widget` draws its plain control: an
 `enum` a select (writing the enum's own value, so a number stays a number), a
 string a text box, a number a number box, a boolean a checkbox, an object with

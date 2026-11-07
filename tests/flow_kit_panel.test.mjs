@@ -18,6 +18,9 @@
  *       with their reason on screen; read-only says why and disables all
  *   §7  rename, the value picker through the consumer's provider, columns
  *   §8  show() for another step does not steal focus back into the panel
+ *   §9  variant 'sheet': the title and the description in the margin, the
+ *       rest beside them; a repaint keeps that and puts focus back; any other
+ *       variant is refused
  *
  *     node tests/flow_kit_panel.test.mjs
  */
@@ -274,6 +277,34 @@ t.section('§8 show() for another step');
     t.ok('clear() empties the panel', el.childNodes.length === 0 && panel.stepId === null);
     panel.destroy();
     t.ok('destroy() takes it off the page', !el.isConnected);
+}
+
+t.section('§9 variant: sheet');
+{
+    const { panel, el, changes } = setup({ variant: 'sheet' });
+    showStep(panel, step({ url: 'https://x' }));
+    t.ok('the sheet is a class on the panel', el.classList.contains('twm-flow-panel--sheet'));
+    const margin = el.querySelector('.twm-flow-panel__sheet > .twm-flow-panel__margin');
+    const body = el.querySelector('.twm-flow-panel__sheet > .twm-flow-panel__body');
+    t.check('the margin holds the header and the description',
+            [...margin.children].map((c) => c.className), ['twm-flow-panel__head', 'twm-flow-panel__description']);
+    t.check('the body holds the id line, the findings, the slots and the fields',
+            [...body.children].map((c) => c.className.split(' ')[0]),
+            ['twm-flow-panel__id', 'twm-flow-panel__findings', 'twm-flow-panel__slot', 'twm-flow-panel__fields', 'twm-flow-panel__slot']);
+    t.typeInto(fieldEl(el, 'label_hint').querySelector('input'), 'hello');
+    t.check('a change is reported as on a card', changes, [['fetch', 'label_hint', 'hello']]);
+    const sel = fieldEl(el, 'method').querySelector('select');
+    sel.focus();
+    t.change(sel, '2');
+    t.ok('a reshape keeps the sheet layout', el.querySelector('.twm-flow-panel__body [data-field="body"]') !== null);
+    t.ok('and puts focus back', document.activeElement === fieldEl(el, 'method').querySelector('select'));
+    const card = setup();
+    showStep(card.panel, step({}));
+    t.ok('a card has no margin', card.el.querySelector('.twm-flow-panel__margin') === null
+         && !card.el.classList.contains('twm-flow-panel--sheet'));
+    t.throws('any other variant is refused, by name',
+             () => createSettingsPanel({ widgets: createWidgetRegistry(), variant: 'flat' }),
+             /variant is 'card' or 'sheet', not "flat"/);
 }
 
 t.done();

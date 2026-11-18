@@ -1,5 +1,21 @@
 ﻿# Changelog
 
+## 0.19.1 (2026-11-18)
+
+A patch release with one fix.
+
+### Fixed
+
+- [A managed window's content keeps its bar](docs/components/layout-widgets.md#a-managed-windows-content-keeps-its-bar-0191): a `ManagedWindow`'s own `.twm-managed-window__resize` edges and corners are not cover when an overlay scrollbar checks what sits over its track, so a scrolling content that fills a resizable managed window shows its bar again; a menu over it still hides it (BUG-0059).
+
+### Changed behaviour
+
+None.
+
+### Removed or renamed exports
+
+None.
+
 ## 0.19.0 (2026-11-07)
 
 What two applications built twice. Every entry is an addition; nothing changes for a host that does not call it.

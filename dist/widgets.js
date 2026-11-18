@@ -11449,7 +11449,7 @@ function thumbGeometry(scrollSize, clientSize, scrollPos, trackLen) {
   return { size, pos };
 }
 function barCovered(el3, stacks) {
-  const passThrough = (h) => h.closest?.(".twm-autoscroll-layer") || h.closest?.(".twm-resize-handle");
+  const passThrough = (h) => h.closest?.(".twm-autoscroll-layer") || h.closest?.(".twm-resize-handle") || h.closest?.(".twm-managed-window__resize");
   return stacks.some((stack) => {
     const top = (stack || []).find((h) => !passThrough(h));
     return Boolean(top) && top !== el3 && !el3.contains(top);

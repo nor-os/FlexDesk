@@ -36,6 +36,18 @@ at the right edge of a window that was not maximized, so those panes had no
 scrollbar at all (BUG-0036). `tests/autoscroll_resize_handle_not_cover.test.mjs`
 holds it.
 
+## A managed window's content keeps its bar (0.19.1)
+
+A `ManagedWindow`'s own resize handles are not cover either: the 6px
+`.twm-managed-window__resize` edges and 12px corners it lays over its content
+when `canResize` is set are skipped like the window chrome's. A content that
+scrolls and fills the window (a details list, a log) shows its bar; a menu
+over it still hides it.
+
+Until 0.19.1 the south-east corner sat on the lower end of such a bar's track,
+so a resizable managed window whose content reached its bottom edge had no
+scrollbar (BUG-0059). The same test file holds it.
+
 ## `installOverlayScrollbar` is styled by flexdesk.css (0.17.7)
 
 `installOverlayScrollbar(container, { orientation })` (from

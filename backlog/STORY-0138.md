@@ -36,7 +36,7 @@ A generic widget, `secret`, chosen by `'x-ui-widget': 'secret'`:
 - [x] Stored / Not stored / Not known, Replace, Clear, Enter, Escape, refusals and throws, no keeper, read only, a value in the settings (§1, §3–§6).
 - [x] Every class it sets has a rule in the kit's section of `css/flexdesk.css` (`flow_kit_css.test.mjs`).
 - [x] Documented: `docs/components/flow-editors.md` (Secrets), the lane, canvas and outline editors' options.
-- [ ] Released as 0.20.0; the CHANGELOG names the widget and the `secrets` option.
+- [x] Released as 0.20.0; the CHANGELOG names the widget and the `secrets` option.
 - [ ] EcoSim's Source editor uses it (EcoSim EPIC-0174 story 5).
 
 ## History

@@ -75,6 +75,22 @@ var FLOW_STRINGS = Object.freeze({
   columnNames: "Column name, then Enter",
   noColumnsChosen: "None chosen",
   fieldFinding: "Fix this before publishing",
+  // ── the secret widget (0.20.0) ─────────────────────────────────────
+  secretChecking: "Checking\u2026",
+  secretStored: "Stored",
+  secretNotStored: "Not stored",
+  secretUnknown: "Not known",
+  secretSet: "Set",
+  secretReplace: "Replace",
+  secretClear: "Clear",
+  secretSave: "Save",
+  secretCancel: "Cancel",
+  secretPlaceholder: "Type it, then Enter",
+  secretRefused: "It could not be saved.",
+  secretStatusFailed: (why) => `Whether one is stored is not known: ${why}`,
+  secretNoKeeper: "This setting is a secret, and this editor has nowhere to keep one. Nothing is written into the settings.",
+  secretInSettings: "A value is written into the settings themselves, where a secret does not belong.",
+  secretRemoveFromSettings: "Remove from the settings",
   // ── reference chips and Insert a value ─────────────────────────────
   insertValue: "Insert a value",
   insertValueGlyph: "{ }",
@@ -1503,6 +1519,166 @@ function upstreamColumnsWidget(spec, value, ctx) {
     }).el
   };
 }
+function keeperAnswer(answer) {
+  if (answer === void 0 || answer === null || answer === true) return { ok: true, error: "" };
+  if (answer === false) return { ok: false, error: "" };
+  if (typeof answer === "object" && answer.ok === false) return { ok: false, error: String(answer.error ?? "") };
+  return { ok: true, error: "" };
+}
+function secretWidget(spec, value, ctx) {
+  const S = ctx.strings;
+  const keeper = ctx.secrets;
+  if (!keeper || typeof keeper.status !== "function" || typeof keeper.store !== "function" || typeof keeper.clear !== "function") {
+    return { el: el("p", "twm-flow-field__refusal", say(S, "secretNoKeeper")) };
+  }
+  const q = Object.freeze({ stepId: ctx.step?.id ?? null, step: ctx.step ?? null, key: ctx.key, path: ctx.path });
+  const root = el("div", "twm-flow-secret");
+  root.setAttribute("role", "group");
+  if (ctx.label) root.setAttribute("aria-label", ctx.label);
+  const line = el("div", "twm-flow-secret__line");
+  const status = el("span", "twm-flow-secret__status");
+  const actions = el("div", "twm-flow-secret__actions");
+  const editor = el("div", "twm-flow-secret__editor");
+  const box = textBox("", { type: "password", label: ctx.label, placeholder: spec["x-ui-placeholder"] ?? say(S, "secretPlaceholder") });
+  box.autocomplete = "new-password";
+  box.spellcheck = false;
+  const message = el("p", "twm-flow-secret__message");
+  message.setAttribute("role", "status");
+  message.hidden = true;
+  line.append(status, actions);
+  root.append(line, editor, message);
+  let state = "checking";
+  let editing = false;
+  let busy = false;
+  let destroyed = false;
+  let inSettings = value !== void 0 && value !== null && value !== "";
+  const tell = (text) => {
+    message.textContent = text || "";
+    message.hidden = !text;
+  };
+  const act = (label, onClick, opts = {}) => {
+    const b = button({ label, onClick, className: "twm-flow-secret__action", primary: Boolean(opts.primary) });
+    b.dataset.action = opts.id ?? "";
+    b.disabled = Boolean(ctx.readOnly || busy || opts.disabled);
+    return b;
+  };
+  async function run(work, after) {
+    busy = true;
+    paint();
+    let answer;
+    try {
+      answer = keeperAnswer(await work());
+    } catch (err) {
+      answer = { ok: false, error: String(err?.message || err) };
+    }
+    if (destroyed) return;
+    busy = false;
+    if (answer.ok) {
+      tell("");
+      after();
+    } else tell(answer.error || say(S, "secretRefused"));
+    paint();
+    if (editing) box.focus({ preventScroll: true });
+  }
+  function save() {
+    const text = box.value;
+    if (!text || busy || ctx.readOnly) return;
+    run(() => keeper.store(q, text), () => {
+      state = "stored";
+      editing = false;
+      box.value = "";
+    });
+  }
+  function cancel() {
+    if (busy) return;
+    editing = false;
+    box.value = "";
+    tell("");
+    paint();
+  }
+  const saveButton = act(say(S, "secretSave"), save, { id: "save", primary: true });
+  const cancelButton = act(say(S, "secretCancel"), cancel, { id: "cancel" });
+  editor.append(box, saveButton, cancelButton);
+  function paint() {
+    status.textContent = say(S, {
+      checking: "secretChecking",
+      stored: "secretStored",
+      empty: "secretNotStored",
+      unknown: "secretUnknown"
+    }[state]);
+    status.classList.toggle("twm-flow-secret__status--stored", state === "stored");
+    editor.hidden = !editing;
+    box.readOnly = Boolean(ctx.readOnly || busy);
+    saveButton.disabled = cancelButton.disabled = Boolean(ctx.readOnly || busy);
+    actions.replaceChildren();
+    if (!editing) {
+      actions.appendChild(act(say(S, state === "stored" ? "secretReplace" : "secretSet"), () => {
+        editing = true;
+        tell("");
+        paint();
+        box.focus({ preventScroll: true });
+      }, { id: "set", disabled: state === "checking" }));
+      if (state === "stored" || state === "unknown") {
+        actions.appendChild(act(
+          say(S, "secretClear"),
+          () => run(() => keeper.clear(q), () => {
+            state = "empty";
+          }),
+          { id: "clear" }
+        ));
+      }
+    }
+    if (inSettings) {
+      const note = el("p", "twm-flow-field__refusal twm-flow-secret__in-settings", say(S, "secretInSettings"));
+      note.appendChild(act(say(S, "secretRemoveFromSettings"), () => {
+        inSettings = false;
+        ctx.set(void 0);
+        paint();
+      }, { id: "remove-from-settings" }));
+      actions.appendChild(note);
+    }
+  }
+  box.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.stopPropagation();
+      save();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      cancel();
+    }
+  });
+  paint();
+  Promise.resolve().then(() => keeper.status(q)).then(
+    (known) => {
+      if (!destroyed) {
+        state = known ? "stored" : "empty";
+        paint();
+      }
+    },
+    (err) => {
+      if (!destroyed) {
+        state = "unknown";
+        tell(say(S, "secretStatusFailed", String(err?.message || err)));
+        paint();
+      }
+    }
+  );
+  return {
+    el: root,
+    focus: () => {
+      const target = editing ? box : actions.querySelector("button:not(:disabled)");
+      if (!target) return false;
+      target.focus({ preventScroll: true });
+      return true;
+    },
+    destroy: () => {
+      destroyed = true;
+      box.value = "";
+    }
+  };
+}
 var GENERIC_WIDGETS = Object.freeze({
   template: templateWidget,
   expression: expressionWidget,
@@ -1513,7 +1689,8 @@ var GENERIC_WIDGETS = Object.freeze({
   "enum-chips": enumChipsWidget,
   "choice-cards": choiceCardsWidget,
   "upstream-column": upstreamColumnWidget,
-  "upstream-columns": upstreamColumnsWidget
+  "upstream-columns": upstreamColumnsWidget,
+  secret: secretWidget
 });
 var DEFAULT_WIDGET_REFERENCES = Object.freeze({
   template: ["template"],
@@ -1642,6 +1819,7 @@ function renderField({ key, spec = {}, required = false }, value, ctx) {
     referenceMap: ctx.referenceMap,
     openValuePicker: ctx.openValuePicker ? ({ anchor, insert }) => ctx.openValuePicker({ anchor, insert, path, key }) : null,
     columns: ctx.columns || (() => null),
+    secrets: ctx.secrets ?? null,
     services: ctx.services,
     strings: S,
     describeContext: { ...ctx.describeContext || {}, field: path },
@@ -2198,6 +2376,7 @@ function createSettingsPanel({
   values = null,
   valuesNote = null,
   columns = null,
+  secrets = null,
   host = null,
   variant = "card"
 } = {}) {
@@ -2252,6 +2431,7 @@ function createSettingsPanel({
       path: "",
       openValuePicker: pickerFor(),
       columns: columns ? () => columns(spec?.step ?? null) : () => null,
+      secrets,
       describeContext: { step: spec?.step ?? null, type: spec?.type ?? null, services },
       set: setValue
     };
@@ -3662,6 +3842,7 @@ function createCanvasEditor(host, options = {}) {
     references = DEFAULT_REFERENCES,
     values = null,
     valuesNote = null,
+    secrets = null,
     summarise = null,
     summariseReads = null,
     flowSettings = null,
@@ -5736,6 +5917,7 @@ function createCanvasEditor(host, options = {}) {
       parameters: null
     }) : null,
     valuesNote,
+    secrets,
     host: aside
   });
   aside.appendChild(connectionBox);
@@ -8359,6 +8541,7 @@ function createOutlineEditor(host, options = {}) {
     blocks = {},
     values = null,
     valuesNote = null,
+    secrets = null,
     summarise = null,
     summariseReads = null,
     flowSettings = null,
@@ -8513,7 +8696,8 @@ function createOutlineEditor(host, options = {}) {
     onRename: (stepId, label) => onRename(stepId, label),
     onFocusLost: () => focusSelected(),
     values: values ? (q) => valuesFor(q) : null,
-    columns: null
+    columns: null,
+    secrets
   });
   function valuesFor({ stepId, field, key }) {
     const g = structuredClone(graph);
@@ -11066,6 +11250,7 @@ function createLaneEditor(host, options = {}) {
       }) : null,
       valuesNote: options.valuesNote ?? null,
       columns: (step) => step ? inputColumns(step.id) : null,
+      secrets: options.secrets ?? null,
       host: settingsCol
     });
   }

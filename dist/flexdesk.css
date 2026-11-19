@@ -13867,6 +13867,45 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     min-width: 0;
 }
 .twm-flow-field__slot > .twm-flow-refbox { flex: 1 1 auto; }
+/* the secret widget (0.20.0): Stored / Not stored, its actions, the password box while it is set */
+.twm-flow-secret {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+.twm-flow-secret__line,
+.twm-flow-secret__editor,
+.twm-flow-secret__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    min-width: 0;
+}
+.twm-flow-secret__status {
+    min-height: 26px;
+    display: inline-flex;
+    align-items: center;
+    font-size: var(--font-size-sm);
+    color: var(--twm-flow-muted);
+}
+.twm-flow-secret__status--stored { color: var(--text-primary); }
+.twm-flow-secret__editor > .twm-flow-input { flex: 1 1 180px; }
+.twm-flow-secret__action { flex: 0 0 auto; }
+.twm-flow-secret__in-settings {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    flex: 1 1 100%;
+}
+.twm-flow-secret__message {
+    margin: 0;
+    font-size: var(--font-size-xs);
+    color: var(--twm-flow-error);
+    overflow-wrap: anywhere;
+}
 .twm-flow-field__add { align-self: flex-start; border-style: dashed; }
 .twm-flow-field__remove { flex: 0 0 26px; padding: 0; }
 .twm-flow-field__remove .twm-btn__glyph.material-symbols-outlined { font-size: 15px; }

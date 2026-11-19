@@ -1,5 +1,22 @@
 ﻿# Changelog
 
+## 0.20.0 (2026-11-19)
+
+One addition to the flow kit; nothing changes for a host that does not use it.
+
+### Added
+
+- [A secret setting](docs/components/flow-editors.md#secrets-0200): `'x-ui-widget': 'secret'`, the flow kit's eleventh generic widget, draws an API key, password or token whose value the settings never hold. It asks the consumer's keeper whether one is stored (*Stored*, *Not stored*, or *Not known* with the reason), offers *Set*, *Replace* and *Clear*, and hands what is typed in its password box to the keeper, never to `onChange`. A keeper's refusal is said under the field with the typed text kept; without a keeper the field is refused on screen. A value already written into the settings is said, with *Remove from the settings* (STORY-0138).
+- The `secrets` option, `{status(q), store(q, text), clear(q)}` with `q = {stepId, step, key, path}`, on `createSettingsPanel`, `createLaneEditor`, `createCanvasEditor` and `createOutlineEditor`.
+
+### Changed behaviour
+
+None. The schema subset is unchanged: the hint is an `x-` key, and `format` stays `"uuid"` only.
+
+### Removed or renamed exports
+
+None.
+
 ## 0.19.1 (2026-11-18)
 
 A patch release with one fix.

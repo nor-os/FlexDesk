@@ -7,7 +7,7 @@
  *    number box, a boolean a checkbox, an object with properties a group of
  *    its own fields (`x-ui-fold`: folded, with a one-line summary);
  *  - `x-ui-widget` names a control from the REGISTRY. The kit pre-registers the
- *    ten generic ones; a consumer registers its own, and a name nobody
+ *    eleven generic ones; a consumer registers its own, and a name nobody
  *    registered is REFUSED ON SCREEN, BY NAME, with its stored value kept
  *    untouched — a panel that fell back to nothing would lose the setting on
  *    the next save.
@@ -451,7 +451,165 @@ function upstreamColumnsWidget(spec, value, ctx) {
     };
 }
 
-/** The ten generic widgets the kit ships (36 §3.3). */
+/** The answer of a secret keeper's `store` or `clear`, as `{ok, error}`: nothing or `true` is done, `{ok: false, error}` refused. */
+function keeperAnswer(answer) {
+    if (answer === undefined || answer === null || answer === true) return { ok: true, error: '' };
+    if (answer === false) return { ok: false, error: '' };
+    if (typeof answer === 'object' && answer.ok === false) return { ok: false, error: String(answer.error ?? '') };
+    return { ok: true, error: '' };
+}
+
+/**
+ * A SECRET — an API key, a password, a token — that the settings never hold
+ * (0.20.0). The value lives in the consumer's keeper (`createSettingsPanel`'s
+ * `secrets`: an OS credential store, a vault), which the widget asks whether a
+ * secret is stored and hands what the reader types; it NEVER CALLS `ctx.set`
+ * with a secret and never shows one. The field says *Stored* or *Not stored*;
+ * *Set* (*Replace*) opens a password box with *Save* and *Cancel* (Enter and
+ * Escape), and *Clear* removes the stored secret. A keeper's refusal is said
+ * under the field and the typed text stays in the box. A value found in the
+ * settings themselves (a secret written into a file) is said, with *Remove from
+ * the settings*, the one write this widget makes: `ctx.set(undefined)`.
+ *
+ * keeper: `{status(q) → boolean|Promise<boolean>, store(q, text) → answer,
+ * clear(q) → answer}`, `q = {stepId, step, key, path}`; an answer is nothing or
+ * `true` when done, `{ok: false, error}` when refused (a throw is a refusal too).
+ */
+function secretWidget(spec, value, ctx) {
+    const S = ctx.strings;
+    const keeper = ctx.secrets;
+    if (!keeper || typeof keeper.status !== 'function' || typeof keeper.store !== 'function'
+        || typeof keeper.clear !== 'function') {
+        return { el: el('p', 'twm-flow-field__refusal', say(S, 'secretNoKeeper')) };
+    }
+    const q = Object.freeze({ stepId: ctx.step?.id ?? null, step: ctx.step ?? null, key: ctx.key, path: ctx.path });
+    const root = el('div', 'twm-flow-secret');
+    root.setAttribute('role', 'group');
+    if (ctx.label) root.setAttribute('aria-label', ctx.label);
+    const line = el('div', 'twm-flow-secret__line');
+    const status = el('span', 'twm-flow-secret__status');
+    const actions = el('div', 'twm-flow-secret__actions');
+    const editor = el('div', 'twm-flow-secret__editor');
+    const box = textBox('', { type: 'password', label: ctx.label, placeholder: spec['x-ui-placeholder'] ?? say(S, 'secretPlaceholder') });
+    box.autocomplete = 'new-password';
+    box.spellcheck = false;
+    const message = el('p', 'twm-flow-secret__message');
+    message.setAttribute('role', 'status');
+    message.hidden = true;
+    line.append(status, actions);
+    root.append(line, editor, message);
+
+    let state = 'checking'; // checking, stored, empty, or unknown (the keeper could not say)
+    let editing = false;
+    let busy = false;
+    let destroyed = false;
+    let inSettings = value !== undefined && value !== null && value !== '';
+
+    const tell = (text) => {
+        message.textContent = text || '';
+        message.hidden = !text;
+    };
+    const act = (label, onClick, opts = {}) => {
+        const b = button({ label, onClick, className: 'twm-flow-secret__action', primary: Boolean(opts.primary) });
+        b.dataset.action = opts.id ?? '';
+        b.disabled = Boolean(ctx.readOnly || busy || opts.disabled);
+        return b;
+    };
+
+    async function run(work, after) {
+        busy = true;
+        paint();
+        let answer;
+        try {
+            answer = keeperAnswer(await work());
+        } catch (err) {
+            answer = { ok: false, error: String(err?.message || err) };
+        }
+        if (destroyed) return;
+        busy = false;
+        if (answer.ok) { tell(''); after(); } else tell(answer.error || say(S, 'secretRefused'));
+        paint();
+        if (editing) box.focus({ preventScroll: true });
+    }
+
+    function save() {
+        const text = box.value;
+        if (!text || busy || ctx.readOnly) return;
+        run(() => keeper.store(q, text), () => {
+            state = 'stored';
+            editing = false;
+            box.value = '';
+        });
+    }
+
+    function cancel() {
+        if (busy) return;
+        editing = false;
+        box.value = '';
+        tell('');
+        paint();
+    }
+
+    // the box and its two buttons are built once: a repaint never takes the focus or the typed text from them
+    const saveButton = act(say(S, 'secretSave'), save, { id: 'save', primary: true });
+    const cancelButton = act(say(S, 'secretCancel'), cancel, { id: 'cancel' });
+    editor.append(box, saveButton, cancelButton);
+
+    function paint() {
+        status.textContent = say(S, { checking: 'secretChecking', stored: 'secretStored', empty: 'secretNotStored',
+                                      unknown: 'secretUnknown' }[state]);
+        status.classList.toggle('twm-flow-secret__status--stored', state === 'stored');
+        editor.hidden = !editing;
+        box.readOnly = Boolean(ctx.readOnly || busy);
+        saveButton.disabled = cancelButton.disabled = Boolean(ctx.readOnly || busy);
+        actions.replaceChildren();
+        if (!editing) {
+            actions.appendChild(act(say(S, state === 'stored' ? 'secretReplace' : 'secretSet'), () => {
+                editing = true;
+                tell('');
+                paint();
+                box.focus({ preventScroll: true });
+            }, { id: 'set', disabled: state === 'checking' }));
+            if (state === 'stored' || state === 'unknown') {
+                actions.appendChild(act(say(S, 'secretClear'), () => run(() => keeper.clear(q), () => { state = 'empty'; }),
+                                        { id: 'clear' }));
+            }
+        }
+        if (inSettings) {
+            const note = el('p', 'twm-flow-field__refusal twm-flow-secret__in-settings', say(S, 'secretInSettings'));
+            note.appendChild(act(say(S, 'secretRemoveFromSettings'), () => {
+                inSettings = false;
+                ctx.set(undefined);
+                paint();
+            }, { id: 'remove-from-settings' }));
+            actions.appendChild(note);
+        }
+    }
+
+    box.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); save(); }
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancel(); }
+    });
+
+    paint();
+    Promise.resolve()
+        .then(() => keeper.status(q))
+        .then((known) => { if (!destroyed) { state = known ? 'stored' : 'empty'; paint(); } },
+              (err) => { if (!destroyed) { state = 'unknown'; tell(say(S, 'secretStatusFailed', String(err?.message || err))); paint(); } });
+
+    return {
+        el: root,
+        focus: () => {
+            const target = editing ? box : actions.querySelector('button:not(:disabled)');
+            if (!target) return false;
+            target.focus({ preventScroll: true });
+            return true;
+        },
+        destroy: () => { destroyed = true; box.value = ''; },
+    };
+}
+
+/** The eleven generic widgets the kit ships (36 §3.3). */
 export const GENERIC_WIDGETS = Object.freeze({
     template: templateWidget,
     expression: expressionWidget,
@@ -463,6 +621,7 @@ export const GENERIC_WIDGETS = Object.freeze({
     'choice-cards': choiceCardsWidget,
     'upstream-column': upstreamColumnWidget,
     'upstream-columns': upstreamColumnsWidget,
+    secret: secretWidget,
 });
 
 /** Which reference syntaxes a widget recognises when its schema names none. */
@@ -573,8 +732,8 @@ const focusable = (root) => root?.querySelector?.('select, input, textarea, butt
  * One setting: its label, its control, its help, and a line for a finding.
  *
  * `ctx`: `{widgets, set(key, value, opts), path, step, type, readOnly,
- * referenceMap, openValuePicker({anchor, insert, path}), columns, services,
- * strings, describeContext}` — the panel builds it. Returns `{el, key, path,
+ * referenceMap, openValuePicker({anchor, insert, path}), columns, secrets,
+ * services, strings, describeContext}` — the panel builds it. Returns `{el, key, path,
  * setError(message, severity), focus(), caret(), restoreCaret(c), paths(),
  * fieldAt(path), destroy()}`.
  */
@@ -614,6 +773,7 @@ export function renderField({ key, spec = {}, required = false }, value, ctx) {
             ? ({ anchor, insert }) => ctx.openValuePicker({ anchor, insert, path, key })
             : null,
         columns: ctx.columns || (() => null),
+        secrets: ctx.secrets ?? null,
         services: ctx.services,
         strings: S,
         describeContext: { ...(ctx.describeContext || {}), field: path },

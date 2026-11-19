@@ -309,6 +309,7 @@ function toCatalogue(value, who) {
 export function createCanvasEditor(host, options = {}) {
     const {
         widgets = createWidgetRegistry(), references = DEFAULT_REFERENCES, values = null, valuesNote = null,
+        secrets = null,
         summarise = null, summariseReads = null, flowSettings = null, readOnly = false, actions = [],
         slots = {}, strings = null, services = null, onChange = null, onSelect = null,
         history: historyOptions = {}, loop = {}, node: nodeOptions = {}, dataPortRead = null,
@@ -2422,6 +2423,7 @@ export function createCanvasEditor(host, options = {}) {
             parameters: null,
         }) : null,
         valuesNote,
+        secrets,
         host: aside,
     });
     aside.appendChild(connectionBox);

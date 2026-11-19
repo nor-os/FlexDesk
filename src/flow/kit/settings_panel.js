@@ -49,6 +49,10 @@ const TITLE = 'data-twm-flow-title';
  *        *Insert a value*'s groups for one field; absent, no field offers the picker
  * @param {string} [o.valuesNote]            the picker's footer sentence
  * @param {(step: object) => object[]|null} [o.columns]  a step's input columns (a data flow)
+ * @param {{status: Function, store: Function, clear: Function}} [o.secrets]  the keeper of the `secret`
+ *        widget's values (0.20.0): `status(q)` says whether one is stored, `store(q, text)` keeps one,
+ *        `clear(q)` removes it, `q = {stepId, step, key, path}`. A secret never enters the settings;
+ *        absent, a `secret` field says it has no keeper
  * @param {HTMLElement} [o.host]             appended here when given
  * @param {'card'|'sheet'} [o.variant]       'card' (the default): a raised panel, its header above
  *        its fields. 'sheet': flat, one section of a page of them — the title and the description
@@ -56,7 +60,8 @@ const TITLE = 'data-twm-flow-title';
  */
 export function createSettingsPanel({ widgets, references = {}, strings = null, services = null, readOnly = false,
                                       onChange = null, onRename = null, onFocusLost = null, values = null,
-                                      valuesNote = null, columns = null, host = null, variant = 'card' } = {}) {
+                                      valuesNote = null, columns = null, secrets = null, host = null,
+                                      variant = 'card' } = {}) {
     if (!widgets?.get) throw new Error('createSettingsPanel needs a widget registry (createWidgetRegistry()).');
     if (variant !== 'card' && variant !== 'sheet') {
         throw new Error(`createSettingsPanel's variant is 'card' or 'sheet', not ${JSON.stringify(variant)}.`);
@@ -106,6 +111,7 @@ export function createSettingsPanel({ widgets, references = {}, strings = null, 
             step: spec?.step ?? null, type: spec?.type ?? null, path: '',
             openValuePicker: pickerFor(),
             columns: columns ? () => columns(spec?.step ?? null) : () => null,
+            secrets,
             describeContext: { step: spec?.step ?? null, type: spec?.type ?? null, services },
             set: setValue,
         };

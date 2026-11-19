@@ -40,7 +40,7 @@ touches browser storage — and is shown to fail on a planted one.
 |---|---|
 | `createStepCatalogue(types, {categories, idBase})` | The step types the consumer passes in, read as they arrive (`type_id`, `label`, `category`, `role`, `description`, `icon`, `ports`, `config_schema`, `unavailable`; any other key is kept). `get`, `list`, `byCategory`, `role`, `tone`, `inputs(typeId, {flow})`, `outputs`, `port`, `idBase`, and `problems` — a broken type is listed there, never thrown. A type may also carry `render`, `update`, `size: {w, h}` and `accent` (a tone), which only the canvas editor reads ([Node bodies](flow-canvas-editor.md#node-bodies-0170)); `size(typeId)`, `accent(typeId)` and `body(typeId)` answer them, `null` when a type has none, and a `size`, `accent` or hook of the wrong kind is a line in `problems` and is not used (0.17.0). `inline: ['key', …]` names settings of its `config_schema` the canvas editor draws on the node ([Edited on the node](flow-canvas-editor.md#edited-on-the-node-0170)); `inline(typeId)` answers the names the schema has, `[]` when none, and a name it lacks (or an `inline` that is not a list) is a line in `problems` and is not drawn (0.17.0). `rank: 'source' \| 'sink'` is the hint the canvas editor's `layout: 'layered'` Arrange gives the type's steps (the first or the last column); `rank(typeId)` answers it, `null` when a type has none, and any other value is a line in `problems` and is not used (0.17.0). **Ports keep their declared order**: a lane reads the first input as its own and an outline draws the other outputs as arms in order, so nothing sorts them |
 | `checkSettingsSchema(schema)` | The JSON-Schema subset a step's settings may use: `type`, `enum`, `const`, `required`, `properties`, `additionalProperties` (a boolean), `items`, `minItems`/`maxItems`, `minimum`/`maximum`, `minLength`/`maxLength`, `format: "uuid"`, the annotations and any `x-` hint. Returns the first refusal as the server's own sentence, or `null`. `oneOf`, `anyOf`, `$ref` and `pattern` are refused. `tests/fixtures/flow_kit_settings_schema.json` holds 30 schemas and their verdicts. Tables' own `check_schema` gave the same 30 verdicts when the file was written, and is meant to read this file in a test of its own |
-| `createWidgetRegistry()` | The controls, by name. The ten generic widgets are registered already; `register(name, widget)` throws for a name that exists, and replacing one takes `{replace: true}`. A widget is `(spec, value, ctx) => {el, destroy?, focus?, caret?, restoreCaret?}` and reports with `ctx.set(value)`; `undefined` removes the setting |
+| `createWidgetRegistry()` | The controls, by name. The eleven generic widgets are registered already; `register(name, widget)` throws for a name that exists, and replacing one takes `{replace: true}`. A widget is `(spec, value, ctx) => {el, destroy?, focus?, caret?, restoreCaret?}` and reports with `ctx.set(value)`; `undefined` removes the setting |
 | `createSettingsPanel(options)` | One step's settings, or the flow's own, drawn from the schema (below) |
 | `createReferenceSyntax({name, pattern, format, describe, stepScope})` | What a chip is. Three are ready: `TEMPLATE_REFERENCES` (`${a.b[0]}`), `FORMULA_REFERENCES` (`[a.b]`), `PARAMETER_REFERENCES` (`{{name}}`). `find`, `format`, `rename(text, map)` and the consumer's `describe(match, ctx) → {label, tone, known}` |
 | `createChipInput({value, syntaxes, multiline, readOnly, onInput})` | Text with references drawn as chips. **The value is always the plain text**; a chip is a view of it |
@@ -63,6 +63,7 @@ const panel = createSettingsPanel({
     onFocusLost: () => surface.focus(),
     values: async ({ stepId, field }) => groupsFor(stepId),         // Insert a value; absent, no "{ }"
     columns: (step) => inputColumnsOf(step),                         // upstream-column(s); null in a logic flow
+    secrets: keeper,                                                 // the secret widget's values (0.20.0); never in the settings
     host,
 });
 panel.show({ step, type, title, typeLabel, where, description, idLine, icon, tone,
@@ -80,6 +81,40 @@ refreshes every second leaves a name being typed alone. A control that cannot
 be used is disabled and its reason is shown next to it, not only in a tooltip.
 `extra` holds the editor's own fields (a port shown as a setting) and notes,
 placed with `after: '<key>'` or `at: 'start'`.
+
+### Secrets (0.20.0)
+
+A setting drawn with `'x-ui-widget': 'secret'` is an API key, a password or a
+token. Its value never enters the settings: the panel's `secrets` keeper holds
+it (an OS credential store, a vault), and the widget only asks it questions.
+
+```js
+const panel = createSettingsPanel({
+    widgets, host,
+    secrets: {
+        status: ({ stepId, key }) => api.has_secret(stepId, key),          // true when one is stored
+        store: ({ stepId, key }, text) => api.set_secret(stepId, key, text), // nothing, true or {ok: false, error}
+        clear: ({ stepId, key }) => api.clear_secret(stepId, key),
+    },
+});
+// a source type's schema
+{ type: 'object', properties: { api_key: { type: 'string', title: 'API key', 'x-ui-widget': 'secret' } } }
+```
+
+`q` is `{stepId, step, key, path}`. Each of the three may answer at once or with a
+promise; a throw is a refusal. The field says *Checking…*, then *Stored* (with
+*Replace* and *Clear*) or *Not stored* (with *Set*), or *Not known* with the
+keeper's reason. *Set* opens a password box (`autocomplete="new-password"`): *Save*
+or Enter hands the text to `store`, Escape or *Cancel* drops it. A refusal is said
+under the field and the text stays in the box. Nothing is ever reported to
+`onChange`, and the stored secret is never asked for or shown. A value found in
+the settings themselves (a secret written into a file) is said, with *Remove from
+the settings*, the one write the widget makes (`undefined`). Without `secrets`
+the field is refused on screen and writes nothing. The lane, canvas and outline
+editors take `secrets` and hand it to their panel.
+
+The hint is an `x-` key, so a server that checks the schema subset ignores it;
+`format` stays `"uuid"` only.
 
 ### A flat panel: `variant: 'sheet'` (0.18.2)
 
@@ -127,6 +162,7 @@ character width and paints a viewport of no lines, and nothing repaints it.
 | `string-list` | Short strings |
 | `enum-chips` | A multi-select of `items.enum`, as chips, in the enum's order |
 | `choice-cards` | One of N as radio rows, each with its words |
+| `secret` | An API key, a password or a token that the settings never hold: *Stored* or *Not stored*, *Set* / *Replace* and *Clear*, a password box with *Save* and *Cancel*. The value goes to the panel's `secrets` keeper ([Secrets](#secrets-0200)), never to `onChange` (0.20.0) |
 | `upstream-column`, `upstream-columns` | One or several columns of the step's input, by name, from the panel's `columns`. While `columns` answers `null` (the columns are not known yet) the name is typed instead — a text box, or a chip list that takes a name on Enter or a comma — under the hint *Columns not known yet*; once columns arrive the same setting is a select (or toggle chips) with the stored name chosen, and a name the columns lack is kept and marked *(not found)* (0.17.0) |
 
 | Schema hint | Meaning |

@@ -22,6 +22,7 @@ const editor = createOutlineEditor(host, {
     blocks,                                            // which roles are blocks, and their words (below)
     values: async ({ stepId, field, before, loops }) => groupsFor(before, loops),   // Insert a value
     valuesNote: 'Only steps that always run before this one are listed.',
+    secrets: keeper,                                   // the secret widget's values (0.20.0, flow-editors.md#secrets-0200)
     summarise: (node, type) => oneLine(node),          // a row's line; {text, mono: true} for code
     summariseReads: (node, type) => howLaterStepsRead(node),   // the panel's id line
     flowSettings: { schema, value, title, typeLabel, where, description, idLine },

@@ -1,7 +1,7 @@
 /**
  * THE WIDGETS AND THE FIELD AROUND THEM (36 §3.3).
  *
- *   §1  the registry: the ten generic widgets, exactly; a second registration
+ *   §1  the registry: the eleven generic widgets, exactly; a second registration
  *       THROWS; a replacement is explicit
  *   §2  a name nobody registered is REFUSED ON SCREEN, BY NAME, and the stored
  *       value is never written; a widget that throws is refused the same way
@@ -61,8 +61,8 @@ const chipText = (host) => [...host.childNodes].map((n) => (n.nodeType === 3 ? n
 t.section('§1 the registry');
 {
     const reg = W.createWidgetRegistry();
-    t.check('the ten generic widgets, exactly', reg.names().sort(), ['choice-cards', 'enum-chips', 'expression', 'json-body',
-            'key-value-list', 'key-value-map', 'string-list', 'template', 'upstream-column', 'upstream-columns']);
+    t.check('the eleven generic widgets, exactly', reg.names().sort(), ['choice-cards', 'enum-chips', 'expression', 'json-body',
+            'key-value-list', 'key-value-map', 'secret', 'string-list', 'template', 'upstream-column', 'upstream-columns']);
     const mine = () => ({ el: document.createElement('div') });
     reg.register('table-picker', mine);
     t.ok('a consumer\'s widget is registered', reg.has('table-picker') && reg.get('table-picker') === mine);

@@ -72,6 +72,7 @@ reason}` and changes nothing when there is no such step or its type is
 | `catalogue` | The kit's step catalogue (or a list of types and `categories`) |
 | `widgets`, `references`, `services`, `strings` | As for the kit's panel. `references.parameter` decides how the parameters strip spells a reference |
 | `values` | *Insert a value*: `({pipeline, stepId, field, key, upstream, parameters}) => groups`. `upstream` is every step whose output reaches this one, nearest first |
+| `secrets` | The keeper of the `secret` widget's values, handed to the settings panel: `{status, store, clear}` ([Secrets](flow-editors.md#secrets-0200)). Absent, a `secret` setting is refused on screen (0.20.0) |
 | `summarise(step, type)`, `summariseReads(step, type)` | A card's second line; the panel's id line |
 | `preview`, `describe` | The providers (above). Absent, the dock has no Preview, or no Columns |
 | `previewDelayMs` | The debounce, 800 by default |

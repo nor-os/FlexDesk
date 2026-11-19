@@ -315,6 +315,7 @@ export function createLaneEditor(host, options = {}) {
             }) : null,
             valuesNote: options.valuesNote ?? null,
             columns: (step) => (step ? inputColumns(step.id) : null),
+            secrets: options.secrets ?? null,
             host: settingsCol,
         });
     }

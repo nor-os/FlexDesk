@@ -66,6 +66,23 @@ export const FLOW_STRINGS = Object.freeze({
     noColumnsChosen: 'None chosen',
     fieldFinding: 'Fix this before publishing',
 
+    // ── the secret widget (0.20.0) ─────────────────────────────────────
+    secretChecking: 'Checking…',
+    secretStored: 'Stored',
+    secretNotStored: 'Not stored',
+    secretUnknown: 'Not known',
+    secretSet: 'Set',
+    secretReplace: 'Replace',
+    secretClear: 'Clear',
+    secretSave: 'Save',
+    secretCancel: 'Cancel',
+    secretPlaceholder: 'Type it, then Enter',
+    secretRefused: 'It could not be saved.',
+    secretStatusFailed: (why) => `Whether one is stored is not known: ${why}`,
+    secretNoKeeper: 'This setting is a secret, and this editor has nowhere to keep one. Nothing is written into the settings.',
+    secretInSettings: 'A value is written into the settings themselves, where a secret does not belong.',
+    secretRemoveFromSettings: 'Remove from the settings',
+
     // ── reference chips and Insert a value ─────────────────────────────
     insertValue: 'Insert a value',
     insertValueGlyph: '{ }',

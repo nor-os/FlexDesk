@@ -81,7 +81,7 @@ let CLIPBOARD = null;
  */
 export function createOutlineEditor(host, options = {}) {
     const {
-        catalogue, widgets, references = {}, blocks = {}, values = null, valuesNote = null,
+        catalogue, widgets, references = {}, blocks = {}, values = null, valuesNote = null, secrets = null,
         summarise = null, summariseReads = null, flowSettings = null, readOnly = false, actions = [],
         slots = {}, strings = null, services = null, onChange = null, onSelect = null,
         onFoldChange = null, initialFolds = [], history: historyOptions = {},
@@ -227,6 +227,7 @@ export function createOutlineEditor(host, options = {}) {
         onFocusLost: () => focusSelected(),
         values: values ? (q) => valuesFor(q) : null,
         columns: null,
+        secrets,
     });
 
     function valuesFor({ stepId, field, key }) {

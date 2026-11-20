@@ -1,5 +1,21 @@
 ﻿# Changelog
 
+## 0.21.0 (2026-11-20)
+
+One addition to the flow kit; nothing changes for a host that does not use it.
+
+### Added
+
+- [A list of records](docs/components/flow-editors.md#a-list-of-records-0210): a setting whose schema is a list of objects (`{type: 'array', items: {type: 'object', properties}}`) is drawn as a card per record, its fields drawn from `items.properties` (an `x-ui-when` reads the record's own fields), with *Remove* on each card and *Add* (`x-ui-add-label`). Every edit writes the whole list; a record keeps the values no field draws; an emptied list removes the setting; record `i`'s fields carry the path `<key>.<i>.<field>`. Such a setting used to say *This setting has no control in this editor* (STORY-0139).
+
+### Changed behaviour
+
+A list of objects with properties now has a control where it had none. The schema subset is unchanged.
+
+### Removed or renamed exports
+
+None.
+
 ## 0.20.0 (2026-11-19)
 
 One addition to the flow kit; nothing changes for a host that does not use it.

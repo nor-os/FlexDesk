@@ -65,6 +65,7 @@ var FLOW_STRINGS = Object.freeze({
   add: "Add",
   remove: "Remove",
   removeNamed: (what) => `Remove ${what}`,
+  recordNumber: (n) => `Item ${n}`,
   addAssignment: "Add assignment",
   name: "Name",
   value: "Value",
@@ -1781,6 +1782,74 @@ function foldSummary(spec, value, S) {
   }
   return parts.length ? parts.join(" \xB7 ") : say(S, "foldDefaults");
 }
+var isRecord = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+var isRecordList = (spec) => primaryType(spec) === "array" && isRecord(spec.items) && primaryType(spec.items) === "object" && isRecord(spec.items.properties);
+function recordListControl(spec, value, ctx, key, path, children) {
+  const S = ctx.strings;
+  const fields = fieldsFromSchema(spec.items);
+  const watched = whenKeys(fields);
+  const list = (Array.isArray(value) ? value : []).map((r) => isRecord(r) ? { ...r } : r);
+  const root = el("div", "twm-flow-field__records");
+  root.setAttribute("role", "group");
+  const emit = (opts) => ctx.set(key, list.length ? list.map((r) => isRecord(r) ? { ...r } : r) : void 0, opts);
+  const paint = () => {
+    children.splice(0).forEach((c) => c.destroy());
+    root.replaceChildren();
+    list.forEach((record, idx) => {
+      const card = el("div", "twm-flow-field__record");
+      card.setAttribute("role", "group");
+      card.setAttribute("aria-label", say(S, "recordNumber", idx + 1));
+      const body = el("div", "twm-flow-field__record-fields");
+      if (!isRecord(record)) {
+        body.appendChild(el("p", "twm-flow-field__refusal", say(S, "noControl")));
+      } else {
+        for (const f of visibleFields(fields, record)) {
+          const child = renderField(f, record[f.key], {
+            ...ctx,
+            path: `${path}.${idx}`,
+            set: (k, v, opts) => {
+              if (v === void 0) delete record[k];
+              else record[k] = v;
+              emit({ ...opts, reshape: opts?.reshape || watched.has(k) });
+            }
+          });
+          children.push(child);
+          body.appendChild(child.el);
+        }
+      }
+      card.appendChild(body);
+      if (!ctx.readOnly) {
+        card.appendChild(button({
+          label: say(S, "removeNamed", say(S, "recordNumber", idx + 1).toLowerCase()),
+          icon: "close",
+          iconOnly: true,
+          className: "twm-flow-field__remove",
+          onClick: () => {
+            list.splice(idx, 1);
+            emit();
+            paint();
+          }
+        }));
+      }
+      root.appendChild(card);
+    });
+    if (!ctx.readOnly) {
+      root.appendChild(button({
+        label: spec["x-ui-add-label"] ?? say(S, "add"),
+        icon: "add",
+        className: "twm-flow-field__add",
+        onClick: () => {
+          list.push({});
+          emit();
+          paint();
+          focusable(root.querySelector(".twm-flow-field__record:last-of-type"))?.focus({ preventScroll: true });
+        }
+      }));
+    }
+  };
+  paint();
+  return { el: root, destroy: () => children.splice(0).forEach((c) => c.destroy()) };
+}
 var focusable = (root) => root?.querySelector?.('select, input, textarea, button, [contenteditable="true"]') || null;
 function renderField({ key, spec = {}, required = false }, value, ctx) {
   const S = ctx.strings || createStrings();
@@ -1867,6 +1936,9 @@ function renderField({ key, spec = {}, required = false }, value, ctx) {
       group.appendChild(child.el);
     }
     control = { el: group };
+    root.classList.add("twm-flow-field--group");
+  } else if (isRecordList(spec)) {
+    control = recordListControl(spec, value, { ...ctx, strings: S }, key, path, children);
     root.classList.add("twm-flow-field--group");
   } else {
     control = plainControl(spec, value, sub) || { el: el("p", "twm-flow-field__refusal", say(S, "noControl")) };

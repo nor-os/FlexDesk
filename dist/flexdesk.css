@@ -13858,6 +13858,30 @@ button.twm-alerts__ref:hover { text-decoration: underline; }
     align-items: center;
     min-width: 0;
 }
+/* a list of records (0.21.0): each record a card of its fields, Remove at its top right */
+.twm-flow-field__records {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+.twm-flow-field__record {
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+    min-width: 0;
+    padding: 6px 6px 6px 8px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+}
+.twm-flow-field__record-fields {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+.twm-flow-field__record-fields > .twm-flow-field > .twm-flow-field__label { flex-basis: 90px; }
 .twm-flow-field__row > .twm-flow-input { flex: 0 0 34%; min-width: 0; }
 .twm-flow-field__row > .twm-flow-input--select { flex: 0 0 auto; width: auto; }
 .twm-flow-field__row > .twm-flow-refbox { flex: 1 1 auto; }

@@ -69,10 +69,11 @@ const describe = kit.createReferenceSyntax({ name: 't', pattern: kit.TEMPLATE_RE
         col: { 'x-ui-widget': 'upstream-column' }, cols: { 'x-ui-widget': 'upstream-columns' },
         unknown: { 'x-ui-widget': 'nobody-has-this' }, arr: { type: 'array' },
         retry: { type: 'object', 'x-ui-fold': true, properties: { max: { type: 'integer' } } },
+        recs: { type: 'array', items: { type: 'object', properties: { k: { type: 'string' } } } },
     } };
     const value = { url: 'a ${violet} ${teal} ${amber} ${grey} ${blue} ${indigo} ${gone}', map: { k: 'v' },
                     list: [{ variable: 'x', value: 1 }, { variable: 'y', expression: '[a]' }], strs: ['s'],
-                    chips: ['a', 'zz'], cols: ['id', 'missing'] };
+                    chips: ['a', 'zz'], cols: ['id', 'missing'], recs: [{ k: 'v' }, 'odd'] };
     for (const tone of kit.TONES) {
         panel.show({ step: { id: 's', type: 'x', config: value }, type: { config_schema: schema }, title: 'T', typeLabel: 'Type',
                      where: 'Here', description: 'D', idLine: 'I', icon: 'public', tone, rename: true,

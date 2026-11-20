@@ -20,6 +20,9 @@
  *       picker, and what it inserts lands at the caret, as text
  *   §10 x-ui-references names the syntaxes; each widget has its default
  *   §11 read-only: every control disabled, no Add or Remove
+ *   §12 a finding under a field
+ *   §13 a list of records (0.21.0): a card of fields per record, Add and
+ *       Remove, x-ui-when within a record, values kept, read-only
  *
  *     node tests/flow_kit_widgets.test.mjs
  */
@@ -355,6 +358,59 @@ t.section('§12 a finding under a field');
     t.ok('a warning is a warning', el.classList.contains('twm-flow-field--warning') && !el.classList.contains('twm-flow-field--error'));
     f.setError(null);
     t.ok('cleared', el.querySelector('.twm-flow-field__error').hidden && !el.classList.contains('twm-flow-field--warning'));
+}
+
+t.section('§13 a list of records');
+{
+    const spec = {
+        type: 'array', title: 'Headers', 'x-ui-add-label': 'Add a header',
+        items: { type: 'object', properties: {
+            name: { type: 'string', title: 'Header' },
+            secret: { type: 'boolean', title: 'Secret', default: false },
+            value: { type: 'string', title: 'Value', 'x-ui-when': { field: 'secret', in: [false] } },
+        } },
+    };
+    const stored = [{ name: 'Accept', value: 'json' }, { name: 'X-Key', secret: true, note: 'kept' }, 'odd'];
+    const { f, el, config, writes } = field('headers', spec, stored);
+    const cards = () => [...el.querySelectorAll('.twm-flow-field__record')];
+    t.check('a card per entry', cards().length, 3);
+    t.check('each card names its item', cards().map((c) => c.getAttribute('aria-label')), ['Item 1', 'Item 2', 'Item 3']);
+    t.check('x-ui-when reads the record: a secret header draws no Value',
+            cards().map((c) => c.querySelectorAll('.twm-flow-field').length), [3, 2, 0]);
+    t.ok('an entry that is no object is said', cards()[2].querySelector('.twm-flow-field__refusal') !== null);
+    t.ok('the record fields carry indexed paths', el.querySelector('[data-field="headers.1.secret"]') !== null);
+    t.check("paths() lists the list and each record's fields", f.paths(),
+            ['headers', 'headers.0.name', 'headers.0.secret', 'headers.0.value', 'headers.1.name', 'headers.1.secret']);
+    t.ok("fieldAt finds a record's field", f.fieldAt('headers.0.value')?.path === 'headers.0.value');
+
+    t.typeInto(cards()[0].querySelector('[data-field="headers.0.value"] input'), 'xml');
+    t.check('an edit writes the whole list, every value kept', config.headers,
+            [{ name: 'Accept', value: 'xml' }, { name: 'X-Key', secret: true, note: 'kept' }, 'odd']);
+    const box = cards()[0].querySelector('input[type="checkbox"]');
+    box.checked = true; t.fire(box, 'change');
+    t.check('a field x-ui-when reads asks for a redraw', writes.at(-1)[2]?.reshape, true);
+    t.check('and is written in its record', config.headers[0], { name: 'Accept', value: 'xml', secret: true });
+
+    const add = el.querySelector('.twm-flow-field__add');
+    t.ok('Add says its x-ui-add-label', add.textContent.endsWith('Add a header'));
+    add.click();
+    t.check('Add appends an empty record', config.headers.length, 4);
+    t.check('drawn as a card of its fields', cards()[3].querySelectorAll('.twm-flow-field').length, 3);
+    t.ok('its first control has the focus', cards()[3].contains(document.activeElement));
+    t.typeInto(cards()[3].querySelector('[data-field="headers.3.name"] input'), 'User-Agent');
+    t.check('and is written', config.headers[3], { name: 'User-Agent' });
+
+    cards()[1].querySelector('.twm-flow-field__remove').click();
+    t.check('Remove takes its record out', config.headers.map((h) => h?.name ?? h), ['Accept', 'odd', 'User-Agent']);
+    t.check('the cards follow', cards().length, 3);
+    for (let i = 0; i < 3; i++) el.querySelector('.twm-flow-field__remove').click();
+    t.ok('the list emptied removes the setting', !('headers' in config));
+
+    const ro = field('headers', spec, [{ name: 'Accept', value: 'json' }], { readOnly: true });
+    t.ok('read-only: no Add, no Remove', !ro.el.querySelector('.twm-flow-field__add') && !ro.el.querySelector('.twm-flow-field__remove'));
+    t.ok("read-only: the record's boxes are read-only", ro.el.querySelector('[data-field="headers.0.name"] input').readOnly);
+    t.ok('an array of plain items is still refused', field('arr', { type: 'array' }, undefined).el
+        .querySelector('.twm-flow-field__refusal') !== null);
 }
 
 t.done();

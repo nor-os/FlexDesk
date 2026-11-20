@@ -55,6 +55,7 @@ export const FLOW_STRINGS = Object.freeze({
     add: 'Add',
     remove: 'Remove',
     removeNamed: (what) => `Remove ${what}`,
+    recordNumber: (n) => `Item ${n}`,
     addAssignment: 'Add assignment',
     name: 'Name',
     value: 'Value',

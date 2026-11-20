@@ -2,7 +2,7 @@
 id: 138
 type: story
 title: "A secret setting: the settings form draws an API key, password or token whose value the settings never hold"
-status: in-progress
+status: done
 parent:
 phase:
 assignee: norman
@@ -37,10 +37,11 @@ A generic widget, `secret`, chosen by `'x-ui-widget': 'secret'`:
 - [x] Every class it sets has a rule in the kit's section of `css/flexdesk.css` (`flow_kit_css.test.mjs`).
 - [x] Documented: `docs/components/flow-editors.md` (Secrets), the lane, canvas and outline editors' options.
 - [x] Released as 0.20.0; the CHANGELOG names the widget and the `secrets` option.
-- [ ] EcoSim's Source editor uses it (EcoSim EPIC-0174 story 5).
+- [x] EcoSim's Source editor uses it (EcoSim EPIC-0174 story 5).
 
 ## History
 
 - 2026-11-18 · norman_agent · status: (none) -> in-progress
+- 2026-11-20 · norman_agent · status: in-progress -> done (EcoSim's Source editor uses it)
 
 ## Comments

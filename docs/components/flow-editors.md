@@ -116,6 +116,34 @@ editors take `secrets` and hand it to their panel.
 The hint is an `x-` key, so a server that checks the schema subset ignores it;
 `format` stays `"uuid"` only.
 
+### A list of records (0.21.0)
+
+A setting whose schema is `{type: 'array', items: {type: 'object', properties: {…}}}`
+is drawn as a list of records: each record is a card of its own fields, drawn from
+`items.properties` like any other settings, with *Remove* at its top right, and
+*Add* (`x-ui-add-label`) appends an empty record and puts the focus in its first
+control. An `x-ui-when` reads the record's own fields, so a header's *Value* can
+show only while its *Secret* box is clear:
+
+```js
+headers: {
+    type: 'array', title: 'Custom headers', 'x-ui-add-label': 'Add a header',
+    items: { type: 'object', properties: {
+        name: { type: 'string', title: 'Header' },
+        secret: { type: 'boolean', title: 'Secret', default: false },
+        value: { type: 'string', title: 'Value', 'x-ui-when': { field: 'secret', in: [false] } },
+    } },
+}
+```
+
+Every edit writes the whole list. A record keeps every value it holds, the ones
+no field draws included. An entry that is not an object is kept as it is and
+said on its card. Emptying the list removes the setting. Record `i`'s fields carry
+the path `<key>.<i>.<field>`, so a finding names one (`headers.1.name`) and
+`focusField` reaches it. Read only, the cards have no *Add* or *Remove* and
+their controls are read only. A list of anything else still has no control of
+its own and is refused on screen, its value kept.
+
 ### A flat panel: `variant: 'sheet'` (0.18.2)
 
 `createSettingsPanel({ ..., variant: 'sheet' })` draws the panel flat, as one
@@ -139,7 +167,8 @@ for (const section of sections) {
 **The widgets.** A schema type with no `x-ui-widget` draws its plain control: an
 `enum` a select (writing the enum's own value, so a number stays a number), a
 string a text box, a number a number box, a boolean a checkbox, an object with
-properties a group of its own fields. A control never writes a value the reader
+properties a group of its own fields, and a list whose `items` is an object with
+properties a [list of records](#a-list-of-records-0210). A control never writes a value the reader
 did not give it. An untouched setting stays absent, and emptying one removes it.
 A list or map entry keeps its stored type when another entry is edited. A widget
 name nobody registered is refused on screen, by name, and its value is kept.

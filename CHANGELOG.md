@@ -1,5 +1,21 @@
 ﻿# Changelog
 
+## 0.21.1 (2026-11-21)
+
+One fix in the plot grid.
+
+### Fixed
+
+- [The plot grid's x axis](docs/components/charts.md) covers the overlays it draws: the range clipped to the results' time is widened to the overlays' first and last finite year. An overlay of observed history before a run used to fall outside the axis and show only its points inside the run (found in EcoSim, whose dashboards overlay 2018-26 data on runs from 2026). A hidden overlay does not widen it; an x variable instead of time still sets no range.
+
+### Changed behaviour
+
+A plot with an overlay outside the run's time range now shows a wider x axis.
+
+### Removed or renamed exports
+
+None.
+
 ## 0.21.0 (2026-11-20)
 
 One addition to the flow kit; nothing changes for a host that does not use it.

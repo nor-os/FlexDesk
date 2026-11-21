@@ -222,6 +222,8 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
         /** The subplot's own series (overlays and derived traces aside), and how many are hidden. */
         let ownCount = 0;
         let hiddenCount = 0;
+        /** The x extent of the overlays drawn ([min, max] of their finite years), or null: the x range widens to it. */
+        let overlayExtent = null;
         /** Each trace drawn from one of the subplot's series, to that series (a transform's context.series). */
         const seriesByTrace = new Map();
 
@@ -306,6 +308,12 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
                     ovTrace.mode = 'lines';
                 }
                 traces.push(ovTrace);
+                for (const yr of overlay.years) {
+                    if (typeof yr !== 'number' || !Number.isFinite(yr)) continue;
+                    overlayExtent = overlayExtent
+                        ? [Math.min(overlayExtent[0], yr), Math.max(overlayExtent[1], yr)]
+                        : [yr, yr];
+                }
             }
         });
 
@@ -327,7 +335,12 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
 
         const legendPos = opts.alwaysShowLegend && (sp.legendPosition ?? 'hidden') === 'hidden'
             ? 'top' : (sp.legendPosition ?? 'hidden');
-        const xRange = !useX && time.length >= 2 ? [time[0], time[time.length - 1]] : undefined;
+        // The x axis is clipped to the run's time range, widened to the drawn
+        // overlays' years: observed data before (or after) the run is shown.
+        let xRange = !useX && time.length >= 2 ? [time[0], time[time.length - 1]] : undefined;
+        if (xRange && overlayExtent) {
+            xRange = [Math.min(xRange[0], overlayExtent[0]), Math.max(xRange[1], overlayExtent[1])];
+        }
         const { shapes, annotations } = buildOverlayShapes({
             referenceLines: (sp.referenceLines ?? []).map((line) => (typeof line.value === 'string'
                 ? { ...line, value: opts.resolveConstant?.(line.value) }

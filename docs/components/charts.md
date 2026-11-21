@@ -294,7 +294,9 @@ It lays a `.twm-plot-grid` out from `PLOT_LAYOUTS` (a cell per slot, a
 subplot: its chart type, interpolation, data points and stack groups, every
 y-axis (left or right, linear or log, min, max, step), reference lines and
 shaded bands, the NaN strategy, the x-axis clipped to the results' time
-range, or an x variable instead of time (`xAxis: { useTime: false, variable }`).
+range (widened since 0.21.1 to the years of the overlays it draws, so observed
+data before or after the run shows; a hidden overlay does not widen it), or an
+x variable instead of time (`xAxis: { useTime: false, variable }`).
 A subplot with nothing to draw shows `emptyMessage` (default `No data yet.`;
 [a function of the subplot](#an-empty-cell-can-name-what-is-missing-emptymessage-as-a-function-01712)
 since 0.17.12); a

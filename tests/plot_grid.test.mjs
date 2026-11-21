@@ -645,6 +645,14 @@ async function figureOf(subplot, results = RESULTS, options = {}) {
           f.data.map((t) => [t.name, t.line?.dash]), [['a', 'solid'], ['Observed', 'dot']]);
     check('  ...at its own points', [f.data[1].x, f.data[1].y], [[0, 2], [1.5, 2.5]]);
     check('no overlay data => no overlay trace', (await figureOf(withOverlay)).data.length, 1);
+    check('an overlay inside the run keeps the x range at the run', f.layout.xaxis.range, [0, 3]);
+    const ovId = withOverlay.yAxes[0].series[0].id;
+    f = await figureOf(withOverlay, RESULTS, { overlays: { [ovId]: { years: [-8, -4.5, NaN, 0.75], values: [1, 2, 3, 4] } } });
+    check('an overlay before the run widens the x range to its first year', f.layout.xaxis.range, [-8, 3]);
+    f = await figureOf(withOverlay, RESULTS, { overlays: { [ovId]: { years: [1, 99], values: [1, 2] } } });
+    check('an overlay after the run widens it to its last year', f.layout.xaxis.range, [0, 99]);
+    f = await figureOf(withOverlay, RESULTS, { overlays: { [ovId]: { years: [-8], values: [1] } }, hiddenSeries: ['Observed'] });
+    check('a hidden overlay does not widen it', f.layout.xaxis.range, [0, 3]);
     withOverlay.chartType = 'area-stacked';
     f = await figureOf(withOverlay, RESULTS, { overlays });
     check('a stacked-percent chart stacks its overlay in a group of its own',

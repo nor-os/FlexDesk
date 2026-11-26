@@ -1,5 +1,27 @@
 ﻿# Changelog
 
+## 0.22.0 (2026-11-26)
+
+Chart text stays inside the chart: one fix in the plot grid, one in the chart wrapper's theme, and the label wrapper exported.
+
+### Added
+
+- [`wrapChartLabel(text, maxChars)` and `longestChartLine(labels)`](docs/components/charts.md#chart-text-stays-inside-the-chart-0220) in `@flexdesk/charts`: long chart text broken at spaces into `<br>` lines, and the longest line of some labels, for a figure of the embedder's own.
+
+### Fixed
+
+- [The plot grid fits its text to the cell](docs/components/charts.md#chart-text-stays-inside-the-chart-0220): a legend name too long for its cell is broken into lines (to the plot area's width above or below the plot, a third of the cell beside it), the hover naming the series on one line in every hover mode; a reference line's or band's label too long for its room is broken too; a resize that changes how they break draws the figure again. Long names and labels used to run past the cell's edges and be cut off (BUG-0061, found in EcoSim's dashboards).
+- A `'left'` or `'right'` legend in a cell too narrow for 12 characters in a third of it is drawn above the plot: Plotly grew the margin for it until no plot was left, and the subplot showed only its legend (BUG-0061).
+- `createChart`, `updateChart` and `createChartDeferred` merge a figure's `xaxis` and `yaxis` over the theme's one level deep, and the theme's axes carry `automargin: true`: an axis of the caller's own keeps the theme's colours and grows its margin for long tick labels, where it used to replace the theme's axis whole (BUG-0061). Every `FigureTile` draws through `createChart`.
+
+### Changed behaviour
+
+A long legend name or label in the plot grid is drawn on several lines, and a wrapped series has a `hovertemplate`; a side legend in a narrow cell is drawn above the plot. A `createChart` figure's own axes get the theme's colours and `automargin` unless they set them (`automargin: false` keeps the old margins).
+
+### Removed or renamed exports
+
+None.
+
 ## 0.21.1 (2026-11-21)
 
 One fix in the plot grid.

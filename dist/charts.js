@@ -34,6 +34,7 @@ import {
   hasPlot,
   hexToRgba,
   is3DChart,
+  longestChartLine,
   lttb,
   makeDefaultSeries,
   makeDefaultSubplot,
@@ -54,8 +55,9 @@ import {
   strideDownsampleShared,
   strideIndices,
   uid,
-  updateChart
-} from "./chunk-5GU6J7ZP.js";
+  updateChart,
+  wrapChartLabel
+} from "./chunk-LRQW23AN.js";
 import {
   AutocompleteField
 } from "./chunk-BTRCIFDV.js";
@@ -1535,6 +1537,7 @@ export {
   hasPlot,
   hexToRgba,
   is3DChart,
+  longestChartLine,
   lttb,
   makeDefaultSeries,
   makeDefaultSubplot,
@@ -1557,6 +1560,7 @@ export {
   strideDownsampleShared,
   strideIndices,
   uid,
-  updateChart
+  updateChart,
+  wrapChartLabel
 };
 //# sourceMappingURL=charts.js.map

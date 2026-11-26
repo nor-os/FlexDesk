@@ -60,17 +60,21 @@ var DARK_THEME_LAYOUT = {
     bgcolor: "rgba(0,0,0,0)",
     font: { color: "#cccccc" }
   },
+  // An axis grows its margin for long tick labels and titles instead of
+  // cutting them off. themedLayout keeps this in a caller's own axis.
   xaxis: {
     gridcolor: "#333333",
     linecolor: "#444444",
     tickcolor: "#666666",
-    zerolinecolor: "#444444"
+    zerolinecolor: "#444444",
+    automargin: true
   },
   yaxis: {
     gridcolor: "#333333",
     linecolor: "#444444",
     tickcolor: "#666666",
-    zerolinecolor: "#444444"
+    zerolinecolor: "#444444",
+    automargin: true
   },
   // Hover tooltip styling for dark theme
   hoverlabel: {
@@ -102,6 +106,14 @@ var DARK_THEME_LAYOUT = {
     bgcolor: "rgba(0,0,0,0)"
   }
 };
+function themedLayout(layout) {
+  return {
+    ...DARK_THEME_LAYOUT,
+    ...layout,
+    xaxis: { ...DARK_THEME_LAYOUT.xaxis, ...layout.xaxis },
+    yaxis: { ...DARK_THEME_LAYOUT.yaxis, ...layout.yaxis }
+  };
+}
 var DEFAULT_CHART_EXPORT_FILENAME = "chart";
 var DEFAULT_CONFIG = {
   responsive: true,
@@ -225,10 +237,7 @@ function loadThroughMaskedDefine() {
 }
 async function createChart(container, data, layout = {}, config = {}) {
   const Plotly2 = await ensurePlotly();
-  const mergedLayout = {
-    ...DARK_THEME_LAYOUT,
-    ...layout
-  };
+  const mergedLayout = themedLayout(layout);
   const mergedConfig = {
     ...DEFAULT_CONFIG,
     ...config
@@ -237,10 +246,7 @@ async function createChart(container, data, layout = {}, config = {}) {
 }
 async function updateChart(container, data, layout = {}) {
   const Plotly2 = await ensurePlotly();
-  const mergedLayout = {
-    ...DARK_THEME_LAYOUT,
-    ...layout
-  };
+  const mergedLayout = themedLayout(layout);
   return Plotly2.react(container, data, mergedLayout);
 }
 async function extendTraces(container, update, traceIndices, maxPoints = null) {
@@ -298,10 +304,7 @@ function getSeriesColor(index) {
 }
 async function createChartDeferred(container, traces, layout = {}, config = {}) {
   const Plotly2 = await ensurePlotly();
-  const mergedLayout = {
-    ...DARK_THEME_LAYOUT,
-    ...layout
-  };
+  const mergedLayout = themedLayout(layout);
   const mergedConfig = {
     ...DEFAULT_CONFIG,
     ...config
@@ -673,6 +676,33 @@ function build3DSceneLayout(options) {
     zaxis,
     bgcolor: "rgba(0,0,0,0)"
   };
+}
+var LINE_BREAK = /<br\s*\/?>/i;
+var visibleLength = (text) => text.replace(/<[^>]*>/g, "").length;
+function wrapChartLabel(text, maxChars) {
+  const lines = [];
+  for (const part of String(text ?? "").split(LINE_BREAK)) {
+    let line = "";
+    for (const word of part.split(/\s+/).filter(Boolean)) {
+      if (line && visibleLength(line) + 1 + visibleLength(word) > maxChars) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = line ? `${line} ${word}` : word;
+      }
+    }
+    if (line) lines.push(line);
+  }
+  return lines.join("<br>");
+}
+function longestChartLine(labels) {
+  let longest = 0;
+  for (const label of labels) {
+    for (const line of String(label ?? "").split(LINE_BREAK)) {
+      longest = Math.max(longest, visibleLength(line));
+    }
+  }
+  return longest;
 }
 function buildLegendLayout(position) {
   if (position === "hidden") {
@@ -1370,6 +1400,80 @@ var PLOT_GRID_THEME = Object.freeze({
   hoverBorder: "#444444"
 });
 var OVERLAY_DASH = { dashed: "dash", dotted: "dot", solid: "solid" };
+var CHAR_EM = 0.6;
+var LEGEND_ENTRY_PX = 50;
+var LEGEND_SIDE_SHARE = 1 / 3;
+var LEGEND_MIN_CHARS = 12;
+var AXIS_ALLOWANCE_PX = 24;
+var LABEL_MIN_CHARS = 8;
+var HOVER_VALUE = { x: "%{y}", "x unified": "%{y}", y: "%{x}", "y unified": "%{x}" };
+var HOVER_3D = /* @__PURE__ */ new Set(["scatter3d", "mesh3d", "surface"]);
+function legendCharBudget(width, layout) {
+  if (!layout.showlegend || !(width > 0)) return Infinity;
+  const room = layout.legend?.orientation === "h" ? width - (layout.margin?.l ?? 80) - (layout.margin?.r ?? 80) - AXIS_ALLOWANCE_PX : width * LEGEND_SIDE_SHARE;
+  return Math.max(LEGEND_MIN_CHARS, Math.floor((room - LEGEND_ENTRY_PX) / (legendFontSize(layout) * CHAR_EM)));
+}
+function legendFontSize(layout) {
+  return layout.legend?.font?.size ?? layout.font?.size ?? 12;
+}
+function annotationRoom(a, width, layout) {
+  const ml = layout.margin?.l ?? 80;
+  const mr = layout.margin?.r ?? 80;
+  const plot = Math.max(0, width - ml - mr - AXIS_ALLOWANCE_PX);
+  let f = null;
+  if (a.xref === "paper") {
+    f = a.x ?? 0.5;
+  } else {
+    const range = layout.xaxis?.range;
+    if (typeof a.x === "number" && range && range[1] !== range[0]) f = (a.x - range[0]) / (range[1] - range[0]);
+  }
+  if (f === null || !Number.isFinite(f)) return plot;
+  f = Math.min(1, Math.max(0, f));
+  const left = f * plot + ml;
+  const right = (1 - f) * plot + mr;
+  if (a.xanchor === "left") return right;
+  if (a.xanchor === "right") return left;
+  return 2 * Math.min(left, right);
+}
+function fitAnnotations(annotations, width, layout) {
+  return annotations.map((a) => {
+    if (typeof a?.text !== "string" || a.showarrow !== false) return a;
+    const size = a.font?.size ?? layout.font?.size ?? 12;
+    const pad = 2 * ((a.borderpad ?? 1) + (a.borderwidth ?? 1));
+    const maxChars = Math.max(
+      LABEL_MIN_CHARS,
+      Math.floor((annotationRoom(a, width, layout) - pad) / (size * CHAR_EM))
+    );
+    return longestChartLine([a.text]) <= maxChars ? a : { ...a, text: wrapChartLabel(a.text, maxChars) };
+  });
+}
+function fitFigure(figure, width) {
+  let layout = figure.layout;
+  const legend = layout.legend;
+  if (layout.showlegend && legend?.orientation === "v" && width > 0 && (width * LEGEND_SIDE_SHARE - LEGEND_ENTRY_PX) / (legendFontSize(layout) * CHAR_EM) < LEGEND_MIN_CHARS) {
+    layout = { ...layout, legend: { ...legend, ...buildLegendLayout("top").legend, font: legend.font } };
+  }
+  const traces = fitLegendNames(figure.traces, legendCharBudget(width, layout), layout);
+  const annotations = Array.isArray(layout.annotations) && width > 0 ? fitAnnotations(layout.annotations, width, layout) : null;
+  if (annotations) layout = { ...layout, annotations };
+  const key = [layout.legend?.orientation, ...traces.map((t) => t.name), ...(annotations ?? []).map((a) => a?.text)].join("\0");
+  return { traces, layout, key };
+}
+function fitLegendNames(traces, maxChars, layout) {
+  if (!Number.isFinite(maxChars)) return traces;
+  const value = HOVER_VALUE[layout.hovermode] ?? "(%{x}, %{y})";
+  return traces.map((trace) => {
+    const name = trace.name;
+    if (typeof name !== "string" || trace.showlegend === false || trace.type === "pie") return trace;
+    if (longestChartLine([name]) <= maxChars) return trace;
+    const fitted = { ...trace, name: wrapChartLabel(name, maxChars) };
+    if (trace.hovertemplate === void 0 && trace.hoverinfo === void 0) {
+      const shown = HOVER_3D.has(trace.type) ? "(%{x}, %{y}, %{z})" : value;
+      fitted.hovertemplate = `${shown}<extra>${name}</extra>`;
+    }
+    return fitted;
+  });
+}
 function resolveSeriesData(series, results) {
   const table = results?.series;
   const variable = series?.variable;
@@ -1417,9 +1521,11 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
   observer.observe(grid);
   const plotted = /* @__PURE__ */ new Set();
   const drawn = /* @__PURE__ */ new Set();
+  const painted = /* @__PURE__ */ new Map();
   const hasPlot2 = (cell) => plotted.has(cell);
   const purgeCell = (cell) => {
     drawn.delete(cell);
+    painted.delete(cell);
     if (!plotted.delete(cell)) return;
     try {
       globalThis.Plotly?.purge(cell);
@@ -1624,18 +1730,33 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
       return false;
     }
     deferred.delete(index);
+    return paint(index, figure, token);
+  }
+  async function paint(index, figure, token) {
+    const cell = cells[index];
+    const current = () => !disposed && cells[index] === cell && tokens[index] === token;
     const Plotly2 = await ensurePlotly();
     if (!current()) return false;
     if (!hasPlot2(cell)) cell.replaceChildren();
     plotted.add(cell);
+    const fitted = fitFigure(figure, cell.offsetWidth);
+    painted.set(cell, { figure, key: fitted.key, token });
     try {
-      await Plotly2.react(cell, figure.traces, figure.layout, { responsive: true, displayModeBar: false });
+      await Plotly2.react(cell, fitted.traces, fitted.layout, { responsive: true, displayModeBar: false });
       if (plotted.has(cell)) drawn.add(cell);
       return true;
     } catch (_) {
       drawn.delete(cell);
       return false;
     }
+  }
+  function refit(index) {
+    const shown = painted.get(cells[index]);
+    if (!shown || shown.token !== tokens[index]) return;
+    const token = ++lastToken;
+    tokens[index] = token;
+    paint(index, shown.figure, token).catch(() => {
+    });
   }
   function drawCellOrFail(index) {
     const cell = cells[index];
@@ -1672,13 +1793,16 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
       drawCellOrFail(index);
     }
     const Plotly2 = globalThis.Plotly;
-    if (!Plotly2?.Plots?.resize) return;
-    for (const cell of cells) {
-      if (hasPlot2(cell) && hasSize(cell)) {
+    cells.forEach((cell, index) => {
+      if (!hasPlot2(cell) || !hasSize(cell)) return;
+      const shown = painted.get(cell);
+      if (shown && fitFigure(shown.figure, cell.offsetWidth).key !== shown.key) {
+        refit(index);
+      } else if (Plotly2?.Plots?.resize) {
         Promise.resolve().then(() => Plotly2.Plots.resize(cell)).catch(() => {
         });
       }
-    }
+    });
   }
   function dispose() {
     if (disposed) return;
@@ -2836,6 +2960,8 @@ export {
   buildYAxisLayout,
   buildXAxisLayout,
   build3DSceneLayout,
+  wrapChartLabel,
+  longestChartLine,
   buildLegendLayout,
   buildOverlayShapes,
   buildFanBandTraces,
@@ -2863,4 +2989,4 @@ export {
   openPlotPopoutWindow,
   openRawTracesWindow
 };
-//# sourceMappingURL=chunk-5GU6J7ZP.js.map
+//# sourceMappingURL=chunk-LRQW23AN.js.map

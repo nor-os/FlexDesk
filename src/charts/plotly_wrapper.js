@@ -103,17 +103,21 @@ export const DARK_THEME_LAYOUT = {
         bgcolor: 'rgba(0,0,0,0)',
         font: { color: '#cccccc' }
     },
+    // An axis grows its margin for long tick labels and titles instead of
+    // cutting them off. themedLayout keeps this in a caller's own axis.
     xaxis: {
         gridcolor: '#333333',
         linecolor: '#444444',
         tickcolor: '#666666',
-        zerolinecolor: '#444444'
+        zerolinecolor: '#444444',
+        automargin: true
     },
     yaxis: {
         gridcolor: '#333333',
         linecolor: '#444444',
         tickcolor: '#666666',
-        zerolinecolor: '#444444'
+        zerolinecolor: '#444444',
+        automargin: true
     },
     // Hover tooltip styling for dark theme
     hoverlabel: {
@@ -145,6 +149,24 @@ export const DARK_THEME_LAYOUT = {
         bgcolor: 'rgba(0,0,0,0)'
     }
 };
+
+/**
+ * `layout` over DARK_THEME_LAYOUT, as createChart, updateChart and
+ * createChartDeferred draw it. The axes merge one level deep: a caller's own
+ * `xaxis` or `yaxis` keeps the theme's colours and `automargin` unless it
+ * sets them itself (`automargin: false` turns the margin growth off).
+ *
+ * @param {Object} layout
+ * @returns {Object}
+ */
+function themedLayout(layout) {
+    return {
+        ...DARK_THEME_LAYOUT,
+        ...layout,
+        xaxis: { ...DARK_THEME_LAYOUT.xaxis, ...layout.xaxis },
+        yaxis: { ...DARK_THEME_LAYOUT.yaxis, ...layout.yaxis },
+    };
+}
 
 /** The PNG export's file name (without extension) when the embedder names none. */
 export const DEFAULT_CHART_EXPORT_FILENAME = 'chart';
@@ -415,10 +437,7 @@ function loadThroughMaskedDefine() {
 export async function createChart(container, data, layout = {}, config = {}) {
     const Plotly = await ensurePlotly();
 
-    const mergedLayout = {
-        ...DARK_THEME_LAYOUT,
-        ...layout
-    };
+    const mergedLayout = themedLayout(layout);
 
     const mergedConfig = {
         ...DEFAULT_CONFIG,
@@ -438,10 +457,7 @@ export async function createChart(container, data, layout = {}, config = {}) {
 export async function updateChart(container, data, layout = {}) {
     const Plotly = await ensurePlotly();
 
-    const mergedLayout = {
-        ...DARK_THEME_LAYOUT,
-        ...layout
-    };
+    const mergedLayout = themedLayout(layout);
 
     return Plotly.react(container, data, mergedLayout);
 }
@@ -559,10 +575,7 @@ export function getSeriesColor(index) {
 export async function createChartDeferred(container, traces, layout = {}, config = {}) {
     const Plotly = await ensurePlotly();
 
-    const mergedLayout = {
-        ...DARK_THEME_LAYOUT,
-        ...layout
-    };
+    const mergedLayout = themedLayout(layout);
 
     const mergedConfig = {
         ...DEFAULT_CONFIG,

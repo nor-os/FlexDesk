@@ -28,6 +28,15 @@
  *       with results or plotConfig, a failed draw), in place without
  *       re-rendering; PlotPopoutWindow calls it on its own redraws; a string
  *       is used exactly as before
+ *   §9  a legend name too long for its cell is broken into lines to fit the
+ *       cell's width (above or below the plot the figure's width, beside it a
+ *       third), the hover naming it on one line in every hover mode; a short
+ *       name, a hidden legend and a trace's own hover are left alone; a resize
+ *       that changes how names break draws them again, one that does not only
+ *       resizes; a legend beside the plot in a narrow cell is drawn above it; a
+ *       reference line's label too long for its room is broken too (one with
+ *       an arrow is not), and refitted on a resize; the wrapper and its
+ *       measure are exported
  *
  * ── HOW TO RUN ───────────────────────────────────────────────────────────
  *
@@ -96,13 +105,14 @@ const fireResize = (el) => {
 const observing = (el) => [...observers].some((o) => o.targets.includes(el));
 
 // jsdom lays nothing out. Every element is 400x300 unless it, or an ancestor,
-// is in `zeroSize`.
+// is in `zeroSize`; an element in `widths` is that wide instead.
 const zeroSize = new Set();
+const widths = new Map();
 const sized = (el, v) => {
     for (let n = el; n; n = n.parentElement) if (zeroSize.has(n)) return 0;
     return v;
 };
-Object.defineProperty(dom.window.HTMLElement.prototype, 'offsetWidth', { get() { return sized(this, 400); } });
+Object.defineProperty(dom.window.HTMLElement.prototype, 'offsetWidth', { get() { return sized(this, widths.get(this) ?? 400); } });
 Object.defineProperty(dom.window.HTMLElement.prototype, 'offsetHeight', { get() { return sized(this, 300); } });
 
 /** A Plotly that records every figure it draws and every div it purges. */
@@ -955,6 +965,150 @@ async function figureOf(subplot, results = RESULTS, options = {}) {
     check('a redraw asks again', ys(lastFigureFor(grid.charts[0])), [2, 7]);
     grid.dispose();
     host.remove();
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// §9 A LEGEND NAME FITS ITS CELL
+// ════════════════════════════════════════════════════════════════════════
+{
+    console.log('\n§9 a legend name too long for its cell is broken into lines');
+    const LONG = 'Households net lending as a share of GDP, the model against the observed data';
+    const named = (label, extra = {}) => {
+        const s = sp(['a'], { legendPosition: 'top', ...extra });
+        s.yAxes[0].series[0].label = label;
+        return s;
+    };
+    const lines = (name) => name.split('<br>');
+    const longest = (name) => Math.max(...lines(name).map((l) => l.length));
+
+    // 400 px wide, margins 50 + 20, 24 px for the ticks: a plot area of 306 px;
+    // less 50 for the entry's symbol, at 11 px: (306 - 50) / (11 * 0.6) = 38 characters.
+    let f = await figureOf(named(LONG));
+    const top = f.data[0];
+    ok('a long name above the plot is broken into lines', lines(top.name).length > 1, top.name);
+    ok('no line is longer than the figure has room for', longest(top.name) <= 38, top.name);
+    check('the lines are the words of the name, in order', top.name.split('<br>').join(' '), LONG);
+    check('the hover names it on one line', top.hovertemplate, `(%{x}, %{y})<extra>${LONG}</extra>`);
+
+    f = await figureOf(named(LONG, { legendPosition: 'bottom' }));
+    ok('below the plot too', lines(f.data[0].name).length > 1 && longest(f.data[0].name) <= 38, f.data[0].name);
+
+    f = await figureOf(named(LONG), RESULTS, { layout: { hovermode: 'x unified' } });
+    check('in x unified hover the value, the name on one line beside it',
+          f.data[0].hovertemplate, `%{y}<extra>${LONG}</extra>`);
+
+    // Beside the plot: (400 / 3 - 50) / 6.6 = 12 characters, the least a line gets.
+    f = await figureOf(named(LONG, { legendPosition: 'right' }));
+    ok('a legend beside the plot gets a third of the width',
+       longest(f.data[0].name) <= 12 && lines(f.data[0].name).length > 4, f.data[0].name);
+    check('its position is unchanged', [f.layout.legend.x, f.layout.legend.orientation], [1.02, 'v']);
+
+    f = await figureOf(named('Short name'));
+    check('a short name is left as it is, with the hover Plotly gives it',
+          [f.data[0].name, f.data[0].hovertemplate], ['Short name', undefined]);
+
+    f = await figureOf(named(LONG, { legendPosition: 'hidden' }));
+    check('no legend, no wrapping', [f.data[0].name, f.data[0].hovertemplate], [LONG, undefined]);
+
+    f = await figureOf(named('Short name'), RESULTS, {
+        derivedTraces: () => [{ type: 'scatter', name: LONG, x: [0], y: [1], hovertemplate: '%{y:.1f}' },
+                              { type: 'scatter', name: LONG, x: [0], y: [1], showlegend: false }],
+    });
+    check('a trace with a hover of its own keeps it', [f.data[1].hovertemplate, longest(f.data[1].name) <= 38],
+          ['%{y:.1f}', true]);
+    check('a trace not in the legend is left as it is', f.data[2].name, LONG);
+
+    // A resize that changes how the names break draws them again.
+    resetPlotly();
+    const host = mountHost();
+    const grid = renderPlotGrid(host, { layout: '1x1', subplots: [named(LONG)] }, RESULTS);
+    await settle();
+    const cell = grid.charts[0];
+    const drawsBefore = Plotly.reacts.length;
+    widths.set(cell, 300);
+    fireResize(host.querySelector('.twm-plot-grid'));
+    await settle();
+    const narrow = lastFigureFor(cell).data[0].name;
+    check('a narrower cell draws the figure again', Plotly.reacts.length, drawsBefore + 1);
+    // (300 - 94 - 50) / 6.6 = 23 characters.
+    ok('with its names broken for the new width', longest(narrow) <= 23 && longest(narrow) > 12, narrow);
+    check('the hover still names it on one line', lastFigureFor(cell).data[0].hovertemplate,
+          `(%{x}, %{y})<extra>${LONG}</extra>`);
+    widths.set(cell, 301);
+    const resizedBefore = Plotly.resized.length;
+    fireResize(host.querySelector('.twm-plot-grid'));
+    await settle();
+    check('a resize that breaks them the same way only resizes',
+          [Plotly.reacts.length, Plotly.resized.length > resizedBefore], [drawsBefore + 1, true]);
+    widths.delete(cell);
+    grid.dispose();
+    host.remove();
+
+    // A legend beside the plot in a cell too narrow for 12 characters in a third
+    // of it ((w / 3 - 50) / 6.6 < 12: below 388 px) is drawn above the plot.
+    resetPlotly();
+    const sideHost = mountHost();
+    const sideGrid = renderPlotGrid(sideHost, { layout: '1x1', subplots: [named(LONG, { legendPosition: 'right' })] },
+                                    RESULTS);
+    await settle();
+    const sideCell = sideGrid.charts[0];
+    check('at 400 px it stays beside the plot', lastFigureFor(sideCell).layout.legend.orientation, 'v');
+    widths.set(sideCell, 300);
+    fireResize(sideHost.querySelector('.twm-plot-grid'));
+    await settle();
+    const moved = lastFigureFor(sideCell);
+    check('at 300 px it is drawn above the plot',
+          [moved.layout.legend.orientation, moved.layout.legend.y, moved.layout.legend.yanchor],
+          ['h', 1.1, 'bottom']);
+    // (300 - 94 - 50) / 6.6 = 23 characters.
+    ok('its names are broken for a legend above the plot',
+       longest(moved.data[0].name) <= 23 && longest(moved.data[0].name) > 12, moved.data[0].name);
+    widths.delete(sideCell);
+    sideGrid.dispose();
+    sideHost.remove();
+
+    // Labels: a reference line's runs right from 1.5% of the plot area. 400 px,
+    // margins 50 + 20, 24 px for the ticks: plot 306, room 0.985 * 306 + 20 = 321,
+    // less 6 of padding, at 10 px: 52 characters.
+    const REF = 'Paid-hours ceiling (the record of the series, reached in the spring of 2021)';
+    const withRef = (extra = {}) => sp(['a'], {
+        referenceLines: [{ value: 2, label: REF }],
+        shadedBands: [{ x0: 1, x1: 2, label: 'Short band' }],
+        ...extra,
+    });
+    const labelOf = (fig, i) => fig.layout.annotations[i].text;
+    f = await figureOf(withRef());
+    ok('a long reference line label is broken into lines',
+       lines(labelOf(f, 1)).length > 1 && longest(labelOf(f, 1)) <= 52, labelOf(f, 1));
+    check('a label that fits is left as it is', labelOf(f, 0), 'Short band');
+    f = await figureOf(withRef(), RESULTS, {
+        layout: { annotations: [{ text: REF, x: 0, y: 0, showarrow: true }] },
+    });
+    check('an annotation with an arrow is left as it is', labelOf(f, 0), REF);
+
+    resetPlotly();
+    const refHost = mountHost();
+    const refGrid = renderPlotGrid(refHost, { layout: '1x1', subplots: [withRef()] }, RESULTS);
+    await settle();
+    widths.set(refGrid.charts[0], 200);
+    fireResize(refHost.querySelector('.twm-plot-grid'));
+    await settle();
+    // plot 106, room 0.985 * 106 + 20 = 124, less 6, at 10 px: 19 characters.
+    const narrowRef = labelOf(lastFigureFor(refGrid.charts[0]), 1);
+    ok('a resize refits the labels too', longest(narrowRef) <= 19 && longest(narrowRef) > 8, narrowRef);
+    widths.delete(refGrid.charts[0]);
+    refGrid.dispose();
+    refHost.remove();
+
+    const charts = await import('../charts.js');
+    check('wrapChartLabel and longestChartLine are exported from @flexdesk/charts',
+          [typeof charts.wrapChartLabel, typeof charts.longestChartLine], ['function', 'function']);
+    check('a name breaks at spaces, a long word keeps a line of its own',
+          charts.wrapChartLabel('Net lending of the  households sector', 12),
+          'Net lending<br>of the<br>households<br>sector');
+    check('a break already in the text is kept; tags take no room',
+          charts.wrapChartLabel('<b>Total</b> net<br>lending', 9), '<b>Total</b> net<br>lending');
+    check('the longest line, tags not counted', charts.longestChartLine(['ab<br>abcd', '<b>xyz</b>']), 4);
 }
 
 await settle();

@@ -15,8 +15,11 @@
  * and shaded bands, the NaN strategy, the x-axis clipped to the results' time
  * range — or an x variable instead of time (`subplot.xAxis = { useTime: false,
  * variable }`) — per-series overlay data, injected series transforms, and
- * whatever extra traces the embedder derives. A subplot with nothing to draw
- * shows the empty message; a grid slot with no subplot shows another.
+ * whatever extra traces the embedder derives. A legend name or a label (a
+ * reference line's, a band's) too long for its cell is broken into lines to fit
+ * the cell's width, fitted again when a resize changes how it breaks; the hover
+ * names a wrapped series on one line. A subplot with
+ * nothing to draw shows the empty message; a grid slot with no subplot shows another.
  *
  * A figure is drawn only into a cell that is in the document and has a size.
  * One that is not (a hidden tab, a window not yet shown) is remembered and
@@ -28,7 +31,10 @@
 
 import { createRafResizeObserver } from '../ui/utils/raf_resize_observer.js';
 import { ensurePlotly } from './plotly_wrapper.js';
-import { buildTrace, buildYAxisLayout, buildLegendLayout, buildOverlayShapes } from './chart_types.js';
+import {
+    buildTrace, buildYAxisLayout, buildLegendLayout, buildOverlayShapes,
+    wrapChartLabel, longestChartLine,
+} from './chart_types.js';
 import { PLOT_LAYOUTS, applyNanHandling } from './plot_config.js';
 import { deriveSeriesTraces } from './series_transforms.js';
 
@@ -48,6 +54,163 @@ const PLOT_GRID_THEME = Object.freeze({
 });
 
 const OVERLAY_DASH = { dashed: 'dash', dotted: 'dot', solid: 'solid' };
+
+/**
+ * A character of a figure's font is taken as this many of its em wide: a
+ * little over the average of mixed text, so capitals and digits fit too.
+ */
+const CHAR_EM = 0.6;
+/** What an entry takes beside its text: Plotly's symbol and gap (40 px) and the legend's padding. */
+const LEGEND_ENTRY_PX = 50;
+/** A legend beside the plot takes at most this share of the figure's width. */
+const LEGEND_SIDE_SHARE = 1 / 3;
+/** No legend entry is broken into lines shorter than this. */
+const LEGEND_MIN_CHARS = 12;
+/** What the axes' tick labels may add to the margins the layout sets (automargin grows them). */
+const AXIS_ALLOWANCE_PX = 24;
+/** No label is broken into lines shorter than this. */
+const LABEL_MIN_CHARS = 8;
+/** A wrapped series' hover value, by hover mode; any other mode shows both coordinates. */
+const HOVER_VALUE = { x: '%{y}', 'x unified': '%{y}', y: '%{x}', 'y unified': '%{x}' };
+const HOVER_3D = new Set(['scatter3d', 'mesh3d', 'surface']);
+
+/**
+ * How many characters a line of a legend entry may have in a figure `width`
+ * pixels wide: above or below the plot an entry may be as wide as the plot
+ * area (Plotly starts a new row of entries there, and centres the legend on
+ * the plot area, so an entry that fits stays inside the figure), beside the
+ * plot a third of the figure. Infinity when the figure shows no legend.
+ *
+ * @param {number} width
+ * @param {Object} layout - The figure's layout.
+ * @returns {number}
+ */
+function legendCharBudget(width, layout) {
+    if (!layout.showlegend || !(width > 0)) return Infinity;
+    const room = layout.legend?.orientation === 'h'
+        ? width - (layout.margin?.l ?? 80) - (layout.margin?.r ?? 80) - AXIS_ALLOWANCE_PX
+        : width * LEGEND_SIDE_SHARE;
+    return Math.max(LEGEND_MIN_CHARS, Math.floor((room - LEGEND_ENTRY_PX) / (legendFontSize(layout) * CHAR_EM)));
+}
+
+/** The legend's font size in a figure's layout. */
+function legendFontSize(layout) {
+    return layout.legend?.font?.size ?? layout.font?.size ?? 12;
+}
+
+/**
+ * The pixels from annotation `a`'s anchor to the edge of a figure `width`
+ * pixels wide that its text runs towards: to the right of a left-anchored
+ * label, to the left of a right-anchored one, twice the nearer of the two for
+ * a centred one. Where the anchor is comes from `a.x` as a fraction of the
+ * plot area (`xref: 'paper'`), or within the x axis's range; without a range
+ * the whole plot area.
+ *
+ * @param {Object} a - A Plotly annotation.
+ * @param {number} width
+ * @param {Object} layout - The figure's layout (its margins and x range).
+ * @returns {number}
+ */
+function annotationRoom(a, width, layout) {
+    const ml = layout.margin?.l ?? 80;
+    const mr = layout.margin?.r ?? 80;
+    const plot = Math.max(0, width - ml - mr - AXIS_ALLOWANCE_PX);
+    let f = null;
+    if (a.xref === 'paper') {
+        f = a.x ?? 0.5;
+    } else {
+        const range = layout.xaxis?.range;
+        if (typeof a.x === 'number' && range && range[1] !== range[0]) f = (a.x - range[0]) / (range[1] - range[0]);
+    }
+    if (f === null || !Number.isFinite(f)) return plot;
+    f = Math.min(1, Math.max(0, f));
+    const left = f * plot + ml;
+    const right = (1 - f) * plot + mr;
+    if (a.xanchor === 'left') return right;
+    if (a.xanchor === 'right') return left;
+    return 2 * Math.min(left, right);
+}
+
+/**
+ * `annotations` with every label (an annotation without an arrow: the
+ * reference lines', the bands', an embedder's) too long for its room in a
+ * figure `width` pixels wide broken into lines. One that fits is returned as
+ * it is.
+ *
+ * @param {Object[]} annotations
+ * @param {number} width
+ * @param {Object} layout
+ * @returns {Object[]}
+ */
+function fitAnnotations(annotations, width, layout) {
+    return annotations.map((a) => {
+        if (typeof a?.text !== 'string' || a.showarrow !== false) return a;
+        const size = a.font?.size ?? layout.font?.size ?? 12;
+        const pad = 2 * ((a.borderpad ?? 1) + (a.borderwidth ?? 1));
+        const maxChars = Math.max(LABEL_MIN_CHARS,
+                                  Math.floor((annotationRoom(a, width, layout) - pad) / (size * CHAR_EM)));
+        return longestChartLine([a.text]) <= maxChars ? a : { ...a, text: wrapChartLabel(a.text, maxChars) };
+    });
+}
+
+/**
+ * `figure` as drawn in a cell `width` pixels wide: its legend names and its
+ * labels fitted to that width, and a `key` of the legend's orientation and
+ * every fitted text, which differs exactly when the figure is drawn
+ * differently at another width. A legend beside the plot in a cell too narrow
+ * for lines of LEGEND_MIN_CHARS in a third of it is drawn above the plot
+ * instead: Plotly grows the margin for a legend beside the plot until no plot
+ * is left.
+ *
+ * @param {{ traces: Object[], layout: Object }} figure
+ * @param {number} width
+ * @returns {{ traces: Object[], layout: Object, key: string }}
+ */
+function fitFigure(figure, width) {
+    let layout = figure.layout;
+    const legend = layout.legend;
+    if (layout.showlegend && legend?.orientation === 'v' && width > 0
+        && (width * LEGEND_SIDE_SHARE - LEGEND_ENTRY_PX) / (legendFontSize(layout) * CHAR_EM) < LEGEND_MIN_CHARS) {
+        layout = { ...layout, legend: { ...legend, ...buildLegendLayout('top').legend, font: legend.font } };
+    }
+    const traces = fitLegendNames(figure.traces, legendCharBudget(width, layout), layout);
+    const annotations = Array.isArray(layout.annotations) && width > 0
+        ? fitAnnotations(layout.annotations, width, layout)
+        : null;
+    if (annotations) layout = { ...layout, annotations };
+    const key = [layout.legend?.orientation, ...traces.map((t) => t.name), ...(annotations ?? []).map((a) => a?.text)]
+        .join('\u0000');
+    return { traces, layout, key };
+}
+
+/**
+ * `traces` with every legend name longer than `maxChars` broken into lines
+ * (wrapChartLabel): Plotly does not wrap legend text, so a long name ran past
+ * the figure's edge and was cut off. A wrapped trace with no hover of its own
+ * names itself on one line in the hover (a `hovertemplate` whose `<extra>` is
+ * the name as given), in every hover mode, `'x unified'` included. A trace
+ * that is not wrapped is returned as it is.
+ *
+ * @param {Object[]} traces
+ * @param {number} maxChars
+ * @param {Object} layout - The figure's layout (its `hovermode`).
+ * @returns {Object[]}
+ */
+function fitLegendNames(traces, maxChars, layout) {
+    if (!Number.isFinite(maxChars)) return traces;
+    const value = HOVER_VALUE[layout.hovermode] ?? '(%{x}, %{y})';
+    return traces.map((trace) => {
+        const name = trace.name;
+        if (typeof name !== 'string' || trace.showlegend === false || trace.type === 'pie') return trace;
+        if (longestChartLine([name]) <= maxChars) return trace;
+        const fitted = { ...trace, name: wrapChartLabel(name, maxChars) };
+        if (trace.hovertemplate === undefined && trace.hoverinfo === undefined) {
+            const shown = HOVER_3D.has(trace.type) ? '(%{x}, %{y}, %{z})' : value;
+            fitted.hovertemplate = `${shown}<extra>${name}</extra>`;
+        }
+        return fitted;
+    });
+}
 
 /**
  * The default series lookup: `results.series[series._resultKey ?? series.variable]`,
@@ -161,9 +324,12 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
     const plotted = new Set();
     /** Cells whose latest Plotly draw finished: they show a figure. */
     const drawn = new Set();
+    /** Per cell asked to show a figure: that figure, the key of its texts as fitted (fitFigure) and the draw's token. */
+    const painted = new Map();
     const hasPlot = (cell) => plotted.has(cell);
     const purgeCell = (cell) => {
         drawn.delete(cell);
+        painted.delete(cell);
         if (!plotted.delete(cell)) return;
         try { globalThis.Plotly?.purge(cell); } catch (_) { /* already gone */ }
     };
@@ -388,13 +554,25 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
 
         if (!hasSize(cell)) { deferred.add(index); return false; }
         deferred.delete(index);
+        return paint(index, figure, token);
+    }
 
+    /**
+     * Draw `figure` into cell `index`, its legend names and labels fitted to
+     * the cell's width, as the draw `token`; resolves true when it was drawn.
+     * A newer draw of the cell wins.
+     */
+    async function paint(index, figure, token) {
+        const cell = cells[index];
+        const current = () => !disposed && cells[index] === cell && tokens[index] === token;
         const Plotly = await ensurePlotly();
         if (!current()) return false;
         if (!hasPlot(cell)) cell.replaceChildren();
         plotted.add(cell);
+        const fitted = fitFigure(figure, cell.offsetWidth);
+        painted.set(cell, { figure, key: fitted.key, token });
         try {
-            await Plotly.react(cell, figure.traces, figure.layout, { responsive: true, displayModeBar: false });
+            await Plotly.react(cell, fitted.traces, fitted.layout, { responsive: true, displayModeBar: false });
             if (plotted.has(cell)) drawn.add(cell);
             return true;
         } catch (_) {
@@ -402,6 +580,19 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
             drawn.delete(cell);
             return false;
         }
+    }
+
+    /**
+     * Draw cell `index`'s figure again, as it is, for a width at which its
+     * texts are fitted differently. Not while a newer draw of the cell is on
+     * its way: that one fits them to the width it finds.
+     */
+    function refit(index) {
+        const shown = painted.get(cells[index]);
+        if (!shown || shown.token !== tokens[index]) return;
+        const token = ++lastToken;
+        tokens[index] = token;
+        paint(index, shown.figure, token).catch(() => {});
     }
 
     /**
@@ -451,7 +642,11 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
         return drawAll();
     }
 
-    /** Fit every figure to its cell, and draw the ones that were waiting for a size. */
+    /**
+     * Fit every figure to its cell, and draw the ones that were waiting for a
+     * size. A figure whose legend names or labels would break differently at
+     * the new width is drawn again with them refitted.
+     */
     function resize() {
         if (disposed) return;
         for (const index of [...deferred]) {
@@ -459,12 +654,15 @@ function renderPlotGrid(container, plotConfig, results, options = {}) {
             drawCellOrFail(index);
         }
         const Plotly = globalThis.Plotly;
-        if (!Plotly?.Plots?.resize) return;
-        for (const cell of cells) {
-            if (hasPlot(cell) && hasSize(cell)) {
+        cells.forEach((cell, index) => {
+            if (!hasPlot(cell) || !hasSize(cell)) return;
+            const shown = painted.get(cell);
+            if (shown && fitFigure(shown.figure, cell.offsetWidth).key !== shown.key) {
+                refit(index);
+            } else if (Plotly?.Plots?.resize) {
                 Promise.resolve().then(() => Plotly.Plots.resize(cell)).catch(() => {});
             }
-        }
+        });
     }
 
     /** Purge every figure and remove the grid. Later calls do nothing. */

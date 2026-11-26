@@ -489,6 +489,57 @@ export function build3DSceneLayout(options) {
     };
 }
 
+/** A line break in Plotly's text: `<br>`, `<br/>` or `<br />`. */
+const LINE_BREAK = /<br\s*\/?>/i;
+
+/** The characters of `text` that show: Plotly's tags (`<b>`, `<sub>`, ...) take no room. */
+const visibleLength = (text) => text.replace(/<[^>]*>/g, '').length;
+
+/**
+ * `text` broken at spaces into lines of at most `maxChars` characters, joined
+ * with `<br>`, which Plotly draws as a line break in a legend entry, a
+ * category, a tick or an annotation. A break already in the text is kept; a
+ * word longer than `maxChars` keeps a line of its own, whole. Tags do not
+ * count toward a line's length.
+ *
+ * @param {string} text
+ * @param {number} maxChars
+ * @returns {string}
+ */
+export function wrapChartLabel(text, maxChars) {
+    const lines = [];
+    for (const part of String(text ?? '').split(LINE_BREAK)) {
+        let line = '';
+        for (const word of part.split(/\s+/).filter(Boolean)) {
+            if (line && visibleLength(line) + 1 + visibleLength(word) > maxChars) {
+                lines.push(line);
+                line = word;
+            } else {
+                line = line ? `${line} ${word}` : word;
+            }
+        }
+        if (line) lines.push(line);
+    }
+    return lines.join('<br>');
+}
+
+/**
+ * The length of the longest line of `labels`, as `wrapChartLabel` counts it:
+ * what a margin or an axis range has to make room for.
+ *
+ * @param {string[]} labels
+ * @returns {number}
+ */
+export function longestChartLine(labels) {
+    let longest = 0;
+    for (const label of labels) {
+        for (const line of String(label ?? '').split(LINE_BREAK)) {
+            longest = Math.max(longest, visibleLength(line));
+        }
+    }
+    return longest;
+}
+
 /**
  * Build legend layout.
  * @param {string} position - Legend position: top, bottom, left, right, hidden

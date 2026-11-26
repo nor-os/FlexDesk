@@ -15,6 +15,8 @@
  *   §6  config over the defaults, frames, a resize after it settles, dispose
  *   §7  the menu extends TileBase's items with Download PNG; a click carries
  *       the point's customdata; the barrel exports the class
+ *   §8  the theme's axes reach a figure's own axes one level deep:
+ *       `automargin` and the colours, unless the figure sets them itself
  *
  * ChartTile is a FigureTile; `chart_tiles.test.mjs` is its suite and runs
  * unchanged on this base.
@@ -395,6 +397,32 @@ console.log('\ntiles: the figure tile\n');
 
     ok('ChartTile is a FigureTile', new ChartTile({ id: 'x', grid: null }) instanceof FigureTile);
     ok('the barrel exports FigureTile', barrel.FigureTile === FigureTile);
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 8. THE THEME'S AXES REACH A FIGURE'S OWN
+// ════════════════════════════════════════════════════════════════════════
+{
+    const P = installPlotly(fakePlotly());
+    class AxesTile extends FigureTile {
+        static TYPE = 'test.axes';
+        figure(data) {
+            return { traces: [{ type: 'bar', x: ['a'], y: [1] }], layout: data.layout };
+        }
+    }
+    const tile = mountTile(AxesTile);
+    tile.setData({ layout: { xaxis: { range: [0, 1] }, yaxis: { automargin: false, gridcolor: '#123456' } } });
+    await ticks();
+    const { layout } = P.newPlots.at(-1);
+    check('a figure\'s own x axis keeps its fields and gets the theme\'s automargin and colours',
+          [layout.xaxis.range, layout.xaxis.automargin, layout.xaxis.gridcolor], [[0, 1], true, '#333333']);
+    check('what the figure sets itself wins', [layout.yaxis.automargin, layout.yaxis.gridcolor], [false, '#123456']);
+    tile.setData({ layout: { margin: { l: 4 } } });
+    await ticks();
+    const bare = P.newPlots.at(-1).layout;
+    check('a figure with no axes of its own gets the theme\'s',[bare.xaxis.automargin, bare.yaxis.automargin],
+          [true, true]);
+    tile.dispose();
 }
 
 ok('no unhandled rejection anywhere in the suite', unhandled === 0);

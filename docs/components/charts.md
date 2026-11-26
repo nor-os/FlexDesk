@@ -4,6 +4,69 @@
 
 Plotly-backed charts: the wrapper, the chart types, subplot layouts, downsampling, the plot grid, the plot-config editor and the two plot windows. Plotly itself is not in the bundle; call `setPlotlySource()` with the path to your copy. The plot window's `streamEvents` option is described with the [other application-neutral options](../concepts/domain-neutrality.md#no-application-globals-the-gallery-picker-and-plot-window-events-0170).
 
+## Chart text stays inside the chart (0.22.0)
+
+Plotly does not wrap text, and it cuts off whatever runs past the figure's
+edge. These changes keep a chart's text inside it.
+
+**Legend names in the plot grid fit their cell.** `renderPlotGrid` breaks a
+legend name too long for its cell into lines, at spaces, from the cell's width
+at each draw. A legend above or below the plot gives a line the plot area's
+width (the cell less the layout's left and right margins and 24 px for the
+tick labels): Plotly starts a new row of entries there and centres the legend
+on the plot area, so an entry that fits stays inside the figure. A legend
+beside the plot gives a line a third of the cell. Both less the entry's symbol
+(50 px), at 0.6 em a character of the legend's font, and never fewer than 12
+characters. A resize that changes how the names break draws the figure again
+with them refitted; one that does not only resizes it. A wrapped trace that has
+no `hovertemplate` or `hoverinfo` of its own gets a `hovertemplate` naming it on
+one line, with the name as given in `<extra>` (the value is `%{y}` in `'x'` and
+`'x unified'` hover, `%{x}` in `'y'` and `'y unified'`, both coordinates
+otherwise), so the hover reads as before in every hover mode. A short name, a
+trace with `showlegend: false`, a pie and a figure with no legend are drawn as
+given.
+
+**A legend beside the plot in a narrow cell is drawn above it.** Below the
+width where 12 characters fit in a third of the cell (388 px at 11 px), a
+`'left'` or `'right'` legend is drawn as a `'top'` one: Plotly grows the margin
+for a legend beside the plot until no plot is left, and a dashboard of four
+columns drew such subplots with no plot at all. The subplot's
+`legendPosition` is unchanged; a wider cell draws it beside the plot again.
+
+**Labels in the plot grid fit too.** A reference line's or a band's label (any
+annotation without an arrow, an embedder's in `layout` included) too long for
+the room from its anchor to the figure's edge is broken into lines the same
+way, never shorter than 8 characters, and refitted on a resize. The room comes
+from where it is anchored: `x` as a fraction of the plot area for
+`xref: 'paper'` (a reference line's label starts at 1.5%), or within the
+clipped time range for a band's or a vertical line's.
+
+**The theme's axes reach a caller's own.** `createChart`, `updateChart` and
+`createChartDeferred` merge a figure's `xaxis` and `yaxis` over the theme's one
+level deep, and the theme's axes carry `automargin: true`: an axis a caller
+passes keeps its own fields and gets the theme's colours and margin growth for
+long tick labels and titles, unless it sets them itself (`automargin: false`
+turns the growth off). The axis used to replace the theme's whole, so a
+caller's axis object lost the theme's colours and grew no margin. `FigureTile`
+draws through `createChart`, so every figure tile has it.
+
+**The wrapper is exported** for a figure of the embedder's own:
+
+```js
+import { wrapChartLabel, longestChartLine } from '@flexdesk/charts';
+
+wrapChartLabel('Net lending of the households sector', 12);
+// 'Net lending<br>of the<br>households<br>sector'
+longestChartLine(['ab<br>abcd', '<b>xyz</b>']);   // 4: the room a margin needs
+```
+
+`wrapChartLabel(text, maxChars)` breaks at spaces into lines of at most
+`maxChars` characters joined with `<br>`; a break already in the text is kept,
+a word longer than `maxChars` keeps a line of its own, and tags (`<b>`, `<sub>`)
+do not count. `longestChartLine(labels)` is the longest line of any of them,
+counted the same way. `tests/plot_grid.test.mjs` §9 and
+`tests/figure_tile.test.mjs` §8 pin all of it (BUG-0061).
+
 ## A plot config series is one block, and an embedder's fields share it (0.17.16)
 
 [`renderPlotConfigEditor`](#editing-a-plot-config-renderplotconfigeditor-0170)
